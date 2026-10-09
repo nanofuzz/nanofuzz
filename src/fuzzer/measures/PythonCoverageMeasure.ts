@@ -7,7 +7,12 @@ import {
   FileCoverageData,
   Range,
 } from "istanbul-lib-coverage";
-import { FuzzTestResult, FuzzTestResults, InputAndSource } from "../Types";
+import {
+  FuzzEnv,
+  FuzzTestResult,
+  FuzzTestResults,
+  InputAndSource,
+} from "../Types";
 import { FullCoverage, PythonRunner } from "../runners/python/PythonRunner";
 import { AbstractRunner, Arc } from "../runners/AbstractRunner";
 import { normalizePathForKey } from "../Util";
@@ -38,8 +43,12 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
    * the coverage data reported by the host processes.
    *
    * @param `runners` test runners for this run
+   * @param `_env` optional fuzzer environment
    */
-  public override onRunStart(runners: AbstractRunner[] | AbstractRunner): void {
+  public override onRunStart(
+    runners: AbstractRunner[] | AbstractRunner,
+    _env?: FuzzEnv
+  ): void {
     const runnerList = Array.isArray(runners) ? runners : [runners];
     this._runners = [];
     this._coverageData = createCoverageMap({});
@@ -79,7 +88,8 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
    *
    * @param covinfo Python coverage info
    */
-  public recordHits(covinfo: FullCoverage): void {
+  public override recordHits(covinfo: unknown): void {
+    if (!isFullCoverage(covinfo)) return;
     for (const [filename, fileCov] of Object.entries(covinfo)) {
       let index = this._fileIndices.get(filename);
       if (!index) {

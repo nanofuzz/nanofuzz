@@ -316,11 +316,6 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
    * @returns the next transformed input, including its source metadata and transformer result
    */
   public async nextTransformed(): Promise<TransformedInputAndSource> {
-    // If no transformer is active, fast-path to standard synchronous next()
-    if (!this._transformRunner) {
-      return this.next();
-    }
-
     // Make sure we are permitted to generate inputs
     if (!this.nextable()) {
       throw new Error(
@@ -329,6 +324,17 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     }
 
     while (this._permitSubgens || this._hasPrioritySubgen()) {
+      if (this.nextable() === "soon") {
+        const ready = await this.waitForNextInput();
+        if (!ready) {
+          break;
+        }
+      }
+
+      if (this.nextable() !== "now" && this.nextable() !== "now!") {
+        break;
+      }
+
       const {
         candidate: untransformedCandidate,
         genCost,
@@ -537,7 +543,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     genCost: number
   ): boolean {
     this._recordDupe(candidate);
-    this.onInputFeedback([], genCost);
+    this.onInputFeedback([], genCost, candidate);
 
     if (this._dupesSequential >= this._maxDupeInputs) {
       this.suppressGenerators();
@@ -587,7 +593,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     };
     this._lastInput = skippedInput;
     this._lastInputSubgenIndex = this._selectedSubgenIndex;
-    this.onInputFeedback([], genCost);
+    this.onInputFeedback([], genCost, skippedInput);
     return structuredClone(skippedInput);
   } // fn: _acceptSkippedCandidate
 
@@ -631,23 +637,18 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
   } // fn: _hasPrioritySubgen
 
   /**
-   * Provide feedback to the composite input generator about the last input generated.
-   *
-   * Note: Requires that an input has already been generated.
+   * Provide feedback about an input to the composite input generator.
    *
    * @param `measurements` array of measurements that correspond to this._measures
    * @param `cost` cost of generating and executing the input (e.g., ms)
+   * @param `input` the input for which feedback is being provided
    * @returns list of measures making the input interesting, if any
    */
   public onInputFeedback(
     measurements: BaseMeasurement[],
-    cost: number
+    cost: number,
+    input: InputAndSource
   ): string[] {
-    // Ensure we actually generated something
-    if (this._lastInput === undefined) {
-      throw new Error("Input feedback provided prior to input generation");
-    }
-
     // Ensure we have either no measures (e.g., input was a dupe not executed) or
     // a matching number of measures
     if (measurements.length && measurements.length !== this._measures.length) {
@@ -690,8 +691,8 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     // Update history of composite input generator if the input was interesting
     if (interestingReasons.length > 0) {
       this.interestingInputs.push({
-        input: this._lastInput,
-        tick: this._tick,
+        input,
+        tick: input.tick,
         score: weightedProgress,
         cost,
         measurements,
@@ -706,7 +707,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     // measures that contributed to its interestingness.
     if (
       measurements.length &&
-      this._leaderboard.postScore(this._lastInput, weightedProgress)
+      this._leaderboard.postScore(input, weightedProgress)
     ) {
       return interestingReasons;
     } else {

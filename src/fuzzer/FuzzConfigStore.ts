@@ -97,6 +97,7 @@ export class FuzzConfigStore {
       suiteTimeout: Config.get("nanofuzz.fuzzer.suiteTimeout", 3000),
       maxDupeInputs: Config.get("nanofuzz.fuzzer.maxDupeInputs", 500),
       maxFailures: Config.get("nanofuzz.fuzzer.maxFailures", 0),
+      workers: Config.get("nanofuzz.fuzzer.workers", "auto"),
       useTransformer: true,
       useHuman: true,
       useImplicit: true,
@@ -143,6 +144,7 @@ export class FuzzConfigStore {
       ...dft,
       ...options,
       outputResults: options.outputResults ?? "all",
+      workers: options.workers ?? dft.workers,
       argDefaults: ArgDef.normalizeOptions(options.argDefaults),
       generators: options.generators
         ? { ...dft.generators, ...options.generators }

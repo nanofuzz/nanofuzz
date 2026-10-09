@@ -104,7 +104,7 @@ function createProgram(): Commander.Command {
       `--host-startup-timeout <integer>`,
       `Runner startup timeout (ms)`,
       parseIntArgGeOne,
-      10000
+      20000
     )
     .option(`--seed <string>`, `PRNG seed for deterministic runs`)
     .option(`--no-shrink`, `Don't shrink failing inputs`)
@@ -122,10 +122,16 @@ function createProgram(): Commander.Command {
     )
     .option(`--no-config-file`, `Ignore .nano.json5 config`)
     .option(
-      `--engine <v1|v2>`,
-      `Fuzzer engine: v1, v2`,
-      (val: string): FuzzerEngineVersion => (val === "v2" ? "v2" : "v1"),
-      "v2"
+      `--engine <v1|v2|v3|auto>`,
+      `Fuzzer engine: auto,v1,v2,v3`,
+      parseEngineOption,
+      "auto"
+    )
+    .option(
+      `--workers <integer|auto>`,
+      `Number of worker processes`,
+      parseWorkersOption,
+      "auto"
     )
 
     // ------------------------------- Transformers ------------------------------ //
@@ -624,6 +630,11 @@ export async function runCliInProcess(
           "outputResults",
           options["outputResults"] ?? "failures"
         ),
+        workers: getEffectiveOption(
+          "workers",
+          "workers",
+          options["workers"] ?? "auto"
+        ),
         outputFile: outfile,
         measures: {
           CoverageMeasure: {
@@ -660,8 +671,16 @@ export async function runCliInProcess(
       );
     }
 
+    const engine = fuzzer.engine;
+    const scheduler = options["cigScheduler"] ?? "mab";
+    const workersCount = fuzzer.workerCount;
+    const workerWord =
+      workersCount === 1 ? "1 worker" : `${workersCount} workers`;
+
     console.log(`Target: ${fnname} of ${filename}`);
-    console.log(`Target ready to test.`);
+    console.log(
+      `Target ready to test with ${workerWord}, ${engine} engine, ${scheduler} scheduler.`
+    );
 
     const results = await fuzzer.test(
       injectTests,
@@ -726,7 +745,7 @@ export async function runCliInProcess(
     } else {
       console.error("Unknown internal error");
     }
-    return ERROR_USAGE; // internal error
+    return ERROR_INTERNAL; // internal error
   }
 }
 
@@ -846,3 +865,31 @@ function parseIntArgGeOne(value: string, _previous: number): number {
   }
   return parsedValue;
 } // fn: parseGeOneIntArg
+
+function parseWorkersOption(
+  value: string,
+  _previous: number | "auto"
+): number | "auto" {
+  if (value.toLowerCase() === "auto") {
+    return "auto";
+  }
+  return parseIntArgGeOne(value, 1);
+} // fn: parseWorkersOption
+
+function parseEngineOption(
+  value: string,
+  _previous: FuzzerEngineVersion
+): FuzzerEngineVersion {
+  const normalized = value.toLowerCase();
+  if (
+    normalized === "v1" ||
+    normalized === "v2" ||
+    normalized === "v3" ||
+    normalized === "auto"
+  ) {
+    return normalized;
+  }
+  throw new Commander.InvalidArgumentError(
+    `Invalid engine '${value}'. Allowed: v1, v2, v3, auto`
+  );
+} // fn: parseEngineOption

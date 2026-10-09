@@ -47,6 +47,13 @@ export abstract class AbstractCoverageMeasure extends AbstractMeasure {
    */
   public abstract getCoverage(tick: number): CoverageMeasurement;
 
+  /**
+   * Records raw coverage hits produced by a runner.
+   *
+   * @param coverageData raw coverage data produced by the runner
+   */
+  public abstract recordHits(coverageData: unknown): void;
+
   protected static file_snapshot(data: FileCoverageData): FileCoverageData {
     // A `FileCoverage` instance is assignable to `FileCoverageData`, and
     // `CoverageMap.data` holds instances, so this is routinely called with

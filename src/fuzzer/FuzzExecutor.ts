@@ -3,11 +3,15 @@ import { FunctionRef } from "./analysis/Types";
 import { isArgValueType } from "./analysis/Util";
 import { CompositeInputGenerator } from "./generators/CompositeInputGenerator";
 import { AbstractMeasure } from "./measures/AbstractMeasure";
+import { AbstractCoverageMeasure } from "./measures/AbstractCoverageMeasure";
 import { ExampleOracle } from "./oracles/ExampleOracle";
 import { ImplicitOracle } from "./oracles/ImplicitOracle";
 import { PropertyOracle } from "./oracles/PropertyOracle";
-import { Judgment } from "./oracles/Types";
-import { AbstractRunner, RunnerResult } from "./runners/AbstractRunner";
+import {
+  AbstractRunner,
+  RunnerResult,
+  ValidatorResult,
+} from "./runners/AbstractRunner";
 import {
   FuzzOptions,
   FuzzPinnedTest,
@@ -16,22 +20,33 @@ import {
 } from "./Types";
 import { categorizeResult, getIoKey, isError } from "./Util";
 
-export type FuzzExecutionOutput = {
-  result: FuzzTestResult;
-  valTime: number;
-  measureTime: number;
-};
+/**
+ * Encapsulates the execution runners for an isolated worker pipeline.
+ */
+export interface FuzzWorkerContext {
+  id: number;
+  runner: AbstractRunner;
+}
 
 /**
- * FuzzExecutor manages the single-test execution pipeline:
+ * Output from executing a single test on a worker.
+ */
+export interface FuzzExecutionOutput {
+  result: FuzzTestResult;
+  exeOutput?: RunnerResult;
+  valTime: number;
+  runTime: number;
+}
+
+/**
+ * FuzzExecutor manages the single-test and multi-worker execution pipeline:
  * target execution, transformer handling, oracle judgments,
  * measurements, and feedback to the input generator.
  */
 export class FuzzExecutor {
-  protected _runner: AbstractRunner;
+  protected _workers: FuzzWorkerContext[];
   protected _transformRunner?: AbstractRunner;
-  protected _propRunners: AbstractRunner[];
-  protected _propertyOracle: PropertyOracle;
+  protected _userGenRunner?: AbstractRunner;
   protected _measures: AbstractMeasure[];
   protected _options: FuzzOptions;
   protected _function: FunctionDef;
@@ -40,10 +55,9 @@ export class FuzzExecutor {
   protected _getRemainingSuiteTime: () => number;
 
   public constructor(
-    runner: AbstractRunner,
+    workers: FuzzWorkerContext[],
     transformRunner: AbstractRunner | undefined,
-    propRunners: AbstractRunner[],
-    propertyOracle: PropertyOracle,
+    userGenRunner: AbstractRunner | undefined,
     measures: AbstractMeasure[],
     options: FuzzOptions,
     functionDef: FunctionDef,
@@ -51,17 +65,37 @@ export class FuzzExecutor {
     injectMap: Map<string, FuzzPinnedTest>,
     getRemainingSuiteTime: () => number
   ) {
-    this._runner = runner;
+    this._workers = workers;
     this._transformRunner = transformRunner;
-    this._propRunners = propRunners;
-    this._propertyOracle = propertyOracle;
+    this._userGenRunner = userGenRunner;
     this._measures = measures;
     this._options = options;
     this._function = functionDef;
     this._validators = validators;
     this._injectMap = injectMap;
     this._getRemainingSuiteTime = getRemainingSuiteTime;
-  } // fn: constructor
+  } // constructor
+
+  /**
+   * Retrieves the list of worker contexts.
+   */
+  public get workers(): readonly FuzzWorkerContext[] {
+    return this._workers;
+  } // get: workers
+
+  /**
+   * Retrieves the centralized transformer runner, if configured.
+   */
+  public get transformRunner(): AbstractRunner | undefined {
+    return this._transformRunner;
+  } // get: transformRunner
+
+  /**
+   * Retrieves the centralized user generator runner, if configured.
+   */
+  public get userGenRunner(): AbstractRunner | undefined {
+    return this._userGenRunner;
+  } // get: userGenRunner
 
   /**
    * Retrieves the list of all runners involved in the fuzzing execution pipeline.
@@ -69,10 +103,26 @@ export class FuzzExecutor {
    * @returns An array of all active runners.
    */
   public get runners(): AbstractRunner[] {
-    return [this._runner, this._transformRunner, ...this._propRunners].filter(
-      (r): r is AbstractRunner => r !== undefined
-    );
+    return [
+      ...this._workers.map((w) => w.runner),
+      this._transformRunner,
+      this._userGenRunner,
+    ].filter((r): r is AbstractRunner => r !== undefined);
   } // get: runners
+
+  /**
+   * Starts all active runner processes in parallel.
+   */
+  public async onRunStart(): Promise<void> {
+    await Promise.all(this.runners.map((r) => r.onRunStart()));
+  } // fn: onRunStart
+
+  /**
+   * Stops all active runner processes in parallel.
+   */
+  public async stop(): Promise<void> {
+    await Promise.all(this.runners.map((r) => r.onRunEnd()));
+  } // fn: stop
 
   /**
    * Prepares measures before input generation / transformation begins.
@@ -88,8 +138,158 @@ export class FuzzExecutor {
   } // fn: prepareMeasures
 
   /**
-   * Executes a single test input candidate through the pipeline:
-   * transformer check -> PUT run -> oracles -> categorization -> measure feedback
+   * Executes a single test input candidate on a specific worker:
+   * transformer check -> PUT run on worker runner -> oracle evaluation on worker.
+   *
+   * @param candidate the transformed input and source
+   * @param worker the worker context executing this test
+   * @param genTime time taken to generate the input
+   * @param transformTime time spent transforming the input
+   * @param cancelFn cancellation check function
+   * @returns FuzzExecutionOutput or undefined if interrupted
+   */
+  public async runTestOnWorker(
+    candidate: TransformedInputAndSource,
+    worker: FuzzWorkerContext,
+    genTime: number = 0,
+    transformTime: number = 0,
+    cancelFn?: () => boolean
+  ): Promise<FuzzExecutionOutput | undefined> {
+    const result: FuzzTestResult = this._createInitialResult(
+      candidate,
+      genTime,
+      transformTime
+    );
+
+    // 1. Handle transformer result if candidate was skipped/errored by transformer
+    if (candidate.transformerResult && this._transformRunner) {
+      this._handleTransformerResult(
+        candidate.transformerResult,
+        result,
+        this._transformRunner.name
+      );
+    }
+
+    if (result.skipped || result.harnessErrors.length > 0) {
+      return { result, valTime: 0, runTime: 0 };
+    }
+
+    // 2. Call the PUT via the worker runner
+    const validatorNames =
+      this._options.useProperty && this._validators.length > 0
+        ? this._validators.map((v) => v.name)
+        : undefined;
+
+    const startRunTime = performance.now();
+    let exeOutput: RunnerResult;
+    try {
+      const cancelCheck =
+        cancelFn && !candidate.injected ? cancelFn : undefined;
+      exeOutput = await worker.runner.runWithInterrupt(
+        () =>
+          worker.runner.run(
+            result.input.map((e) => e.value),
+            Math.max(this._options.fnTimeout, 0),
+            validatorNames
+          ),
+        this._getRemainingSuiteTime(),
+        cancelCheck
+      );
+    } catch (e: unknown) {
+      if (isError(e) && e.message === "runnerInterrupted") {
+        return undefined;
+      }
+
+      if (isError(e)) {
+        exeOutput = {
+          result: {
+            tag: "error",
+            name: e.name,
+            message: e.message,
+            stack: e.stack ?? "<no stack>",
+            seq: -1,
+          },
+          env: {},
+        };
+      } else {
+        exeOutput = {
+          result: {
+            tag: "error",
+            name: "unknown internal runner error",
+            message: "unknown",
+            stack: "<no stack>",
+            seq: -1,
+          },
+          env: {},
+        };
+      }
+    }
+    result.timers.run = performance.now() - startRunTime;
+    const runTime = result.timers.run;
+
+    this._applyRunnerOutput(exeOutput, result);
+
+    // 3. Evaluate oracles
+    let valTime = 0;
+    if (!result.skipped) {
+      const startValTime = performance.now();
+      this._evaluateOracles(result, exeOutput.result.validators);
+      valTime = performance.now() - startValTime;
+    }
+
+    return {
+      result,
+      exeOutput,
+      valTime,
+      runTime,
+    };
+  } // fn: runTestOnWorker
+
+  /**
+   * Synchronously categorizes the result, records coverage hits, and provides feedback to generator.
+   *
+   * @param result the fuzz test result
+   * @param candidate the transformed input candidate
+   * @param activeRunners runners whose coverage should be ingested
+   * @param generator the composite input generator
+   * @returns measurement timing information
+   */
+  public recordTestFeedback(
+    result: FuzzTestResult,
+    candidate: TransformedInputAndSource,
+    activeRunners: AbstractRunner[],
+    generator: CompositeInputGenerator
+  ): { measureTime: number } {
+    result.category = categorizeResult(result);
+
+    this.prepareMeasures();
+    for (const r of activeRunners) {
+      if (r.lastRunCoverage) {
+        this._measures.forEach((m) => {
+          if (m instanceof AbstractCoverageMeasure) {
+            m.recordHits(r.lastRunCoverage);
+          }
+        });
+      }
+    }
+
+    const startMeasureFeedbackTime = performance.now();
+    const measurements = this._measures.map((e) =>
+      e.measure(candidate, result)
+    );
+
+    result.interestingReasons = generator.onInputFeedback(
+      measurements,
+      result.timers.run + result.timers.gen,
+      candidate
+    );
+    const measureTime = performance.now() - startMeasureFeedbackTime;
+    return { measureTime };
+  } // fn: recordTestFeedback
+
+  /**
+   * Executes a single test input candidate through the pipeline sequentially on worker 0.
+   * (Maintains synchronous compatibility for FuzzerV2).
    *
    * @param candidate the transformed input and source
    * @param genTime time taken to generate the input
@@ -104,115 +304,60 @@ export class FuzzExecutor {
     generator: CompositeInputGenerator,
     getEffectiveCancelFn?: () => (() => boolean) | undefined,
     initMeasTime: number = 0
-  ): Promise<FuzzExecutionOutput | undefined> {
-    const result: FuzzTestResult = this._createInitialResult(
+  ): Promise<
+    { result: FuzzTestResult; valTime: number; measureTime: number } | undefined
+  > {
+    const worker0 = this._workers[0];
+    const cancelFn = getEffectiveCancelFn ? getEffectiveCancelFn() : undefined;
+    const exec = await this.runTestOnWorker(
       candidate,
-      genTime
+      worker0,
+      genTime,
+      0,
+      cancelFn
     );
-    let valTime = 0;
-    let measureTime = initMeasTime;
-
-    // 1. Handle transformer result if candidate was skipped/errored by transformer
-    if (candidate.transformerResult && this._transformRunner) {
-      this._handleTransformerResult(candidate.transformerResult, result);
+    if (!exec) {
+      return undefined;
     }
 
-    // 3. Call the PUT via its runner if not skipped and no harness errors
-    if (!result.skipped && result.harnessErrors.length === 0) {
-      const startRunTime = performance.now();
-      let exeOutput: RunnerResult;
-      try {
-        const cancelCheck = getEffectiveCancelFn
-          ? getEffectiveCancelFn()
-          : undefined;
-        exeOutput = await this._runner.runWithInterrupt(
-          () =>
-            this._runner.run(
-              result.input.map((e) => e.value),
-              Math.max(this._options.fnTimeout, 0)
-            ),
-          this._getRemainingSuiteTime(),
-          cancelCheck
-        );
-      } catch (e: unknown) {
-        if (isError(e) && e.message === "runnerInterrupted") {
-          return undefined;
-        }
-
-        if (isError(e)) {
-          exeOutput = {
-            result: {
-              tag: "error",
-              name: e.name,
-              message: e.message,
-              stack: e.stack ?? "<no stack>",
-              seq: -1,
-            },
-            env: {},
-          };
-        } else {
-          exeOutput = {
-            result: {
-              tag: "error",
-              name: "unknown internal runner error",
-              message: "unknown",
-              stack: "<no stack>",
-              seq: -1,
-            },
-            env: {},
-          };
-        }
-      }
-      result.timers.run = performance.now() - startRunTime;
-
-      this._applyRunnerOutput(exeOutput, result);
-
-      // 4. Evaluate oracles
-      if (!result.skipped) {
-        const startValTime = performance.now();
-        const oracleSuccess = await this._evaluateOracles(
-          result,
-          getEffectiveCancelFn
-        );
-        if (!oracleSuccess) {
-          return undefined; // interrupted
-        }
-        valTime += performance.now() - startValTime;
-      }
+    const runnersToRecord: AbstractRunner[] = [worker0.runner];
+    if (this._transformRunner && candidate.source.type === "transformer") {
+      runnersToRecord.push(this._transformRunner);
+    }
+    if (
+      this._userGenRunner &&
+      candidate.source.type === "generator" &&
+      candidate.source.generator === "UserInputGenerator"
+    ) {
+      runnersToRecord.push(this._userGenRunner);
     }
 
-    // 5. Categorize the composite result
-    result.category = categorizeResult(result);
-
-    // 6. Take measurements & feed back to generator
-    const startMeasureFeedbackTime = performance.now();
-    const measurements = this._measures.map((e) =>
-      e.measure(result.inputGenerated, result)
+    const { measureTime } = this.recordTestFeedback(
+      exec.result,
+      candidate,
+      runnersToRecord,
+      generator
     );
-
-    result.interestingReasons = generator.onInputFeedback(
-      measurements,
-      result.timers.run + result.timers.gen
-    );
-    measureTime += performance.now() - startMeasureFeedbackTime;
 
     return {
-      result,
-      valTime,
-      measureTime,
+      result: exec.result,
+      valTime: exec.valTime,
+      measureTime: measureTime + initMeasTime,
     };
-  }
+  } // fn: execute
 
   /**
    * Creates the initial fuzz test result object based on the generated input and its associated metadata.
    *
    * @param candidate The transformed input and source information for the test case.
    * @param genTime The time taken to generate the input.
+   * @param transformTime Time taken for input transformation.
    * @returns The initial fuzz test result object.
    */
   protected _createInitialResult(
     candidate: TransformedInputAndSource,
-    genTime: number
+    genTime: number,
+    transformTime: number = 0
   ): FuzzTestResult {
     const argDefs = this._function.getArgDefs();
 
@@ -239,7 +384,7 @@ export class FuzzExecutor {
       timers: {
         run: 0,
         gen: genTime,
-        transform: 0,
+        transform: transformTime,
       },
       category: "ok",
       interestingReasons: [],
@@ -263,14 +408,16 @@ export class FuzzExecutor {
    *
    * @param transformerResult The result produced by the transformer.
    * @param result The current fuzz test result object to be updated.
+   * @param transformerName The name of the transformer function.
    */
   protected _handleTransformerResult(
     transformerResult: NonNullable<
       TransformedInputAndSource["transformerResult"]
     >,
-    result: FuzzTestResult
+    result: FuzzTestResult,
+    transformerName: string = "transformer"
   ): void {
-    const fnName = this._transformRunner?.name ?? "transformer";
+    const fnName = transformerName;
     switch (transformerResult.result.tag) {
       case "skip":
         result.skipped = true;
@@ -344,13 +491,12 @@ export class FuzzExecutor {
    * Evaluates the results of the fuzz test against the configured oracles (implicit, human, and property).
    *
    * @param result The current fuzz test result object to be evaluated.
-   * @param getEffectiveCancelFn Optional function to retrieve the effective cancel function for the evaluation.
-   * @returns A promise that resolves to a boolean indicating whether the evaluation was completed successfully.
+   * @param validatorResults Optional in-host validator results map.
    */
-  protected async _evaluateOracles(
+  protected _evaluateOracles(
     result: FuzzTestResult,
-    getEffectiveCancelFn?: () => (() => boolean) | undefined
-  ): Promise<boolean> {
+    validatorResults?: Record<string, ValidatorResult>
+  ): void {
     // IMPLICIT ORACLE
     if (this._options.useImplicit) {
       result.passedImplicit = ImplicitOracle.judge(
@@ -372,74 +518,16 @@ export class FuzzExecutor {
     }
 
     // PROPERTY ORACLE
-    if (this._options.useProperty && this._propRunners.length > 0) {
-      let validatorJudgments: (Judgment | Error)[];
-      try {
-        const cancelCheck = getEffectiveCancelFn
-          ? getEffectiveCancelFn()
-          : undefined;
-        validatorJudgments = await this._propertyOracle.judge(
-          Object.freeze({
-            in: result.input.map((i) => i.value),
-            out:
-              result.output.length === 0
-                ? "timeout or exception"
-                : result.output[0].value,
-            exception: result.exception,
-            timeout: result.timeout,
-          }),
-          Math.max(this._options.fnTimeout, 0),
-          this._getRemainingSuiteTime(),
-          cancelCheck
-        );
-      } catch (e: unknown) {
-        if (isError(e) && e.message === "runnerInterrupted") {
-          return false;
-        }
-        throw e;
-      }
-
-      validatorJudgments.forEach((j, i) => {
-        if (isError(j)) {
-          result.passedValidators.push("unknown");
-          const fnName = this._validators[i].name;
-          if (j.name === "PropertyValidatorTimeout") {
-            result.harnessErrors.push({
-              kind: "timeout",
-              stage: "validator",
-              fnName,
-              message: `Timeout exceeding ${this._options.fnTimeout} ms`,
-              display: `(${fnName} timeout)`,
-            });
-          } else {
-            result.harnessErrors.push({
-              kind: "exception",
-              stage: "validator",
-              fnName,
-              message: j.message,
-              display: `(${fnName} ${j.name}) ${j.message}`,
-              stack: j.stack ?? "<no stack>",
-            });
-          }
-        } else {
-          result.passedValidators.push(j);
-        }
-      });
-
-      result.passedValidator = PropertyOracle.summarize(
-        result.passedValidators
+    if (this._options.useProperty && this._validators.length > 0) {
+      const { judgments, harnessErrors } = PropertyOracle.mapJudgments(
+        validatorResults,
+        this._validators,
+        this._options.fnTimeout
       );
+
+      result.passedValidators = judgments;
+      result.harnessErrors.push(...harnessErrors);
+      result.passedValidator = PropertyOracle.summarize(judgments);
     }
-
-    return true;
   } // fn: _evaluateOracles
-
-  /**
-   * Stops all runners and performs any necessary cleanup at the end of the fuzzing run.
-   *
-   * @returns A promise that resolves once all runners have been stopped.
-   */
-  public async stop(): Promise<void> {
-    await Promise.all(this.runners.map((r) => r.onRunEnd()));
-  } // fn: stop
-}
+} // class: FuzzExecutor

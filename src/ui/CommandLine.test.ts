@@ -70,7 +70,18 @@ async function runCli(
 
   try {
     Config.clearOverrides();
-    const status = await runCliInProcess(args);
+    const effectiveArgs = [...args];
+    if (
+      !effectiveArgs.includes("--workers") &&
+      !effectiveArgs.includes("-w") &&
+      !effectiveArgs.includes("--help") &&
+      !effectiveArgs.includes("-h") &&
+      !effectiveArgs.includes("--version") &&
+      !effectiveArgs.includes("-V")
+    ) {
+      effectiveArgs.push("--workers", "1");
+    }
+    const status = await runCliInProcess(effectiveArgs);
     return { status, stdout, stderr };
   } finally {
     process.stdout.write = origStdoutWrite;
@@ -130,6 +141,8 @@ describe("cli:", () => {
       targetFn,
       "--output-file",
       outputFile,
+      "--workers",
+      "auto",
       "--max-tests",
       maxTests.toString(),
       "--max-runtime",
@@ -160,6 +173,7 @@ describe("cli:", () => {
     expect(outputData.env.options.maxDupeInputs).toBe(maxDupeInputs);
     expect(outputData.env.options.fnTimeout).toBe(fnTimeout);
     expect(outputData.env.options.seed).toBe(seed);
+    expect(outputData.env.options.workers).toBe("auto");
 
     // Verify test results were produced
     expect(outputData.stats.outcomes.total).toBeGreaterThan(0);
@@ -345,6 +359,85 @@ describe("cli:", () => {
     expect(
       outputData.env.options.generators.MutationInputGenerator.enabled
     ).toBeFalse();
+  });
+
+  it("--workers flag accepts numeric values or 'auto'", async () => {
+    const outputFile = path.join(tmpDir, "workers_output.json5");
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testCoverageOneFile";
+
+    const res = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--workers",
+      "3",
+      "--max-tests",
+      "2",
+      "--seed",
+      "cli_seed_workers",
+    ]);
+
+    expect(res.status).toBe(0);
+    expect(fs.existsSync(outputFile)).toBeTrue();
+    expect(res.stdout).toContain(
+      "Target ready to test with 3 workers, v3 engine, mab scheduler."
+    );
+
+    const outputData = JSON5.parse<FuzzTestResults>(
+      fs.readFileSync(outputFile, "utf8")
+    );
+
+    expect(outputData.env.options.workers).toBe(3);
+  });
+
+  it("--engine auto selects v2 for 1 worker and v3 for multiple workers", async () => {
+    const outputFile = path.join(tmpDir, "engine_auto_output.json5");
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testCoverageOneFile";
+
+    // 1 worker -> v2 engine
+    const res1 = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--engine",
+      "auto",
+      "--workers",
+      "1",
+      "--max-tests",
+      "2",
+      "--seed",
+      "cli_seed_engine_auto_1",
+    ]);
+
+    expect(res1.status).toBe(0);
+    expect(res1.stdout).toContain(
+      "Target ready to test with 1 worker, v2 engine, mab scheduler."
+    );
+
+    // 2 workers -> v3 engine
+    const res2 = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--engine",
+      "auto",
+      "--workers",
+      "2",
+      "--max-tests",
+      "2",
+      "--seed",
+      "cli_seed_engine_auto_2",
+    ]);
+
+    expect(res2.status).toBe(0);
+    expect(res2.stdout).toContain(
+      "Target ready to test with 2 workers, v3 engine, mab scheduler."
+    );
   });
 
   it("--no-shrink and --max-shrink-time flags", async () => {
@@ -805,7 +898,9 @@ def ${targetFn}(n: int) -> int:
         "cli_seed_py_max_failures",
       ]);
 
-      expect(res.status).toBe(1);
+      expect(res.status)
+        .withContext(`stdout: ${res.stdout}\nstderr: ${res.stderr}`)
+        .toBe(1);
       expect(res.stdout).toContain("Stopped for reason: maxFailures.");
     } finally {
       if (fs.existsSync(pyFile)) {

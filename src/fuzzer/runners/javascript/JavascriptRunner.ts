@@ -1,14 +1,19 @@
 import {
   AbstractRunner,
   RunnerInput,
+  RunnerOverrides,
   RunnerResult,
   TypeHint,
+  ValidatorResult,
 } from "../AbstractRunner";
 import { ArgDef } from "../../analysis/ArgDef";
 import { ArgTag } from "../../analysis/Types";
 import { NodeHost } from "./NodeHost";
 import { FuzzEnv } from "../../Types";
-import { isCoverageMapData } from "../../measures/TypescriptCoverageMeasure";
+import {
+  isCoverageMapData,
+  isRecordOfFileCoverageData,
+} from "../../measures/TypescriptCoverageMeasure";
 import {
   CoverageMapData,
   Range,
@@ -36,8 +41,10 @@ export class JavascriptRunner extends AbstractRunner {
   protected _host: NodeHost | undefined = undefined;
   protected _seq = 0;
   protected _coverageInfo: CoverageMapData | undefined = undefined;
+  protected _lastRunCoverage?: Record<string, FileCoverageData>;
   protected _coverageEnabled = true;
   protected _coverageCallback?: (covData: unknown) => void;
+  protected _overrides: RunnerOverrides;
 
   /**
    * Create a new Javascript function runner
@@ -45,16 +52,19 @@ export class JavascriptRunner extends AbstractRunner {
    * @param `module` loaded program module or file path
    * @param `jsFn` exported function within `module` to call
    * @param `env` optional fuzzer environment
+   * @param `overrides` optional runner configuration overrides
    */
   public constructor(
     module: NodeJS.Module | string,
     jsFn: string,
-    env?: FuzzEnv
+    env?: FuzzEnv,
+    overrides: RunnerOverrides = {}
   ) {
     super(jsFn);
 
     this._jsFn = jsFn;
     this._env = env;
+    this._overrides = overrides;
 
     let targetPath = getModuleFilename(module, env);
     this._originalFilename = targetPath;
@@ -90,11 +100,13 @@ export class JavascriptRunner extends AbstractRunner {
    *
    * @param `inputs` inputs to function
    * @param `timeout` stop and fail after `timeout` ms
+   * @param `validators` optional list of validator function names to execute in-host
    * @returns Promise<RunnerResult>
    */
   public async run(
     inputs: unknown[],
-    timeout: number | undefined = 0
+    timeout: number | undefined = 0,
+    validators: string[] = []
   ): Promise<RunnerResult> {
     const thisSeq = this._seq++;
     try {
@@ -109,6 +121,7 @@ export class JavascriptRunner extends AbstractRunner {
         timeout: timeout ?? 0,
         fnName: this._jsFn,
         filename: this._filename,
+        validators: validators.length > 0 ? validators : undefined,
         collect: {
           coverageData: this._coverageEnabled ? true : undefined,
           debugData: debugEnabled ? true : undefined,
@@ -118,16 +131,15 @@ export class JavascriptRunner extends AbstractRunner {
       const payload = serialize(input);
 
       host.sendMessage(payload);
-      const hostTimeout = timeout && timeout > 0 ? timeout + 200 : Infinity;
+      const numFunctions = 1 + (validators?.length ?? 0);
+      const hostTimeout =
+        timeout && timeout > 0 ? timeout * numFunctions + 500 : Infinity;
       const rawResBuf = await host.getResponseBuffer(hostTimeout);
       const parsedRes = deserialize(rawResBuf);
 
       if (isParsedHostResponse(parsedRes) && parsedRes.coverageData) {
-        if (
-          typeof parsedRes.coverageData === "object" &&
-          parsedRes.coverageData !== null &&
-          !Array.isArray(parsedRes.coverageData)
-        ) {
+        if (isRecordOfFileCoverageData(parsedRes.coverageData)) {
+          this._lastRunCoverage = parsedRes.coverageData;
           if (!this._coverageInfo) {
             this._coverageInfo = {};
           }
@@ -181,16 +193,19 @@ export class JavascriptRunner extends AbstractRunner {
       let resultInner: RunnerResult["result"];
       if (isParsedHostResponse(parsedRes)) {
         const seq = typeof parsedRes.seq === "number" ? parsedRes.seq : thisSeq;
+        const validators = parsedRes.validators;
         if (parsedRes.tag === "timeout") {
           resultInner = {
             tag: "timeout",
             seq,
+            validators,
           };
         } else if (parsedRes.tag === "skip") {
           resultInner = {
             tag: "skip",
             message: parsedRes.message ?? "",
             seq,
+            validators,
           };
         } else if (parsedRes.tag === "error") {
           resultInner = {
@@ -200,12 +215,14 @@ export class JavascriptRunner extends AbstractRunner {
             stack: parsedRes.stack,
             source: parsedRes.source,
             seq,
+            validators,
           };
         } else {
           resultInner = {
             tag: "value",
             value: parsedRes.value,
             seq,
+            validators,
           };
         }
       } else {
@@ -252,6 +269,13 @@ export class JavascriptRunner extends AbstractRunner {
   } // fn: run
 
   /**
+   * Gets the module/target filename associated with this runner.
+   */
+  public override get filename(): string {
+    return this._filename;
+  } // get: filename
+
+  /**
    * Gets the current code coverage information.
    *
    * @returns the current code coverage information, or `undefined` if not available
@@ -259,6 +283,15 @@ export class JavascriptRunner extends AbstractRunner {
   public override get coverageInfo(): CoverageMapData | undefined {
     return this._coverageInfo;
   } // property: get coverageInfo
+
+  /**
+   * Gets the single most recent execution's coverage data.
+   */
+  public override get lastRunCoverage():
+    | Record<string, FileCoverageData>
+    | undefined {
+    return this._lastRunCoverage;
+  } // get: lastRunCoverage
 
   /**
    * Registers a callback to be invoked when coverage data is available.
@@ -317,21 +350,23 @@ export class JavascriptRunner extends AbstractRunner {
       "project static"
     );
     const scopeConfig = parseCoverageScope(coverageScopeRaw);
-    const collectStatic =
-      this._coverageEnabled && scopeConfig.collectStaticCoverage;
+    const collectStaticCoverage =
+      this._coverageEnabled &&
+      this._overrides.acceptsStaticCoverage === true &&
+      scopeConfig.collectStaticCoverage;
 
     const args = [
       runnerHost,
       this._filename,
       this._jsFn,
       scopeConfig.target,
-      String(collectStatic),
+      String(collectStaticCoverage),
     ];
     const host = new NodeHost(args, path.dirname(this._filename), env);
 
     const hostStartupTimeout = Config.get<number>(
       "nanofuzz.fuzzer.hostStartupTimeout",
-      10000
+      20000
     );
     const okcodeBuf = await host.getResponseBuffer(hostStartupTimeout);
     const okcode = deserialize(okcodeBuf);
@@ -444,6 +479,7 @@ type ParsedHostResponse = {
   stack?: string;
   source?: "put" | "host";
   coverageData?: Record<string, FileCoverageData>;
+  validators?: Record<string, ValidatorResult>;
 };
 
 function isParsedHostResponse(val: unknown): val is ParsedHostResponse {

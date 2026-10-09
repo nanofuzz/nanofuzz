@@ -398,6 +398,7 @@ export function getDefaultFuzzOptions(): FuzzOptions {
     useHuman: true,
     useImplicit: true,
     useProperty: true,
+    workers: Config.get("nanofuzz.fuzzer.workers", "auto"),
     measures: {
       FailedTestMeasure: {
         enabled: true,

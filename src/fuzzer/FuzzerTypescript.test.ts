@@ -543,6 +543,17 @@ describe("fuzzer: typescript targets", () => {
       expect<unknown>(r.input[1].value).toBe("custom");
       expect<unknown>(r.output[0].value).toBe(`custom:${r.input[0].value}`);
     });
+
+    const covStats = await fuzzResult.stats.measures.CodeCoverageMeasure?.();
+    expect(covStats).toBeDefined();
+    if (covStats && covStats.files.length) {
+      const fileStats = covStats.files[0];
+      const coveredFnNames = Object.keys(fileStats.fileMap.f).map(
+        (idx) => fileStats.fileMap.fnMap[idx]?.name
+      );
+      expect(coveredFnNames).toContain("targetUserGen");
+      expect(coveredFnNames).toContain("targetUserGenGenerator");
+    }
   });
 
   it("Typescript UserInputGenerator exhaustion", async () => {

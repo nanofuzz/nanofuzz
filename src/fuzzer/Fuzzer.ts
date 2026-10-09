@@ -387,6 +387,20 @@ export class Tester {
   } // property: get state
 
   /**
+   * Returns the active worker count.
+   */
+  public get workerCount(): number {
+    return 1;
+  } // get: workerCount
+
+  /**
+   * Retrieves the fuzzer engine version.
+   */
+  public get engine(): "v1" {
+    return "v1";
+  } // fn: engine
+
+  /**
    * Runs the tester and returns its results.
    *
    * @param `injectTests` tests to inject
@@ -531,7 +545,12 @@ export class Tester {
     this._results.stats.timers.instrument = performance.now() - instrumentTime;
 
     // Build a test runner for executing tests
-    const runner = RunnerFactory(this.env, targetMod, this._function.getName());
+    const runner = RunnerFactory(
+      this.env,
+      targetMod,
+      this._function.getName(),
+      { acceptsStaticCoverage: true }
+    );
     await runner.onRunStart();
 
     // Build a test runner for executing transformers, if any are present and enabled
@@ -587,7 +606,7 @@ export class Tester {
       ...propRunners,
     ].filter((r): r is AbstractRunner => r !== undefined);
     this._measures.forEach((m) => {
-      m.onRunStart(runners);
+      m.onRunStart(runners, this.env);
     });
 
     // Injected tests lookup map
@@ -720,6 +739,7 @@ export class Tester {
             [
               runner.onRunEnd(),
               transformRunner?.onRunEnd(),
+              userGenRunner?.onRunEnd(),
               ...propRunners.map((p) => p.onRunEnd()),
             ].filter((e) => e !== undefined)
           );
@@ -1271,7 +1291,8 @@ export class Tester {
           result.interestingReasons =
             this._compositeInputGenerator.onInputFeedback(
               measurements,
-              result.timers.run + result.timers.gen
+              result.timers.run + result.timers.gen,
+              result.inputGenerated
             );
 
           // Measurement stats

@@ -151,16 +151,16 @@ export abstract class AbstractHost {
 
   protected _isHeartbeatPayload(buf: Buffer): boolean {
     return !!buf && buf.includes("HEART");
-  }
+  } // fn: _isHeartbeatPayload
 
   public async getResponse(timeout: number = Infinity): Promise<string> {
     const buf = await this.getResponseBuffer(timeout);
     return buf.toString("utf-8");
-  }
+  } // fn: getResponse
 
   public get isActive(): boolean {
     return this._isActive;
-  }
+  } // get: isActive
 
   protected _onStdout = (chunk: Buffer): void => {
     this._stdoutChunks.push(chunk);

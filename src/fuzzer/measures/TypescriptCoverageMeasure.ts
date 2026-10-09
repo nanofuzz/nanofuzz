@@ -12,6 +12,7 @@ import {
 import {
   VmGlobals,
   InputAndSource,
+  FuzzEnv,
   FuzzTestResult,
   FuzzTestResults,
 } from "../Types";
@@ -38,8 +39,11 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
   protected _sourceMapStore: MapStore = createSourceMapStore();
   protected _lineHitCounts: Map<string, Map<number, number>> = new Map(); // tracks per-line hit counts across test runs
 
-  public override onRunStart(runners: AbstractRunner[] | AbstractRunner): void {
-    super.onRunStart(runners);
+  public override onRunStart(
+    runners: AbstractRunner[] | AbstractRunner,
+    _env?: FuzzEnv
+  ): void {
+    super.onRunStart(runners, _env);
     this._globalCoverageMap = createCoverageMap({});
     this._history.clear();
     this._lastNode = undefined;
@@ -51,10 +55,37 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
       if (isCoverageMapData(initialCov)) {
         for (const k of Object.keys(initialCov)) {
           const normKey = normalizePathForKey(k);
-          this._coverageData[normKey] = {
-            ...structuredClone(initialCov[k]),
-            path: normKey,
-          };
+          const raw = initialCov[k];
+          const target = this._coverageData[normKey];
+          if (!target) {
+            this._coverageData[normKey] = {
+              ...structuredClone(raw),
+              path: normKey,
+            };
+          } else {
+            if (raw.s && target.s) {
+              for (const sk of Object.keys(raw.s)) {
+                target.s[sk] = Math.max(target.s[sk] ?? 0, raw.s[sk] ?? 0);
+              }
+            }
+            if (raw.f && target.f) {
+              for (const fk of Object.keys(raw.f)) {
+                target.f[fk] = Math.max(target.f[fk] ?? 0, raw.f[fk] ?? 0);
+              }
+            }
+            if (raw.b && target.b) {
+              for (const bk of Object.keys(raw.b)) {
+                if (Array.isArray(raw.b[bk]) && Array.isArray(target.b[bk])) {
+                  for (let i = 0; i < raw.b[bk].length; i++) {
+                    target.b[bk][i] = Math.max(
+                      target.b[bk][i] ?? 0,
+                      raw.b[bk][i] ?? 0
+                    );
+                  }
+                }
+              }
+            }
+          }
         }
       }
       r.onCoverage((covData) => {
@@ -76,8 +107,9 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
    * @param coverageData a record of file coverage data
    * @returns void
    */
-  public recordHits(coverageData: Record<string, FileCoverageData>): void {
-    if (!this._coverageData) return;
+  public override recordHits(coverageData: unknown): void {
+    if (!this._coverageData || !isRecordOfFileCoverageData(coverageData))
+      return;
     for (const fileKey of Object.keys(coverageData)) {
       const normKey = normalizePathForKey(fileKey);
       const fileHits = coverageData[fileKey];
@@ -568,7 +600,7 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
     }
     throw new Error(`No coverahe data for "${tick}"`);
   } // fn: getCoverage
-} // class: CoverageMeasure
+} // class: TypescriptCoverageMeasure
 
 /**
  * Type guard function that returns true if `obj` is a CoverageMapData type
@@ -619,7 +651,7 @@ export function emptyCoverageMapData(files: string[]): CoverageMapData {
  * @param val the value to check
  * @returns true if `val` is a record of file coverage data, false otherwise
  */
-function isRecordOfFileCoverageData(
+export function isRecordOfFileCoverageData(
   val: unknown
 ): val is Record<string, FileCoverageData> {
   return typeof val === "object" && val !== null;
