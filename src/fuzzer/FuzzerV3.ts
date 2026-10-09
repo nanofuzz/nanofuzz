@@ -45,6 +45,7 @@ import { AbstractMeasure } from "./measures/AbstractMeasure";
 import { CompilerStaleness } from "./compilers/Types";
 import { FuzzExecutor, FuzzWorkerContext } from "./FuzzExecutor";
 import { FuzzStats } from "./FuzzStats";
+import { GeneratorExhaustedError } from "./generators/Types";
 
 export { FuzzWorkerContext as WorkerContext };
 
@@ -446,6 +447,23 @@ export class FuzzerV3 {
           stopCondition
         );
 
+        if (!slot) {
+          isGenActive = false;
+          if (!finalStopReason) {
+            const condition = this._shouldGenStop(
+              injectCount,
+              Boolean(mode.gen),
+              Boolean(cancelFn && cancelFn())
+            );
+            finalStopReason =
+              typeof condition !== "number"
+                ? condition
+                : FuzzStopReason.NOMOREINPUTS;
+          }
+          res = { stopReason: finalStopReason };
+          return;
+        }
+
         res = { slot };
       });
 
@@ -623,8 +641,13 @@ export class FuzzerV3 {
     let candidate: TransformedInputAndSource;
     try {
       candidate = await this._compositeInputGenerator.nextTransformed();
-    } catch {
-      return undefined;
+    } catch (e: unknown) {
+      if (e instanceof GeneratorExhaustedError) {
+        return undefined;
+      }
+      this._state = "crashed";
+      this._stats.results.stopReason = FuzzStopReason.CRASH;
+      throw e;
     }
     const genTime = performance.now() - startGenTime;
 

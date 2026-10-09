@@ -46,6 +46,7 @@ import { AbstractProgram } from "./analysis/AbstractProgram";
 import { AbstractRunner, RunnerResult } from "./runners/AbstractRunner";
 import { CompilerStaleness } from "./compilers/Types";
 import { getToolVersion } from "../ToolVersion";
+import { GeneratorExhaustedError } from "./generators/Types";
 
 export class Tester {
   protected _module: string; // module filename
@@ -863,11 +864,7 @@ export class Tester {
             transformedInput =
               await this._compositeInputGenerator.nextTransformed();
           } catch (e: unknown) {
-            if (
-              isError(e) &&
-              e.message ===
-                "Injected inputs exhausted and input generators are suppressed."
-            ) {
+            if (e instanceof GeneratorExhaustedError) {
               continue; // stopReason checked at top of loop
             }
             this._state = "crashed";
@@ -914,11 +911,7 @@ export class Tester {
           try {
             result.inputGenerated = this._compositeInputGenerator.next();
           } catch (e: unknown) {
-            if (
-              isError(e) &&
-              e.message ===
-                "Injected inputs exhausted and input generators are suppressed."
-            ) {
+            if (e instanceof GeneratorExhaustedError) {
               continue; // stopReason checked at top of loop
             }
             this._state = "crashed";
