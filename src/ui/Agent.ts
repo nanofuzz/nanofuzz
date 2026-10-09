@@ -6,7 +6,7 @@ import seedrandom from "seedrandom";
 import * as Config from "../Config";
 import * as JSONN from "../Jsonn";
 import { getToolVersion } from "../ToolVersion";
-import { getIoKey, isError, normalizePathForKey } from "../fuzzer/Util";
+import { getIoKey, isError } from "../fuzzer/Util";
 import { isKeyedObject } from "../Util";
 import { isArgValueType } from "../fuzzer/analysis/Util";
 import * as ParserAdapter from "../fuzzer/adapters/ParserAdapter";
@@ -38,7 +38,11 @@ import {
 import { FuzzerFactory } from "../fuzzer/FuzzerFactory";
 import { Judgment } from "../fuzzer/oracles/Types";
 import * as TestAdapterFactory from "../fuzzer/adapters/TestAdapterFactory";
-import { CodeCoverageMeasureStats } from "../fuzzer/measures/AbstractCoverageMeasure";
+import {
+  CodeCoverageMeasureStats,
+  extractUncoveredLines,
+  formatLineRanges,
+} from "../fuzzer/measures/AbstractCoverageMeasure";
 import { LlmAdapter } from "../fuzzer/adapters/LlmAdapter";
 import { synthesizeValidator } from "../fuzzer/synthesis/ValidatorSynthesizer";
 import { synthesizeTransformer } from "../fuzzer/synthesis/TransformerSynthesizer";
@@ -977,83 +981,8 @@ export async function getCoverageSummary(
     const fnPct =
       fnTotal > 0 ? Math.round((fnCovered / fnTotal) * 10000) / 100 : 100;
 
-    const uncoveredLinesByFile: Record<string, number[]> = {};
-    const partiallyCoveredLinesByFile: Record<string, number[]> = {};
-    if (covStats.files) {
-      for (const file of covStats.files) {
-        const fileMap = file.fileMap;
-        if (fileMap) {
-          const lineStats: Record<
-            number,
-            { hitCount: number; zeroCount: number }
-          > = {};
-
-          if (fileMap.s && fileMap.statementMap) {
-            for (const [key, hits] of Object.entries(fileMap.s)) {
-              if (fileMap.statementMap[key]) {
-                const startLine = fileMap.statementMap[key].start.line;
-                if (!lineStats[startLine]) {
-                  lineStats[startLine] = { hitCount: 0, zeroCount: 0 };
-                }
-                if (hits > 0) {
-                  lineStats[startLine].hitCount++;
-                } else {
-                  lineStats[startLine].zeroCount++;
-                }
-              }
-            }
-          }
-
-          if (fileMap.b && fileMap.branchMap) {
-            for (const [bKey, hitsArr] of Object.entries(fileMap.b)) {
-              const bDef = fileMap.branchMap[bKey];
-              if (bDef && bDef.locations && Array.isArray(hitsArr)) {
-                for (let i = 0; i < bDef.locations.length; i++) {
-                  const loc = bDef.locations[i];
-                  if (loc && loc.start && typeof loc.start.line === "number") {
-                    const startLine = loc.start.line;
-                    if (!lineStats[startLine]) {
-                      lineStats[startLine] = { hitCount: 0, zeroCount: 0 };
-                    }
-                    const armHits = hitsArr[i];
-                    if (typeof armHits === "number" && armHits > 0) {
-                      lineStats[startLine].hitCount++;
-                    } else if (armHits === 0) {
-                      lineStats[startLine].zeroCount++;
-                    }
-                  }
-                }
-              }
-            }
-          }
-
-          const uncoveredLines: number[] = [];
-          const partiallyCoveredLines: number[] = [];
-
-          for (const [lineStr, stats] of Object.entries(lineStats)) {
-            const line = Number(lineStr);
-            if (stats.zeroCount > 0) {
-              if (stats.hitCount === 0) {
-                uncoveredLines.push(line);
-              } else {
-                partiallyCoveredLines.push(line);
-              }
-            }
-          }
-
-          uncoveredLines.sort((a, b) => a - b);
-          partiallyCoveredLines.sort((a, b) => a - b);
-
-          const fileKey = normalizePathForKey(file.path);
-          if (uncoveredLines.length > 0) {
-            uncoveredLinesByFile[fileKey] = uncoveredLines;
-          }
-          if (partiallyCoveredLines.length > 0) {
-            partiallyCoveredLinesByFile[fileKey] = partiallyCoveredLines;
-          }
-        }
-      }
-    }
+    const { uncoveredLinesByFile, partiallyCoveredLinesByFile } =
+      extractUncoveredLines(covStats);
 
     return {
       statementsTotal: stmtTotal,
@@ -1073,29 +1002,7 @@ export async function getCoverageSummary(
   }
 } // fn: getCoverageSummary
 
-/**
- * Formats an array of line numbers into concise range strings (e.g. "1-3, 5, 8-10").
- */
-export function formatLineRanges(lines: number[]): string {
-  if (!lines || lines.length === 0) return "";
-  const sorted = Array.from(new Set(lines)).sort((a, b) => a - b);
-  const ranges: string[] = [];
-  let start = sorted[0];
-  let prev = sorted[0];
-
-  for (let i = 1; i < sorted.length; i++) {
-    const curr = sorted[i];
-    if (curr === prev + 1) {
-      prev = curr;
-    } else {
-      ranges.push(start === prev ? `${start}` : `${start}-${prev}`);
-      start = curr;
-      prev = curr;
-    }
-  }
-  ranges.push(start === prev ? `${start}` : `${start}-${prev}`);
-  return ranges.join(", ");
-} // fn: formatLineRanges
+export { formatLineRanges };
 
 /**
  * Builds a formatted Markdown summary string for an AgentFuzzResult.

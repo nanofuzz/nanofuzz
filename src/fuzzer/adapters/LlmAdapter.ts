@@ -1,3 +1,4 @@
+import * as path from "node:path";
 import vscode from "vscode";
 import seedrandom from "seedrandom";
 import * as Config from "../../Config";
@@ -16,6 +17,10 @@ import {
   LlmCacheStats,
   LlmQueryResult,
 } from "../generators/Types";
+import {
+  UncoveredCoverageInfo,
+  formatLineRanges,
+} from "../measures/AbstractCoverageMeasure";
 
 // Helper function to check if a value is a Record object
 function isRecord(val: unknown): val is Record<string, unknown> {
@@ -218,6 +223,7 @@ export class LlmAdapter {
    * @param `moduleSrc` full module source code
    * @param `numRequested` number of inputs requested
    * @param `reqSeqNum` optional 1-indexed sequence number of this request in the session
+   * @param `uncoveredInfo` optional coverage information identifying uncovered lines
    * @returns a set of inputs, stats, and error information
    */
   public async genInputs(
@@ -227,7 +233,8 @@ export class LlmAdapter {
     allInputs: Map<string, unknown>,
     moduleSrc: string,
     numRequested: number,
-    reqSeqNum?: number
+    reqSeqNum?: number,
+    uncoveredInfo?: UncoveredCoverageInfo
   ): Promise<{
     programInputs: { [k: string]: ArgValueType }[];
     stats?: Awaited<ReturnType<LlmAdapter["_query"]>>["stats"];
@@ -243,7 +250,8 @@ export class LlmAdapter {
             allInputs,
             moduleSrc,
             numRequested,
-            reqSeqNum
+            reqSeqNum,
+            uncoveredInfo
           ),
         ],
         schema
@@ -547,7 +555,8 @@ export const prompt = {
     allInputs: Map<string, unknown>,
     moduleSrc: string,
     numRequested: number,
-    reqSeqNum: number = 1
+    reqSeqNum: number = 1,
+    uncoveredInfo?: UncoveredCoverageInfo
   ): string => {
     const fnRef = fn.getRef();
     const spec = (fn.getCmt() ?? "").replaceAll("```", "\\`\\`\\`");
@@ -573,6 +582,43 @@ ${escapedModuleSrc}
 `
       : "";
 
+    let coverageContext = "";
+    if (uncoveredInfo) {
+      const parts: string[] = [];
+      const uncoveredEntries = Object.entries(
+        uncoveredInfo.uncoveredLinesByFile ?? {}
+      ).filter(([, lines]) => lines.length > 0);
+      const partiallyEntries = Object.entries(
+        uncoveredInfo.partiallyCoveredLinesByFile ?? {}
+      ).filter(([, lines]) => lines.length > 0);
+
+      if (uncoveredEntries.length > 0 || partiallyEntries.length > 0) {
+        parts.push(
+          "Code coverage achieved by prior tests indicates the following lines have NOT been fully executed:"
+        );
+        for (const [filePath, lines] of uncoveredEntries) {
+          const displayPath = path.isAbsolute(filePath)
+            ? path.relative(process.cwd(), filePath) || filePath
+            : filePath;
+          parts.push(
+            ` - Uncovered in \`${displayPath}\`: line(s) ${formatLineRanges(lines)}`
+          );
+        }
+        for (const [filePath, lines] of partiallyEntries) {
+          const displayPath = path.isAbsolute(filePath)
+            ? path.relative(process.cwd(), filePath) || filePath
+            : filePath;
+          parts.push(
+            ` - Partially covered in \`${displayPath}\`: line(s) ${formatLineRanges(lines)}`
+          );
+        }
+        parts.push(
+          "Generate inputs that specifically aim to execute these uncovered lines and branches to achieve higher test coverage.\n"
+        );
+        coverageContext = parts.join("\n") + "\n";
+      }
+    }
+
     return `To evaluate whether the following ${fnRef.lang} program "${fnRef.name}" behaves correctly relative to its specification, generate ${numRequested} program inputs that are important to determine whether the program satisfies its specification. Each program input includes all the arguments needed to call the program.
 
 Format your response as a single minified JSON object without unnecessary whitespace, newlines, or formatting indentation.
@@ -589,13 +635,13 @@ ${fnSrc}
 
 ${moduleContext}${directives.length ? `Important details about the program's inputs:\n${directives.map((d) => ` - ${d}\n`).join("")}` : ""} 
 
-${
-  backfeed
-    ? inputs.length
-      ? `The following inputs were previously generated and tested, so don't generate these again:\n${inputs.map((u) => ` - ${u}\n`).join("")}`
-      : ""
-    : `This is request number ${reqSeqNum ?? 1} for this testing session. Don't repeat inputs previously generated in this session.\n`
-}`;
+${coverageContext}${
+      backfeed
+        ? inputs.length
+          ? `The following inputs were previously generated and tested, so don't generate these again:\n${inputs.map((u) => ` - ${u}\n`).join("")}`
+          : ""
+        : `This is request number ${reqSeqNum ?? 1} for this testing session. Don't repeat inputs previously generated in this session.\n`
+    }`;
   },
 };
 

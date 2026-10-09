@@ -308,66 +308,68 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
   } // fn: _toCoverageMapData
 
   /**
+   * Generates CodeCoverageMeasureStats representing coverage accumulated across the run so far.
+   */
+  public async getCoverageStats(): Promise<CodeCoverageMeasureStats> {
+    // Report the coverage accumulated across the entire run. Note that
+    // `runner.coverageInfo` holds only the *most recent* call's lines, so
+    // it cannot be used here.
+    const pyCoverageMap = this._globalCoverageMap;
+    const coverageSummary = pyCoverageMap.getCoverageSummary();
+    const files: CodeCoverageFileStats[] = pyCoverageMap
+      .files()
+      .map((filePath) => {
+        const fileSummary = pyCoverageMap.fileCoverageFor(filePath).toSummary();
+        const fileMap = createFileCoverage(
+          structuredClone(pyCoverageMap.fileCoverageFor(filePath).data)
+        );
+        // Omit functions and branches with no hits
+        for (const k of Object.keys(fileMap.f)) {
+          if (fileMap.f[k] === 0) delete fileMap.f[k];
+        }
+        for (const k of Object.keys(fileMap.b)) {
+          if (Math.max(...fileMap.b[k]) === 0) delete fileMap.b[k];
+        }
+        for (const k of Object.keys(fileMap.statementMap)) {
+          if (!(k in fileMap.s)) delete fileMap.statementMap[k];
+        }
+        for (const k of Object.keys(fileMap.branchMap)) {
+          if (!(k in fileMap.b)) delete fileMap.branchMap[k];
+        }
+
+        return {
+          path: normalizePathForKey(filePath),
+          counters: {
+            functionsTotal: fileSummary.functions.total,
+            functionsCovered: fileSummary.functions.covered,
+            statementsTotal: fileSummary.statements.total,
+            statementsCovered: fileSummary.statements.covered,
+            branchesTotal: fileSummary.branches.total,
+            branchesCovered: fileSummary.branches.covered,
+          },
+          fileMap,
+        };
+      });
+    return {
+      counters: {
+        functionsTotal: coverageSummary.functions.total,
+        functionsCovered: coverageSummary.functions.covered,
+        statementsTotal: coverageSummary.statements.total,
+        statementsCovered: coverageSummary.statements.covered,
+        branchesTotal: coverageSummary.branches.total,
+        branchesCovered: coverageSummary.branches.covered,
+      },
+      files,
+    };
+  } // fn: getCoverageStats()
+
+  /**
    * Called when the test run ends.
    *
    * @param results The results of the test run.
    */
   public onRunEnd(results: FuzzTestResults): void {
-    results.stats.measures.CodeCoverageMeasure =
-      async (): Promise<CodeCoverageMeasureStats> => {
-        // Report the coverage accumulated across the entire run. Note that
-        // `runner.coverageInfo` holds only the *most recent* call's lines, so
-        // it cannot be used here.
-        const pyCoverageMap = this._globalCoverageMap;
-        const coverageSummary = pyCoverageMap.getCoverageSummary();
-        const files: CodeCoverageFileStats[] = pyCoverageMap
-          .files()
-          .map((filePath) => {
-            const fileSummary = pyCoverageMap
-              .fileCoverageFor(filePath)
-              .toSummary();
-            const fileMap = createFileCoverage(
-              structuredClone(pyCoverageMap.fileCoverageFor(filePath).data)
-            );
-            // Omit functions and branches with no hits
-            for (const k of Object.keys(fileMap.f)) {
-              if (fileMap.f[k] === 0) delete fileMap.f[k];
-            }
-            for (const k of Object.keys(fileMap.b)) {
-              if (Math.max(...fileMap.b[k]) === 0) delete fileMap.b[k];
-            }
-            for (const k of Object.keys(fileMap.statementMap)) {
-              if (!(k in fileMap.s)) delete fileMap.statementMap[k];
-            }
-            for (const k of Object.keys(fileMap.branchMap)) {
-              if (!(k in fileMap.b)) delete fileMap.branchMap[k];
-            }
-
-            return {
-              path: normalizePathForKey(filePath),
-              counters: {
-                functionsTotal: fileSummary.functions.total,
-                functionsCovered: fileSummary.functions.covered,
-                statementsTotal: fileSummary.statements.total,
-                statementsCovered: fileSummary.statements.covered,
-                branchesTotal: fileSummary.branches.total,
-                branchesCovered: fileSummary.branches.covered,
-              },
-              fileMap,
-            };
-          });
-        return {
-          counters: {
-            functionsTotal: coverageSummary.functions.total,
-            functionsCovered: coverageSummary.functions.covered,
-            statementsTotal: coverageSummary.statements.total,
-            statementsCovered: coverageSummary.statements.covered,
-            branchesTotal: coverageSummary.branches.total,
-            branchesCovered: coverageSummary.branches.covered,
-          },
-          files,
-        };
-      };
+    results.stats.measures.CodeCoverageMeasure = () => this.getCoverageStats();
   } // fn: onRunEnd
 
   /**

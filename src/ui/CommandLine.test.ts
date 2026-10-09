@@ -487,6 +487,29 @@ describe("cli:", () => {
     ).toBeFalse();
   });
 
+  it("--no-ai-coverage-guidance flag overrides coverageGuidance", async () => {
+    const outputFile = path.join(tmpDir, "no_cov_guidance_output.json5");
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testCoverageOneFile";
+
+    const res = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--no-ai-coverage-guidance",
+      "--max-tests",
+      "1",
+      "--seed",
+      "cli_seed_no_cov_guidance",
+    ]);
+
+    expect(res.status).toBe(0);
+    expect(
+      Config.get<boolean>("nanofuzz.ai.coverageGuidance", true)
+    ).toBeFalse();
+  });
+
   it("--model-endpoint flag overrides nanofuzz.ai.endpoint", async () => {
     const outputFile = path.join(tmpDir, "model_endpoint_output.json5");
     const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";

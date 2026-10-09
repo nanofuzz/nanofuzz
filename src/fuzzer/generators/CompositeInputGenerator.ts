@@ -102,6 +102,8 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     this._fn = fn;
     this._allInputs = allInputs;
     this._rngSeed = rngSeed;
+    this._measures = measures;
+
     this._subgens = InputGeneratorFactory(
       options,
       fn,
@@ -110,9 +112,9 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
       genStats,
       allInputs,
       moduleSrc,
-      getFuzzerFocus
+      getFuzzerFocus,
+      this._measures
     );
-    this._measures = measures;
     this._leaderboard = leaderboard;
     this._genStats = genStats;
 

@@ -384,6 +384,16 @@
               "experimental"
             ]
           },
+          "nanofuzz.ai.coverageGuidance": {
+            "title": "Send code coverage data to the AI model?",
+            "order": 65,
+            "type": "boolean",
+            "default": true,
+            "description": "If available, send code coverage data to the AI model.",
+            "tags": [
+              "experimental"
+            ]
+          },
           "nanofuzz.ai.debug": {
             "title": "Write AI debug info to console?",
             "order": 60,

@@ -19,6 +19,7 @@ import { InputGeneratorStatsAi } from "./Types";
 import { isError } from "../Util";
 import { isBufferOrUint8Array } from "../../Util";
 import * as Config from "../../Config";
+import { AbstractCoverageMeasure } from "../measures/AbstractCoverageMeasure";
 
 /**
  * Generates new inputs using a large language model
@@ -34,17 +35,20 @@ export class AiInputGenerator extends AbstractInputGenerator {
   protected _exhausted = false; // Set to true when the model produces no new valid inputs or encounters an error
   protected _tokensPerInput: number; // Estimated tokens per input (calculated onRunStart)
   protected _requestedInputCount; // Number of inputs to request per LLM call (calculated per request)
+  protected _covMeasure?: AbstractCoverageMeasure; // Code coverage measure provider
 
   public constructor(
     fn: FunctionDef,
     rngSeed: string | undefined,
     allInputs: Map<string, unknown>,
-    moduleSrc: string
+    moduleSrc: string,
+    covMeasure?: AbstractCoverageMeasure
   ) {
     super(fn.getArgDefs(), rngSeed);
     this._fn = fn;
     this._allInputs = allInputs;
     this._moduleSrc = moduleSrc;
+    this._covMeasure = covMeasure;
     this._tokensPerInput = this._estimateTokensPerInput();
     this._requestedInputCount = this._getRequestedInputCount();
   } // fn: constructor
@@ -262,17 +266,32 @@ export class AiInputGenerator extends AbstractInputGenerator {
       const [schema, directives] = this._getInputsSchema(this._fn.getLang());
       const numRequested = this._getRequestedInputCount();
 
+      const enableCoverageGuidance = Config.get<boolean>(
+        "nanofuzz.ai.coverageGuidance",
+        true
+      );
+      const uncoveredPromise =
+        this._covMeasure && enableCoverageGuidance
+          ? this._covMeasure.getUncoveredLines().catch(() => undefined)
+          : Promise.resolve(undefined);
+
       // Fetch inputs from the llm
-      this._llm
-        .genInputs(
-          this._fn,
-          schema,
-          directives,
-          this._allInputs,
-          this._moduleSrc,
-          numRequested,
-          this._stats.calls.sent
-        )
+      uncoveredPromise
+        .then((uncoveredInfo) => {
+          if (!this._llm) {
+            return { programInputs: [] };
+          }
+          return this._llm.genInputs(
+            this._fn,
+            schema,
+            directives,
+            this._allInputs,
+            this._moduleSrc,
+            numRequested,
+            this._stats.calls.sent,
+            uncoveredInfo
+          );
+        })
         .then((inputs) => {
           // Update tokens received stats
           if (inputs.stats) {

@@ -1502,6 +1502,34 @@ export function x(
       expect(stats.counters.functionsCovered).toEqual(1);
     });
 
+    it("getUncoveredLines returns uncovered and partially covered lines", async () => {
+      const tsCode = `export function branchy(n: number): number {
+  if (n > 10) {
+    return 1;
+  } else {
+    return 2;
+  }
+}
+`;
+      const measure = new TestCoverageMeasure();
+      const program = compileTs(tsCode, "branchyUncovered");
+      const [exports] = loadTs(measure, [program]);
+      const branchyFn = fnOf(exports, "branchy");
+
+      // Before running, lines inside branchy are uncovered
+      const uncoveredBefore = await measure.getUncoveredLines();
+      expect(
+        Object.keys(uncoveredBefore.uncoveredLinesByFile).length
+      ).toBeGreaterThan(0);
+
+      // Run with n = 20 to cover the true branch
+      runTest(measure, () => branchyFn(20), 0, inputAt(0));
+
+      const uncoveredAfter = await measure.getUncoveredLines();
+      expect(uncoveredAfter).toBeDefined();
+      expect(uncoveredAfter.uncoveredLinesByFile).toBeDefined();
+    });
+
     // the stats should be the union of what the run's inputs covered
     it("the stats report exactly the coverage the run's inputs were credited with", async () => {
       const measure = new TestCoverageMeasure();

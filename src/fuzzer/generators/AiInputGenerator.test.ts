@@ -1,3 +1,4 @@
+import * as path from "node:path";
 import * as AiInputGenerator from "./AiInputGenerator";
 import { makeArgDef, getRandomArgDef } from "../analysis/TestUtils";
 import { ArgDef } from "../analysis/ArgDef";
@@ -280,6 +281,117 @@ describe("src/fuzzer/generators/AiInputGenerator: ", () => {
       expect(promptEmptyInputs).not.toContain(
         "The following inputs were previously generated and tested"
       );
+    } finally {
+      Config.clearOverrides();
+    }
+  });
+
+  it("prompt.genInputs includes uncovered and partially covered lines when uncoveredInfo is provided", () => {
+    const mathPath = path.join(process.cwd(), "src/math.ts");
+    const fnDef = FunctionDef.fromFunctionRef({
+      module: mathPath,
+      name: "calculate",
+      src: "function calculate(x: number) {}",
+      lang: "typescript",
+      startOffset: 0,
+      endOffset: 30,
+      isExported: true,
+      isVoid: false,
+      args: [],
+    });
+
+    const uncoveredInfo = {
+      uncoveredLinesByFile: {
+        [mathPath]: [10, 11, 12, 25],
+      },
+      partiallyCoveredLinesByFile: {
+        [mathPath]: [18],
+      },
+    };
+
+    const promptText = prompt.genInputs(
+      fnDef,
+      [],
+      new Map(),
+      "function calculate(x: number) {}",
+      10,
+      1,
+      uncoveredInfo
+    );
+
+    expect(promptText).toContain(
+      "Code coverage achieved by prior tests indicates the following lines have NOT been fully executed:"
+    );
+    expect(promptText).toContain(
+      "Uncovered in `src/math.ts`: line(s) 10-12, 25"
+    );
+    expect(promptText).toContain(
+      "Partially covered in `src/math.ts`: line(s) 18"
+    );
+    expect(promptText).toContain(
+      "Generate inputs that specifically aim to execute these uncovered lines and branches"
+    );
+  });
+
+  it("prompt.genInputs omits coverage section when uncoveredInfo is empty", () => {
+    const fnDef = FunctionDef.fromFunctionRef({
+      module: "test.ts",
+      name: "testFn",
+      src: "function testFn(x: number) {}",
+      lang: "typescript",
+      startOffset: 0,
+      endOffset: 30,
+      isExported: true,
+      isVoid: true,
+      args: [],
+    });
+
+    const promptText = prompt.genInputs(fnDef, [], new Map(), "", 10, 1, {
+      uncoveredLinesByFile: {},
+      partiallyCoveredLinesByFile: {},
+    });
+
+    expect(promptText).not.toContain("Code coverage achieved by prior tests");
+    expect(promptText).not.toContain("Uncovered in");
+  });
+
+  it("prompt.genInputs omits coverage section when uncoveredInfo is undefined", () => {
+    const fnDef = FunctionDef.fromFunctionRef({
+      module: "test.ts",
+      name: "testFn",
+      src: "function testFn(x: number) {}",
+      lang: "typescript",
+      startOffset: 0,
+      endOffset: 30,
+      isExported: true,
+      isVoid: true,
+      args: [],
+    });
+
+    const promptText = prompt.genInputs(
+      fnDef,
+      [],
+      new Map(),
+      "",
+      10,
+      1,
+      undefined
+    );
+
+    expect(promptText).not.toContain("Code coverage achieved by prior tests");
+    expect(promptText).not.toContain("Uncovered in");
+  });
+
+  it("nanofuzz.ai.coverageGuidance config defaults to true and can be disabled", () => {
+    expect(
+      Config.get<boolean>("nanofuzz.ai.coverageGuidance", true)
+    ).toBeTrue();
+
+    Config.override("nanofuzz.ai.coverageGuidance", false);
+    try {
+      expect(
+        Config.get<boolean>("nanofuzz.ai.coverageGuidance", true)
+      ).toBeFalse();
     } finally {
       Config.clearOverrides();
     }
