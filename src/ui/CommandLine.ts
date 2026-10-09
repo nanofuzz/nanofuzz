@@ -708,7 +708,7 @@ export async function runCliInProcess(
 
     console.log(`Target: ${fnname} of ${filename}`);
     console.log(
-      `Ready to test: ${workerWord}, ${engine} engine, ${scheduler} scheduler${modelWord}.`
+      `Ready : ${workerWord}, ${engine} engine, ${scheduler} scheduler${modelWord}.`
     );
 
     const results = await fuzzer.test(
