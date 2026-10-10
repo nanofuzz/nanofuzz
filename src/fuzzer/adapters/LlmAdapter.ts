@@ -170,10 +170,16 @@ export class LlmAdapter {
       throw new Error("NodeLLMCore backend is not initialized");
     }
     const cfg = LlmAdapter.getConfig();
-    return this._backend.chat(cfg.modelName, {
+    const supportsStructuredOutput = Boolean(
+      this._backend.provider?.capabilities?.supportsStructuredOutput?.(
+        cfg.modelName
+      )
+    );
+    const chatOptions: Parameters<typeof this._backend.chat>[1] = {
       systemPrompt: prompt.system(),
-      assumeModelExists: true,
-    });
+      ...(supportsStructuredOutput ? {} : { assumeModelExists: true }),
+    };
+    return this._backend.chat(cfg.modelName, chatOptions);
   } // fn: createChat
 
   /**
