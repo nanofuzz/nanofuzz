@@ -702,13 +702,11 @@ export async function runCliInProcess(
       modelConfig.modelName ||
       (modelConfig.provider === "copilot" ? "copilot" : "");
     const modelWord =
-      isAiGenEnabled && isModelConfigured && modelName
-        ? `, ${modelName} model`
-        : "";
+      isAiGenEnabled && isModelConfigured && modelName ? `, ${modelName}` : "";
 
     console.log(`Target: ${fnname} of ${filename}`);
     console.log(
-      `Ready : ${workerWord}, ${engine} engine, ${scheduler} scheduler${modelWord}.`
+      `Online: ${workerWord}, ${engine} engine, ${scheduler} scheduler${modelWord}.`
     );
 
     const results = await fuzzer.test(
