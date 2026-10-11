@@ -1,10 +1,6 @@
 import { CoverageMapData, createCoverageMap } from "istanbul-lib-coverage";
 import { FailedTestMeasure } from "./FailedTestMeasure";
-import {
-  AbstractCoverageMeasure,
-  CoverageMeasurement,
-} from "./AbstractCoverageMeasure";
-import { PythonCoverageMeasure } from "./PythonCoverageMeasure";
+import { CoverageMeasure, CoverageMeasurement } from "./CoverageMeasure";
 import { PythonRunner } from "../runners/python/PythonRunner";
 import {
   PythonFileCoverageData,
@@ -17,7 +13,7 @@ import {
 } from "./test_fixtures/PythonCoverageMeasure.testfixture1";
 import { FuzzTestResult, InputAndSource } from "../Types";
 
-class MockCoverageMeasure extends AbstractCoverageMeasure {
+class MockCoverageMeasure extends CoverageMeasure {
   public coverageMapPerTick = new Map<number, CoverageMapData>();
   public getCoverageCallCount = 0;
   public hasCoverageCallCount = 0;
@@ -219,12 +215,13 @@ describe("FailedTestMeasure", () => {
       } // fn: constructor
     } // class: StubRunner
 
-    class RealPythonCovMeasure extends PythonCoverageMeasure {
+    class RealPythonCovMeasure extends CoverageMeasure {
       private readonly _info: PythonFileCoverageData;
       private readonly _coverage: PythonCoverageMapData;
 
       public constructor(staticInfo: PythonFileCoverageData) {
         super();
+        this._requireRunner = true;
         this._info = { ...staticInfo };
         this._coverage = { [pyFile]: this._info };
         this._runners = [new StubRunner(this._coverage)];

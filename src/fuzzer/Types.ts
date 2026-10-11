@@ -14,7 +14,7 @@ import {
   InputGeneratorStatsAi,
 } from "./generators/Types";
 import { InputSchedulerType } from "./schedulers/Types";
-import { CodeCoverageMeasureStats } from "./measures/AbstractCoverageMeasure";
+import { CodeCoverageMeasureStats } from "./measures/CoverageMeasure";
 
 /**
  * Error occurring in test harness (property validator or input transformer)

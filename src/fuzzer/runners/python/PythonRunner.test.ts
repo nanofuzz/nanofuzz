@@ -7,7 +7,7 @@ import {
   FuzzTestResults,
 } from "../../Types";
 import { FunctionDef } from "../../analysis/FunctionDef";
-import { PythonCoverageMeasure } from "../../measures/PythonCoverageMeasure";
+import { CoverageMeasure } from "../../measures/CoverageMeasure";
 import { normalizePathForKey } from "../../Util";
 import { ArgDef } from "../../analysis/ArgDef";
 import * as ProgramFactory from "../../analysis/ProgramFactory";
@@ -816,7 +816,7 @@ def x(val: int) -> int:
     const fnDef = program.functionsExported["x"];
     const env = createFuzzEnv(fnDef);
 
-    const measure = new PythonCoverageMeasure();
+    const measure = new CoverageMeasure();
 
     try {
       const runner = new PythonRunner(realPyPath, "x", env, {
@@ -824,7 +824,7 @@ def x(val: int) -> int:
       });
       await runner.onRunStart();
 
-      // Attach PythonCoverageMeasure to runner
+      // Attach CoverageMeasure to runner
       measure.onRunStart([runner]);
 
       // 1. Initial static coverage on host connect before test execution
@@ -1068,7 +1068,7 @@ def x(val: int) -> int:
     const env = createFuzzEnv(fnDef);
 
     Config.override("nanofuzz.fuzzer.coverageScope", "project");
-    const measure = new PythonCoverageMeasure();
+    const measure = new CoverageMeasure();
 
     try {
       const runner = new PythonRunner(realPyPath, "x", env);

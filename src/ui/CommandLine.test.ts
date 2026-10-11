@@ -5,7 +5,7 @@ import JSON5 from "json5";
 import * as JSONN from "../Jsonn";
 import * as Config from "../Config";
 import { FuzzStopReason, FuzzTestResults } from "../fuzzer/Types";
-import { CodeCoverageMeasureStats } from "../fuzzer/measures/AbstractCoverageMeasure";
+import { CodeCoverageMeasureStats } from "../fuzzer/measures/CoverageMeasure";
 import { runCliInProcess } from "./CommandLine";
 
 async function runCli(

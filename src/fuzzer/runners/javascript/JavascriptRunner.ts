@@ -13,7 +13,7 @@ import { FuzzEnv } from "../../Types";
 import {
   isCoverageMapData,
   isRecordOfFileCoverageData,
-} from "../../measures/TypescriptCoverageMeasure";
+} from "../../measures/CoverageMeasure";
 import {
   CoverageMapData,
   Range,

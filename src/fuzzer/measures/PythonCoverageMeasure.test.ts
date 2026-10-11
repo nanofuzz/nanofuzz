@@ -4,8 +4,7 @@ import {
   FileCoverageData,
   createCoverageMap,
 } from "istanbul-lib-coverage";
-import { PythonCoverageMeasure } from "./PythonCoverageMeasure";
-import { CodeCoverageMeasureStats } from "./AbstractCoverageMeasure";
+import { CoverageMeasure, CodeCoverageMeasureStats } from "./CoverageMeasure";
 import {
   CoverageInfo,
   PythonCoverageMapData,
@@ -75,12 +74,13 @@ class StubPythonRunner extends PythonRunner {
  * so a report is a `FullCoverage`. Most specs below describe a single Python
  * file, and name it with the constructor's `file` argument.
  */
-class TestPythonCoverageMeasure extends PythonCoverageMeasure {
+class TestPythonCoverageMeasure extends CoverageMeasure {
   private readonly _info: CoverageInfo;
   private readonly _coverage: FullCoverage;
 
   public constructor(staticInfo: CoverageInfo, file: string = pyFileName) {
     super();
+    this._requireRunner = true;
     this._info = { ...staticInfo };
     this._coverage = { [file]: this._info };
     const stubRunner = new StubPythonRunner(this._coverage);
@@ -842,9 +842,17 @@ describe("fuzzer/analysis/measures/PythonCoverageMeasure:", () => {
     // The TypeScript measure binds to instrumented globals in `onAfterLoad`;
     // this one sources its data from the runner, so an unconnected measure
     // has nothing to report and says so rather than reporting zero coverage.
-    expect(() =>
-      new PythonCoverageMeasure().measure(inputAt(0), anyResult)
-    ).toThrowError("Coverage measure not connected to runner");
+    class UnconnectedPythonMeasure extends CoverageMeasure {
+      public constructor() {
+        super();
+        this._requireRunner = true;
+      } // fn: constructor
+    } // class: UnconnectedPythonMeasure
+
+    const measure = new UnconnectedPythonMeasure();
+    expect(() => measure.measure(inputAt(0), anyResult)).toThrowError(
+      "Coverage measure not connected to runner"
+    );
   });
 
   // telescoping property over a mutation lineage rather than three
@@ -949,11 +957,12 @@ describe("fuzzer/analysis/measures/PythonCoverageMeasure:", () => {
      * Drives `measure()` with a report describing more than one Python file,
      * the way the host reports a program under test that imports helpers.
      */
-    class MultiFileMeasure extends PythonCoverageMeasure {
+    class MultiFileMeasure extends CoverageMeasure {
       private readonly _coverage: FullCoverage = {};
 
       public constructor(statics: Record<string, CoverageInfo>) {
         super();
+        this._requireRunner = true;
         for (const [file, info] of Object.entries(statics)) {
           this._coverage[file] = { ...info };
         }
@@ -1276,7 +1285,7 @@ describe("fuzzer/analysis/measures/PythonCoverageMeasure:", () => {
   });
 
   const statsOf = async (
-    measure: PythonCoverageMeasure
+    measure: CoverageMeasure
   ): Promise<CodeCoverageMeasureStats> => {
     const results = resultsStub();
 
@@ -1304,11 +1313,12 @@ describe("fuzzer/analysis/measures/PythonCoverageMeasure:", () => {
      * structure (empty executable, functions, and branches arrays),
      * matching the runtime payload when coverageScope lacks "static".
      */
-    class DynamicCoverageMeasure extends PythonCoverageMeasure {
+    class DynamicCoverageMeasure extends CoverageMeasure {
       private readonly _coverage: PythonCoverageMapData = {};
 
       public constructor(initialFiles: string[] = []) {
         super();
+        this._requireRunner = true;
         for (const file of initialFiles) {
           this._coverage[file] = {
             executable: [],
@@ -1665,7 +1675,7 @@ describe("fuzzer/analysis/measures/PythonCoverageMeasure:", () => {
     it("onRunEnd reports empty stats for a run that measured nothing", async () => {
       // Not even connected to a runner: `measure` throws in that state, but
       // ending the run has to work anyway
-      const stats = await statsOf(new PythonCoverageMeasure());
+      const stats = await statsOf(new CoverageMeasure());
 
       expect(stats.counters).toEqual({
         functionsTotal: 0,

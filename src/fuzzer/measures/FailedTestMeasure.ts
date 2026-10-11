@@ -1,6 +1,6 @@
 import { FuzzTestResult, InputAndSource } from "../Types";
 import { AbstractMeasure, BaseMeasurement } from "./AbstractMeasure";
-import { AbstractCoverageMeasure } from "./AbstractCoverageMeasure";
+import { CoverageMeasure } from "./CoverageMeasure";
 import { AbstractRunner } from "../runners/AbstractRunner";
 
 /**
@@ -8,7 +8,7 @@ import { AbstractRunner } from "../runners/AbstractRunner";
  * we use code coverage, if available, to approximate distinct bugs.
  */
 export class FailedTestMeasure extends AbstractMeasure {
-  protected _covMeasure?: AbstractCoverageMeasure; // Code Coverage Measure
+  protected _covMeasure?: CoverageMeasure; // Code Coverage Measure
   protected _pseudoBugsData: Record<number, Record<string, number>> = {}; // Number of pseudo bugs by validator# and coverage map
   protected _pseudoBugsFound = 0; // total number of pseudo bugs found
 
@@ -17,7 +17,7 @@ export class FailedTestMeasure extends AbstractMeasure {
    *
    * @param `covMeasure` optional code coverage measurement object
    */
-  constructor(covMeasure?: AbstractCoverageMeasure) {
+  constructor(covMeasure?: CoverageMeasure) {
     super();
     this._covMeasure = covMeasure;
   } // fn: constructor

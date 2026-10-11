@@ -9,10 +9,10 @@ import {
   FileCoverage,
 } from "istanbul-lib-coverage";
 import {
-  TypescriptCoverageMeasure,
+  CoverageMeasure,
+  CodeCoverageMeasureStats,
   isCoverageMapData,
-} from "./TypescriptCoverageMeasure";
-import { CodeCoverageMeasureStats } from "./AbstractCoverageMeasure";
+} from "./CoverageMeasure";
 import {
   FuzzEnv,
   FuzzGeneratorStatsBase,
@@ -45,7 +45,7 @@ import {
  * Exposes just enough protected state to drive `onAfterCompile` and its
  * source map registration without running an entire fuzzing campaign.
  */
-class TestCoverageMeasure extends TypescriptCoverageMeasure {
+class TestCoverageMeasure extends CoverageMeasure {
   public mergeIntoGlobal(data: CoverageMapData): void {
     this._globalCoverageMap.merge(data);
   }

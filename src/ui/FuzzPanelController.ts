@@ -33,7 +33,7 @@ import {
   applyCoverageHeatmapToEditor,
   clearCoverageHeatmapFromEditor,
 } from "./CoverageHeatmap";
-import { CodeCoverageMeasureStats } from "../fuzzer/measures/AbstractCoverageMeasure";
+import { CodeCoverageMeasureStats } from "../fuzzer/measures/CoverageMeasure";
 import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
 import { AbstractProgram } from "../fuzzer/analysis/AbstractProgram";
 import * as CompilerFactory from "../fuzzer/compilers/CompilerFactory";

@@ -3,7 +3,7 @@ import { FunctionRef } from "./analysis/Types";
 import { isArgValueType } from "./analysis/Util";
 import { CompositeInputGenerator } from "./generators/CompositeInputGenerator";
 import { AbstractMeasure } from "./measures/AbstractMeasure";
-import { AbstractCoverageMeasure } from "./measures/AbstractCoverageMeasure";
+import { CoverageMeasure } from "./measures/CoverageMeasure";
 import { ExampleOracle } from "./oracles/ExampleOracle";
 import { ImplicitOracle } from "./oracles/ImplicitOracle";
 import { PropertyOracle } from "./oracles/PropertyOracle";
@@ -274,7 +274,7 @@ export class FuzzExecutor {
     if (coverageHits) {
       for (const hits of coverageHits) {
         this._measures.forEach((m) => {
-          if (m instanceof AbstractCoverageMeasure) {
+          if (m instanceof CoverageMeasure) {
             m.recordHits(hits);
           }
         });
