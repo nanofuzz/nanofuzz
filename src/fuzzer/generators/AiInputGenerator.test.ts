@@ -448,14 +448,16 @@ describe("src/fuzzer/generators/AiInputGenerator: ", () => {
       uncoveredInfo
     );
 
+    const relMathPath = path.relative(process.cwd(), mathPath);
+
     expect(promptText).toContain(
       "Code coverage achieved by prior tests indicates the following lines have NOT been fully executed:"
     );
     expect(promptText).toContain(
-      "Uncovered in `src/math.ts`: line(s) 10-12, 25"
+      `Uncovered in \`${relMathPath}\`: line(s) 10-12, 25`
     );
     expect(promptText).toContain(
-      "Partially covered in `src/math.ts`: line(s) 18"
+      `Partially covered in \`${relMathPath}\`: line(s) 18`
     );
     expect(promptText).toContain(
       "Generate inputs that specifically aim to execute these uncovered lines and branches"
