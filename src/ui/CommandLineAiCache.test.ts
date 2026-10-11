@@ -6,9 +6,11 @@ import * as zod from "zod/v4";
 import * as Config from "../Config";
 import { FuzzTestResults } from "../fuzzer/Types";
 import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
-import { AiInputGenerator } from "../fuzzer/generators/AiInputGenerator";
+import {
+  AiInputGenerator,
+  prompt,
+} from "../fuzzer/generators/AiInputGenerator";
 import { createCacheKey } from "../fuzzer/adapters/LlmCacheManager";
-import { prompt } from "../fuzzer/adapters/LlmAdapter";
 import { runCliInProcess } from "./CommandLine";
 
 async function runCli(

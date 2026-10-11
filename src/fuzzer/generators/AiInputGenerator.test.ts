@@ -1,10 +1,13 @@
 import * as path from "node:path";
+import * as zod from "zod/v4";
 import * as AiInputGenerator from "./AiInputGenerator";
 import { makeArgDef, getRandomArgDef } from "../analysis/TestUtils";
 import { ArgDef } from "../analysis/ArgDef";
-import { ArgTag, ArgValueType } from "../analysis/Types";
+import { ArgTag } from "../analysis/Types";
+import { LlmQueryResult } from "./Types";
 import { FunctionDef } from "../analysis/FunctionDef";
-import { LlmAdapter, prompt } from "../adapters/LlmAdapter";
+import { LlmAdapter } from "../adapters/LlmAdapter";
+import { prompt } from "./AiInputGenerator";
 import { ArgDefGenerator } from "../analysis/ArgDefGenerator";
 import { ArgDefValidator } from "../analysis/ArgDefValidator";
 import seedrandom from "seedrandom";
@@ -688,7 +691,7 @@ describe("src/fuzzer/generators/AiInputGenerator: ", () => {
     expect(gen.getRequestedCount()).toBe(30);
   });
 
-  it("passes request sequence number to llm.genInputs", async () => {
+  it("passes request sequence number to llm.query", async () => {
     class TestableAiInputGenerator extends AiInputGenerator.AiInputGenerator {
       public setLlm(llm: LlmAdapter): void {
         this._llm = llm;
@@ -702,31 +705,19 @@ describe("src/fuzzer/generators/AiInputGenerator: ", () => {
     }
 
     class MockLlmAdapter extends LlmAdapter {
-      public readonly seqNums: (number | undefined)[] = [];
+      public readonly prompts: string[] = [];
       public override get id(): string {
         return "test-model";
       }
-      public override async genInputs(
-        _fn: FunctionDef,
-        _schema: unknown,
-        _directives: string[],
-        _allInputs: Map<string, unknown>,
-        _moduleSrc: string,
-        _numRequested: number,
-        reqSeqNum?: number
-      ): Promise<{
-        programInputs: { [k: string]: ArgValueType }[];
-        stats?: {
-          tokensSent: number;
-          tokensSentCost: { amt: number; unit: string };
-          tokensReceived: number;
-          tokensReceivedCost: { amt: number; unit: string };
-        };
-        error?: { type: "discard" } | { type: "failure"; message: string };
-      }> {
-        this.seqNums.push(reqSeqNum);
+      public override async query(
+        promptText: string | string[],
+        _schema?: zod.ZodType
+      ): Promise<LlmQueryResult> {
+        this.prompts.push(
+          Array.isArray(promptText) ? promptText.join("\n") : promptText
+        );
         return {
-          programInputs: [],
+          text: JSON.stringify({ programInputs: [] }),
           stats: {
             tokensSent: 10,
             tokensSentCost: { amt: 0, unit: "USD" },
@@ -759,6 +750,7 @@ describe("src/fuzzer/generators/AiInputGenerator: ", () => {
     Config.override("nanofuzz.ai.provider", "gemini");
     Config.override("nanofuzz.ai.model", "gemini-flash");
     Config.override("nanofuzz.ai.apiKey", "test-key");
+    Config.override("nanofuzz.ai.backfeedPriorInputs", false);
 
     try {
       const mockLlm = new MockLlmAdapter();
@@ -766,14 +758,171 @@ describe("src/fuzzer/generators/AiInputGenerator: ", () => {
       gen.callGetMoreInputs();
       await new Promise((resolve) => setTimeout(resolve, 10));
 
-      expect(mockLlm.seqNums).toEqual([1]);
+      expect(mockLlm.prompts.length).toBe(1);
+      expect(mockLlm.prompts[0]).toContain(
+        "This is request number 1 for this testing session."
+      );
 
       gen.clearPending();
       gen["_exhausted"] = false;
       gen.callGetMoreInputs();
       await new Promise((resolve) => setTimeout(resolve, 10));
 
-      expect(mockLlm.seqNums).toEqual([1, 2]);
+      expect(mockLlm.prompts.length).toBe(2);
+      expect(mockLlm.prompts[1]).toContain(
+        "This is request number 2 for this testing session."
+      );
+    } finally {
+      Config.clearOverrides();
+    }
+  });
+
+  it("handles input parsing, discards, and LLM failures in AiInputGenerator", async () => {
+    class TestableAiInputGenerator extends AiInputGenerator.AiInputGenerator {
+      public setLlm(llm: LlmAdapter): void {
+        this._llm = llm;
+      }
+      public callGetMoreInputs(): void {
+        this._getMoreInputs();
+      }
+      public clearPending(): void {
+        this._callsPending = 0;
+      }
+      public getQueueLength(): number {
+        return this._inputQueue.length;
+      }
+      public getCallStats() {
+        return this._stats.calls;
+      }
+      public getInputStats() {
+        return this._stats.inputs;
+      }
+    }
+
+    class MockLlmAdapter extends LlmAdapter {
+      public responseText: string = JSON.stringify({ programInputs: [] });
+      public shouldFail: boolean = false;
+
+      public override get id(): string {
+        return "test-model";
+      }
+      public override async query(
+        _promptText: string | string[],
+        _schema?: zod.ZodType
+      ): Promise<LlmQueryResult> {
+        if (this.shouldFail) {
+          throw new Error("simulated model timeout");
+        }
+        return {
+          text: this.responseText,
+          stats: {
+            tokensSent: 12,
+            tokensSentCost: { amt: 0, unit: "USD" },
+            tokensReceived: 8,
+            tokensReceivedCost: { amt: 0, unit: "USD" },
+          },
+        };
+      }
+    }
+
+    const argDef = makeArgDef(
+      "test.ts",
+      "x",
+      0,
+      ArgTag.NUMBER,
+      ArgDef.getDefaultOptions(),
+      0
+    );
+    const fnDef = FunctionDef.fromFunctionRef({
+      module: "test.ts",
+      name: "testFn",
+      src: "function testFn(x: number) {}",
+      lang: "typescript",
+      startOffset: 0,
+      endOffset: 30,
+      isExported: true,
+      isVoid: true,
+      args: [],
+    });
+
+    Config.override("nanofuzz.ai.provider", "gemini");
+    Config.override("nanofuzz.ai.model", "gemini-flash");
+    Config.override("nanofuzz.ai.apiKey", "test-key");
+    Config.override("nanofuzz.ai.backfeedPriorInputs", false);
+
+    try {
+      // 1. Valid inputs parsed and queued
+      const gen1 = new TestableAiInputGenerator(
+        fnDef,
+        "seed1",
+        new Map([["x", argDef]]),
+        "function testFn(x: number) {}"
+      );
+      const mock1 = new MockLlmAdapter();
+      mock1.responseText = JSON.stringify({
+        programInputs: [{ x: 42 }, { x: 100 }],
+      });
+      gen1.setLlm(mock1);
+      gen1.callGetMoreInputs();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      expect(gen1.getQueueLength()).toBe(2);
+      expect(gen1.getCallStats().valid).toBe(1);
+      expect(gen1.getInputStats().gen).toBe(2);
+
+      // 2. Discard malformed JSON
+      const gen2 = new TestableAiInputGenerator(
+        fnDef,
+        "seed2",
+        new Map([["x", argDef]]),
+        "function testFn(x: number) {}"
+      );
+      const mock2 = new MockLlmAdapter();
+      mock2.responseText = "NOT VALID JSON";
+      gen2.setLlm(mock2);
+      gen2.callGetMoreInputs();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      expect(gen2.getQueueLength()).toBe(0);
+      expect(gen2.getCallStats().invalid).toBe(1);
+      expect(gen2.getCallStats().history[0]).toEqual({ discard: true });
+
+      // 3. Discard invalid schema shape
+      const gen3 = new TestableAiInputGenerator(
+        fnDef,
+        "seed3",
+        new Map([["x", argDef]]),
+        "function testFn(x: number) {}"
+      );
+      const mock3 = new MockLlmAdapter();
+      mock3.responseText = JSON.stringify({ unexpectedKey: 123 });
+      gen3.setLlm(mock3);
+      gen3.callGetMoreInputs();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      expect(gen3.getQueueLength()).toBe(0);
+      expect(gen3.getCallStats().invalid).toBe(1);
+      expect(gen3.getCallStats().history[0]).toEqual({ discard: true });
+
+      // 4. Handle query rejection / failure
+      const gen4 = new TestableAiInputGenerator(
+        fnDef,
+        "seed4",
+        new Map([["x", argDef]]),
+        "function testFn(x: number) {}"
+      );
+      const mock4 = new MockLlmAdapter();
+      mock4.shouldFail = true;
+      gen4.setLlm(mock4);
+      gen4.callGetMoreInputs();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      expect(gen4.getQueueLength()).toBe(0);
+      expect(gen4.getCallStats().failed).toBe(1);
+      expect(gen4.getCallStats().history[0]).toEqual({
+        failure: true,
+        message: "simulated model timeout",
+      });
     } finally {
       Config.clearOverrides();
     }

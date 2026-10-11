@@ -1,3 +1,4 @@
+import * as path from "node:path";
 import { AbstractInputGenerator } from "./AbstractInputGenerator";
 import {
   ArgTag,
@@ -11,15 +12,24 @@ import { LlmAdapter } from "../adapters/LlmAdapter";
 import { ArgDef } from "../analysis/ArgDef";
 import { FunctionDef } from "../analysis/FunctionDef";
 import { FuzzTestResults, InputAndSource } from "../Types";
-import { NextableStatus } from "./Types";
+import { InputGeneratorStatsAi, LlmQueryResult, NextableStatus } from "./Types";
 import { ArgDefValidator } from "../analysis/ArgDefValidator";
 import { ArgDefTokenEstimator } from "../analysis/ArgDefTokenEstimator";
 import * as zod from "zod/v4";
-import { InputGeneratorStatsAi } from "./Types";
 import { isError } from "../Util";
 import { isBufferOrUint8Array } from "../../Util";
 import * as Config from "../../Config";
-import { AbstractCoverageMeasure } from "../measures/AbstractCoverageMeasure";
+import {
+  AbstractCoverageMeasure,
+  UncoveredCoverageInfo,
+  extractUncoveredLines,
+  formatLineRanges,
+} from "../measures/AbstractCoverageMeasure";
+import {
+  CoverageFrontierSampler,
+  SampledFrontierTarget,
+  formatFrontierContext,
+} from "../analysis/CoverageFrontierSampler";
 
 /**
  * Generates new inputs using a large language model
@@ -36,6 +46,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
   protected _tokensPerInput: number; // Estimated tokens per input (calculated onRunStart)
   protected _requestedInputCount; // Number of inputs to request per LLM call (calculated per request)
   protected _covMeasure?: AbstractCoverageMeasure; // Code coverage measure provider
+  protected _targetAttempts = new Map<string, number>(); // Historical attempts per target function to decay weight
 
   public constructor(
     fn: FunctionDef,
@@ -139,6 +150,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
    */
   public onRunStart(active: boolean): void {
     this._exhausted = false;
+    this._targetAttempts.clear();
     this._tokensPerInput = this._estimateTokensPerInput();
     this._requestedInputCount = this._getRequestedInputCount();
 
@@ -153,7 +165,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
 
     // Create new back-end if configured but not yet loaded
     if (active && !this._llm && LlmAdapter.isConfigured()) {
-      this._llm = new LlmAdapter(this._prng);
+      this._llm = new LlmAdapter(this._prng, prompt.system());
       this._inputQueue = []; // empty the queue to avoid user confusion
     }
 
@@ -270,29 +282,49 @@ export class AiInputGenerator extends AbstractInputGenerator {
         "nanofuzz.ai.coverageGuidance",
         true
       );
-      const uncoveredPromise =
+      const coveragePromise =
         this._covMeasure && enableCoverageGuidance
-          ? this._covMeasure.getUncoveredLines().catch(() => undefined)
+          ? this._covMeasure.getCoverageStats().catch(() => undefined)
           : Promise.resolve(undefined);
 
       // Fetch inputs from the llm
-      uncoveredPromise
-        .then((uncoveredInfo) => {
+      coveragePromise
+        .then((covStats) => {
           if (!this._llm) {
-            return { programInputs: [] };
+            return undefined;
           }
-          return this._llm.genInputs(
+          let uncoveredInfo: UncoveredCoverageInfo | undefined = undefined;
+          let frontierTarget: SampledFrontierTarget | undefined = undefined;
+
+          if (covStats) {
+            uncoveredInfo = extractUncoveredLines(covStats);
+            frontierTarget = CoverageFrontierSampler.sample({
+              targetModule: this._fn.getModule(),
+              covStats,
+              uncoveredInfo,
+              targetAttempts: this._targetAttempts,
+              prng: this._prng,
+            });
+          }
+
+          const promptText = prompt.genInputs(
             this._fn,
-            schema,
             directives,
             this._allInputs,
             this._moduleSrc,
             numRequested,
             this._stats.calls.sent,
-            uncoveredInfo
+            uncoveredInfo,
+            frontierTarget
           );
+
+          return this._llm.query(promptText, schema);
         })
-        .then((inputs) => {
+        .then((inputs: LlmQueryResult | undefined) => {
+          if (!inputs) {
+            return;
+          }
+
           // Update tokens received stats
           if (inputs.stats) {
             this._stats.tokens.received += inputs.stats.tokensReceived;
@@ -323,31 +355,40 @@ export class AiInputGenerator extends AbstractInputGenerator {
             }
           }
 
-          // Handle error cases
-          switch (inputs.error?.type) {
-            case undefined:
-              this._stats.calls.valid++;
-              this._stats.calls.history.push({ success: true });
-              break;
-            case "discard":
-              this._stats.calls.invalid++;
-              this._stats.calls.history.push({ discard: true });
-              break;
-            case "failure":
-              this._stats.calls.failed++;
-              this._stats.calls.history.push({
-                failure: true,
-                message: inputs.error.message,
-              });
-              this._exhausted = true;
-              break;
+          let parsed: { programInputs: { [k: string]: ArgValueType }[] };
+          try {
+            parsed = JSONN.parse(inputs.text);
+          } catch {
+            this._stats.calls.invalid++;
+            this._stats.calls.history.push({ discard: true });
+            return;
           }
+
+          // Sanity check llm output
+          if (
+            !(
+              typeof parsed === "object" &&
+              parsed !== null &&
+              "programInputs" in parsed &&
+              Array.isArray(parsed.programInputs) &&
+              parsed.programInputs.every(
+                (e) => typeof e === "object" && e !== null && !Array.isArray(e)
+              )
+            )
+          ) {
+            this._stats.calls.invalid++;
+            this._stats.calls.history.push({ discard: true });
+            return;
+          }
+
+          this._stats.calls.valid++;
+          this._stats.calls.history.push({ success: true });
 
           // Process the inputs
           const specMap = new Map<string, ArgDef>(
             this._specs.map((arg) => [arg.getName(), arg])
           );
-          inputs.programInputs.forEach((input) => {
+          parsed.programInputs.forEach((input) => {
             this._stats.inputs.gen++;
 
             // Decode the input
@@ -398,7 +439,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
             })
           );
 
-          if (this._inputQueue.length === 0 && !inputs.error) {
+          if (this._inputQueue.length === 0) {
             this._exhausted = true;
           }
         })
@@ -851,3 +892,114 @@ export const NANOFUZZ_MISSING_PROPERTY =
 export const NANOFUZZ_TRUE = "___NANOFUZZ____6158195231___TRUE___";
 export const NANOFUZZ_FALSE = "___NANOFUZZ____6158195231___FALSE___";
 export const NANOFUZZ_BIGINT = "___NANOFUZZ____6158195231___BIGINT___";
+
+// -------------------------------------------------------------------------- //
+// Prompts
+// -------------------------------------------------------------------------- //
+
+/**
+ * Parameterized prompts for the AI Input Generator.
+ */
+export const prompt = {
+  system: (): string => {
+    return `You are an experienced software engineer who writes efficient tests that thoroughly evaluate the correctness of programs. You are aware of the important differences between a programming language's various equality operators.`;
+  },
+  genInputs: (
+    fn: FunctionDef,
+    directives: string[],
+    allInputs: Map<string, unknown>,
+    moduleSrc: string,
+    numRequested: number,
+    reqSeqNum: number = 1,
+    uncoveredInfo?: UncoveredCoverageInfo,
+    frontierTarget?: SampledFrontierTarget
+  ): string => {
+    const fnRef = fn.getRef();
+    const spec = (fn.getCmt() ?? "").replaceAll("```", "\\`\\`\\`");
+    const fnSrc = fnRef.src.replaceAll("```", "\\`\\`\\`");
+    const escapedModuleSrc = moduleSrc.replaceAll("```", "\\`\\`\\`");
+
+    const backfeed = Config.get<boolean>(
+      "nanofuzz.ai.backfeedPriorInputs",
+      true
+    );
+    let inputs = backfeed ? Array.from(allInputs.keys()) : [];
+    // draw a line at 10k inputs
+    if (inputs.length > 10000) {
+      inputs = inputs.slice(-10000);
+    }
+
+    const moduleContext = escapedModuleSrc
+      ? `The full module source code containing "${fnRef.name}":
+\`\`\`${fnRef.lang}
+${escapedModuleSrc}
+\`\`\`
+
+`
+      : "";
+
+    let coverageContext = "";
+    if (uncoveredInfo) {
+      const parts: string[] = [];
+      const uncoveredEntries = Object.entries(
+        uncoveredInfo.uncoveredLinesByFile ?? {}
+      ).filter(([, lines]) => lines.length > 0);
+      const partiallyEntries = Object.entries(
+        uncoveredInfo.partiallyCoveredLinesByFile ?? {}
+      ).filter(([, lines]) => lines.length > 0);
+
+      if (uncoveredEntries.length > 0 || partiallyEntries.length > 0) {
+        parts.push(
+          "Code coverage achieved by prior tests indicates the following lines have NOT been fully executed:"
+        );
+        for (const [filePath, lines] of uncoveredEntries) {
+          const displayPath = path.isAbsolute(filePath)
+            ? path.relative(process.cwd(), filePath) || filePath
+            : filePath;
+          parts.push(
+            ` - Uncovered in \`${displayPath}\`: line(s) ${formatLineRanges(lines)}`
+          );
+        }
+        for (const [filePath, lines] of partiallyEntries) {
+          const displayPath = path.isAbsolute(filePath)
+            ? path.relative(process.cwd(), filePath) || filePath
+            : filePath;
+          parts.push(
+            ` - Partially covered in \`${displayPath}\`: line(s) ${formatLineRanges(lines)}`
+          );
+        }
+        if (frontierTarget) {
+          parts.push("\n" + formatFrontierContext(frontierTarget, fnRef.lang));
+        }
+        parts.push(
+          "Generate inputs that specifically aim to execute these uncovered lines and branches to achieve higher test coverage.\n"
+        );
+        coverageContext = parts.join("\n") + "\n";
+      }
+    }
+
+    return `To evaluate whether the following ${fnRef.lang} program "${fnRef.name}" behaves correctly relative to its specification, generate ${numRequested} program inputs that are important to determine whether the program satisfies its specification. Each program input includes all the arguments needed to call the program.
+
+Format your response as a single minified JSON object without unnecessary whitespace, newlines, or formatting indentation.
+
+The specification for the "${fnRef.name}" program:
+\`\`\`
+${spec ? spec : `(no specification was found. try to infer the spec from the program below)`}
+\`\`\`
+
+The "${fnRef.name}" program:
+\`\`\`${fnRef.lang}
+${fnSrc}
+\`\`\`
+
+${moduleContext}${directives.length ? `Important details about the program's inputs:\n${directives.map((d) => ` - ${d}\n`).join("")}` : ""} 
+
+${coverageContext}${
+      backfeed
+        ? inputs.length
+          ? `The following inputs were previously generated and tested, so don't generate these again:\n${inputs.map((u) => ` - ${u}\n`).join("")}`
+          : ""
+        : `This is request number ${reqSeqNum ?? 1} for this testing session. Don't repeat inputs previously generated in this session.\n`
+    }`;
+  },
+};

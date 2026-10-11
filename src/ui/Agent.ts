@@ -787,14 +787,14 @@ export async function shrinkCoveringResults(
   const maxSteps = 30;
 
   try {
-    for (const cand of candidates) {
+    for (const candidate of candidates) {
       if (
-        cand.category === "ok" &&
-        cand.inputGenerated?.value &&
-        cand.inputGenerated.value.length > 0
+        candidate.category === "ok" &&
+        candidate.inputGenerated?.value &&
+        candidate.inputGenerated.value.length > 0
       ) {
-        let currentValues = structuredClone(cand.inputGenerated.value);
-        let currentOutput = cand.output;
+        let currentValues = structuredClone(candidate.inputGenerated.value);
+        let currentOutput = candidate.output;
         let shrinkSteps = 0;
 
         for (let step = 0; step < maxSteps; step++) {
@@ -839,18 +839,18 @@ export async function shrinkCoveringResults(
         }
 
         shrunkenResults.push({
-          ...cand,
+          ...candidate,
           input: currentValues.map((w, idx) => ({
             name: argDefs[idx] ? argDefs[idx].getName() : String(idx),
             offset: idx,
             value: cast<ArgValueType>(w.value),
-            origin: cand.input[idx]?.origin ?? { type: "user" },
+            origin: candidate.input[idx]?.origin ?? { type: "user" },
           })),
           output: currentOutput,
           shrinkStep: shrinkSteps,
         });
       } else {
-        shrunkenResults.push(cand);
+        shrunkenResults.push(candidate);
       }
     }
   } finally {
