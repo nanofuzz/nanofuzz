@@ -8,6 +8,7 @@ import {
 } from "istanbul-lib-coverage";
 import { InputAndSource } from "../Types";
 import { normalizePathForKey } from "../Util";
+import { RunnerCoverage } from "../runners/AbstractRunner";
 import { AbstractMeasure, BaseMeasurement } from "./AbstractMeasure";
 
 /**
@@ -52,7 +53,7 @@ export abstract class AbstractCoverageMeasure extends AbstractMeasure {
    *
    * @param coverageData raw coverage data produced by the runner
    */
-  public abstract recordHits(coverageData: unknown): void;
+  public abstract recordHits(coverageData: RunnerCoverage | unknown): void;
 
   protected static file_snapshot(data: FileCoverageData): FileCoverageData {
     // A `FileCoverage` instance is assignable to `FileCoverageData`, and

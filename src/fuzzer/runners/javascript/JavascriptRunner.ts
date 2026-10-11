@@ -41,7 +41,7 @@ export class JavascriptRunner extends AbstractRunner {
   protected _host: NodeHost | undefined = undefined;
   protected _seq = 0;
   protected _coverageInfo: CoverageMapData | undefined = undefined;
-  protected _lastRunCoverage?: Record<string, FileCoverageData>;
+  protected _lastRunCoverage?: CoverageMapData;
   protected _coverageEnabled = true;
   protected _coverageCallback?: (covData: unknown) => void;
   protected _overrides: RunnerOverrides;
@@ -287,9 +287,7 @@ export class JavascriptRunner extends AbstractRunner {
   /**
    * Gets the single most recent execution's coverage data.
    */
-  public override get lastRunCoverage():
-    | Record<string, FileCoverageData>
-    | undefined {
+  public override get lastRunCoverage(): CoverageMapData | undefined {
     return this._lastRunCoverage;
   } // get: lastRunCoverage
 

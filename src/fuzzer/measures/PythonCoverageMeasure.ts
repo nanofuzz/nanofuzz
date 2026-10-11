@@ -13,7 +13,12 @@ import {
   FuzzTestResults,
   InputAndSource,
 } from "../Types";
-import { FullCoverage, PythonRunner } from "../runners/python/PythonRunner";
+import {
+  PythonCoverageMapData,
+  PythonFileCoverageData,
+  PythonRunner,
+  isPythonCoverageMapData,
+} from "../runners/python/PythonRunner";
 import { AbstractRunner, Arc } from "../runners/AbstractRunner";
 import { normalizePathForKey } from "../Util";
 import {
@@ -62,7 +67,7 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
           this.recordHits(r.coverageInfo);
         }
         r.onCoverage((covInfo) => {
-          if (isFullCoverage(covInfo)) {
+          if (isPythonCoverageMapData(covInfo)) {
             this.recordHits(covInfo);
           }
         });
@@ -89,7 +94,7 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
    * @param covinfo Python coverage info
    */
   public override recordHits(covinfo: unknown): void {
-    if (!isFullCoverage(covinfo)) return;
+    if (!isPythonCoverageMapData(covinfo)) return;
     for (const [filename, fileCov] of Object.entries(covinfo)) {
       let index = this._fileIndices.get(filename);
       if (!index) {
@@ -288,7 +293,9 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
    * @param `info` coverage reported by the runner
    * @returns equivalent istanbul coverage data
    */
-  protected _toCoverageMapData(covinfo: FullCoverage): CoverageMapData {
+  protected _toCoverageMapData(
+    covinfo: PythonCoverageMapData
+  ): CoverageMapData {
     const ret: CoverageMapData = {};
     for (const [filename, fileCov] of Object.entries(covinfo)) {
       let index = this._fileIndices.get(filename);
@@ -449,16 +456,6 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
 } // class: PythonCoverageMeasure
 
 /**
- * Checks if the given value is a FullCoverage object.
- *
- * @param val The value to check.
- * @returns True if the value is a FullCoverage object, false otherwise.
- */
-function isFullCoverage(val: unknown): val is FullCoverage {
-  return typeof val === "object" && val !== null;
-} // fn: isFullCoverage
-
-/**
  * End column for a synthesized statement location. coverage.py reports
  * coverage by line, not by column, so each executable line is treated as a
  * statement spanning the entire line. Consumers (e.g., the coverage heatmap)
@@ -487,7 +484,7 @@ function wholeLine(line: number): Range {
  */
 function buildFileIndex(
   filename: string,
-  fileCov: import("../runners/AbstractRunner").CoverageInfo
+  fileCov: PythonFileCoverageData
 ): FileIndex {
   const statementMap: FileCoverageData["statementMap"] = {};
   const s: FileCoverageData["s"] = {};
