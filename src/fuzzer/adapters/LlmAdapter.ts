@@ -398,6 +398,22 @@ export class LlmAdapter {
   } // fn: getMaxOutputTokens
 
   /**
+   * Returns the context window size supported by the configured model,
+   * or a default fallback if unlisted or unconfigured.
+   */
+  public static getContextWindow(): number {
+    const cfg = LlmAdapter.getConfig();
+    if (cfg.provider === "copilot") {
+      return 128000;
+    }
+    const contextWindow = nodellm.ModelRegistry.getContextWindow(
+      cfg.modelName,
+      cfg.provider
+    );
+    return contextWindow ?? DEFAULT_CONTEXT_WINDOW;
+  } // fn: getContextWindow
+
+  /**
    * Gets the key elements of the LLM configuration
    *
    * @returns provider, modelName, and apiKey
@@ -463,3 +479,9 @@ export class LlmAdapter {
  * is not specified in the model registry or when no model is configured.
  */
 export const DEFAULT_MAX_OUTPUT_TOKENS = 8192;
+
+/**
+ * Fallback context window size used when a model's context window capacity
+ * is not specified in the model registry or when no model is configured.
+ */
+export const DEFAULT_CONTEXT_WINDOW = 32768;

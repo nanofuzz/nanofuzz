@@ -379,7 +379,7 @@
             "order": 60,
             "type": "boolean",
             "default": false,
-            "description": "If enabled, the model will be provided a list of prior inputs (up to 10,000) with a request not to re-generate those inputs. This includes all inputs produced by all generators. Enabling this might improve the inputs produced by the model at the cost of increased tokens. However, current models will still often produce duplicate inputs.",
+            "description": "If enabled, the model will be provided a list of prior inputs with a request not to re-generate those inputs. Includes inputs produced by all generators. Prioritizes interesting inputs. Enabling this can improve input diversity at the cost of increased tokens.",
             "tags": [
               "experimental"
             ]

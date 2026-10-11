@@ -30,6 +30,7 @@ import {
   SampledFrontierTarget,
   formatFrontierContext,
 } from "../analysis/CoverageFrontierSampler";
+import { Leaderboard } from "./Leaderboard";
 
 /**
  * Generates new inputs using a large language model
@@ -41,25 +42,28 @@ export class AiInputGenerator extends AbstractInputGenerator {
   protected _llm?: LlmAdapter; // Back-end AI model
   protected _callsPending = 0; // Number of calls to AI model pending
   protected _stats = _initStats(); // Stats about inputs generated
-  protected _allInputs; // Running list of all generated inputs
+  protected _allInputs: Map<string, unknown>; // Running list of all generated inputs
   protected _exhausted = false; // Set to true when the model produces no new valid inputs or encounters an error
   protected _tokensPerInput: number; // Estimated tokens per input (calculated onRunStart)
   protected _requestedInputCount; // Number of inputs to request per LLM call (calculated per request)
   protected _covMeasure?: AbstractCoverageMeasure; // Code coverage measure provider
   protected _targetAttempts: Record<string, number> = {}; // Historical attempts per target function to decay weight
+  protected _leaderboard?: Leaderboard<InputAndSource>; // Running list of interesting inputs
 
   public constructor(
     fn: FunctionDef,
     rngSeed: string | undefined,
     allInputs: Map<string, unknown>,
     moduleSrc: string,
-    covMeasure?: AbstractCoverageMeasure
+    covMeasure?: AbstractCoverageMeasure,
+    leaderboard?: Leaderboard<InputAndSource>
   ) {
     super(fn.getArgDefs(), rngSeed);
     this._fn = fn;
     this._allInputs = allInputs;
     this._moduleSrc = moduleSrc;
     this._covMeasure = covMeasure;
+    this._leaderboard = leaderboard;
     this._tokensPerInput = this._estimateTokensPerInput();
     this._requestedInputCount = this._getRequestedInputCount();
   } // fn: constructor
@@ -314,7 +318,8 @@ export class AiInputGenerator extends AbstractInputGenerator {
             numRequested,
             this._stats.calls.sent,
             uncoveredInfo,
-            frontierTarget
+            frontierTarget,
+            this._leaderboard
           );
 
           return this._llm.query(promptText, schema);
@@ -892,6 +897,11 @@ export const NANOFUZZ_TRUE = "___NANOFUZZ____6158195231___TRUE___";
 export const NANOFUZZ_FALSE = "___NANOFUZZ____6158195231___FALSE___";
 export const NANOFUZZ_BIGINT = "___NANOFUZZ____6158195231___BIGINT___";
 
+/**
+ * Maximum token budget allocated for backfeeding prior and interesting inputs to the AI prompt.
+ */
+export const DEFAULT_MAX_BACKFEED_TOKENS = 4000;
+
 // -------------------------------------------------------------------------- //
 // Prompts
 // -------------------------------------------------------------------------- //
@@ -911,7 +921,9 @@ export const prompt = {
     numRequested: number,
     reqSeqNum: number = 1,
     uncoveredInfo?: UncoveredCoverageInfo,
-    frontierTarget?: SampledFrontierTarget
+    frontierTarget?: SampledFrontierTarget,
+    leaderboard?: Leaderboard<InputAndSource>,
+    maxBackfeedTokens?: number
   ): string => {
     const fnRef = fn.getRef();
     const spec = (fn.getCmt() ?? "").replaceAll("```", "\\`\\`\\`");
@@ -922,11 +934,6 @@ export const prompt = {
       "nanofuzz.ai.backfeedPriorInputs",
       true
     );
-    let inputs = backfeed ? Array.from(allInputs.keys()) : [];
-    // draw a line at 10k inputs
-    if (inputs.length > 10000) {
-      inputs = inputs.slice(-10000);
-    }
 
     const moduleContext = escapedModuleSrc
       ? `The full module source code containing "${fnRef.name}":
@@ -977,6 +984,122 @@ ${escapedModuleSrc}
       }
     }
 
+    let backfeedSection = "";
+    if (backfeed) {
+      const interestingInputs: string[] = [];
+      const interestingSet = new Set<string>();
+
+      if (leaderboard) {
+        const leaders = leaderboard
+          .getLeaders()
+          .sort((a, b) => b.score - a.score);
+        for (const item of leaders) {
+          const repr = ValueMapper.toLang(
+            fn.getLang(),
+            item.leader.value.map((v) => v.value)
+          );
+          if (!interestingSet.has(repr)) {
+            interestingSet.add(repr);
+            interestingInputs.push(repr);
+          }
+        }
+      }
+
+      const otherInputs: string[] = [];
+      for (const key of allInputs.keys()) {
+        if (!interestingSet.has(key)) {
+          otherInputs.push(key);
+        }
+      }
+
+      if (interestingInputs.length > 0 || otherInputs.length > 0) {
+        let budget = maxBackfeedTokens;
+        if (budget === undefined) {
+          const contextWindow = LlmAdapter.getContextWindow();
+          const tokensPerInput = ArgDefTokenEstimator.estimateTokensPerInput(
+            fn.getArgDefs()
+          );
+          const estimatedOutputTokens = Math.max(
+            Math.ceil(numRequested * tokensPerInput),
+            500
+          );
+          const baseChars =
+            spec.length +
+            fnSrc.length +
+            escapedModuleSrc.length +
+            coverageContext.length +
+            500;
+          const estimatedBaseTokens = Math.ceil(baseChars / 3.5);
+          const availableTokens =
+            contextWindow - estimatedBaseTokens - estimatedOutputTokens - 1000;
+          budget = Math.max(
+            0,
+            Math.min(availableTokens, DEFAULT_MAX_BACKFEED_TOKENS)
+          );
+        }
+
+        const estimateInputTokens = (repr: string): number => {
+          return Math.max(1, Math.ceil((repr.length + 2) / 3.5));
+        };
+
+        let interestingBudget = budget;
+        if (interestingInputs.length > 0 && otherInputs.length > 0) {
+          interestingBudget = Math.floor(budget * 0.5);
+        } else if (otherInputs.length > 0) {
+          interestingBudget = 0;
+        }
+
+        const packedInteresting: string[] = [];
+        let interestingTokensUsed = 0;
+        for (const item of interestingInputs) {
+          const cost = estimateInputTokens(item);
+          if (
+            interestingTokensUsed + cost > interestingBudget &&
+            packedInteresting.length > 0
+          ) {
+            break;
+          }
+          packedInteresting.push(item);
+          interestingTokensUsed += cost;
+        }
+
+        const otherBudget = Math.max(0, budget - interestingTokensUsed);
+        const packedOtherReversed: string[] = [];
+        let otherTokensUsed = 0;
+        for (let i = otherInputs.length - 1; i >= 0; i--) {
+          const item = otherInputs[i];
+          const cost = estimateInputTokens(item);
+          if (
+            otherTokensUsed + cost > otherBudget &&
+            packedOtherReversed.length > 0
+          ) {
+            break;
+          }
+          packedOtherReversed.push(item);
+          otherTokensUsed += cost;
+        }
+        const packedOther = packedOtherReversed.reverse();
+
+        const sections: string[] = [];
+        if (packedInteresting.length > 0) {
+          sections.push(
+            `Prior inputs that covered distinct branches or triggered errors (do not repeat):\n[${packedInteresting.join(", ")}]`
+          );
+        }
+        if (packedOther.length > 0) {
+          sections.push(
+            `The following inputs were previously generated and tested, so don't generate these again:\n[${packedOther.join(", ")}]`
+          );
+        }
+
+        if (sections.length > 0) {
+          backfeedSection = sections.join("\n\n") + "\n";
+        }
+      }
+    } else {
+      backfeedSection = `This is request number ${reqSeqNum ?? 1} for this testing session. Don't repeat inputs previously generated in this session.\n`;
+    }
+
     return `To evaluate whether the following ${fnRef.lang} program "${fnRef.name}" behaves correctly relative to its specification, generate ${numRequested} program inputs that are important to determine whether the program satisfies its specification. Each program input includes all the arguments needed to call the program.
 
 Format your response as a single minified JSON object without unnecessary whitespace, newlines, or formatting indentation.
@@ -993,12 +1116,6 @@ ${fnSrc}
 
 ${moduleContext}${directives.length ? `Important details about the program's inputs:\n${directives.map((d) => ` - ${d}\n`).join("")}` : ""} 
 
-${coverageContext}${
-      backfeed
-        ? inputs.length
-          ? `The following inputs were previously generated and tested, so don't generate these again:\n${inputs.map((u) => ` - ${u}\n`).join("")}`
-          : ""
-        : `This is request number ${reqSeqNum ?? 1} for this testing session. Don't repeat inputs previously generated in this session.\n`
-    }`;
+${coverageContext}${backfeedSection}`;
   },
 };

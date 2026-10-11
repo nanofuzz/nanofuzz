@@ -54,7 +54,14 @@ export function InputGeneratorFactory(
       getFuzzerFocus,
       genStats?.MutationInputGenerator
     ),
-    new AiInputGenerator(fn, rngSeed, allInputs, moduleSrc, covMeasure),
+    new AiInputGenerator(
+      fn,
+      rngSeed,
+      allInputs,
+      moduleSrc,
+      covMeasure,
+      leaderboard
+    ),
     new UserInputGenerator(fn, rngSeed),
   ];
 } // fn: InputGeneratorFactory

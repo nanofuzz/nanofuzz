@@ -7,6 +7,8 @@ import { ArgTag } from "../analysis/Types";
 import { LlmQueryResult } from "./Types";
 import { FunctionDef } from "../analysis/FunctionDef";
 import { LlmAdapter } from "../adapters/LlmAdapter";
+import { Leaderboard } from "./Leaderboard";
+import { InputAndSource } from "../Types";
 import { prompt } from "./AiInputGenerator";
 import { ArgDefGenerator } from "../analysis/ArgDefGenerator";
 import { ArgDefValidator } from "../analysis/ArgDefValidator";
@@ -284,6 +286,130 @@ describe("src/fuzzer/generators/AiInputGenerator: ", () => {
       expect(promptEmptyInputs).not.toContain(
         "The following inputs were previously generated and tested"
       );
+    } finally {
+      Config.clearOverrides();
+    }
+  });
+
+  it("prompt.genInputs formats inputs in compact array format and separates interesting from other inputs", () => {
+    const fnDef = FunctionDef.fromFunctionRef({
+      module: "test.ts",
+      name: "testFn",
+      src: "function testFn(x: number) {}",
+      lang: "typescript",
+      startOffset: 0,
+      endOffset: 30,
+      isExported: true,
+      isVoid: true,
+      args: [],
+    });
+
+    const leaderboard = new Leaderboard<InputAndSource>();
+    const interestingInput: InputAndSource = {
+      tick: 0,
+      value: [{ tag: "ArgValueTypeWrapped", value: 99 }],
+      source: { type: "user" },
+    };
+    leaderboard.postScore(interestingInput, 5.0);
+
+    const allInputs = new Map<string, unknown>([
+      ["[99]", true],
+      ["[1]", true],
+      ["[2]", true],
+    ]);
+
+    Config.override("nanofuzz.ai.backfeedPriorInputs", true);
+    try {
+      const promptText = prompt.genInputs(
+        fnDef,
+        [],
+        allInputs,
+        "",
+        25,
+        1,
+        undefined,
+        undefined,
+        leaderboard
+      );
+
+      // Distinct interesting section in compact array format
+      expect(promptText).toContain(
+        "Prior inputs that covered distinct branches or triggered errors (do not repeat):\n[[99]]"
+      );
+      // Other section without repeating [99] in compact array format
+      expect(promptText).toContain(
+        "The following inputs were previously generated and tested, so don't generate these again:\n[[1], [2]]"
+      );
+    } finally {
+      Config.clearOverrides();
+    }
+  });
+
+  it("prompt.genInputs respects maxBackfeedTokens budget and prioritizes interesting inputs with rolling tail for other inputs", () => {
+    const fnDef = FunctionDef.fromFunctionRef({
+      module: "test.ts",
+      name: "testFn",
+      src: "function testFn(x: number) {}",
+      lang: "typescript",
+      startOffset: 0,
+      endOffset: 30,
+      isExported: true,
+      isVoid: true,
+      args: [],
+    });
+
+    const leaderboard = new Leaderboard<InputAndSource>();
+    const leader1: InputAndSource = {
+      tick: 0,
+      value: [{ tag: "ArgValueTypeWrapped", value: 100 }],
+      source: { type: "user" },
+    };
+    const leader2: InputAndSource = {
+      tick: 1,
+      value: [{ tag: "ArgValueTypeWrapped", value: 200 }],
+      source: { type: "user" },
+    };
+    leaderboard.postScore(leader1, 10.0);
+    leaderboard.postScore(leader2, 5.0);
+
+    const allInputs = new Map<string, unknown>([
+      ["[100]", true],
+      ["[200]", true],
+      ["[10]", true],
+      ["[20]", true],
+      ["[30]", true],
+      ["[40]", true],
+      ["[50]", true],
+    ]);
+
+    Config.override("nanofuzz.ai.backfeedPriorInputs", true);
+    try {
+      // Allocate a budget that allows roughly 2-3 inputs total (~12 tokens)
+      const promptText = prompt.genInputs(
+        fnDef,
+        [],
+        allInputs,
+        "",
+        25,
+        1,
+        undefined,
+        undefined,
+        leaderboard,
+        12
+      );
+
+      // Interesting section receives highest-scoring leader [100]
+      expect(promptText).toContain(
+        "Prior inputs that covered distinct branches or triggered errors"
+      );
+      expect(promptText).toContain("[100]");
+
+      // Other section takes the tail of otherInputs (most recent: [50]), omitting older ones like [10]
+      expect(promptText).toContain(
+        "The following inputs were previously generated and tested"
+      );
+      expect(promptText).toContain("[50]");
+      expect(promptText).not.toContain("[10]");
     } finally {
       Config.clearOverrides();
     }
