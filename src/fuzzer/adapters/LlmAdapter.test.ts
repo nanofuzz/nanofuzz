@@ -120,4 +120,23 @@ describe("src/fuzzer/adapters/LlmAdapter:", () => {
     const chatOptions = Reflect.get(chat, "options");
     expect(Reflect.get(chatOptions, "assumeModelExists")).toBeTrue();
   });
+
+  it("_createChat: omits assumeModelExists when model is known to support structured outputs", () => {
+    Config.override("nanofuzz.ai.provider", "gemini");
+    Config.override("nanofuzz.ai.model", "gemini-3.1-flash-lite");
+    Config.override("nanofuzz.ai.apiKey", "mock-key");
+
+    class TestLlmAdapter extends LlmAdapter {
+      public getChat(): nodellm.Chat {
+        return this._createChat();
+      } // fn: getChat
+    }
+
+    const adapter = new TestLlmAdapter();
+    const chat = adapter.getChat();
+
+    // The chat options should not have assumeModelExists enabled
+    const chatOptions = Reflect.get(chat, "options");
+    expect(Reflect.get(chatOptions, "assumeModelExists")).toBeFalsy();
+  });
 });
