@@ -8,6 +8,7 @@ import { PythonCoverageMeasure } from "./PythonCoverageMeasure";
 import { CodeCoverageMeasureStats } from "./AbstractCoverageMeasure";
 import {
   CoverageInfo,
+  PythonCoverageMapData,
   FullCoverage,
   PythonRunner,
 } from "../runners/python/PythonRunner";
@@ -860,6 +861,73 @@ describe("fuzzer/analysis/measures/PythonCoverageMeasure:", () => {
     expect(deltas.reduce((sum, delta) => sum + delta, 0)).toEqual(10);
   });
 
+  it("maps taken branch arcs to exact branch arm indices without arm inversion", () => {
+    const measure = new TestPythonCoverageMeasure(threePathStatic);
+
+    // Negative path: line 2 -> line 3 (exit 0: then-branch)
+    const mNeg = runTest(
+      measure,
+      threePathNegative,
+      inputAt(0)
+    ).coverageMeasure.current.fileCoverageFor(pyFileName);
+    expect(mNeg.b[0]).toEqual([1, 0]); // arm 0 taken, arm 1 not
+    expect(mNeg.b[1]).toEqual([0, 0]); // branch 1 not reached
+
+    // Zero path: line 2 -> line 4 (exit 1: else-branch) and line 4 -> line 5 (exit 0)
+    const mZero = runTest(
+      measure,
+      threePathZero,
+      inputAt(1)
+    ).coverageMeasure.current.fileCoverageFor(pyFileName);
+    expect(mZero.b[0]).toEqual([0, 1]); // arm 1 taken, arm 0 not
+    expect(mZero.b[1]).toEqual([1, 0]); // branch 1: arm 0 taken, arm 1 not
+
+    // Positive path: line 2 -> line 4 (exit 1) and line 4 -> line 6 (exit 1)
+    const mPos = runTest(
+      measure,
+      threePathPositive,
+      inputAt(2)
+    ).coverageMeasure.current.fileCoverageFor(pyFileName);
+    expect(mPos.b[0]).toEqual([0, 1]); // arm 1 taken
+    expect(mPos.b[1]).toEqual([0, 1]); // branch 1: arm 1 taken
+  }); // fn: it
+
+  it("correctly evaluates lineage when inputs finish out of sequential order", () => {
+    const measure = new TestPythonCoverageMeasure(threePathStatic);
+
+    // Root input evaluated at tick 10
+    runTest(measure, threePathNegative, inputAt(10));
+
+    // Child input at tick 15 pointing to root at tick 10
+    const child15 = runTest(measure, threePathZero, mutantAt(15, 10));
+    expect(child15.coverageMeasure.accumDelta).toEqual(4);
+
+    // Sibling input at tick 12 pointing to root at tick 10 arrives later
+    const sibling12 = runTest(measure, threePathPositive, mutantAt(12, 10));
+    expect(sibling12.coverageMeasure.accumDelta).toBeGreaterThan(0);
+  }); // fn: it
+
+  it("prunes unreferenced non-improving mutation nodes to prevent unbounded memory growth", () => {
+    const measure = new TestPythonCoverageMeasure(threePathStatic);
+
+    // Root input at tick 0
+    runTest(measure, threePathNegative, inputAt(0));
+    expect(measure.hasCoverage(0)).toBeTrue();
+
+    // 25 consecutive dead-end mutations that produce zero coverage delta
+    for (let t = 1; t <= 25; t++) {
+      runTest(measure, threePathNegative, mutantAt(t, 0));
+    }
+
+    // Older unreferenced dead-end leaves should be pruned from history
+    expect(measure.hasCoverage(1)).toBeFalse();
+    expect(measure.hasCoverage(5)).toBeFalse();
+    expect(measure.hasCoverage(15)).toBeFalse();
+
+    // But root tick 0 must remain preserved because it is referenced as ancestor
+    expect(measure.hasCoverage(0)).toBeTrue();
+  }); // fn: it
+
   // ------------------------------------------------------------------
   // Multi-file measurement. The host measures every Python file the program
   // under test loads, not just the file the fuzz target is written in, so a
@@ -1139,6 +1207,201 @@ describe("fuzzer/analysis/measures/PythonCoverageMeasure:", () => {
     });
   });
 
+  const resultsStub = (): FuzzTestResults => ({
+    toolVersion: "0.0.0",
+    env: anyEnv,
+    stopReason: FuzzStopReason.MAXTESTS,
+    interesting: { inputs: [] },
+    results: [],
+    stats: {
+      counters: {
+        testingRuns: 1,
+        inputsGenerated: 3,
+        dupesGenerated: 0,
+        inputsInjected: 0,
+        erroredTests: 0,
+        passedTests: 0,
+        inputsSkipped: 0,
+        failedTests: 0,
+      },
+      outcomes: {
+        total: 0,
+        oracles: {
+          heuristic: {
+            pass: 0,
+            fail: 0,
+            unknown: 0,
+          },
+          human: {
+            fail: 0,
+            unknown: 0,
+            pass: 0,
+          },
+          property: {
+            fail: 0,
+            unknown: 0,
+            pass: 0,
+          },
+        },
+        exceptions: 0,
+        timeouts: 0,
+        categories: {
+          ok: 0,
+          badValue: 0,
+          timeout: 0,
+          exception: 0,
+          skip: 0,
+          disagree: 0,
+          failure: 0,
+        },
+      },
+      timers: {
+        total: 21,
+        compile: 5,
+        instrument: 0,
+        transform: 0,
+        put: 10,
+        val: 1,
+        gen: 2,
+        measure: 3,
+      },
+      generators: {
+        RandomInputGenerator: anyGeneratorStats(),
+        MutationInputGenerator: anyGeneratorStats(),
+        AiInputGenerator: anyGeneratorStats(),
+        UserInputGenerator: anyGeneratorStats(),
+      },
+      measures: {},
+    },
+  });
+
+  const statsOf = async (
+    measure: PythonCoverageMeasure
+  ): Promise<CodeCoverageMeasureStats> => {
+    const results = resultsStub();
+
+    measure.onRunEnd(results);
+
+    const stats = results.stats.measures.CodeCoverageMeasure;
+    if (!stats) {
+      throw new Error("onRunEnd installed no coverage stats");
+    }
+    return stats();
+  }; // fn: statsOf
+
+  // ------------------------------------------------------------------
+  // Dynamic coverage without static scope: when coverageScope does not
+  // include "static", static coverage analysis is omitted at host startup.
+  // The measure must dynamically register statements and branches as lines
+  // are executed, and dynamically accommodate files discovered mid-run.
+  // ------------------------------------------------------------------
+  describe("dynamic coverage without static scope", () => {
+    const dynFileA = "/tmp/dynamic_a.py";
+    const dynFileB = "/tmp/dynamic_b.py";
+
+    /**
+     * Drives `measure()` with coverage that has no pre-computed static
+     * structure (empty executable, functions, and branches arrays),
+     * matching the runtime payload when coverageScope lacks "static".
+     */
+    class DynamicCoverageMeasure extends PythonCoverageMeasure {
+      private readonly _coverage: PythonCoverageMapData = {};
+
+      public constructor(initialFiles: string[] = []) {
+        super();
+        for (const file of initialFiles) {
+          this._coverage[file] = {
+            executable: [],
+            functions: [],
+            branches: [],
+          };
+        }
+        this._runners = [new StubPythonRunner(this._coverage)];
+      } // fn: constructor
+
+      public record(runs: Record<string, PythonRun>): void {
+        this.onBeforeNextTestExecution();
+        for (const [file, run] of Object.entries(runs)) {
+          if (!this._coverage[file]) {
+            this._coverage[file] = {
+              executable: [],
+              functions: [],
+              branches: [],
+            };
+          }
+          this._coverage[file].lines = run.lines;
+          this._coverage[file].arcs = run.arcs;
+        }
+        this.recordHits(this._coverage);
+      } // fn: record
+    } // class: DynamicCoverageMeasure
+
+    it("dynamically registers statements and computes positive delta when static coverage is empty", () => {
+      const measure = new DynamicCoverageMeasure([dynFileA]);
+
+      // First run hits lines 10 and 20 in dynFileA
+      measure.record({ [dynFileA]: { lines: [10, 20], arcs: [] } });
+      const m1 = measure.measure(inputAt(0), anyResult);
+
+      expect(m1.coverageMeasure.globalDelta).toEqual(2);
+      expect(m1.coverageMeasure.accumDelta).toEqual(0);
+      const fcA = m1.coverageMeasure.current.fileCoverageFor(dynFileA);
+      expect(Object.keys(fcA.statementMap).length).toEqual(2);
+      expect(fcA.s[0]).toEqual(1);
+      expect(fcA.s[1]).toEqual(1);
+
+      // Repeat identical lines on next test produces delta 0
+      measure.record({ [dynFileA]: { lines: [10, 20], arcs: [] } });
+      const m2 = measure.measure(inputAt(1), anyResult);
+      expect(m2.coverageMeasure.globalDelta).toEqual(0);
+
+      // New line 30 executed produces positive delta
+      measure.record({ [dynFileA]: { lines: [10, 30], arcs: [] } });
+      const m3 = measure.measure(inputAt(2), anyResult);
+      expect(m3.coverageMeasure.globalDelta).toEqual(1);
+    }); // fn: it
+
+    it("dynamically discovers and measures a new file appearing mid-run", () => {
+      // dynFileB is not known at startup
+      const measure = new DynamicCoverageMeasure([dynFileA]);
+
+      // Test 1: touches only dynFileA
+      measure.record({ [dynFileA]: { lines: [1, 2], arcs: [] } });
+      const m1 = measure.measure(inputAt(0), anyResult);
+      expect(m1.coverageMeasure.globalDelta).toEqual(2);
+      expect(m1.coverageMeasure.current.files()).toEqual([dynFileA]);
+
+      // Test 2: touches dynFileB dynamically for the first time
+      measure.record({
+        [dynFileA]: { lines: [1, 2], arcs: [] },
+        [dynFileB]: { lines: [100, 101, 102], arcs: [] },
+      });
+      const m2 = measure.measure(inputAt(1), anyResult);
+      expect(m2.coverageMeasure.globalDelta).toEqual(3);
+      expect(m2.coverageMeasure.current.files().sort()).toEqual(
+        [dynFileA, dynFileB].sort()
+      );
+      const fcB = m2.coverageMeasure.current.fileCoverageFor(dynFileB);
+      expect(Object.keys(fcB.statementMap).length).toEqual(3);
+      expect(fcB.s[0]).toEqual(1);
+      expect(fcB.s[1]).toEqual(1);
+      expect(fcB.s[2]).toEqual(1);
+    }); // fn: it
+
+    it("synthesizes accurate final statistics when static coverage was absent", async () => {
+      const measure = new DynamicCoverageMeasure();
+      measure.record({ [dynFileA]: { lines: [5, 6, 7], arcs: [] } });
+      measure.measure(inputAt(0), anyResult);
+
+      const stats = await statsOf(measure);
+      expect(stats.files.length).toEqual(1);
+      const fileStats = stats.files[0];
+      expect(fileStats.path).toEqual(normalizePathForKey(dynFileA));
+      expect(fileStats.counters.statementsCovered).toEqual(3);
+      expect(fileStats.counters.statementsTotal).toEqual(3);
+    }); // fn: it
+  }); // describe: dynamic coverage without static scope
+
   // ------------------------------------------------------------------
   // onRunEnd: runs once the last test is done, and hands the run's
   // accumulated coverage to `results` as the stats the UI reads.
@@ -1149,103 +1412,6 @@ describe("fuzzer/analysis/measures/PythonCoverageMeasure:", () => {
   // whole run rather than the last call, and shape it for the UI.
   // ------------------------------------------------------------------
   describe("onRunEnd", () => {
-    /**
-     * A results object shaped like the one the fuzzer hands to `onRunEnd`.
-     *
-     * This is a complete `FuzzTestResults` rather than the handful of fields
-     * `onRunEnd` reads, so that a field added to the type is a compile error
-     * here instead of a stub that quietly stops resembling the real thing.
-     * Only `stats.measures` is the subject of these specs; every other value
-     * is arbitrary, and the specs assert that `onRunEnd` leaves them alone.
-     */
-    const resultsStub = (): FuzzTestResults => ({
-      toolVersion: "0.0.0",
-      env: anyEnv,
-      stopReason: FuzzStopReason.MAXTESTS,
-      interesting: { inputs: [] },
-      results: [],
-      stats: {
-        counters: {
-          testingRuns: 1,
-          inputsGenerated: 3,
-          dupesGenerated: 0,
-          inputsInjected: 0,
-          erroredTests: 0,
-          passedTests: 0,
-          inputsSkipped: 0,
-          failedTests: 0,
-        },
-        outcomes: {
-          total: 0,
-          oracles: {
-            heuristic: {
-              pass: 0,
-              fail: 0,
-              unknown: 0,
-            },
-            human: {
-              fail: 0,
-              unknown: 0,
-              pass: 0,
-            },
-            property: {
-              fail: 0,
-              unknown: 0,
-              pass: 0,
-            },
-          },
-          exceptions: 0,
-          timeouts: 0,
-          categories: {
-            ok: 0,
-            badValue: 0,
-            timeout: 0,
-            exception: 0,
-            skip: 0,
-            disagree: 0,
-            failure: 0,
-          },
-        },
-        timers: {
-          total: 21,
-          compile: 5,
-          instrument: 0,
-          transform: 0,
-          put: 10,
-          val: 1,
-          gen: 2,
-          measure: 3,
-        },
-        generators: {
-          RandomInputGenerator: anyGeneratorStats(),
-          MutationInputGenerator: anyGeneratorStats(),
-          AiInputGenerator: anyGeneratorStats(),
-          UserInputGenerator: anyGeneratorStats(),
-        },
-        measures: {},
-      },
-    });
-
-    /**
-     * Ends a run and returns the stats `onRunEnd` installed
-     *
-     * @param `measure` the measure whose run to end
-     * @returns the run's code coverage stats
-     */
-    const statsOf = async (
-      measure: PythonCoverageMeasure
-    ): Promise<CodeCoverageMeasureStats> => {
-      const results = resultsStub();
-
-      measure.onRunEnd(results);
-
-      const stats = results.stats.measures.CodeCoverageMeasure;
-      if (!stats) {
-        throw new Error("onRunEnd installed no coverage stats");
-      }
-      return stats();
-    }; // fn: statsOf
-
     // onRunEnd should write one field of `results` and nothing else
     it("onRunEnd installs its stats without disturbing the rest of the results", () => {
       const measure = new TestPythonCoverageMeasure(twoPathStatic);
@@ -1602,5 +1768,22 @@ describe("fuzzer/analysis/measures/PythonCoverageMeasure:", () => {
       expect(file.fileMap.b).toEqual({});
       expect(file.fileMap.branchMap).toEqual({});
     });
+
+    it("preserves accurate cumulative hit counts exceeding 255 without byte wrapping or clamping", async () => {
+      const measure = new TestPythonCoverageMeasure(twoPathStatic);
+
+      // Execute twoPathNegative 300 times
+      for (let i = 0; i < 300; i++) {
+        runTest(measure, twoPathNegative, inputAt(i));
+      }
+
+      const stats = await statsOf(measure);
+      const file = stats.files[0];
+
+      // Lines 2 and 3 executed 300 times: must be exactly 300, not 44 (256-wrap) or 255 (clamped)
+      expect(file.fileMap.s[1]).toEqual(300);
+      expect(file.fileMap.s[2]).toEqual(300);
+      expect(file.fileMap.b[0][0]).toEqual(300);
+    }); // fn: it
   });
 });

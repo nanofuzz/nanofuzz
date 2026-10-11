@@ -4,6 +4,17 @@ import {
   AbstractCoverageMeasure,
   CoverageMeasurement,
 } from "./AbstractCoverageMeasure";
+import { PythonCoverageMeasure } from "./PythonCoverageMeasure";
+import { PythonRunner } from "../runners/python/PythonRunner";
+import {
+  PythonFileCoverageData,
+  PythonCoverageMapData,
+} from "../runners/AbstractRunner";
+import {
+  twoPathStatic,
+  twoPathNegative,
+  twoPathPositive,
+} from "./test_fixtures/PythonCoverageMeasure.testfixture1";
 import { FuzzTestResult, InputAndSource } from "../Types";
 
 class MockCoverageMeasure extends AbstractCoverageMeasure {
@@ -197,4 +208,70 @@ describe("FailedTestMeasure", () => {
     const result2 = measure.measure(dummyInput, createFailingResult());
     expect(result2.failedTestMeasure.pseudoBugsDelta).toBe(1);
   }); // fn: it
+
+  describe("integration with concrete coverage measures", () => {
+    const pyFile = "/tmp/test.py";
+
+    class StubRunner extends PythonRunner {
+      public constructor(cov: PythonCoverageMapData) {
+        super(pyFile, "testFn");
+        this._coverageInfo = cov;
+      } // fn: constructor
+    } // class: StubRunner
+
+    class RealPythonCovMeasure extends PythonCoverageMeasure {
+      private readonly _info: PythonFileCoverageData;
+      private readonly _coverage: PythonCoverageMapData;
+
+      public constructor(staticInfo: PythonFileCoverageData) {
+        super();
+        this._info = { ...staticInfo };
+        this._coverage = { [pyFile]: this._info };
+        this._runners = [new StubRunner(this._coverage)];
+      } // fn: constructor
+
+      public record(lines: number[], arcs: [number, number][]): void {
+        this.onBeforeNextTestExecution();
+        this._info.lines = lines;
+        this._info.arcs = arcs;
+        this.recordHits(this._coverage);
+      } // fn: record
+    } // class: RealPythonCovMeasure
+
+    it("fingerprints distinct bugs using actual coverage maps and preserves zero-delta failing tests", () => {
+      const realCov = new RealPythonCovMeasure(twoPathStatic);
+      const failedMeasure = new FailedTestMeasure(realCov);
+
+      // Step 1: Input 0 passes and executes the negative branch (lines 1, 2, 4)
+      const in0: InputAndSource = { ...dummyInput, tick: 0 };
+      realCov.record(twoPathNegative.lines, twoPathNegative.arcs);
+      const cov0 = realCov.measure(in0, createPassingResult());
+      expect(cov0.coverageMeasure.globalDelta).toBeGreaterThan(0);
+      const fail0 = failedMeasure.measure(in0, createPassingResult());
+      expect(fail0.failedTestMeasure.pseudoBugsDelta).toEqual(0);
+
+      // Step 2: Input 1 fails but executes the same negative branch (0 new lines discovered)
+      const in1: InputAndSource = { ...dummyInput, tick: 1 };
+      realCov.record(twoPathNegative.lines, twoPathNegative.arcs);
+      const cov1 = realCov.measure(in1, createFailingResult());
+      expect(cov1.coverageMeasure.globalDelta).toEqual(0); // zero coverage delta!
+      expect(realCov.hasCoverage(in1.tick)).toBeTrue(); // coverage must still be retained!
+      const fail1 = failedMeasure.measure(in1, createFailingResult());
+      expect(fail1.failedTestMeasure.pseudoBugsDelta).toEqual(1); // 1st distinct pseudo-bug
+
+      // Step 3: Input 2 fails on identical coverage path
+      const in2: InputAndSource = { ...dummyInput, tick: 2 };
+      realCov.record(twoPathNegative.lines, twoPathNegative.arcs);
+      realCov.measure(in2, createFailingResult());
+      const fail2 = failedMeasure.measure(in2, createFailingResult());
+      expect(fail2.failedTestMeasure.pseudoBugsDelta).toEqual(0); // already seen this bug path
+
+      // Step 4: Input 3 fails but executes the alternate positive branch (lines 1, 2, 3)
+      const in3: InputAndSource = { ...dummyInput, tick: 3 };
+      realCov.record(twoPathPositive.lines, twoPathPositive.arcs);
+      realCov.measure(in3, createFailingResult());
+      const fail3 = failedMeasure.measure(in3, createFailingResult());
+      expect(fail3.failedTestMeasure.pseudoBugsDelta).toEqual(1); // 2nd distinct pseudo-bug
+    }); // fn: it
+  }); // describe: integration with concrete coverage measures
 }); // describe: FailedTestMeasure

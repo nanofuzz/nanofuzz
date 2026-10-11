@@ -1845,5 +1845,22 @@ export function x(
       // assignments were zeroed by the reset and `return 0` never ran
       expect(file.fileMap.s).toEqual({ 0: 0, 1: 0, 2: 0, 3: 1, 4: 1, 5: 0 });
     });
+
+    it("preserves accurate cumulative hit counts exceeding 255 without byte wrapping or clamping", async () => {
+      const measure = new TestCoverageMeasure();
+      const program = compileTs(tsSrcLinear, "scaleLinear");
+      const [exports] = loadTs(measure, [program]);
+      const doubleFn = fnOf(exports, "double");
+
+      // Execute 300 times
+      for (let i = 0; i < 300; i++) {
+        runTest(measure, () => doubleFn(5), 0, inputAt(i));
+      }
+
+      const stats = await statsOf(measure);
+      const file = stats.files[0];
+      const hitCounts = Object.values(file.fileMap.s);
+      expect(Math.max(...hitCounts)).toEqual(300);
+    }); // fn: it
   });
 });

@@ -531,6 +531,11 @@ function buildFileIndex(
     });
   });
 
+  const hasStaticCoverage =
+    (Array.isArray(fileCov.executable) && fileCov.executable.length > 0) ||
+    (Array.isArray(fileCov.functions) && fileCov.functions.length > 0) ||
+    (Array.isArray(fileCov.branches) && fileCov.branches.length > 0);
+
   const templateData: FileCoverageData = {
     path: filename,
     statementMap,
@@ -543,6 +548,7 @@ function buildFileIndex(
 
   return {
     filename,
+    hasStaticCoverage,
     lineStmtMap,
     fnLinesMap,
     arcBranchMap,
@@ -567,7 +573,15 @@ function applyHitsToFileCoverage(
 ): void {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    const sIdx = index.lineStmtMap.get(line);
+    let sIdx = index.lineStmtMap.get(line);
+    if (sIdx === undefined && !index.hasStaticCoverage) {
+      // Dynamically register statement when file lacked static pre-analysis
+      sIdx = Object.keys(index.templateData.statementMap).length;
+      index.lineStmtMap.set(line, sIdx);
+      index.templateData.statementMap[sIdx] = wholeLine(line);
+      index.templateData.s[sIdx] = 0;
+      fileCoverage.statementMap[sIdx] = wholeLine(line);
+    }
     if (sIdx !== undefined) {
       fileCoverage.s[sIdx] = 1;
     }
@@ -588,8 +602,32 @@ function applyHitsToFileCoverage(
   for (let i = 0; i < arcs.length; i++) {
     const arc = arcs[i];
     const key = `${arc[0]},${arc[1]}`;
-    const target = index.arcBranchMap.get(key);
+    let target = index.arcBranchMap.get(key);
+    if (
+      target === undefined &&
+      !index.hasStaticCoverage &&
+      arc[0] > 0 &&
+      arc[1] > 0
+    ) {
+      // Dynamically register branch when file lacked static pre-analysis
+      const bIdx = Object.keys(index.templateData.branchMap).length;
+      const branchEntry = {
+        loc: wholeLine(arc[0]),
+        type: "branch",
+        locations: [wholeLine(arc[1])],
+        line: arc[0],
+      };
+      index.templateData.branchMap[bIdx] = branchEntry;
+      index.templateData.b[bIdx] = [0];
+      fileCoverage.branchMap[bIdx] = branchEntry;
+      fileCoverage.b[bIdx] = [0];
+      target = { bIdx, eIdx: 0 };
+      index.arcBranchMap.set(key, target);
+    }
     if (target !== undefined) {
+      if (!fileCoverage.b[target.bIdx]) {
+        fileCoverage.b[target.bIdx] = [];
+      }
       fileCoverage.b[target.bIdx][target.eIdx] = 1;
     }
   }
@@ -601,6 +639,7 @@ function applyHitsToFileCoverage(
  */
 type FileIndex = {
   filename: string;
+  hasStaticCoverage: boolean;
   lineStmtMap: Map<number, number>;
   fnLinesMap: { fnIdx: number; lines: Set<number> }[];
   arcBranchMap: Map<string, { bIdx: number; eIdx: number }>;
