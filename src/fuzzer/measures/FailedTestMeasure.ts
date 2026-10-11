@@ -27,9 +27,7 @@ export class FailedTestMeasure extends AbstractMeasure {
    *
    * @param runner the test runner instance
    */
-  public override onRunStart(
-    runners: AbstractRunner[] | AbstractRunner
-  ): void {
+  public override onRunStart(runners: AbstractRunner[] | AbstractRunner): void {
     super.onRunStart(runners);
     this._pseudoBugsData = {};
     this._pseudoBugsFound = 0;
@@ -62,25 +60,32 @@ export class FailedTestMeasure extends AbstractMeasure {
       this._pseudoBugsData[v] = this._pseudoBugsData[v] ?? {};
     });
 
-    // Get the coverage map for this tick
-    const coverageMapData =
-      this._covMeasure && this._covMeasure.hasCoverage(input.tick)
-        ? JSON.stringify(
-            this._covMeasure.getCoverage(input.tick).coverageMeasure.current
-              .data
-          )
-        : "";
+    // Lazily get the coverage map for this tick
+    let coverageMapData: string | undefined = undefined;
+    const getCoverageMapData = (): string => {
+      if (coverageMapData === undefined) {
+        coverageMapData =
+          this._covMeasure && this._covMeasure.hasCoverage(input.tick)
+            ? JSON.stringify(
+                this._covMeasure.getCoverage(input.tick).coverageMeasure.current
+                  .data
+              )
+            : "";
+      }
+      return coverageMapData;
+    };
 
     // Find new validator failures and coverage combinations exhibiting failures
     judgments.forEach((j, i) => {
       if (j === "fail") {
         this._pseudoBugsData[i] = this._pseudoBugsData[i] ?? {};
-        if (!(coverageMapData in this._pseudoBugsData[i])) {
-          this._pseudoBugsData[i][coverageMapData] = 1;
+        const covMap = getCoverageMapData();
+        if (!(covMap in this._pseudoBugsData[i])) {
+          this._pseudoBugsData[i][covMap] = 1;
           newlyFailingValidators.push(Number(i));
           pseudoBugsFound++;
         } else {
-          this._pseudoBugsData[i][coverageMapData]++;
+          this._pseudoBugsData[i][covMap]++;
         }
       }
     });
