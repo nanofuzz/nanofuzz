@@ -46,7 +46,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
   protected _tokensPerInput: number; // Estimated tokens per input (calculated onRunStart)
   protected _requestedInputCount; // Number of inputs to request per LLM call (calculated per request)
   protected _covMeasure?: AbstractCoverageMeasure; // Code coverage measure provider
-  protected _targetAttempts = new Map<string, number>(); // Historical attempts per target function to decay weight
+  protected _targetAttempts: Record<string, number> = {}; // Historical attempts per target function to decay weight
 
   public constructor(
     fn: FunctionDef,
@@ -150,7 +150,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
    */
   public onRunStart(active: boolean): void {
     this._exhausted = false;
-    this._targetAttempts.clear();
+    this._targetAttempts = {};
     this._tokensPerInput = this._estimateTokensPerInput();
     this._requestedInputCount = this._getRequestedInputCount();
 
@@ -299,7 +299,6 @@ export class AiInputGenerator extends AbstractInputGenerator {
           if (covStats) {
             uncoveredInfo = extractUncoveredLines(covStats);
             frontierTarget = CoverageFrontierSampler.sample({
-              targetModule: this._fn.getModule(),
               covStats,
               uncoveredInfo,
               targetAttempts: this._targetAttempts,

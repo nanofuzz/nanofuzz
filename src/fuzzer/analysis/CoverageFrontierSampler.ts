@@ -38,8 +38,8 @@ export class CoverageFrontierSampler {
     }
 
     // Record attempt to decay weight on subsequent turns
-    const currentAttempts = options.targetAttempts.get(selected.targetId) ?? 0;
-    options.targetAttempts.set(selected.targetId, currentAttempts + 1);
+    const currentAttempts = options.targetAttempts[selected.targetId] ?? 0;
+    options.targetAttempts[selected.targetId] = currentAttempts + 1;
 
     const maxChars =
       options.maxSnippetChars ?? CoverageFrontierSampler.DEFAULT_MAX_CHARS;
@@ -65,7 +65,7 @@ export class CoverageFrontierSampler {
   } // fn: sample
 
   /**
-   * Identifies and scores all candidate targets across external files with uncovered lines.
+   * Identifies and scores all candidate targets across files with uncovered lines.
    *
    * @param options Sampling options
    * @returns Array of candidate targets with decayed weights
@@ -73,7 +73,6 @@ export class CoverageFrontierSampler {
   public static getCandidates(
     options: FrontierSampleOptions
   ): FrontierCandidate[] {
-    const normTarget = normalizePathForKey(options.targetModule);
     const candidates: FrontierCandidate[] = [];
 
     const fileExecutionMap = new Map<string, boolean>();
@@ -90,10 +89,6 @@ export class CoverageFrontierSampler {
     ]);
 
     for (const fileKey of candidateFiles) {
-      if (normalizePathForKey(fileKey) === normTarget) {
-        continue;
-      }
-
       if (!fs.existsSync(fileKey)) {
         continue;
       }
@@ -142,7 +137,7 @@ export class CoverageFrontierSampler {
           }
 
           const targetId = `${normalizePathForKey(fileKey)}:${fn.getName()}`;
-          const attempts = options.targetAttempts.get(targetId) ?? 0;
+          const attempts = options.targetAttempts[targetId] ?? 0;
           const weight = Math.max(
             0.01,
             baseWeight *
@@ -167,7 +162,7 @@ export class CoverageFrontierSampler {
           const targetId = `${normalizePathForKey(fileKey)}:__top__`;
           const isFrontier = partialLines.length > 0;
           const baseWeight = isFrontier ? 50 : fileExecuted ? 20 : 5;
-          const attempts = options.targetAttempts.get(targetId) ?? 0;
+          const attempts = options.targetAttempts[targetId] ?? 0;
           const weight = Math.max(
             0.01,
             baseWeight *
@@ -189,7 +184,7 @@ export class CoverageFrontierSampler {
       } catch {
         // Fallback for unparseable external file: treat as file snippet
         const targetId = `${normalizePathForKey(fileKey)}:__raw__`;
-        const attempts = options.targetAttempts.get(targetId) ?? 0;
+        const attempts = options.targetAttempts[targetId] ?? 0;
         const baseWeight = partialLines.length > 0 ? 30 : 5;
         const weight = Math.max(
           0.01,
@@ -242,7 +237,7 @@ export function formatFrontierContext(
       : "";
 
   return [
-    `Targeted dependency code from \`${target.displayPath}\`${fnLabel}${linesLabel}:`,
+    `Targeted code from \`${target.displayPath}\`${fnLabel}${linesLabel}:`,
     `\`\`\`${lang}`,
     target.codeSnippet.trim(),
     `\`\`\``,
@@ -378,10 +373,9 @@ export type SampledFrontierTarget = {
  * Options passed to the frontier sampler.
  */
 export type FrontierSampleOptions = {
-  targetModule: string;
   covStats: CodeCoverageMeasureStats;
   uncoveredInfo: UncoveredCoverageInfo;
-  targetAttempts: Map<string, number>;
+  targetAttempts: Record<string, number>;
   prng?: () => number;
   maxSnippetChars?: number;
 };

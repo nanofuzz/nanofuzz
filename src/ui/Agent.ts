@@ -43,6 +43,7 @@ import {
   extractUncoveredLines,
   formatLineRanges,
 } from "../fuzzer/measures/AbstractCoverageMeasure";
+import { CoverageFrontierSampler } from "../fuzzer/analysis/CoverageFrontierSampler";
 import { LlmAdapter } from "../fuzzer/adapters/LlmAdapter";
 import { synthesizeValidator } from "../fuzzer/synthesis/ValidatorSynthesizer";
 import { synthesizeTransformer } from "../fuzzer/synthesis/TransformerSynthesizer";
@@ -319,6 +320,8 @@ export async function runFuzz(
       }
     }
 
+    const generatorDiagnostics = tester.getInputGeneratorDiagnostics();
+
     return await formatFuzzResult(
       rawResults,
       resolvedPath,
@@ -326,6 +329,7 @@ export async function runFuzz(
       {
         testSuiteCode,
         testSuiteFilePath,
+        diagnostics: generatorDiagnostics,
       }
     );
   } catch (e: unknown) {
@@ -984,6 +988,23 @@ export async function getCoverageSummary(
     const { uncoveredLinesByFile, partiallyCoveredLinesByFile } =
       extractUncoveredLines(covStats);
 
+    const frontierCandidates = CoverageFrontierSampler.getCandidates({
+      covStats,
+      uncoveredInfo: { uncoveredLinesByFile, partiallyCoveredLinesByFile },
+      targetAttempts: {},
+    });
+
+    frontierCandidates.sort((a, b) => b.weight - a.weight);
+
+    const frontierFunctions: AgentFrontierFunction[] = frontierCandidates
+      .slice(0, 5)
+      .map((c) => ({
+        functionName: c.functionName,
+        filePath: c.filePath,
+        uncoveredLines: c.uncoveredLines,
+        isFrontier: c.isFrontier,
+      }));
+
     return {
       statementsTotal: stmtTotal,
       statementsCovered: stmtCovered,
@@ -996,6 +1017,8 @@ export async function getCoverageSummary(
       functionCoveragePercent: fnPct,
       uncoveredLinesByFile,
       partiallyCoveredLinesByFile,
+      frontierFunctions:
+        frontierFunctions.length > 0 ? frontierFunctions : undefined,
     };
   } catch (_e) {
     return undefined;
@@ -1157,6 +1180,20 @@ export function buildSummaryMarkdown(
         }
       }
     }
+
+    if (cov.frontierFunctions && cov.frontierFunctions.length > 0) {
+      parts.push(`- **Untaken Branches / Functions (Top 5)**:`);
+      for (const fn of cov.frontierFunctions) {
+        const displayPath = path.isAbsolute(fn.filePath)
+          ? path.relative(process.cwd(), fn.filePath) || fn.filePath
+          : fn.filePath;
+        const fnName = fn.functionName ? `\`${fn.functionName}\` in ` : "";
+        const status = fn.isFrontier ? "partially covered" : "unreached";
+        parts.push(
+          `  - ${fnName}\`${displayPath}\`: line(s) ${formatLineRanges(fn.uncoveredLines)} (${status})`
+        );
+      }
+    }
   }
 
   if (result.testSuiteCode) {
@@ -1187,6 +1224,7 @@ export async function formatFuzzResult(
   options?: {
     testSuiteCode?: string;
     testSuiteFilePath?: string;
+    diagnostics?: string[];
   }
 ): Promise<AgentFuzzResult> {
   const language = results.env.function.getLang();
@@ -1251,6 +1289,9 @@ export async function formatFuzzResult(
   };
 
   const diagnostics: string[] = [];
+  if (options?.diagnostics && options.diagnostics.length > 0) {
+    diagnostics.push(...options.diagnostics);
+  }
   if (
     results.env.options?.generators?.AiInputGenerator?.enabled &&
     !LlmAdapter.isConfigured()
@@ -1465,6 +1506,16 @@ export type AgentGeneratorSummary = {
 };
 
 /**
+ * Untaken branch or unreached function discovered on the execution frontier
+ */
+export type AgentFrontierFunction = {
+  functionName?: string;
+  filePath: string;
+  uncoveredLines: number[];
+  isFrontier: boolean;
+};
+
+/**
  * Code coverage summary details
  */
 export type AgentCoverageSummary = {
@@ -1479,6 +1530,7 @@ export type AgentCoverageSummary = {
   functionCoveragePercent: number;
   uncoveredLinesByFile?: Record<string, number[]>;
   partiallyCoveredLinesByFile?: Record<string, number[]>;
+  frontierFunctions?: AgentFrontierFunction[];
 };
 
 /**

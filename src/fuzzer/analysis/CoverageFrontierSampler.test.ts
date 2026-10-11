@@ -91,12 +91,10 @@ export function uncalledHelper(x: number): number {
       },
     };
 
-    const targetAttempts = new Map<string, number>();
     const candidates = CoverageFrontierSampler.getCandidates({
-      targetModule: targetFile,
       covStats,
       uncoveredInfo,
-      targetAttempts,
+      targetAttempts: {},
     });
 
     expect(candidates.length).toBeGreaterThan(0);
@@ -114,6 +112,55 @@ export function uncalledHelper(x: number): number {
     expect(helperCandidate).toBeDefined();
     expect(helperCandidate?.isFrontier).toBe(false);
     expect(helperCandidate?.baseWeight).toBe(30); // 1-hop uncalled in reached module
+  });
+
+  it("includes the target module and PUT among candidates when it has uncovered or partial lines", () => {
+    const covStats: CodeCoverageMeasureStats = {
+      counters: {
+        statementsTotal: 10,
+        statementsCovered: 5,
+        branchesTotal: 4,
+        branchesCovered: 2,
+        functionsTotal: 3,
+        functionsCovered: 2,
+      },
+      files: [
+        {
+          path: targetFile,
+          counters: {
+            statementsTotal: 2,
+            statementsCovered: 1,
+            branchesTotal: 2,
+            branchesCovered: 1,
+            functionsTotal: 1,
+            functionsCovered: 1,
+          },
+          // @ts-expect-error stub for test
+          fileMap: {},
+        },
+      ],
+    };
+
+    const uncoveredInfo = {
+      uncoveredLinesByFile: {},
+      partiallyCoveredLinesByFile: {
+        [targetFile]: [3],
+      },
+    };
+
+    const candidates = CoverageFrontierSampler.getCandidates({
+      covStats,
+      uncoveredInfo,
+      targetAttempts: {},
+    });
+
+    const targetCandidate = candidates.find(
+      (c) => c.functionName === "parseExpression"
+    );
+    expect(targetCandidate).toBeDefined();
+    expect(targetCandidate?.filePath).toBe(targetFile);
+    expect(targetCandidate?.isFrontier).toBe(true);
+    expect(targetCandidate?.baseWeight).toBe(100);
   });
 
   it("decays candidate weight exponentially based on prior attempts", () => {
@@ -138,9 +185,8 @@ export function uncalledHelper(x: number): number {
       },
     };
 
-    const targetAttempts = new Map<string, number>();
+    const targetAttempts: Record<string, number> = {};
     const initialCandidates = CoverageFrontierSampler.getCandidates({
-      targetModule: targetFile,
       covStats,
       uncoveredInfo,
       targetAttempts,
@@ -150,10 +196,9 @@ export function uncalledHelper(x: number): number {
     expect(initialWeight).toBe(100);
 
     // Simulate 2 failed attempts targeting this function
-    targetAttempts.set(initialCandidates[0].targetId, 2);
+    targetAttempts[initialCandidates[0].targetId] = 2;
 
     const decayedCandidates = CoverageFrontierSampler.getCandidates({
-      targetModule: targetFile,
       covStats,
       uncoveredInfo,
       targetAttempts,
@@ -199,11 +244,10 @@ export function uncalledHelper(x: number): number {
       },
     };
 
-    const targetAttempts = new Map<string, number>();
+    const targetAttempts: Record<string, number> = {};
     const prng = seedrandom("frontier-sample-seed");
 
     const sampled = CoverageFrontierSampler.sample({
-      targetModule: targetFile,
       covStats,
       uncoveredInfo,
       targetAttempts,
@@ -216,7 +260,7 @@ export function uncalledHelper(x: number): number {
     expect(sampled?.isSliced).toBe(false); // Whole function fits in default maxChars
 
     // Attempt count was incremented
-    expect(targetAttempts.get(sampled!.targetId)).toBe(1);
+    expect(targetAttempts[sampled!.targetId]).toBe(1);
   });
 
   it("formatFrontierContext formats Markdown block for prompt", () => {
@@ -232,7 +276,7 @@ export function uncalledHelper(x: number): number {
 
     const formatted = formatFrontierContext(sampled, "typescript");
     expect(formatted).toContain(
-      "Targeted dependency code from `src/Tokenizer.ts` (function `scanToken`)"
+      "Targeted code from `src/Tokenizer.ts` (function `scanToken`)"
     );
     expect(formatted).toContain("with uncovered line(s) 4-5:");
     expect(formatted).toContain("```typescript");
@@ -282,7 +326,7 @@ export function uncalledHelper(x: number): number {
     );
 
     expect(promptText).toContain(
-      "Targeted dependency code from `src/Tokenizer.ts` (function `scanToken`)"
+      "Targeted code from `src/Tokenizer.ts` (function `scanToken`)"
     );
     expect(promptText).toContain("function scanToken(input: string): boolean");
   });
