@@ -1,5 +1,5 @@
 /**
- * Source fixtures for `TypescriptCoverageMeasure.test.ts`.
+ * Source fixtures for `CoverageMeasureTypescript.test.ts`.
  *
  * The measure instruments *JavaScript text* -- `onAfterCompile(jsSrc, ...)`
  * runs after `tsc` and before the module is loaded -- so these fixtures are
