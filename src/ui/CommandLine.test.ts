@@ -9,6 +9,7 @@ import { CodeCoverageMeasureStats } from "../fuzzer/measures/AbstractCoverageMea
 import {
   formatDuration,
   formatTestCounts,
+  formatTestResults,
   runCliInProcess,
 } from "./CommandLine";
 
@@ -386,7 +387,7 @@ describe("cli:", () => {
     expect(res.status).toBe(0);
     expect(fs.existsSync(outputFile)).toBeTrue();
     expect(res.stdout).toContain(
-      "Target ready to test with 3 workers, v3 engine, mab scheduler."
+      "Online: 3 workers, v3 engine, mab scheduler."
     );
 
     const outputData = JSON5.parse<FuzzTestResults>(
@@ -419,7 +420,7 @@ describe("cli:", () => {
 
     expect(res1.status).toBe(0);
     expect(res1.stdout).toContain(
-      "Target ready to test with 1 worker, v2 engine, mab scheduler."
+      "Online: 1 worker, v2 engine, mab scheduler."
     );
 
     // 2 workers -> v3 engine
@@ -440,7 +441,7 @@ describe("cli:", () => {
 
     expect(res2.status).toBe(0);
     expect(res2.stdout).toContain(
-      "Target ready to test with 2 workers, v3 engine, mab scheduler."
+      "Online: 2 workers, v3 engine, mab scheduler."
     );
   });
 
@@ -537,7 +538,7 @@ describe("cli:", () => {
 
     expect(res.status).toBe(0);
     expect(res.stdout).toContain(
-      "Target ready to test with 1 worker, v2 engine, mab scheduler, qwen2.5-coder:7b model."
+      "Online: 1 worker, v2 engine, mab scheduler, qwen2.5-coder:7b."
     );
   });
 
@@ -563,10 +564,8 @@ describe("cli:", () => {
     ]);
 
     expect(res.status).toBe(0);
-    expect(res.stdout).toContain(
-      "Target ready to test with 1 worker, v2 engine, mab scheduler."
-    );
-    expect(res.stdout).not.toContain("qwen2.5-coder:7b model");
+    expect(res.stdout).toContain("Online: 1 worker, v2 engine, mab scheduler.");
+    expect(res.stdout).not.toContain("qwen2.5-coder:7b");
   });
 
   it("formatDuration: formats seconds, minutes, and hours correctly", () => {
@@ -578,6 +577,58 @@ describe("cli:", () => {
     expect(formatDuration(125)).toBe("2m05s");
     expect(formatDuration(3600)).toBe("1h00m00s");
     expect(formatDuration(19325)).toBe("5h22m05s");
+  });
+
+  it("formatTestResults: formats non-zero groups and omits empty/zero groups", () => {
+    expect(formatTestResults(undefined)).toBe("");
+    expect(
+      formatTestResults({
+        failedTests: 0,
+        passedTests: 0,
+        inputsSkipped: 0,
+        erroredTests: 0,
+      })
+    ).toBe("");
+    expect(
+      formatTestResults({
+        failedTests: 0,
+        passedTests: 959,
+        inputsSkipped: 0,
+        erroredTests: 0,
+      })
+    ).toBe("Passed: 959");
+    expect(
+      formatTestResults({
+        failedTests: 1,
+        passedTests: 959,
+        inputsSkipped: 0,
+        erroredTests: 0,
+      })
+    ).toBe("Failed: 1, Passed: 959");
+    expect(
+      formatTestResults({
+        failedTests: 1,
+        passedTests: 959,
+        inputsSkipped: 999,
+        erroredTests: 0,
+      })
+    ).toBe("Failed: 1, Passed: 959, Skipped: 999");
+    expect(
+      formatTestResults({
+        failedTests: 1,
+        passedTests: 959,
+        inputsSkipped: 999,
+        erroredTests: 2,
+      })
+    ).toBe("Failed: 1, Passed: 959, Skipped: 999, Errored: 2");
+    expect(
+      formatTestResults({
+        failedTests: 0,
+        passedTests: 0,
+        inputsSkipped: 0,
+        erroredTests: 5,
+      })
+    ).toBe("Errored: 5");
   });
 
   it("formatTestCounts: formats non-zero groups and omits empty/zero groups", () => {
@@ -655,7 +706,8 @@ describe("cli:", () => {
       expect(res.status).toBe(0);
       expect(res.stderr).toMatch(/Testing \[.*\] \d+%/);
       expect(res.stderr).toMatch(/@ \d+s/);
-      expect(res.stderr).toContain("Pass:");
+      expect(res.stderr).toContain("execs/s");
+      expect(res.stderr).toMatch(/Results \[.*Passed:/);
     } finally {
       Object.defineProperty(process.stderr, "isTTY", {
         value: origIsTTY,

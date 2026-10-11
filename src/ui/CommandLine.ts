@@ -9,7 +9,7 @@ if (
 import * as Commander from "commander";
 import * as Config from "../Config";
 import * as fs from "node:fs";
-import { SingleBar, Presets } from "cli-progress";
+import { MultiBar, SingleBar, Presets } from "cli-progress";
 import * as ParserAdapter from "../fuzzer/adapters/ParserAdapter";
 import { ArgDef } from "../fuzzer/analysis/ArgDef";
 import {
@@ -335,24 +335,33 @@ export async function runCliInProcess(
   let isCancelled = false;
   let lastWasMilestone = true;
   let lastStats: CurrentRunStats | undefined;
-  const bar = new SingleBar(
-    {
-      format: " - Testing [{bar}] {percentage}% @ {runtime}{counts}",
-      clearOnComplete: true,
-      linewrap: true,
-    },
-    Presets.shades_classic
-  );
+  let multiBar: MultiBar | undefined;
+  let progressBar: SingleBar | undefined;
+  let resultsBar: SingleBar | undefined;
+
+  const restoreCursor = () => {
+    if (process.stderr.isTTY) process.stderr.write("\x1B[?25h");
+    if (process.stdout.isTTY) process.stdout.write("\x1B[?25h");
+  };
+  process.on("exit", restoreCursor);
+
+  const stopBars = () => {
+    if (!lastWasMilestone && multiBar) {
+      multiBar.stop();
+      multiBar = undefined;
+      progressBar = undefined;
+      resultsBar = undefined;
+      lastWasMilestone = true;
+      restoreCursor();
+    }
+  };
 
   const sigintListener = () => {
     if (isCancelled) {
       // ignore
     } else {
       isCancelled = true;
-      if (!lastWasMilestone) {
-        bar.stop();
-        lastWasMilestone = true;
-      }
+      stopBars();
       console.log("Cancellation requested. Stopping NaNofuzz...");
     }
   };
@@ -363,19 +372,13 @@ export async function runCliInProcess(
     if (isCancelled) return;
     switch (payload.type) {
       case "compiling": {
-        if (!lastWasMilestone) {
-          bar.stop();
-        }
+        stopBars();
         console.log(formatCompilingStatus(payload));
-        lastWasMilestone = true;
         break;
       }
       case "instrumenting": {
-        if (!lastWasMilestone) {
-          bar.stop();
-        }
+        stopBars();
         console.log(formatInstrumentingStatus(payload));
-        lastWasMilestone = true;
         break;
       }
       case "testing":
@@ -388,26 +391,71 @@ export async function runCliInProcess(
           lastStats?.timers.startTime && lastStats.timers.startTime > 0
             ? (performance.now() - lastStats.timers.startTime) / 1000
             : 0;
+        const totalExecuted =
+          (lastStats?.counters.passedTests ?? 0) +
+          (lastStats?.counters.failedTests ?? 0) +
+          (lastStats?.counters.erroredTests ?? 0);
+        const rate =
+          elapsedSec > 0 ? Math.round(totalExecuted / elapsedSec) : 0;
+        const testResults = formatTestResults(lastStats);
+
         if (lastWasMilestone) {
-          bar.start(100, 0, {
-            runtime: formatDuration(elapsedSec),
-            counts: formatTestCounts(lastStats),
-          });
+          if (process.stderr.isTTY) process.stderr.write("\x1B[?25l");
+          if (process.stdout.isTTY) process.stdout.write("\x1B[?25l");
+          multiBar = new MultiBar(
+            {
+              clearOnComplete: true,
+              linewrap: true,
+              barsize: 20,
+              hideCursor: true,
+              gracefulExit: true,
+            },
+            Presets.shades_classic
+          );
+          progressBar = multiBar.create(
+            100,
+            0,
+            {
+              runtime: formatDuration(elapsedSec),
+              rate: rate.toString(),
+            },
+            {
+              format:
+                " - Testing [{bar}] {percentage}% @ {runtime}, {rate} execs/s",
+            }
+          );
+          resultsBar = multiBar.create(
+            100,
+            0,
+            {
+              results: testResults,
+            },
+            {
+              format: " - Results [{results}]",
+            }
+          );
+          multiBar.update();
           lastWasMilestone = false;
         }
-        if (typeof payload.pct === "number") {
-          bar.update(Math.max(0, Math.min(payload.pct, 100)), {
+        if (
+          typeof payload.pct === "number" &&
+          progressBar &&
+          resultsBar &&
+          multiBar
+        ) {
+          progressBar.update(Math.max(0, Math.min(payload.pct, 100)), {
             runtime: formatDuration(elapsedSec),
-            counts: formatTestCounts(lastStats),
+            rate: rate.toString(),
           });
+          resultsBar.update(0, {
+            results: testResults,
+          });
+          multiBar.update();
         }
         break;
       }
       case "testing-complete": {
-        if (!lastWasMilestone) {
-          bar.stop();
-          lastWasMilestone = true;
-        }
+        stopBars();
         break;
       }
     }
@@ -717,6 +765,7 @@ export async function runCliInProcess(
     );
 
     process.removeListener("SIGINT", sigintListener);
+    process.removeListener("exit", restoreCursor);
 
     if (outfile) {
       const covStats =
@@ -732,10 +781,7 @@ export async function runCliInProcess(
       );
     }
 
-    if (!lastWasMilestone) {
-      bar.stop();
-      lastWasMilestone = true;
-    }
+    stopBars();
 
     const diagnostics = fuzzer.getInputGeneratorDiagnostics();
     console.log(formatRunSummary(results, diagnostics, isCancelled));
@@ -761,7 +807,9 @@ export async function runCliInProcess(
       return ERROR_INTERNAL; // internal error (0 tests ran)
     }
   } catch (e: unknown) {
+    stopBars();
     process.removeListener("SIGINT", sigintListener);
+    process.removeListener("exit", restoreCursor);
     await LlmAdapter.flushCache(5000);
     if (isError(e)) {
       if (e.stack) {
@@ -946,6 +994,28 @@ export type TestCounters = {
   inputsSkipped?: number;
   erroredTests?: number;
 };
+
+export function formatTestResults(
+  countersOrStats?: CurrentRunStats | TestCounters
+): string {
+  if (!countersOrStats) return "";
+  const c: TestCounters =
+    "counters" in countersOrStats ? countersOrStats.counters : countersOrStats;
+  const parts: string[] = [];
+  if ((c.failedTests ?? 0) > 0) {
+    parts.push(`Failed: ${c.failedTests}`);
+  }
+  if ((c.passedTests ?? 0) > 0) {
+    parts.push(`Passed: ${c.passedTests}`);
+  }
+  if ((c.inputsSkipped ?? 0) > 0) {
+    parts.push(`Skipped: ${c.inputsSkipped}`);
+  }
+  if ((c.erroredTests ?? 0) > 0) {
+    parts.push(`Errored: ${c.erroredTests}`);
+  }
+  return parts.join(", ");
+} // fn: formatTestResults
 
 export function formatTestCounts(
   countersOrStats?: CurrentRunStats | TestCounters
