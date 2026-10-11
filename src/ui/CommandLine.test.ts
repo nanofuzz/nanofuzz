@@ -136,9 +136,7 @@ describe("cli:", () => {
     const res = await runCli([targetFile, "py_user_genGenerator"]);
 
     expect(res.status).toBe(4);
-    expect(res.stderr).toContain(
-      "Error: Function 'py_user_genGenerator' in "
-    );
+    expect(res.stderr).toContain("Error: Function 'py_user_genGenerator' in ");
     expect(res.stderr).toContain("is not supported.");
     expect(res.stderr).toContain("Argument: prng");
     expect(res.stderr).toContain("Reason:");
