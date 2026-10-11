@@ -88,10 +88,17 @@ export abstract class AbstractCoverageMeasure extends AbstractMeasure {
     const other = isCoverageMap(new_cov) ? new_cov : createCoverageMap(new_cov);
     let delta = 0;
 
-    const existingNormPaths = new Map<string, string>();
-    for (const file of accum.files()) {
-      existingNormPaths.set(normalizePathForKey(file), file);
-    }
+    const normPathsHolder: { map: Map<string, string> | null } = { map: null };
+    const getExistingNormPaths = (): Map<string, string> => {
+      if (normPathsHolder.map === null) {
+        const map = new Map<string, string>();
+        for (const file of accum.files()) {
+          map.set(normalizePathForKey(file), file);
+        }
+        normPathsHolder.map = map;
+      }
+      return normPathsHolder.map;
+    };
 
     const filesToMerge = activeFiles ? Array.from(activeFiles) : other.files();
 
@@ -103,8 +110,15 @@ export abstract class AbstractCoverageMeasure extends AbstractMeasure {
         continue;
       }
 
-      const normPath = normalizePathForKey(fc.path);
-      const existingPath = existingNormPaths.get(normPath);
+      let existingPath: string | undefined;
+      if (accum.data[fc.path]) {
+        existingPath = fc.path;
+      } else if (accum.data[filePath]) {
+        existingPath = filePath;
+      } else {
+        const normPath = normalizePathForKey(fc.path);
+        existingPath = getExistingNormPaths().get(normPath);
+      }
 
       if (existingPath) {
         const targetFc = accum.fileCoverageFor(existingPath);
@@ -160,7 +174,10 @@ export abstract class AbstractCoverageMeasure extends AbstractMeasure {
         // New file not yet in accum
         const snapshot = AbstractCoverageMeasure.file_snapshot(fc);
         accum.addFileCoverage(snapshot);
-        existingNormPaths.set(normPath, fc.path);
+        if (normPathsHolder.map !== null) {
+          const normPath = normalizePathForKey(fc.path);
+          normPathsHolder.map.set(normPath, fc.path);
+        }
 
         if (fc.s) {
           for (const k of Object.keys(fc.s)) {
