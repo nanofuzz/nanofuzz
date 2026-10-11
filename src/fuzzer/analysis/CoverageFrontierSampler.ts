@@ -45,6 +45,7 @@ export class CoverageFrontierSampler {
       options.maxSnippetChars ?? CoverageFrontierSampler.DEFAULT_MAX_CHARS;
     const { codeSnippet, isSliced } = prepareCodeSnippet(
       selected.src,
+      selected.startLine,
       selected.uncoveredLines,
       maxChars
     );
@@ -148,6 +149,7 @@ export class CoverageFrontierSampler {
             targetId,
             filePath: fileKey,
             functionName: fn.getName(),
+            startLine: fnStartLine,
             isFrontier,
             baseWeight,
             weight,
@@ -173,6 +175,7 @@ export class CoverageFrontierSampler {
             targetId,
             filePath: fileKey,
             functionName: undefined,
+            startLine: 1,
             isFrontier,
             baseWeight,
             weight,
@@ -202,6 +205,7 @@ export class CoverageFrontierSampler {
           targetId,
           filePath: fileKey,
           functionName: undefined,
+          startLine: 1,
           isFrontier: partialLines.length > 0,
           baseWeight,
           weight,
@@ -270,38 +274,59 @@ function selectWeightedCandidate(
 } // fn: selectWeightedCandidate()
 
 /**
- * Prepares the code snippet, emitting the whole function when possible, or slicing if needed.
+ * Prepares the code snippet with 1-based file line numbers, emitting the whole function when possible, or slicing if needed.
  */
 function prepareCodeSnippet(
   src: string,
+  startLine: number,
   uncoveredLines: number[],
   maxChars: number
 ): { codeSnippet: string; isSliced: boolean } {
-  if (src.length <= maxChars) {
-    return { codeSnippet: src, isSliced: false };
-  }
-
   const lines = src.split("\n");
-  if (lines.length <= 25) {
-    return { codeSnippet: src, isSliced: false };
+
+  let selectedLines: { lineNum: number; text: string }[];
+  let isSliced = false;
+
+  if (src.length <= maxChars || lines.length <= 25) {
+    selectedLines = lines.map((text, idx) => ({
+      lineNum: startLine + idx,
+      text,
+    }));
+  } else {
+    isSliced = true;
+    // Window +/- 5 lines around the first uncovered line
+    const firstUncovered =
+      uncoveredLines.length > 0 ? uncoveredLines[0] : startLine;
+    const targetIdx = Math.max(
+      0,
+      Math.min(lines.length - 1, firstUncovered - startLine)
+    );
+    const startIdx = Math.max(0, targetIdx - 5);
+    const endIdx = Math.min(lines.length, startIdx + 20);
+
+    selectedLines = lines.slice(startIdx, endIdx).map((text, idx) => ({
+      lineNum: startLine + startIdx + idx,
+      text,
+    }));
   }
 
-  // Window +/- 5 lines around the first uncovered line
-  const targetLineIdx =
-    uncoveredLines.length > 0 ? Math.max(0, uncoveredLines[0] - 1) : 0;
-  const startIdx = Math.max(0, targetLineIdx - 5);
-  const endIdx = Math.min(lines.length, startIdx + 20);
+  const formattedLines = selectedLines.map((l) => `${l.lineNum}|${l.text}`);
 
-  const slicedLines = lines.slice(startIdx, endIdx);
   const snippet = [
-    startIdx > 0 ? "/* ... [truncated preceding lines] ... */" : "",
-    ...slicedLines,
-    endIdx < lines.length ? "/* ... [truncated following lines] ... */" : "",
+    isSliced && selectedLines[0]?.lineNum > startLine
+      ? `/* ... [truncated preceding lines] ... */`
+      : "",
+    ...formattedLines,
+    isSliced &&
+    selectedLines[selectedLines.length - 1]?.lineNum <
+      startLine + lines.length - 1
+      ? `/* ... [truncated following lines] ... */`
+      : "",
   ]
     .filter(Boolean)
     .join("\n");
 
-  return { codeSnippet: snippet, isSliced: true };
+  return { codeSnippet: snippet, isSliced };
 } // fn: prepareCodeSnippet()
 
 /**
@@ -348,6 +373,7 @@ export type FrontierCandidate = {
   targetId: string;
   filePath: string;
   functionName?: string;
+  startLine: number;
   isFrontier: boolean;
   baseWeight: number;
   weight: number;

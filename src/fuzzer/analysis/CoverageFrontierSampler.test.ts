@@ -256,7 +256,7 @@ export function uncalledHelper(x: number): number {
 
     expect(sampled).toBeDefined();
     expect(sampled?.functionName).toBe("scanToken");
-    expect(sampled?.codeSnippet).toContain("function scanToken");
+    expect(sampled?.codeSnippet).toMatch(/\d+\|function scanToken/);
     expect(sampled?.isSliced).toBe(false); // Whole function fits in default maxChars
 
     // Attempt count was incremented
