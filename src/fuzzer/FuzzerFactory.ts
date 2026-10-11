@@ -9,7 +9,7 @@ import {
   FuzzOptions,
   FuzzPinnedTest,
   FuzzResultCallback,
-  FuzzStatusUpdater,
+  FuzzStatusObserver,
   FuzzTestResults,
 } from "./Types";
 
@@ -30,7 +30,7 @@ export interface IFuzzer {
   test(
     injectTests?: FuzzPinnedTest[],
     mode?: FuzzMode,
-    updateFn?: FuzzStatusUpdater,
+    observer?: FuzzStatusObserver,
     cancelFn?: () => boolean,
     onResultFn?: FuzzResultCallback
   ): Promise<FuzzTestResults>;

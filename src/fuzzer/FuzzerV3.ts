@@ -17,6 +17,8 @@ import {
   FuzzPinnedTest,
   FuzzResultCallback,
   FuzzStatusUpdater,
+  FuzzStatusObserver,
+  FuzzBusyStatusMessage,
   FuzzStopReason,
   FuzzTestResult,
   FuzzTestResults,
@@ -297,7 +299,7 @@ export class FuzzerV3 {
    *
    * @param injectTests An array of pinned tests to inject into the fuzzing run.
    * @param mode The fuzzing mode to use for this run.
-   * @param updateFn Optional callback function to receive status updates.
+   * @param observer Optional status observer to receive status updates.
    * @param cancelFn Optional function to determine if the fuzzing run should be canceled.
    * @param onResultFn Optional callback function to receive individual test results.
    * @returns A promise that resolves with the fuzz test results.
@@ -305,7 +307,7 @@ export class FuzzerV3 {
   public async test(
     injectTests: FuzzPinnedTest[] = [],
     mode: FuzzMode = { gen: true },
-    updateFn?: FuzzStatusUpdater,
+    observer?: FuzzStatusObserver,
     cancelFn?: () => boolean,
     onResultFn?: FuzzResultCallback
   ): Promise<FuzzTestResults> {
@@ -318,6 +320,12 @@ export class FuzzerV3 {
 
     this._stats.startRun();
 
+    const intervalMs =
+      typeof observer?.granularity === "number" && observer.granularity > 0
+        ? observer.granularity
+        : 0;
+    let lastClientUpdateTimestamp = 0;
+    let lastPendingPayload: FuzzBusyStatusMessage | undefined = undefined;
     let lastUpdateTimestamp = 0;
     let periodicTimer: ReturnType<typeof setInterval> | undefined = undefined;
 
@@ -327,12 +335,33 @@ export class FuzzerV3 {
         clearInterval(periodicTimer);
         periodicTimer = undefined;
       }
-      if (updateFn) {
-        updateFn({ ...payload });
+      if (observer) {
+        const isMilestone =
+          payload.type === "compiling" ||
+          payload.type === "instrumenting" ||
+          payload.type === "testing-complete";
+        const now = performance.now();
+        if (isMilestone) {
+          if (lastPendingPayload) {
+            observer.update({ ...lastPendingPayload });
+            lastPendingPayload = undefined;
+          }
+          lastClientUpdateTimestamp = now;
+          observer.update({ ...payload });
+        } else if (
+          intervalMs <= 0 ||
+          now - lastClientUpdateTimestamp >= intervalMs
+        ) {
+          lastPendingPayload = undefined;
+          lastClientUpdateTimestamp = now;
+          observer.update({ ...payload });
+        } else {
+          lastPendingPayload = payload;
+        }
       }
     };
 
-    await this._initRunners(injectTests, mode, update, updateFn);
+    await this._initRunners(injectTests, mode, update);
 
     this._stage1InjectedCount = 0;
     this._state = "ready";
@@ -340,6 +369,7 @@ export class FuzzerV3 {
 
     const checkPeriodicUpdate = () => {
       if (
+        observer?.heartbeat &&
         this._state === "running" &&
         performance.now() - lastUpdateTimestamp >= 100
       ) {
@@ -356,7 +386,9 @@ export class FuzzerV3 {
       }
     };
 
-    periodicTimer = setInterval(checkPeriodicUpdate, 50);
+    if (observer?.heartbeat) {
+      periodicTimer = setInterval(checkPeriodicUpdate, 50);
+    }
 
     try {
       this._state = "running";
@@ -807,8 +839,7 @@ export class FuzzerV3 {
   protected async _initRunners(
     injectTests: FuzzPinnedTest[],
     mode: FuzzMode,
-    update: FuzzStatusUpdater,
-    updateFn?: FuzzStatusUpdater
+    update: FuzzStatusUpdater
   ): Promise<void> {
     if (mode.gen) {
       this._compositeInputGenerator.permitGenerators();
@@ -834,7 +865,7 @@ export class FuzzerV3 {
           this._lastCompiler.getCompiledDependencies(),
           this._measures,
           this._lastCompiler.options.tmpDir,
-          updateFn ?? update
+          update
         )
       : mod;
     if (this._stats) {

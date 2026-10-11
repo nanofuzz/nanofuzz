@@ -1309,10 +1309,7 @@ export class PythonProgram extends AbstractProgram {
         isVoid = bodyIsVoid;
       }
     } catch {
-      if (!isVoid) {
-        // !!! console.debug('Unsupported return type for function "' + name + '".');
-        // what can i say
-      }
+      // Ignore unsupported return type syntax
     }
 
     return {
@@ -3069,14 +3066,6 @@ export class PythonProgram extends AbstractProgram {
         }
       } catch (e: unknown) {
         const msg = getErrorMessageOrJson(e);
-        if (
-          !msg.startsWith("Missing type annotation") &&
-          !msg.startsWith("Unsupported type annotation")
-        ) {
-          console.debug(
-            `Error processing function '${name}' in module '${this._filename}': ${msg}`
-          );
-        }
         const defNode = match.captures.find((c) => c.name === "function.def");
 
         unsupported[name] = {
@@ -3107,14 +3096,6 @@ export class PythonProgram extends AbstractProgram {
         }
       } catch (e: unknown) {
         const msg = getErrorMessageOrJson(e);
-        if (
-          !msg.startsWith("Missing type annotation") &&
-          !msg.startsWith("Unsupported type annotation")
-        ) {
-          console.debug(
-            `Error processing lambda '${name}' in module '${this._filename}': ${msg}`
-          );
-        }
         const defNode = match.captures.find((c) => c.name === "function.def");
 
         unsupported[name] = {

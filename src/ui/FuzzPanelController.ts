@@ -1325,13 +1325,16 @@ export class FuzzPanel {
         const result = await this._tester.test(
           testsToInject,
           { gen: mode.gen },
-          // Fn that provides test status feedback to the panel => {
-          (payload: fuzzer.FuzzBusyStatusMessage): void => {
-            const message: FuzzPanelMessageToWebView = {
-              command: "busy.message",
-              message: payload,
-            };
-            this._postToView(message);
+          // Observer that provides test status feedback to the panel => {
+          {
+            update: (payload: fuzzer.FuzzBusyStatusMessage): void => {
+              const message: FuzzPanelMessageToWebView = {
+                command: "busy.message",
+                message: payload,
+              };
+              this._postToView(message);
+            },
+            granularity: "result",
           },
           // Fn to cancel testing
           () => this._pauseTesting

@@ -429,6 +429,17 @@ export type FuzzBusyStatusMessage =
 export type FuzzStatusUpdater = (payload: FuzzBusyStatusMessage) => void;
 
 /**
+ * Fuzzer status observer for progress and busy status updates.
+ */
+export type FuzzStatusGranularity = "result" | number;
+
+export type FuzzStatusObserver = {
+  update: FuzzStatusUpdater;
+  granularity: FuzzStatusGranularity;
+  heartbeat?: true;
+};
+
+/**
  * Callback called for each test result produced during fuzzing
  */
 export type FuzzResultCallback = (result: FuzzTestResult) => void;
