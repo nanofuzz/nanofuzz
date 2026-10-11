@@ -817,4 +817,72 @@ describe("Agent", () => {
     expect(summary).toContain("- **Partially Covered Lines**:");
     expect(summary).toContain("8, 15");
   });
+
+  it("summary: coverage details including top untaken branches and functions", () => {
+    const summary = buildSummaryMarkdown({
+      status: "success",
+      filePath: tsFixture,
+      functionName: "testFn",
+      language: "typescript",
+      toolVersion: "NaNofuzz v0.4.0",
+      totalTests: 10,
+      passedTests: 10,
+      failedTests: 0,
+      erroredTests: 0,
+      timeouts: 0,
+      exceptions: 0,
+      counterexamples: [],
+      coverage: {
+        statementsTotal: 20,
+        statementsCovered: 15,
+        statementCoveragePercent: 75,
+        branchesTotal: 4,
+        branchesCovered: 3,
+        branchCoveragePercent: 75,
+        functionsTotal: 2,
+        functionsCovered: 2,
+        functionCoveragePercent: 100,
+        uncoveredLinesByFile: {
+          [tsFixture]: [12, 13, 14],
+        },
+        frontierFunctions: [
+          {
+            functionName: "calculateDiscount",
+            filePath: tsFixture,
+            uncoveredLines: [12, 13],
+            isFrontier: true,
+          },
+          {
+            functionName: "unreachedHelper",
+            filePath: tsFixture,
+            uncoveredLines: [14],
+            isFrontier: false,
+          },
+        ],
+      },
+    });
+
+    expect(summary).toContain("- **Untaken Branches / Functions (Top 5)**:");
+    expect(summary).toContain("`calculateDiscount` in");
+    expect(summary).toContain("line(s) 12-13 (partially covered)");
+    expect(summary).toContain("`unreachedHelper` in");
+    expect(summary).toContain("line(s) 14 (unreached)");
+  });
+
+  it("runFuzz: captures coverage frontier functions and generator diagnostics", async () => {
+    const result = await runFuzz({
+      filePath: tsFixture,
+      functionName: "testCoverageOneFile",
+      maxTests: 5,
+      suiteTimeout: 2000,
+    });
+
+    expect(result.coverage).toBeDefined();
+    if (result.coverage?.frontierFunctions) {
+      expect(result.coverage.frontierFunctions.length).toBeLessThanOrEqual(5);
+      const first = result.coverage.frontierFunctions[0];
+      expect(first.filePath).toBeDefined();
+      expect(first.uncoveredLines.length).toBeGreaterThan(0);
+    }
+  });
 });
