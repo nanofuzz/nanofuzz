@@ -621,7 +621,24 @@ export async function runCliInProcess(
 
     const programObj = ProgramFactory.fromFile(filename);
     const targetFnDef = programObj.functions[fnname];
-    const fnRef = targetFnDef?.getRef();
+    if (!targetFnDef) {
+      if (fnname in programObj.functionsNotSupported) {
+        const info = programObj.functionsNotSupported[fnname];
+        console.error(
+          `Error: Function '${fnname}' in ${filename} is not supported.`
+        );
+        if (info.argument) {
+          console.error(`  - Argument: ${info.argument}`);
+        }
+        if (info.reason) {
+          console.error(`  - Reason: ${info.reason}`);
+        }
+        return ERROR_USAGE;
+      }
+      console.error(`Error: Function '${fnname}' not found in ${filename}`);
+      return ERROR_USAGE;
+    }
+    const fnRef = targetFnDef.getRef();
     const fnFuzzOptions = fnRef?.fuzzOptions;
 
     // Load companion .nano.json5 configuration and pinned tests (with version upgrade and migration)

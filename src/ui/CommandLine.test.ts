@@ -131,6 +131,29 @@ describe("cli:", () => {
     expect(versionRes.stdout).toContain("NaNofuzz");
   });
 
+  it("returns exit code 4 with reason when target function is unsupported", async () => {
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.py";
+    const res = await runCli([targetFile, "py_user_genGenerator"]);
+
+    expect(res.status).toBe(4);
+    expect(res.stderr).toContain(
+      "Error: Function 'py_user_genGenerator' in "
+    );
+    expect(res.stderr).toContain("is not supported.");
+    expect(res.stderr).toContain("Argument: prng");
+    expect(res.stderr).toContain("Reason:");
+  });
+
+  it("returns exit code 4 when target function is not found", async () => {
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const res = await runCli([targetFile, "nonExistentFunction"]);
+
+    expect(res.status).toBe(4);
+    expect(res.stderr).toContain(
+      "Error: Function 'nonExistentFunction' not found in "
+    );
+  });
+
   it("--output-file: check matching parameters for TypeScript", async () => {
     const outputFile = path.join(tmpDir, "ts_output.json5");
     const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
