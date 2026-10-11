@@ -290,7 +290,7 @@ export async function runFuzz(
     const rawResults = await tester.test(
       allInjected,
       { gen: true },
-      updateFn,
+      updateFn ? { update: updateFn, granularity: "result" } : undefined,
       cancelFn
     );
 

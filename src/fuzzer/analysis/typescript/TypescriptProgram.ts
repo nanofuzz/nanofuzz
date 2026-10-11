@@ -1148,9 +1148,6 @@ export class TypescriptProgram extends AbstractProgram {
           }
         } catch (e: unknown) {
           const msg = getErrorMessageOrJson(e);
-          console.debug(
-            `Error processing function '${name}' in module '${this._filename}': ${msg}`
-          );
           unsupported[name] = {
             reason: msg,
             node: JSONN.stringify(path.node),

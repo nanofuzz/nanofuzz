@@ -15,6 +15,8 @@ import {
   FuzzResultCategoryValues,
   FuzzStopReason,
   FuzzStatusUpdater,
+  FuzzStatusObserver,
+  FuzzBusyStatusMessage,
   FuzzResultCallback,
   BaseMeasureConfig,
   FuzzerFocus,
@@ -414,13 +416,13 @@ export class Tester {
   public async test(
     injectTests: FuzzPinnedTest[] = [],
     mode: FuzzMode = { gen: true },
-    updateFn?: FuzzStatusUpdater,
+    observer?: FuzzStatusObserver,
     cancelFn?: () => boolean,
     onResultFn?: FuzzResultCallback
   ): Promise<FuzzTestResults> {
     let result: FuzzTestResults | undefined;
     try {
-      const run = this._run(injectTests, mode, updateFn, cancelFn, onResultFn);
+      const run = this._run(injectTests, mode, observer, cancelFn, onResultFn);
       while (!result) {
         result = (await run.next()).value;
       }
@@ -438,7 +440,7 @@ export class Tester {
    *
    * @param `injectTests` tests to inject
    * @param `mode` tester mode
-   * @param `updateFn` called to report status updates
+   * @param `observer` status observer
    * @param `cancelFn` called to check cancel status
    * @param `onResultFn` called for each test result produced
    * @returns test results
@@ -446,7 +448,7 @@ export class Tester {
   protected async *_run(
     injectTests: FuzzPinnedTest[] = [],
     mode: FuzzMode = { gen: true },
-    updateFn?: FuzzStatusUpdater,
+    observer?: FuzzStatusObserver,
     cancelFn?: () => boolean,
     onResultFn?: FuzzResultCallback
   ): AsyncGenerator<
@@ -462,6 +464,12 @@ export class Tester {
     }
     this._results.stats.counters.testingRuns++;
 
+    const intervalMs =
+      typeof observer?.granularity === "number" && observer.granularity > 0
+        ? observer.granularity
+        : 0;
+    let lastClientUpdateTimestamp = 0;
+    let lastPendingPayload: FuzzBusyStatusMessage | undefined = undefined;
     let lastUpdateTimestamp = 0;
     let periodicTimer: ReturnType<typeof setInterval> | undefined = undefined;
 
@@ -471,8 +479,29 @@ export class Tester {
         clearInterval(periodicTimer);
         periodicTimer = undefined;
       }
-      if (updateFn) {
-        updateFn({ ...payload });
+      if (observer) {
+        const isMilestone =
+          payload.type === "compiling" ||
+          payload.type === "instrumenting" ||
+          payload.type === "testing-complete";
+        const now = performance.now();
+        if (isMilestone) {
+          if (lastPendingPayload) {
+            observer.update({ ...lastPendingPayload });
+            lastPendingPayload = undefined;
+          }
+          lastClientUpdateTimestamp = now;
+          observer.update({ ...payload });
+        } else if (
+          intervalMs <= 0 ||
+          now - lastClientUpdateTimestamp >= intervalMs
+        ) {
+          lastPendingPayload = undefined;
+          lastClientUpdateTimestamp = now;
+          observer.update({ ...payload });
+        } else {
+          lastPendingPayload = payload;
+        }
       }
     };
     const runStats: CurrentRunStats = {
@@ -540,7 +569,7 @@ export class Tester {
           this._lastCompiler.getCompiledDependencies(),
           this._measures,
           this._lastCompiler.options.tmpDir,
-          updateFn
+          update
         )
       : mod;
     this._results.stats.timers.instrument = performance.now() - instrumentTime;
@@ -620,6 +649,7 @@ export class Tester {
 
     const checkPeriodicUpdate = () => {
       if (
+        observer?.heartbeat &&
         this._state === "running" &&
         performance.now() - lastUpdateTimestamp >= 100
       ) {
@@ -648,7 +678,9 @@ export class Tester {
       }
     };
 
-    periodicTimer = setInterval(checkPeriodicUpdate, 50);
+    if (observer?.heartbeat) {
+      periodicTimer = setInterval(checkPeriodicUpdate, 50);
+    }
 
     try {
       // Main test loop
