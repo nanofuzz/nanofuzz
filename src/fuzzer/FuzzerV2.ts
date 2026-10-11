@@ -18,6 +18,8 @@ import {
   FuzzPinnedTest,
   FuzzResultCallback,
   FuzzStatusUpdater,
+  FuzzStatusObserver,
+  FuzzBusyStatusMessage,
   FuzzStopReason,
   FuzzTestResult,
   FuzzTestResults,
@@ -272,7 +274,7 @@ export class FuzzerV2 {
    *
    * @param injectTests An array of pinned tests to inject into the fuzzing run.
    * @param mode The fuzzing mode to use for this run.
-   * @param updateFn Optional callback function to receive status updates.
+   * @param observer Optional status observer to receive status updates.
    * @param cancelFn Optional function to determine if the fuzzing run should be canceled.
    * @param onResultFn Optional callback function to receive individual test results.
    * @returns A promise that resolves with the fuzz test results.
@@ -280,7 +282,7 @@ export class FuzzerV2 {
   public async test(
     injectTests: FuzzPinnedTest[] = [],
     mode: FuzzMode = { gen: true },
-    updateFn?: FuzzStatusUpdater,
+    observer?: FuzzStatusObserver,
     cancelFn?: () => boolean,
     onResultFn?: FuzzResultCallback
   ): Promise<FuzzTestResults> {
@@ -293,6 +295,12 @@ export class FuzzerV2 {
 
     this._stats.startRun();
 
+    const intervalMs =
+      typeof observer?.granularity === "number" && observer.granularity > 0
+        ? observer.granularity
+        : 0;
+    let lastClientUpdateTimestamp = 0;
+    let lastPendingPayload: FuzzBusyStatusMessage | undefined = undefined;
     let lastUpdateTimestamp = 0;
     let periodicTimer: ReturnType<typeof setInterval> | undefined = undefined;
 
@@ -302,17 +310,33 @@ export class FuzzerV2 {
         clearInterval(periodicTimer);
         periodicTimer = undefined;
       }
-      if (updateFn) {
-        updateFn({ ...payload });
+      if (observer) {
+        const isMilestone =
+          payload.type === "compiling" ||
+          payload.type === "instrumenting" ||
+          payload.type === "testing-complete";
+        const now = performance.now();
+        if (isMilestone) {
+          if (lastPendingPayload) {
+            observer.update({ ...lastPendingPayload });
+            lastPendingPayload = undefined;
+          }
+          lastClientUpdateTimestamp = now;
+          observer.update({ ...payload });
+        } else if (
+          intervalMs <= 0 ||
+          now - lastClientUpdateTimestamp >= intervalMs
+        ) {
+          lastPendingPayload = undefined;
+          lastClientUpdateTimestamp = now;
+          observer.update({ ...payload });
+        } else {
+          lastPendingPayload = payload;
+        }
       }
     };
 
-    this._executor = await this._initExecutor(
-      injectTests,
-      mode,
-      update,
-      updateFn
-    );
+    this._executor = await this._initExecutor(injectTests, mode, update);
 
     let stillInjecting = injectTests.length > 0;
     this._state = "ready";
@@ -320,6 +344,7 @@ export class FuzzerV2 {
 
     const checkPeriodicUpdate = () => {
       if (
+        observer?.heartbeat &&
         this._state === "running" &&
         performance.now() - lastUpdateTimestamp >= 100
       ) {
@@ -345,7 +370,9 @@ export class FuzzerV2 {
       }
     };
 
-    periodicTimer = setInterval(checkPeriodicUpdate, 50);
+    if (observer?.heartbeat) {
+      periodicTimer = setInterval(checkPeriodicUpdate, 50);
+    }
 
     try {
       while (true) {
@@ -521,19 +548,17 @@ export class FuzzerV2 {
   } // fn: test
 
   /**
-   * Initializes the fuzz executor with the given pinned tests, fuzzing mode, and status updaters.
+   * Initializes the fuzz executor with the given pinned tests, fuzzing mode, and status updater.
    *
    * @param injectTests The list of pinned tests to inject into the fuzzer.
    * @param mode The current fuzzing mode, indicating whether generation is enabled.
    * @param update The status updater function to report progress and messages.
-   * @param updateFn Optional secondary status updater function.
    * @returns A promise that resolves to the initialized fuzz executor.
    */
   protected async _initExecutor(
     injectTests: FuzzPinnedTest[],
     mode: FuzzMode,
-    update: FuzzStatusUpdater,
-    updateFn?: FuzzStatusUpdater
+    update: FuzzStatusUpdater
   ): Promise<FuzzExecutor> {
     if (mode.gen) {
       this._compositeInputGenerator.permitGenerators();
@@ -559,7 +584,7 @@ export class FuzzerV2 {
           this._lastCompiler.getCompiledDependencies(),
           this._measures,
           this._lastCompiler.options.tmpDir,
-          updateFn ?? update
+          update
         )
       : mod;
     if (this._stats) {

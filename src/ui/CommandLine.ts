@@ -760,7 +760,7 @@ export async function runCliInProcess(
     const results = await fuzzer.test(
       injectTests,
       undefined,
-      updateFn,
+      { update: updateFn, granularity: 100, heartbeat: true },
       () => isCancelled
     );
 

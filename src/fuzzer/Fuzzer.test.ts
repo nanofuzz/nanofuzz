@@ -452,9 +452,16 @@ describe("fuzzer: general & parameterized engine tests", () => {
         );
 
         const updates: FuzzBusyStatusMessage[] = [];
-        const results = await tester.test([], { gen: true }, (payload) => {
-          updates.push(payload);
-        });
+        const results = await tester.test(
+          [],
+          { gen: true },
+          {
+            update: (payload) => {
+              updates.push(payload);
+            },
+            granularity: "result",
+          }
+        );
 
         expect(results.stats.outcomes.total).toBe(15);
         expect(results.stopReason).toBe(FuzzStopReason.MAXTESTS);
@@ -462,6 +469,38 @@ describe("fuzzer: general & parameterized engine tests", () => {
         expect(
           updates.some((u) => u.type === "testing" && typeof u.pct === "number")
         ).toBeTrue();
+      });
+
+      it("throttles status updates when observer specifies a numeric granularity in ms", async () => {
+        const options = {
+          ...intOptions,
+          maxTests: 20,
+          seed: "observer-throttle-seed",
+        };
+
+        const tester = FuzzerFactory(
+          "nanofuzz-study/examples/1.ts",
+          "minValue",
+          options,
+          { engine }
+        );
+
+        const updates: FuzzBusyStatusMessage[] = [];
+        const results = await tester.test(
+          [],
+          { gen: true },
+          {
+            update: (payload) => {
+              updates.push(payload);
+            },
+            granularity: 200,
+          }
+        );
+
+        expect(results.stats.outcomes.total).toBe(20);
+        const testingUpdates = updates.filter((u) => u.type === "testing");
+        expect(testingUpdates.length).toBeLessThan(20);
+        expect(updates.some((u) => u.type === "testing-complete")).toBeTrue();
       });
 
       it("posts periodic status bar updates if 200ms elapses without a new update", async () => {
@@ -491,9 +530,17 @@ describe("fuzzer: general & parameterized engine tests", () => {
               fnTimeout: 1000,
             },
             { engine }
-          ).test(undefined, { gen: true }, (payload) => {
-            updates.push({ ...payload });
-          });
+          ).test(
+            undefined,
+            { gen: true },
+            {
+              update: (payload) => {
+                updates.push({ ...payload });
+              },
+              granularity: "result",
+              heartbeat: true,
+            }
+          );
 
           const statusUpdates = updates.filter(
             (u) => u.type === "testing" || u.type === "progress-tick"
@@ -502,6 +549,60 @@ describe("fuzzer: general & parameterized engine tests", () => {
           expect(
             statusUpdates.every((u) => typeof u.pct === "number")
           ).toBeTrue();
+        } finally {
+          try {
+            fs.rmSync(tmpdir, {
+              recursive: true,
+              force: true,
+              maxRetries: 10,
+              retryDelay: 100,
+            });
+          } catch {
+            // Ignore
+          }
+        }
+      });
+
+      it("does not post progress-tick updates when heartbeat is undefined", async () => {
+        const tmpdir = fs.mkdtempSync(
+          path.join(os.tmpdir(), `nanofuzz-no-heartbeat-${engine}-`)
+        );
+        const tsFile = path.join(tmpdir, "slowTarget.ts");
+        fs.writeFileSync(
+          tsFile,
+          `
+          export function slowFn(x: number): number {
+            const start = Date.now();
+            while (Date.now() - start < 350) {}
+            return x;
+          }
+          `
+        );
+
+        const updates: FuzzBusyStatusMessage[] = [];
+        try {
+          await FuzzerFactory(
+            tsFile,
+            "slowFn",
+            {
+              ...intOptions,
+              maxTests: 2,
+              fnTimeout: 1000,
+            },
+            { engine }
+          ).test(
+            undefined,
+            { gen: true },
+            {
+              update: (payload) => {
+                updates.push({ ...payload });
+              },
+              granularity: "result",
+            }
+          );
+
+          const ticks = updates.filter((u) => u.type === "progress-tick");
+          expect(ticks.length).toBe(0);
         } finally {
           try {
             fs.rmSync(tmpdir, {
