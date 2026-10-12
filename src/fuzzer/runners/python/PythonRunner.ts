@@ -34,6 +34,7 @@ export class PythonRunner extends AbstractRunner {
   protected _host: PythonHost | undefined = undefined;
   protected _seq = 0;
   protected _coverageInfo?: PythonCoverageMapData = undefined;
+  protected _staticCoverage?: PythonCoverageMapData = undefined;
   protected _lastRunCoverage?: PythonCoverageMapData = undefined;
   protected _pgmFiles: string[] = [];
   protected _coverageEnabled = true;
@@ -80,6 +81,7 @@ export class PythonRunner extends AbstractRunner {
   public async onRunStart(): Promise<void> {
     await super.onRunStart();
     this._killHost();
+    this._staticCoverage = undefined;
     if (this._env?.options?.measures?.CoverageMeasure?.enabled !== undefined) {
       this._coverageEnabled =
         this._env.options.measures.CoverageMeasure.enabled;
@@ -221,7 +223,9 @@ export class PythonRunner extends AbstractRunner {
       if (!isError(e)) {
         throw e;
       }
-      if (this._coverageInfo) {
+      if (this._staticCoverage) {
+        this._coverageInfo = structuredClone(this._staticCoverage);
+      } else {
         this._coverageInfo = undefined;
       }
       this._lastRunCoverage = undefined;
@@ -646,6 +650,7 @@ export class PythonRunner extends AbstractRunner {
     );
 
     const scopeConfig = parseCoverageScope(coverageScopeRaw);
+    const isRespawn = this._staticCoverage !== undefined;
     const collectStaticCoverage =
       this._coverageEnabled &&
       this._overrides.acceptsStaticCoverage === true &&
@@ -674,7 +679,7 @@ export class PythonRunner extends AbstractRunner {
       this._fn,
       scopeConfig.target,
       JSON.stringify(directPkgs),
-      String(collectStaticCoverage),
+      isRespawn ? "respawn" : String(collectStaticCoverage),
     ];
 
     const host = new PythonHost(
@@ -698,16 +703,27 @@ export class PythonRunner extends AbstractRunner {
       // dynamic `lines`/`arcs` are filled in by each `run`.
       const rawCovBuf = await host.getResponseBuffer(hostStartupTimeout);
       const rawCov = JSONN.unpack<unknown>(rawCovBuf);
-      const extracted = extractStartupCoverage(rawCov);
-      if (extracted) {
-        this._coverageInfo = extracted.covInfo;
-        this._pgmFiles = extracted.files;
-      } else if (isPythonCoverageMapData(rawCov)) {
-        this._coverageInfo = rawCov;
-        this._pgmFiles = Object.keys(rawCov);
+      if (!isRespawn) {
+        const extracted = extractStartupCoverage(rawCov);
+        if (extracted) {
+          this._coverageInfo = extracted.covInfo;
+          this._pgmFiles = extracted.files;
+        } else if (isPythonCoverageMapData(rawCov)) {
+          this._coverageInfo = rawCov;
+          this._pgmFiles = Object.keys(rawCov);
+        } else {
+          this._coverageInfo = {};
+          this._pgmFiles = [];
+        }
+        this._staticCoverage = structuredClone(this._coverageInfo);
       } else {
-        this._coverageInfo = {};
-        this._pgmFiles = [];
+        const extracted = extractStartupCoverage(rawCov);
+        if (extracted?.files && extracted.files.length > 0) {
+          this._pgmFiles = extracted.files;
+        }
+        if (this._staticCoverage) {
+          this._coverageInfo = structuredClone(this._staticCoverage);
+        }
       }
       return host;
     } else {

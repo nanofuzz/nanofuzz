@@ -221,6 +221,13 @@
             "minimum": 1000,
             "description": "Maximum time (in ms) allowed for the runner host process to startup."
           },
+          "nanofuzz.fuzzer.maxRunnerMemory": {
+            "title": "Maximum RAM for test runners (MB)",
+            "type": "integer",
+            "default": 8192,
+            "minimum": 128,
+            "description": "Maximum RAM (in MB) allowed for test runner processes."
+          },
           "nanofuzz.fuzzer.shrinkFailures": {
             "title": "Shrink failing inputs?",
             "type": "boolean",
@@ -359,6 +366,14 @@
             "tags": [
               "usesOnlineServices"
             ]
+          },
+          "nanofuzz.ai.requestTimeout": {
+            "title": "Model request timeout (ms)",
+            "order": 38,
+            "type": "integer",
+            "default": 60000,
+            "minimum": 1000,
+            "description": "Timeout (in ms) for AI model requests"
           },
           "nanofuzz.ai.retries": {
             "title": "Maximum retries",
@@ -773,7 +788,7 @@
     "publish": "npx @vscode/vsce publish --yarn",
     "package": "npx @vscode/vsce package --yarn",
     "pretest": "yarn build && yarn run lint",
-    "nanofuzz": "node ./build/cli/cli.cjs"
+    "nanofuzz": "node --max-old-space-size=8192 ./build/cli/cli.cjs"
   },
   "babel": {
     "presets": [
@@ -791,6 +806,7 @@
   "dependencies": {
     "@vscode/codicons": "^0.0.46-37",
     "@vscode/webview-ui-toolkit": "^1.2.2",
+    "pidusage": "^4.0.1",
     "tree-sitter-python": "^0.25.0",
     "tree-sitter-typescript": "^0.23.2",
     "typescript": "5.9.2",
@@ -811,6 +827,7 @@
     "@types/istanbul-lib-source-maps": "^4.0.4",
     "@types/jasmine": "^5.1.8",
     "@types/node": "22",
+    "@types/pidusage": "^2.0.5",
     "@types/seedrandom": "^2.4.28",
     "@types/vscode": "^1.93.0",
     "@types/vscode-webview": "^1.57.5",

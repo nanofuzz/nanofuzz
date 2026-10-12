@@ -41,6 +41,7 @@ export class JavascriptRunner extends AbstractRunner {
   protected _host: NodeHost | undefined = undefined;
   protected _seq = 0;
   protected _coverageInfo: CoverageMapData | undefined = undefined;
+  protected _staticCoverage: CoverageMapData | undefined = undefined;
   protected _lastRunCoverage?: CoverageMapData;
   protected _coverageEnabled = true;
   protected _coverageCallback?: (covData: unknown) => void;
@@ -88,6 +89,7 @@ export class JavascriptRunner extends AbstractRunner {
   public async onRunStart(): Promise<void> {
     await super.onRunStart();
     this._killHost();
+    this._staticCoverage = undefined;
     if (this._env?.options?.measures?.CoverageMeasure?.enabled !== undefined) {
       this._coverageEnabled =
         this._env.options.measures.CoverageMeasure.enabled;
@@ -251,6 +253,11 @@ export class JavascriptRunner extends AbstractRunner {
       if (!isError(e)) {
         throw e;
       }
+      if (this._staticCoverage) {
+        this._coverageInfo = structuredClone(this._staticCoverage);
+      } else {
+        this._coverageInfo = undefined;
+      }
       if (e.name === PutTimeoutName) {
         return { result: { tag: "timeout", seq: thisSeq }, env: {} };
       } else {
@@ -348,6 +355,7 @@ export class JavascriptRunner extends AbstractRunner {
       "project static"
     );
     const scopeConfig = parseCoverageScope(coverageScopeRaw);
+    const isRespawn = this._staticCoverage !== undefined;
     const collectStaticCoverage =
       this._coverageEnabled &&
       this._overrides.acceptsStaticCoverage === true &&
@@ -358,7 +366,7 @@ export class JavascriptRunner extends AbstractRunner {
       this._filename,
       this._jsFn,
       scopeConfig.target,
-      String(collectStaticCoverage),
+      isRespawn ? "respawn" : String(collectStaticCoverage),
     ];
     const host = new NodeHost(args, path.dirname(this._filename), env);
 
@@ -373,7 +381,7 @@ export class JavascriptRunner extends AbstractRunner {
       const initialCoverage = deserialize(
         await host.getResponseBuffer(hostStartupTimeout)
       );
-      if (isCoverageMapData(initialCoverage)) {
+      if (!isRespawn && isCoverageMapData(initialCoverage)) {
         this._coverageInfo = {};
         for (const k of Object.keys(initialCoverage)) {
           const normKey = normalizePathForKey(k);
@@ -382,6 +390,14 @@ export class JavascriptRunner extends AbstractRunner {
             path: normKey,
           };
         }
+        if (
+          this._overrides.acceptsStaticCoverage === true &&
+          scopeConfig.collectStaticCoverage
+        ) {
+          this._staticCoverage = structuredClone(this._coverageInfo);
+        }
+      } else if (this._staticCoverage) {
+        this._coverageInfo = structuredClone(this._staticCoverage);
       }
 
       return host;
