@@ -191,6 +191,10 @@ function createProgram(): Commander.Command {
       `--no-ai-input-backfeed`,
       `Don't send prior inputs to AI input generator`
     )
+    .option(
+      `--no-ai-coverage-guidance`,
+      `Don't send uncovered code data to AI model`
+    )
 
     // ------------------------ Composite Input Generator ------------------------ //
 
@@ -401,8 +405,7 @@ export async function runCliInProcess(
           (lastStats?.counters.passedTests ?? 0) +
           (lastStats?.counters.failedTests ?? 0) +
           (lastStats?.counters.erroredTests ?? 0);
-        const rate =
-          elapsedSec > 0 ? Math.round(totalExecuted / elapsedSec) : 0;
+        const rate = formatThroughput(totalExecuted, elapsedSec);
         const testResults = formatTestResults(lastStats);
 
         if (lastWasMilestone) {
@@ -423,11 +426,10 @@ export async function runCliInProcess(
             0,
             {
               runtime: formatDuration(elapsedSec),
-              rate: rate.toString(),
+              rate: rate,
             },
             {
-              format:
-                " - Testing [{bar}] {percentage}% @ {runtime}, {rate} execs/s",
+              format: " - Testing [{bar}] {percentage}% @ {runtime}, {rate}",
             }
           );
           resultsBar = multiBar.create(
@@ -451,7 +453,7 @@ export async function runCliInProcess(
         ) {
           progressBar.update(Math.max(0, Math.min(payload.pct, 100)), {
             runtime: formatDuration(elapsedSec),
-            rate: rate.toString(),
+            rate: rate,
           });
           resultsBar.update(0, {
             results: testResults,
@@ -517,6 +519,12 @@ export async function runCliInProcess(
     Config.override(
       "nanofuzz.ai.backfeedPriorInputs",
       options["aiInputBackfeed"]
+    );
+  }
+  if (options["aiCoverageGuidance"] !== undefined) {
+    Config.override(
+      "nanofuzz.ai.coverageGuidance",
+      options["aiCoverageGuidance"]
     );
   }
 
@@ -1016,6 +1024,39 @@ export function formatDuration(totalSeconds: number): string {
   const minStr = remainingMinutes.toString().padStart(2, "0");
   return `${hours}h${minStr}m${secStr}s`;
 } // fn: formatDuration
+
+export function formatThroughput(
+  totalExecuted: number,
+  elapsedSec: number
+): string {
+  if (elapsedSec <= 0 || isNaN(elapsedSec)) {
+    return "0 execs/s";
+  }
+  if (totalExecuted === 0) {
+    if (elapsedSec < 60) {
+      return "0 execs/s";
+    }
+    if (elapsedSec < 3600) {
+      return "0 inputs/min";
+    }
+    return "0 inputs/hr";
+  }
+
+  const execsPerSec = totalExecuted / elapsedSec;
+  if (execsPerSec >= 1) {
+    return `${Math.round(execsPerSec)} execs/s`;
+  }
+
+  const inputsPerMin = execsPerSec * 60;
+  if (inputsPerMin >= 1) {
+    return `${Math.round(inputsPerMin)} inputs/min`;
+  }
+
+  const inputsPerHour = execsPerSec * 3600;
+  return `${Math.round(inputsPerHour)} inputs/hr`;
+} // fn: formatThroughput
+
+export const formatRate = formatThroughput;
 
 export type TestCounters = {
   failedTests?: number;

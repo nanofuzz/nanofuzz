@@ -8,6 +8,8 @@ import { FuzzStopReason, FuzzTestResults } from "../fuzzer/Types";
 import { CodeCoverageMeasureStats } from "../fuzzer/measures/AbstractCoverageMeasure";
 import {
   formatDuration,
+  formatRate,
+  formatThroughput,
   formatTestCounts,
   formatTestResults,
   runCliInProcess,
@@ -535,6 +537,29 @@ describe("cli:", () => {
     ).toBeFalse();
   });
 
+  it("--no-ai-coverage-guidance flag overrides coverageGuidance", async () => {
+    const outputFile = path.join(tmpDir, "no_cov_guidance_output.json5");
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testCoverageOneFile";
+
+    const res = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--no-ai-coverage-guidance",
+      "--max-tests",
+      "1",
+      "--seed",
+      "cli_seed_no_cov_guidance",
+    ]);
+
+    expect(res.status).toBe(0);
+    expect(
+      Config.get<boolean>("nanofuzz.ai.coverageGuidance", true)
+    ).toBeFalse();
+  });
+
   it("--model-endpoint flag overrides nanofuzz.ai.endpoint", async () => {
     const outputFile = path.join(tmpDir, "model_endpoint_output.json5");
     const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
@@ -620,6 +645,33 @@ describe("cli:", () => {
     expect(formatDuration(125)).toBe("2m05s");
     expect(formatDuration(3600)).toBe("1h00m00s");
     expect(formatDuration(19325)).toBe("5h22m05s");
+  });
+
+  it("formatThroughput: formats execs/s, inputs/min, and inputs/hr correctly", () => {
+    // Zero or invalid elapsed
+    expect(formatThroughput(0, 0)).toBe("0 execs/s");
+    expect(formatThroughput(5, 0)).toBe("0 execs/s");
+    expect(formatThroughput(0, 10)).toBe("0 execs/s");
+    expect(formatThroughput(0, 120)).toBe("0 inputs/min");
+    expect(formatThroughput(0, 7200)).toBe("0 inputs/hr");
+
+    // >= 1 exec/s
+    expect(formatThroughput(100, 2)).toBe("50 execs/s");
+    expect(formatThroughput(5, 5)).toBe("1 execs/s");
+    expect(formatThroughput(10, 8)).toBe("1 execs/s");
+
+    // < 1 exec/s but >= 1 input/min
+    expect(formatThroughput(50, 239)).toBe("13 inputs/min");
+    expect(formatThroughput(1, 2)).toBe("30 inputs/min");
+    expect(formatThroughput(1, 60)).toBe("1 inputs/min");
+
+    // < 1 input/min (measured in inputs/hr)
+    expect(formatThroughput(1, 120)).toBe("30 inputs/hr");
+    expect(formatThroughput(5, 900)).toBe("20 inputs/hr");
+    expect(formatThroughput(1, 3600)).toBe("1 inputs/hr");
+
+    // formatRate alias works identically
+    expect(formatRate(50, 239)).toBe("13 inputs/min");
   });
 
   it("formatTestResults: formats non-zero groups and omits empty/zero groups", () => {
@@ -749,7 +801,7 @@ describe("cli:", () => {
       expect(res.status).toBe(0);
       expect(res.stderr).toMatch(/Testing \[.*\] \d+%/);
       expect(res.stderr).toMatch(/@ \d+s/);
-      expect(res.stderr).toContain("execs/s");
+      expect(res.stderr).toMatch(/(execs\/s|inputs\/min)/);
       expect(res.stderr).toMatch(/Results \[.*Passed:/);
     } finally {
       Object.defineProperty(process.stderr, "isTTY", {

@@ -400,97 +400,99 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
   } // fn: onBeforeNextTestExecution
 
   /**
+   * Generates CodeCoverageMeasureStats representing coverage accumulated across the run so far.
+   */
+  public async getCoverageStats(): Promise<CodeCoverageMeasureStats> {
+    // Register source maps from disk for any files in globalCoverageMap
+    // that aren't already registered (e.g. from cached instrumented runs)
+    for (const fileKey of this._globalCoverageMap.files()) {
+      const normKey = normalizePathForKey(fileKey);
+      const mapPaths = Array.from(
+        new Set([fileKey + ".map", normKey + ".map"])
+      );
+      const mapPath = mapPaths.find((p) => fs.existsSync(p));
+      if (mapPath) {
+        try {
+          const mapData = JSON.parse(fs.readFileSync(mapPath, "utf8"));
+          if (mapData && Array.isArray(mapData.sources)) {
+            const cleanDir = path.dirname(
+              fileKey.replace(/([/\\])inst-[^/\\]+\1/, "$1")
+            );
+            mapData.sources = mapData.sources.map((s: string) =>
+              path.isAbsolute(s) ? s : path.resolve(cleanDir, s)
+            );
+          }
+          this._sourceMapStore.registerMap(fileKey, mapData);
+          if (normKey !== fileKey) {
+            this._sourceMapStore.registerMap(normKey, mapData);
+          }
+        } catch {
+          // ignore
+        }
+      }
+    }
+
+    // We need to transform the global coverage map using the source maps
+    // to get TypeScript locations (not the compiled JS locations).
+    const tsCoverageMap = await this._sourceMapStore.transformCoverage(
+      this._globalCoverageMap
+    );
+    const coverageSummary = tsCoverageMap.getCoverageSummary();
+    const files: CodeCoverageFileStats[] = tsCoverageMap
+      .files()
+      .map((filePath) => {
+        const fileSummary = tsCoverageMap.fileCoverageFor(filePath).toSummary();
+        const fileMap = createFileCoverage(
+          structuredClone(tsCoverageMap.fileCoverageFor(filePath).data)
+        );
+        // Omit functions and branches with no hits
+        for (const k of Object.keys(fileMap.f)) {
+          if (fileMap.f[k] === 0) delete fileMap.f[k];
+        }
+        for (const k of Object.keys(fileMap.b)) {
+          if (Math.max(...fileMap.b[k]) === 0) delete fileMap.b[k];
+        }
+        for (const k of Object.keys(fileMap.statementMap)) {
+          if (!(k in fileMap.s)) delete fileMap.statementMap[k];
+        }
+        for (const k of Object.keys(fileMap.branchMap)) {
+          if (!(k in fileMap.b)) delete fileMap.branchMap[k];
+        }
+
+        return {
+          path: normalizePathForKey(filePath),
+          counters: {
+            functionsTotal: fileSummary.functions.total,
+            functionsCovered: fileSummary.functions.covered,
+            statementsTotal: fileSummary.statements.total,
+            statementsCovered: fileSummary.statements.covered,
+            branchesTotal: fileSummary.branches.total,
+            branchesCovered: fileSummary.branches.covered,
+          },
+          fileMap,
+        };
+      });
+
+    return {
+      counters: {
+        functionsTotal: coverageSummary.functions.total,
+        functionsCovered: coverageSummary.functions.covered,
+        statementsTotal: coverageSummary.statements.total,
+        statementsCovered: coverageSummary.statements.covered,
+        branchesTotal: coverageSummary.branches.total,
+        branchesCovered: coverageSummary.branches.covered,
+      },
+      files,
+    };
+  } // fn: getCoverageStats()
+
+  /**
    * Fills in global code coverage statistics.
    *
    * @param `results` all test results
    */
   public onRunEnd(results: FuzzTestResults): void {
-    results.stats.measures.CodeCoverageMeasure =
-      async (): Promise<CodeCoverageMeasureStats> => {
-        // Register source maps from disk for any files in globalCoverageMap
-        // that aren't already registered (e.g. from cached instrumented runs)
-        for (const fileKey of this._globalCoverageMap.files()) {
-          const normKey = normalizePathForKey(fileKey);
-          const mapPaths = Array.from(
-            new Set([fileKey + ".map", normKey + ".map"])
-          );
-          const mapPath = mapPaths.find((p) => fs.existsSync(p));
-          if (mapPath) {
-            try {
-              const mapData = JSON.parse(fs.readFileSync(mapPath, "utf8"));
-              if (mapData && Array.isArray(mapData.sources)) {
-                const cleanDir = path.dirname(
-                  fileKey.replace(/([/\\])inst-[^/\\]+\1/, "$1")
-                );
-                mapData.sources = mapData.sources.map((s: string) =>
-                  path.isAbsolute(s) ? s : path.resolve(cleanDir, s)
-                );
-              }
-              this._sourceMapStore.registerMap(fileKey, mapData);
-              if (normKey !== fileKey) {
-                this._sourceMapStore.registerMap(normKey, mapData);
-              }
-            } catch {
-              // ignore
-            }
-          }
-        }
-
-        // We need to transform the global coverage map using the source maps
-        // to get TypeScript locations (not the compiled JS locations).
-        const tsCoverageMap = await this._sourceMapStore.transformCoverage(
-          this._globalCoverageMap
-        );
-        const coverageSummary = tsCoverageMap.getCoverageSummary();
-        const files: CodeCoverageFileStats[] = tsCoverageMap
-          .files()
-          .map((filePath) => {
-            const fileSummary = tsCoverageMap
-              .fileCoverageFor(filePath)
-              .toSummary();
-            const fileMap = createFileCoverage(
-              structuredClone(tsCoverageMap.fileCoverageFor(filePath).data)
-            );
-            // Omit functions and branches with no hits
-            for (const k of Object.keys(fileMap.f)) {
-              if (fileMap.f[k] === 0) delete fileMap.f[k];
-            }
-            for (const k of Object.keys(fileMap.b)) {
-              if (Math.max(...fileMap.b[k]) === 0) delete fileMap.b[k];
-            }
-            for (const k of Object.keys(fileMap.statementMap)) {
-              if (!(k in fileMap.s)) delete fileMap.statementMap[k];
-            }
-            for (const k of Object.keys(fileMap.branchMap)) {
-              if (!(k in fileMap.b)) delete fileMap.branchMap[k];
-            }
-
-            return {
-              path: normalizePathForKey(filePath),
-              counters: {
-                functionsTotal: fileSummary.functions.total,
-                functionsCovered: fileSummary.functions.covered,
-                statementsTotal: fileSummary.statements.total,
-                statementsCovered: fileSummary.statements.covered,
-                branchesTotal: fileSummary.branches.total,
-                branchesCovered: fileSummary.branches.covered,
-              },
-              fileMap,
-            };
-          });
-
-        return {
-          counters: {
-            functionsTotal: coverageSummary.functions.total,
-            functionsCovered: coverageSummary.functions.covered,
-            statementsTotal: coverageSummary.statements.total,
-            statementsCovered: coverageSummary.statements.covered,
-            branchesTotal: coverageSummary.branches.total,
-            branchesCovered: coverageSummary.branches.covered,
-          },
-          files,
-        };
-      };
+    results.stats.measures.CodeCoverageMeasure = () => this.getCoverageStats();
   } // fn: onRunEnd
 
   /**
