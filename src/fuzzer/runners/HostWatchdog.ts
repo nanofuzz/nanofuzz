@@ -22,6 +22,7 @@ export class HostWatchdog {
    * @param host The host instance to watch.
    */
   public static watch(host: AbstractHost): void {
+    if (process.platform === "win32") return;
     const pid = host.pid;
     if (!pid) return;
     this._hosts.set(pid, host);

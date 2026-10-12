@@ -346,12 +346,14 @@ module.exports = { crash, ok };
     }
   });
 
-  it("kills JavascriptRunnerHost when memory usage exceeds configured limit", async () => {
-    const tmpDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "nanofuzz-jsrunner-ram-")
-    );
-    const jsPath = path.join(tmpDir, "leakModule.js");
-    const jsCode = `
+  (process.platform === "win32" ? xit : it)(
+    "kills JavascriptRunnerHost when memory usage exceeds configured limit",
+    async () => {
+      const tmpDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "nanofuzz-jsrunner-ram-")
+      );
+      const jsPath = path.join(tmpDir, "leakModule.js");
+      const jsCode = `
 const leaked = [];
 function leakMemory() {
   while (true) {
@@ -363,49 +365,50 @@ function normalFn(x) {
 }
 module.exports = { leakMemory, normalFn };
 `;
-    fs.writeFileSync(jsPath, jsCode);
+      fs.writeFileSync(jsPath, jsCode);
 
-    const prevMaxMem = Config.get("nanofuzz.fuzzer.maxRunnerMemory", 8192);
-    Config.override("nanofuzz.fuzzer.maxRunnerMemory", 100);
+      const prevMaxMem = Config.get("nanofuzz.fuzzer.maxRunnerMemory", 8192);
+      Config.override("nanofuzz.fuzzer.maxRunnerMemory", 100);
 
-    try {
-      // Memory limit configured via Config.override above (100 MB)
-      const runner = new JavascriptRunner(jsPath, "leakMemory");
-      await runner.onRunStart();
-
-      const res = await runner.run([], 15000);
-      expect(res.result.tag).toBe("error");
-      if (res.result.tag === "error") {
-        expect(res.result.name).toBe("HostMemoryExceededError");
-        expect(res.result.message).toContain("exceeded RAM limit");
-      }
-
-      await runner.onRunEnd();
-      Config.override("nanofuzz.fuzzer.maxRunnerMemory", prevMaxMem);
-
-      // Subsequent run with normal runner and fresh host succeeds
-      const normalRunner = new JavascriptRunner(jsPath, "normalFn");
-      await normalRunner.onRunStart();
-      const normalRes = await normalRunner.run([21], 5000);
-      expect(normalRes.result.tag).toBe("value");
-      if (normalRes.result.tag === "value") {
-        expect(normalRes.result.value).toBe(42);
-      }
-      await normalRunner.onRunEnd();
-    } finally {
-      Config.override("nanofuzz.fuzzer.maxRunnerMemory", prevMaxMem);
       try {
-        fs.rmSync(tmpDir, {
-          recursive: true,
-          force: true,
-          maxRetries: 10,
-          retryDelay: 100,
-        });
-      } catch {
-        // ignore
+        // Memory limit configured via Config.override above (100 MB)
+        const runner = new JavascriptRunner(jsPath, "leakMemory");
+        await runner.onRunStart();
+
+        const res = await runner.run([], 15000);
+        expect(res.result.tag).toBe("error");
+        if (res.result.tag === "error") {
+          expect(res.result.name).toBe("HostMemoryExceededError");
+          expect(res.result.message).toContain("exceeded RAM limit");
+        }
+
+        await runner.onRunEnd();
+        Config.override("nanofuzz.fuzzer.maxRunnerMemory", prevMaxMem);
+
+        // Subsequent run with normal runner and fresh host succeeds
+        const normalRunner = new JavascriptRunner(jsPath, "normalFn");
+        await normalRunner.onRunStart();
+        const normalRes = await normalRunner.run([21], 5000);
+        expect(normalRes.result.tag).toBe("value");
+        if (normalRes.result.tag === "value") {
+          expect(normalRes.result.value).toBe(42);
+        }
+        await normalRunner.onRunEnd();
+      } finally {
+        Config.override("nanofuzz.fuzzer.maxRunnerMemory", prevMaxMem);
+        try {
+          fs.rmSync(tmpDir, {
+            recursive: true,
+            force: true,
+            maxRetries: 10,
+            retryDelay: 100,
+          });
+        } catch {
+          // ignore
+        }
       }
     }
-  });
+  );
 
   it("timeout coverage data is retained", async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nanofuzz-jsrunner-"));

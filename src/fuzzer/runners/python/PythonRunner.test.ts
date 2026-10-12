@@ -453,10 +453,12 @@ def loop_timeout(n: int) -> int:
     }
   });
 
-  it("kills PythonRunnerHost when memory usage exceeds configured limit", async () => {
-    const tmpDir = getTmpDir("nanofuzz-runner-ram-");
-    const pyPath = path.join(tmpDir, "leak_test.py");
-    const pyCode = `
+  (process.platform === "win32" ? xit : it)(
+    "kills PythonRunnerHost when memory usage exceeds configured limit",
+    async () => {
+      const tmpDir = getTmpDir("nanofuzz-runner-ram-");
+      const pyPath = path.join(tmpDir, "leak_test.py");
+      const pyCode = `
 _leaked = []
 
 def leak_memory(n: int) -> int:
@@ -466,65 +468,66 @@ def leak_memory(n: int) -> int:
 def normal_fn(n: int) -> int:
     return n * 2
 `;
-    fs.writeFileSync(pyPath, pyCode);
+      fs.writeFileSync(pyPath, pyCode);
 
-    const prevMaxMem = Config.get("nanofuzz.fuzzer.maxRunnerMemory", 8192);
-    Config.override("nanofuzz.fuzzer.maxRunnerMemory", 400);
+      const prevMaxMem = Config.get("nanofuzz.fuzzer.maxRunnerMemory", 8192);
+      Config.override("nanofuzz.fuzzer.maxRunnerMemory", 400);
 
-    try {
-      const srcCode = `
+      try {
+        const srcCode = `
 def leak_memory(n: int) -> int:
     pass
 def normal_fn(n: int) -> int:
     pass
 `;
-      const program = ProgramFactory.fromSource(
-        () => srcCode,
-        "python",
-        pyPath
-      );
-      const fnDef = program.functionsExported["leak_memory"];
-      const env = createFuzzEnv(fnDef);
+        const program = ProgramFactory.fromSource(
+          () => srcCode,
+          "python",
+          pyPath
+        );
+        const fnDef = program.functionsExported["leak_memory"];
+        const env = createFuzzEnv(fnDef);
 
-      // Memory limit configured via Config.override above (400 MB)
-      const runner = new PythonRunner(pyPath, "leak_memory", env);
-      await runner.onRunStart();
+        // Memory limit configured via Config.override above (400 MB)
+        const runner = new PythonRunner(pyPath, "leak_memory", env);
+        await runner.onRunStart();
 
-      const res = await runner.run([1], 20000);
-      expect(res.result.tag).toBe("error");
-      if (res.result.tag === "error") {
-        expect(res.result.name).toBe("HostMemoryExceededError");
-        expect(res.result.message).toContain("exceeded RAM limit");
-      }
+        const res = await runner.run([1], 20000);
+        expect(res.result.tag).toBe("error");
+        if (res.result.tag === "error") {
+          expect(res.result.name).toBe("HostMemoryExceededError");
+          expect(res.result.message).toContain("exceeded RAM limit");
+        }
 
-      await runner.onRunEnd();
-      Config.override("nanofuzz.fuzzer.maxRunnerMemory", prevMaxMem);
+        await runner.onRunEnd();
+        Config.override("nanofuzz.fuzzer.maxRunnerMemory", prevMaxMem);
 
-      // Subsequent run with normal runner and fresh host succeeds
-      const normalDef = program.functionsExported["normal_fn"];
-      const normalEnv = createFuzzEnv(normalDef);
-      const normalRunner = new PythonRunner(pyPath, "normal_fn", normalEnv);
-      await normalRunner.onRunStart();
-      const normalRes = await normalRunner.run([21], 5000);
-      expect(normalRes.result.tag).toBe("value");
-      if (normalRes.result.tag === "value") {
-        expect(normalRes.result.value).toBe(42);
-      }
-      await normalRunner.onRunEnd();
-    } finally {
-      Config.override("nanofuzz.fuzzer.maxRunnerMemory", prevMaxMem);
-      try {
-        fs.rmSync(tmpDir, {
-          recursive: true,
-          force: true,
-          maxRetries: 10,
-          retryDelay: 100,
-        });
-      } catch {
-        // Ignore
+        // Subsequent run with normal runner and fresh host succeeds
+        const normalDef = program.functionsExported["normal_fn"];
+        const normalEnv = createFuzzEnv(normalDef);
+        const normalRunner = new PythonRunner(pyPath, "normal_fn", normalEnv);
+        await normalRunner.onRunStart();
+        const normalRes = await normalRunner.run([21], 5000);
+        expect(normalRes.result.tag).toBe("value");
+        if (normalRes.result.tag === "value") {
+          expect(normalRes.result.value).toBe(42);
+        }
+        await normalRunner.onRunEnd();
+      } finally {
+        Config.override("nanofuzz.fuzzer.maxRunnerMemory", prevMaxMem);
+        try {
+          fs.rmSync(tmpDir, {
+            recursive: true,
+            force: true,
+            maxRetries: 10,
+            retryDelay: 100,
+          });
+        } catch {
+          // Ignore
+        }
       }
     }
-  });
+  );
 
   it("heartbeat: keep long-running startups alive", async () => {
     const tmpDir = getTmpDir("nanofuzz-runner-");
