@@ -20,11 +20,11 @@ import { isError } from "../Util";
 import { isBufferOrUint8Array } from "../../Util";
 import * as Config from "../../Config";
 import {
-  AbstractCoverageMeasure,
+  CoverageMeasure,
   UncoveredCoverageInfo,
   extractUncoveredLines,
   formatLineRanges,
-} from "../measures/AbstractCoverageMeasure";
+} from "../measures/CoverageMeasure";
 import {
   CoverageFrontierSampler,
   SampledFrontierTarget,
@@ -46,7 +46,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
   protected _exhausted = false; // Set to true when the model produces no new valid inputs or encounters an error
   protected _tokensPerInput: number; // Estimated tokens per input (calculated onRunStart)
   protected _requestedInputCount; // Number of inputs to request per LLM call (calculated per request)
-  protected _covMeasure?: AbstractCoverageMeasure; // Code coverage measure provider
+  protected _covMeasure?: CoverageMeasure; // Code coverage measure provider
   protected _targetAttempts: Record<string, number> = {}; // Historical attempts per target function to decay weight
   protected _leaderboard?: Leaderboard<InputAndSource>; // Running list of interesting inputs
 
@@ -55,7 +55,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
     rngSeed: string | undefined,
     allInputs: Map<string, unknown>,
     moduleSrc: string,
-    covMeasure?: AbstractCoverageMeasure,
+    covMeasure?: CoverageMeasure,
     leaderboard?: Leaderboard<InputAndSource>
   ) {
     super(fn.getArgDefs(), rngSeed);

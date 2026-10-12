@@ -6,7 +6,7 @@ import {
   CoverageFrontierSampler,
   formatFrontierContext,
 } from "./CoverageFrontierSampler";
-import { CodeCoverageMeasureStats } from "../measures/AbstractCoverageMeasure";
+import { CodeCoverageMeasureStats } from "../measures/CoverageMeasure";
 import { FunctionDef } from "./FunctionDef";
 import { prompt } from "../generators/AiInputGenerator";
 

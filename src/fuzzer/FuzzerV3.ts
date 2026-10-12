@@ -36,13 +36,18 @@ import { MeasureFactory } from "./measures/MeasureFactory";
 import { RunnerFactory } from "./runners/RunnerFactory";
 import { Leaderboard } from "./generators/Leaderboard";
 import {
+  categorizeResult,
   getIoKey,
   isError,
   isSameJudgments,
   determineWorkerCount,
 } from "./Util";
 import { AbstractProgram } from "./analysis/AbstractProgram";
-import { AbstractRunner, RunnerResult } from "./runners/AbstractRunner";
+import {
+  AbstractRunner,
+  RunnerCoverage,
+  RunnerResult,
+} from "./runners/AbstractRunner";
 import { AbstractMeasure } from "./measures/AbstractMeasure";
 import { CompilerStaleness } from "./compilers/Types";
 import { FuzzExecutor, FuzzWorkerContext } from "./FuzzExecutor";
@@ -505,6 +510,8 @@ export class FuzzerV3 {
     };
 
     const runWorker = async (worker: FuzzWorkerContext) => {
+      let pendingRecord: Promise<void> | undefined;
+
       while (isGenActive) {
         const { slot, stopReason } = await fetchNextSlot();
 
@@ -528,54 +535,79 @@ export class FuzzerV3 {
           cancelFn
         );
 
-        if (executedSlot) {
-          let shrinkTriggered = false;
-          const nextRecord = recordPromise.then(async () => {
-            if (
-              this._options.maxFailures > 0 &&
+        if (!executedSlot) {
+          if (slot.injected) {
+            this._injectedInFlight = Math.max(0, this._injectedInFlight - 1);
+          }
+          continue;
+        }
+
+        if (!executedSlot.result) {
+          throw new Error(
+            `Internal error: executed slot ${slot.id} has no test result`
+          );
+        }
+
+        const cat = categorizeResult(executedSlot.result);
+        const isFailing = cat !== "ok" && cat !== "skip";
+
+        let shrinkTriggered = false;
+        const nextRecord = recordPromise.then(async () => {
+          if (
+            this._options.maxFailures > 0 &&
+            this._stats.currentRun.counters.failedTests +
+              this._stats.currentRun.counters.erroredTests >=
+              this._options.maxFailures &&
+            this._fuzzerFocus.mode !== "shrink"
+          ) {
+            isGenActive = false;
+            if (!finalStopReason) {
+              finalStopReason = FuzzStopReason.MAXFAILURES;
+            }
+            return;
+          }
+
+          shrinkTriggered = await this._stageMeasureAndRecord(
+            executedSlot,
+            onResultFn
+          );
+
+          if (
+            this._options.maxFailures > 0 &&
+            !executedSlot.candidate?.injected &&
+            this._fuzzerFocus.mode !== "shrink"
+          ) {
+            const totalFailures =
               this._stats.currentRun.counters.failedTests +
-                this._stats.currentRun.counters.erroredTests >=
-                this._options.maxFailures &&
-              this._fuzzerFocus.mode !== "shrink"
-            ) {
+              this._stats.currentRun.counters.erroredTests;
+            if (totalFailures >= this._options.maxFailures) {
               isGenActive = false;
               if (!finalStopReason) {
                 finalStopReason = FuzzStopReason.MAXFAILURES;
               }
-              return;
             }
+          }
 
-            shrinkTriggered = await this._stageMeasureAndRecord(
-              executedSlot,
-              onResultFn
-            );
+          if (shrinkTriggered) {
+            isGenActive = true;
+          }
+        });
 
-            if (
-              this._options.maxFailures > 0 &&
-              !executedSlot.candidate?.injected &&
-              this._fuzzerFocus.mode !== "shrink"
-            ) {
-              const totalFailures =
-                this._stats.currentRun.counters.failedTests +
-                this._stats.currentRun.counters.erroredTests;
-              if (totalFailures >= this._options.maxFailures) {
-                isGenActive = false;
-                if (!finalStopReason) {
-                  finalStopReason = FuzzStopReason.MAXFAILURES;
-                }
-              }
-            }
+        recordPromise = nextRecord.catch(() => {});
 
-            if (shrinkTriggered) {
-              isGenActive = true;
-            }
-          });
-
-          recordPromise = nextRecord.catch(() => {});
+        if (slot.injected || isFailing || this._fuzzerFocus.mode === "shrink") {
           await nextRecord;
-        } else if (slot.injected) {
-          this._injectedInFlight = Math.max(0, this._injectedInFlight - 1);
+          pendingRecord = undefined;
+        } else {
+          if (pendingRecord) {
+            await pendingRecord;
+          }
+          pendingRecord = nextRecord;
         }
+      }
+
+      if (pendingRecord) {
+        await pendingRecord;
       }
     };
 
@@ -741,8 +773,10 @@ export class FuzzerV3 {
     slot.result = exec.result;
     slot.exeOutput = exec.exeOutput;
     slot.worker = worker;
+    slot.coverageHits = exec.coverageHits;
     slot.runTime = exec.runTime;
     slot.valTime = exec.valTime;
+
     return slot;
   } // fn: _stage2ExecuteTest
 
@@ -759,29 +793,11 @@ export class FuzzerV3 {
 
     const result = slot.result;
 
-    const runnersToRecord: AbstractRunner[] = [];
-    if (slot.worker) {
-      runnersToRecord.push(slot.worker.runner);
-    }
-    if (
-      this._executor.transformRunner &&
-      slot.candidate.source.type === "transformer"
-    ) {
-      runnersToRecord.push(this._executor.transformRunner);
-    }
-    if (
-      this._executor.userGenRunner &&
-      slot.candidate.source.type === "generator" &&
-      slot.candidate.source.generator === "UserInputGenerator"
-    ) {
-      runnersToRecord.push(this._executor.userGenRunner);
-    }
-
     const { measureTime } = this._executor.recordTestFeedback(
       result,
       slot.candidate,
-      runnersToRecord,
-      this._compositeInputGenerator
+      this._compositeInputGenerator,
+      slot.coverageHits
     );
     slot.measureTime = measureTime;
 
@@ -1140,4 +1156,5 @@ interface PipelineSlot {
 
   // Measure & Feedback Output
   measureTime: number;
+  coverageHits?: RunnerCoverage[];
 }

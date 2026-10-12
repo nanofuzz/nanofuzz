@@ -7,7 +7,7 @@ import { RandomInputGenerator } from "./RandomInputGenerator";
 import { AiInputGenerator } from "./AiInputGenerator";
 import { UserInputGenerator } from "./UserInputGenerator";
 import { AbstractMeasure } from "../measures/AbstractMeasure";
-import { AbstractCoverageMeasure } from "../measures/AbstractCoverageMeasure";
+import { CoverageMeasure } from "../measures/CoverageMeasure";
 import {
   FuzzOptions,
   FuzzTestStats,
@@ -42,7 +42,7 @@ export function InputGeneratorFactory(
   measures?: AbstractMeasure[]
 ): AbstractInputGenerator[] {
   const covMeasure = measures?.find(
-    (m): m is AbstractCoverageMeasure => m.name === "CoverageMeasure"
+    (m): m is CoverageMeasure => m.name === "CoverageMeasure"
   );
   return [
     new HumanInputGenerator(fn.getArgDefs(), rngSeed),

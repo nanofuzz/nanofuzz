@@ -30,9 +30,21 @@ export function isError(obj: unknown): obj is Error {
 } // fn: isError
 
 /**
+ * In-memory cache of normalized file path keys to avoid repeated expensive calls
+ * to path.normalize() and platform casing conversions during high-frequency test
+ * execution and coverage merging. Capped at 10,000 entries to prevent unbounded memory growth.
+ */
+const normPathCache = new Map<string, string>();
+
+/**
  * Normalizes a file path string for use as a key (in maps) to avoid cross-platform issues.
  */
 export function normalizePathForKey(rawPath: string): string {
+  const cached = normPathCache.get(rawPath);
+  if (cached !== undefined) {
+    return cached;
+  }
+
   let p = rawPath.trim();
   p = path.normalize(p);
 
@@ -40,6 +52,10 @@ export function normalizePathForKey(rawPath: string): string {
   // are (usually) case sensitive.
   if (process.platform === "win32") {
     p = p.toLowerCase();
+  }
+
+  if (normPathCache.size < 10000) {
+    normPathCache.set(rawPath, p);
   }
 
   return p;

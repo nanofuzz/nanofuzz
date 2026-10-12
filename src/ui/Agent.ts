@@ -42,7 +42,7 @@ import {
   CodeCoverageMeasureStats,
   extractUncoveredLines,
   formatLineRanges,
-} from "../fuzzer/measures/AbstractCoverageMeasure";
+} from "../fuzzer/measures/CoverageMeasure";
 import { CoverageFrontierSampler } from "../fuzzer/analysis/CoverageFrontierSampler";
 import { LlmAdapter } from "../fuzzer/adapters/LlmAdapter";
 import { synthesizeValidator } from "../fuzzer/synthesis/ValidatorSynthesizer";

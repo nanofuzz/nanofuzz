@@ -13,7 +13,7 @@ import { FuzzEnv } from "../../Types";
 import {
   isCoverageMapData,
   isRecordOfFileCoverageData,
-} from "../../measures/TypescriptCoverageMeasure";
+} from "../../measures/CoverageMeasure";
 import {
   CoverageMapData,
   Range,
@@ -42,7 +42,7 @@ export class JavascriptRunner extends AbstractRunner {
   protected _seq = 0;
   protected _coverageInfo: CoverageMapData | undefined = undefined;
   protected _staticCoverage: CoverageMapData | undefined = undefined;
-  protected _lastRunCoverage?: Record<string, FileCoverageData>;
+  protected _lastRunCoverage?: CoverageMapData;
   protected _coverageEnabled = true;
   protected _coverageCallback?: (covData: unknown) => void;
   protected _overrides: RunnerOverrides;
@@ -294,9 +294,7 @@ export class JavascriptRunner extends AbstractRunner {
   /**
    * Gets the single most recent execution's coverage data.
    */
-  public override get lastRunCoverage():
-    | Record<string, FileCoverageData>
-    | undefined {
+  public override get lastRunCoverage(): CoverageMapData | undefined {
     return this._lastRunCoverage;
   } // get: lastRunCoverage
 

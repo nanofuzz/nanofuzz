@@ -3,12 +3,13 @@ import { FunctionRef } from "./analysis/Types";
 import { isArgValueType } from "./analysis/Util";
 import { CompositeInputGenerator } from "./generators/CompositeInputGenerator";
 import { AbstractMeasure } from "./measures/AbstractMeasure";
-import { AbstractCoverageMeasure } from "./measures/AbstractCoverageMeasure";
+import { CoverageMeasure } from "./measures/CoverageMeasure";
 import { ExampleOracle } from "./oracles/ExampleOracle";
 import { ImplicitOracle } from "./oracles/ImplicitOracle";
 import { PropertyOracle } from "./oracles/PropertyOracle";
 import {
   AbstractRunner,
+  RunnerCoverage,
   RunnerResult,
   ValidatorResult,
 } from "./runners/AbstractRunner";
@@ -34,6 +35,7 @@ export interface FuzzWorkerContext {
 export interface FuzzExecutionOutput {
   result: FuzzTestResult;
   exeOutput?: RunnerResult;
+  coverageHits: RunnerCoverage[];
   valTime: number;
   runTime: number;
 }
@@ -171,7 +173,7 @@ export class FuzzExecutor {
     }
 
     if (result.skipped || result.harnessErrors.length > 0) {
-      return { result, valTime: 0, runTime: 0 };
+      return { result, coverageHits: [], valTime: 0, runTime: 0 };
     }
 
     // 2. Call the PUT via the worker runner
@@ -237,9 +239,15 @@ export class FuzzExecutor {
       valTime = performance.now() - startValTime;
     }
 
+    const activeRunners = this._getActiveRunners(worker, candidate);
+    const coverageHits = activeRunners
+      .map((r) => r.lastRunCoverage)
+      .filter((c): c is RunnerCoverage => c !== undefined);
+
     return {
       result,
       exeOutput,
+      coverageHits,
       valTime,
       runTime,
     };
@@ -250,24 +258,24 @@ export class FuzzExecutor {
    *
    * @param result the fuzz test result
    * @param candidate the transformed input candidate
-   * @param activeRunners runners whose coverage should be ingested
    * @param generator the composite input generator
+   * @param coverageHits optional snapshot of runner coverage hits from this execution
    * @returns measurement timing information
    */
   public recordTestFeedback(
     result: FuzzTestResult,
     candidate: TransformedInputAndSource,
-    activeRunners: AbstractRunner[],
-    generator: CompositeInputGenerator
+    generator: CompositeInputGenerator,
+    coverageHits?: RunnerCoverage[]
   ): { measureTime: number } {
     result.category = categorizeResult(result);
 
     this.prepareMeasures();
-    for (const r of activeRunners) {
-      if (r.lastRunCoverage) {
+    if (coverageHits) {
+      for (const hits of coverageHits) {
         this._measures.forEach((m) => {
-          if (m instanceof AbstractCoverageMeasure) {
-            m.recordHits(r.lastRunCoverage);
+          if (m instanceof CoverageMeasure) {
+            m.recordHits(hits);
           }
         });
       }
@@ -320,23 +328,11 @@ export class FuzzExecutor {
       return undefined;
     }
 
-    const runnersToRecord: AbstractRunner[] = [worker0.runner];
-    if (this._transformRunner && candidate.source.type === "transformer") {
-      runnersToRecord.push(this._transformRunner);
-    }
-    if (
-      this._userGenRunner &&
-      candidate.source.type === "generator" &&
-      candidate.source.generator === "UserInputGenerator"
-    ) {
-      runnersToRecord.push(this._userGenRunner);
-    }
-
     const { measureTime } = this.recordTestFeedback(
       exec.result,
       candidate,
-      runnersToRecord,
-      generator
+      generator,
+      exec.coverageHits
     );
 
     return {
@@ -530,4 +526,29 @@ export class FuzzExecutor {
       result.passedValidator = PropertyOracle.summarize(judgments);
     }
   } // fn: _evaluateOracles
+
+  /**
+   * Returns active runners for a worker and candidate.
+   *
+   * @param worker the worker context executing this test
+   * @param candidate the transformed input candidate
+   * @returns array of active runners
+   */
+  protected _getActiveRunners(
+    worker: FuzzWorkerContext,
+    candidate: TransformedInputAndSource
+  ): AbstractRunner[] {
+    const runners: AbstractRunner[] = [worker.runner];
+    if (this._transformRunner && candidate.source.type === "transformer") {
+      runners.push(this._transformRunner);
+    }
+    if (
+      this._userGenRunner &&
+      candidate.source.type === "generator" &&
+      candidate.source.generator === "UserInputGenerator"
+    ) {
+      runners.push(this._userGenRunner);
+    }
+    return runners;
+  } // fn: _getActiveRunners
 } // class: FuzzExecutor

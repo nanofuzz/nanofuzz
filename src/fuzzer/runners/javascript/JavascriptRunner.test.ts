@@ -12,9 +12,9 @@ import * as ProgramFactory from "../../analysis/ProgramFactory";
 import * as Parser from "../../adapters/ParserAdapter";
 import * as Config from "../../../Config";
 import {
-  TypescriptCoverageMeasure,
+  CoverageMeasure,
   isCoverageMapData,
-} from "../../measures/TypescriptCoverageMeasure";
+} from "../../measures/CoverageMeasure";
 import * as ts from "typescript";
 import * as fs from "fs";
 import * as path from "path";
@@ -518,7 +518,7 @@ function deadCode() {
 module.exports = { absVal, deadCode };
 `;
     fs.writeFileSync(jsPath, rawJsCode);
-    const measure = new TypescriptCoverageMeasure();
+    const measure = new CoverageMeasure();
     const instJsCode = measure.onAfterCompile(rawJsCode, jsPath);
     fs.writeFileSync(jsPath, instJsCode);
 
@@ -614,7 +614,7 @@ export function x(
     fs.writeFileSync(jsPath + ".map", out.sourceMapText!);
     const realJsPath = fs.realpathSync(jsPath);
 
-    const measure = new TypescriptCoverageMeasure();
+    const measure = new CoverageMeasure();
     const instJsCode = measure.onAfterCompile(out.outputText, realJsPath);
     fs.writeFileSync(realJsPath, instJsCode);
 
@@ -624,7 +624,7 @@ export function x(
       });
       await runner.onRunStart();
 
-      // Attach TypescriptCoverageMeasure to runner
+      // Attach CoverageMeasure to runner
       measure.onRunStart([runner]);
 
       // 1. Initial static coverage on host connect before test execution
@@ -1059,7 +1059,7 @@ export function x(): number {
     const realJsPath = fs.realpathSync(jsPath);
 
     Config.override("nanofuzz.fuzzer.coverageScope", "project");
-    const measure = new TypescriptCoverageMeasure();
+    const measure = new CoverageMeasure();
     const instJsCode = measure.onAfterCompile(out.outputText, realJsPath);
     fs.writeFileSync(realJsPath, instJsCode);
 
