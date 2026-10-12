@@ -1,5 +1,9 @@
 import * as Config from "../../Config";
-import { LlmAdapter, DEFAULT_MAX_OUTPUT_TOKENS } from "./LlmAdapter";
+import {
+  LlmAdapter,
+  DEFAULT_MAX_OUTPUT_TOKENS,
+  DEFAULT_REQUEST_TIMEOUT,
+} from "./LlmAdapter";
 import * as nodellm from "@node-llm/core";
 
 describe("src/fuzzer/adapters/LlmAdapter:", () => {
@@ -41,6 +45,13 @@ describe("src/fuzzer/adapters/LlmAdapter:", () => {
     expect(LlmAdapter.getConfig().endpoint).toBe(
       "http://custom-endpoint:11434/v1"
     );
+  });
+
+  it("getConfig: includes requestTimeout with default or configured value", () => {
+    expect(LlmAdapter.getConfig().requestTimeout).toBe(DEFAULT_REQUEST_TIMEOUT);
+
+    Config.override("nanofuzz.ai.requestTimeout", 60_000);
+    expect(LlmAdapter.getConfig().requestTimeout).toBe(60_000);
   });
 
   it("endpoint: uses default endpoint when none is specified", () => {
@@ -138,5 +149,26 @@ describe("src/fuzzer/adapters/LlmAdapter:", () => {
     // The chat options should not have assumeModelExists enabled
     const chatOptions = Reflect.get(chat, "options");
     expect(Reflect.get(chatOptions, "assumeModelExists")).toBeFalsy();
+  });
+
+  it("_createChat: sets requestTimeout from configuration or default 60_000", () => {
+    Config.override("nanofuzz.ai.provider", "ollama");
+    Config.override("nanofuzz.ai.model", "qwen2.5-coder:7b");
+
+    class TestLlmAdapter extends LlmAdapter {
+      public getChat(): nodellm.Chat {
+        return this._createChat();
+      } // fn: getChat
+    }
+
+    const adapter = new TestLlmAdapter();
+    const chatDefault = adapter.getChat();
+    const defaultOptions = Reflect.get(chatDefault, "options");
+    expect(Reflect.get(defaultOptions, "requestTimeout")).toBe(60_000);
+
+    Config.override("nanofuzz.ai.requestTimeout", 45_000);
+    const chatConfigured = adapter.getChat();
+    const configuredOptions = Reflect.get(chatConfigured, "options");
+    expect(Reflect.get(configuredOptions, "requestTimeout")).toBe(45_000);
   });
 });

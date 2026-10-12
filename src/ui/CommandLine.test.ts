@@ -584,6 +584,30 @@ describe("cli:", () => {
     );
   });
 
+  it("--model-timeout flag overrides nanofuzz.ai.requestTimeout", async () => {
+    const outputFile = path.join(tmpDir, "model_timeout_output.json5");
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testCoverageOneFile";
+
+    const res = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--model-timeout",
+      "45000",
+      "--max-tests",
+      "1",
+      "--seed",
+      "cli_seed_model_timeout",
+    ]);
+
+    expect(res.status).toBe(0);
+    expect(Config.get<number>("nanofuzz.ai.requestTimeout", 60_000)).toBe(
+      45_000
+    );
+  });
+
   it("shows model name on target ready line when model is configured and AI generator is enabled", async () => {
     const outputFile = path.join(tmpDir, "model_ready_output.json5");
     const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";

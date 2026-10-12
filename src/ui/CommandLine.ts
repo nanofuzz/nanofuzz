@@ -177,6 +177,11 @@ function createProgram(): Commander.Command {
     .option(`--model-key <string>`, `AI model API key`)
     .option(`--model-endpoint <string>`, `AI model endpoint base URL`)
     .option(
+      `--model-timeout <integer>`,
+      `AI model request timeout in ms`,
+      parseIntArgGeOne
+    )
+    .option(
       `--ai-cache-mode <mode>`,
       `AI cache mode: record, replay-*, passthrough`,
       parseAiCacheMode
@@ -514,6 +519,9 @@ export async function runCliInProcess(
   }
   if (options["modelEndpoint"] !== undefined) {
     Config.override("nanofuzz.ai.endpoint", options["modelEndpoint"]);
+  }
+  if (options["modelTimeout"] !== undefined) {
+    Config.override("nanofuzz.ai.requestTimeout", options["modelTimeout"]);
   }
   if (options["aiCacheMode"] !== undefined) {
     Config.override("nanofuzz.ai.cacheMode", options["aiCacheMode"]);
