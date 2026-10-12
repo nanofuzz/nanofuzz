@@ -121,7 +121,7 @@ describe("src/fuzzer/adapters/LlmAdapter:", () => {
     expect(Reflect.get(chatOptions, "assumeModelExists")).toBeTrue();
   });
 
-  it("_createChat: omits assumeModelExists when model is known to support structured outputs", () => {
+  it("_createChat: omits assumeModelExists when model is in the registry", () => {
     Config.override("nanofuzz.ai.provider", "gemini");
     Config.override("nanofuzz.ai.model", "gemini-3.1-flash-lite");
     Config.override("nanofuzz.ai.apiKey", "mock-key");
