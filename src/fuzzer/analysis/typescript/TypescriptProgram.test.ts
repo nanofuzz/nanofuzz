@@ -798,4 +798,28 @@ export const returnsValueArrow = () => "hello";
     expect(fns["regularSync"].isAsync()).toBeFalse();
     expect(fns["regularSync"].isVoid()).toBeFalse();
   });
+
+  it("marks functions with function-typed parameters as unsupported", () => {
+    const prog = ProgramFactory.fromSource(
+      () => `
+      export function evaluateExpression(x: number): number { return x; }
+      export function evaluateExpressionGenerator(
+        prng: () => number
+      ): Parameters<typeof evaluateExpression> | undefined {
+        return [1];
+      }
+      export const arrowWithFnType = (cb: (a: number) => string) => { return cb(1); };
+      `,
+      "typescript"
+    );
+
+    expect(prog.functionsExported["evaluateExpression"]).toBeDefined();
+    expect(prog.functionsExported["evaluateExpressionGenerator"]).toBeUndefined();
+    expect(prog.functionsExported["arrowWithFnType"]).toBeUndefined();
+
+    expect(
+      prog.functionsNotSupported["evaluateExpressionGenerator"]
+    ).toBeDefined();
+    expect(prog.functionsNotSupported["arrowWithFnType"]).toBeDefined();
+  });
 });
