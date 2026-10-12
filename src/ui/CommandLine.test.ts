@@ -650,6 +650,25 @@ describe("cli:", () => {
 
     // formatRate alias works identically
     expect(formatRate(50, 239)).toBe("13 inputs/min");
+
+    // unit: inputs uses same minutes and fallback logic
+    expect(formatThroughput(0, 0, "inputs")).toBe("0 inputs/s");
+    expect(formatThroughput(5, 0, "inputs")).toBe("0 inputs/s");
+    expect(formatThroughput(0, 10, "inputs")).toBe("0 inputs/s");
+    expect(formatThroughput(0, 120, "inputs")).toBe("0 inputs/min");
+    expect(formatThroughput(0, 7200, "inputs")).toBe("0 inputs/hr");
+
+    expect(formatThroughput(100, 2, "inputs")).toBe("50 inputs/s");
+    expect(formatThroughput(5, 5, "inputs")).toBe("1 inputs/s");
+    expect(formatThroughput(10, 8, "inputs")).toBe("1 inputs/s");
+
+    expect(formatThroughput(50, 239, "inputs")).toBe("13 inputs/min");
+    expect(formatThroughput(1, 2, "inputs")).toBe("30 inputs/min");
+    expect(formatThroughput(1, 60, "inputs")).toBe("1 inputs/min");
+
+    expect(formatThroughput(1, 120, "inputs")).toBe("30 inputs/hr");
+    expect(formatThroughput(5, 900, "inputs")).toBe("20 inputs/hr");
+    expect(formatThroughput(1, 3600, "inputs")).toBe("1 inputs/hr");
   });
 
   it("formatTestResults: formats non-zero groups and omits empty/zero groups", () => {
@@ -659,6 +678,7 @@ describe("cli:", () => {
         failedTests: 0,
         passedTests: 0,
         inputsSkipped: 0,
+        dupesGenerated: 0,
         erroredTests: 0,
       })
     ).toBe("");
@@ -697,6 +717,33 @@ describe("cli:", () => {
     expect(
       formatTestResults({
         failedTests: 0,
+        passedTests: 787632,
+        inputsSkipped: 86080,
+        dupesGenerated: 537,
+        erroredTests: 0,
+      })
+    ).toBe("Passed: 787632, Skipped: 86080, Dupes: 537");
+    expect(
+      formatTestResults({
+        failedTests: 1,
+        passedTests: 959,
+        inputsSkipped: 999,
+        dupesGenerated: 42,
+        erroredTests: 2,
+      })
+    ).toBe("Failed: 1, Passed: 959, Skipped: 999, Dupes: 42, Errored: 2");
+    expect(
+      formatTestResults({
+        failedTests: 0,
+        passedTests: 0,
+        inputsSkipped: 0,
+        dupesGenerated: 10,
+        erroredTests: 0,
+      })
+    ).toBe("Dupes: 10");
+    expect(
+      formatTestResults({
+        failedTests: 0,
         passedTests: 0,
         inputsSkipped: 0,
         erroredTests: 5,
@@ -711,6 +758,7 @@ describe("cli:", () => {
         failedTests: 0,
         passedTests: 0,
         inputsSkipped: 0,
+        dupesGenerated: 0,
         erroredTests: 0,
       })
     ).toBe("");
@@ -749,6 +797,33 @@ describe("cli:", () => {
     expect(
       formatTestCounts({
         failedTests: 0,
+        passedTests: 787632,
+        inputsSkipped: 86080,
+        dupesGenerated: 537,
+        erroredTests: 0,
+      })
+    ).toBe(" [Pass: 787632, Skip: 86080, Dupe: 537]");
+    expect(
+      formatTestCounts({
+        failedTests: 1,
+        passedTests: 959,
+        inputsSkipped: 999,
+        dupesGenerated: 42,
+        erroredTests: 2,
+      })
+    ).toBe(" [Fail: 1, Pass: 959, Skip: 999, Dupe: 42, Err: 2]");
+    expect(
+      formatTestCounts({
+        failedTests: 0,
+        passedTests: 0,
+        inputsSkipped: 0,
+        dupesGenerated: 10,
+        erroredTests: 0,
+      })
+    ).toBe(" [Dupe: 10]");
+    expect(
+      formatTestCounts({
+        failedTests: 0,
         passedTests: 0,
         inputsSkipped: 0,
         erroredTests: 5,
@@ -779,6 +854,7 @@ describe("cli:", () => {
       expect(res.status).toBe(0);
       expect(res.stderr).toMatch(/Testing \[.*\] \d+%/);
       expect(res.stderr).toMatch(/@ \d+s/);
+      expect(res.stderr).toMatch(/(inputs\/s|inputs\/min)/);
       expect(res.stderr).toMatch(/(execs\/s|inputs\/min)/);
       expect(res.stderr).toMatch(/Results \[.*Passed:/);
     } finally {
