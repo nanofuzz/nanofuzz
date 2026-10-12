@@ -54,6 +54,16 @@ describe("src/fuzzer/adapters/LlmAdapter:", () => {
     expect(LlmAdapter.getConfig().requestTimeout).toBe(60_000);
   });
 
+  it("getConfig: includes retries and retryDelay with default or configured values", () => {
+    expect(LlmAdapter.getConfig().retries).toBe(5);
+    expect(LlmAdapter.getConfig().retryDelay).toBe(1000);
+
+    Config.override("nanofuzz.ai.retries", 3);
+    Config.override("nanofuzz.ai.retryDelay", 500);
+    expect(LlmAdapter.getConfig().retries).toBe(3);
+    expect(LlmAdapter.getConfig().retryDelay).toBe(500);
+  });
+
   it("endpoint: uses default endpoint when none is specified", () => {
     Config.override("nanofuzz.ai.provider", "ollama");
     Config.override("nanofuzz.ai.model", "qwen2.5-coder:7b");
@@ -170,5 +180,73 @@ describe("src/fuzzer/adapters/LlmAdapter:", () => {
     const chatConfigured = adapter.getChat();
     const configuredOptions = Reflect.get(chatConfigured, "options");
     expect(Reflect.get(configuredOptions, "requestTimeout")).toBe(45_000);
+  });
+
+  it("query: retries on timeout up to configured attempts and succeeds when retry resolves", async () => {
+    Config.override("nanofuzz.ai.provider", "ollama");
+    Config.override("nanofuzz.ai.model", "qwen2.5-coder:7b");
+    Config.override("nanofuzz.ai.retries", 3);
+    Config.override("nanofuzz.ai.retryDelay", 1);
+
+    let askCount = 0;
+    spyOn(nodellm.Chat.prototype, "ask").and.callFake(async () => {
+      askCount++;
+      if (askCount < 3) {
+        throw new Error("Request timeout after 60000ms");
+      }
+      return new nodellm.ChatResponseString(
+        '{"output": "ok"}',
+        {
+          input_tokens: 10,
+          output_tokens: 20,
+          total_tokens: 30,
+        },
+        "qwen2.5-coder:7b",
+        "ollama"
+      );
+    });
+
+    const adapter = new LlmAdapter();
+    const res = await adapter.query("generate inputs");
+    expect(res.text).toBe('{"output": "ok"}');
+    expect(askCount).toBe(3);
+  });
+
+  it("query: does not retry on non-timeout error", async () => {
+    Config.override("nanofuzz.ai.provider", "ollama");
+    Config.override("nanofuzz.ai.model", "qwen2.5-coder:7b");
+    Config.override("nanofuzz.ai.retries", 3);
+    Config.override("nanofuzz.ai.retryDelay", 1);
+
+    let askCount = 0;
+    spyOn(nodellm.Chat.prototype, "ask").and.callFake(async () => {
+      askCount++;
+      throw new Error("Authentication failed");
+    });
+
+    const adapter = new LlmAdapter();
+    await expectAsync(adapter.query("generate inputs")).toBeRejectedWithError(
+      /Authentication failed/
+    );
+    expect(askCount).toBe(1);
+  });
+
+  it("query: throws timeout error when all retry attempts are exhausted", async () => {
+    Config.override("nanofuzz.ai.provider", "ollama");
+    Config.override("nanofuzz.ai.model", "qwen2.5-coder:7b");
+    Config.override("nanofuzz.ai.retries", 3);
+    Config.override("nanofuzz.ai.retryDelay", 1);
+
+    let askCount = 0;
+    spyOn(nodellm.Chat.prototype, "ask").and.callFake(async () => {
+      askCount++;
+      throw new Error("Request timeout after 60000ms");
+    });
+
+    const adapter = new LlmAdapter();
+    await expectAsync(adapter.query("generate inputs")).toBeRejectedWithError(
+      /Request timeout after 60000ms/
+    );
+    expect(askCount).toBe(3);
   });
 });

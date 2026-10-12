@@ -77,8 +77,8 @@ export class LlmAdapter {
     this._modelConfig = {
       provider: cfg.provider,
       retry: {
-        attempts: LlmAdapter._getConfigValue("retries", 5),
-        delayMs: LlmAdapter._getConfigValue("retryDelay", 1000),
+        attempts: cfg.retries,
+        delayMs: cfg.retryDelay,
       },
     };
 
@@ -317,35 +317,66 @@ export class LlmAdapter {
             console.log(`[NaNofuzz Copilot AI] Received response:\n${text}`);
           }
         } else {
-          const baseChat = this._createChat();
-          const jsonSchemaObj = schema ? zod.toJSONSchema(schema) : undefined;
-          const schemaObj = jsonSchemaObj
-            ? nodellm.Schema.fromJson("output", cleanJsonSchema(jsonSchemaObj))
-            : undefined;
-          let chat = (schemaObj ? baseChat.withSchema(schemaObj) : baseChat)
-            .withRequestOptions({
-              responseFormat: { type: "json_object" },
-            })
-            .withParams({
-              max_tokens: undefined, // Overrides default 4096 with undefined
-            });
+          const maxAttempts = Math.max(1, cfg.retries);
+          let lastError: unknown;
+          for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+              const baseChat = this._createChat();
+              const jsonSchemaObj = schema
+                ? zod.toJSONSchema(schema)
+                : undefined;
+              const schemaObj = jsonSchemaObj
+                ? nodellm.Schema.fromJson(
+                    "output",
+                    cleanJsonSchema(jsonSchemaObj)
+                  )
+                : undefined;
+              let chat = (schemaObj ? baseChat.withSchema(schemaObj) : baseChat)
+                .withRequestOptions({
+                  responseFormat: { type: "json_object" },
+                })
+                .withParams({
+                  max_tokens: undefined, // Overrides default 4096 with undefined
+                });
 
-          // Provider specific settings
-          if (provider === "anthropic") {
-            if (schema) {
-              // Anthropic doesn't always respect responseFormat
-              chat = chat.withParams({
-                output_config: {
-                  format: zodOutputFormat(schema),
-                },
-              });
+              // Provider specific settings
+              if (provider === "anthropic") {
+                if (schema) {
+                  // Anthropic doesn't always respect responseFormat
+                  chat = chat.withParams({
+                    output_config: {
+                      format: zodOutputFormat(schema),
+                    },
+                  });
+                }
+              }
+
+              const response = await chat.ask(contentParts);
+              text = response.toString();
+              inputTokens = response.inputTokens ?? 0;
+              outputTokens = response.outputTokens ?? 0;
+              lastError = undefined;
+              break;
+            } catch (err: unknown) {
+              lastError = err;
+              if (!isTimeoutError(err) || attempt >= maxAttempts) {
+                throw err;
+              }
+              if (LlmAdapter.isDebugConfigured()) {
+                console.log(
+                  `[NaNofuzz AI] Request timed out on attempt ${attempt}/${maxAttempts}. Retrying in ${cfg.retryDelay}ms...`
+                );
+              }
+              if (cfg.retryDelay > 0) {
+                await new Promise((resolve) =>
+                  setTimeout(resolve, cfg.retryDelay)
+                );
+              }
             }
           }
-
-          const response = await chat.ask(contentParts);
-          text = response.toString();
-          inputTokens = response.inputTokens ?? 0;
-          outputTokens = response.outputTokens ?? 0;
+          if (lastError) {
+            throw lastError;
+          }
         }
 
         vscode.commands.executeCommand(
@@ -430,6 +461,8 @@ export class LlmAdapter {
     apiKey: string;
     endpoint: string;
     requestTimeout: number;
+    retries: number;
+    retryDelay: number;
     cacheMode: LlmCacheMode;
     cacheFile: string;
     cacheDelay: string;
@@ -444,6 +477,8 @@ export class LlmAdapter {
         "requestTimeout",
         DEFAULT_REQUEST_TIMEOUT
       ),
+      retries: LlmAdapter._getConfigValue<number>("retries", 5),
+      retryDelay: LlmAdapter._getConfigValue<number>("retryDelay", 1000),
       cacheMode: LlmAdapter._getConfigValue<LlmCacheMode>(
         "cacheMode",
         "passthrough"
@@ -500,3 +535,32 @@ export const DEFAULT_CONTEXT_WINDOW = 32768;
  * Fallback request timeout (in ms) for AI model requests.
  */
 export const DEFAULT_REQUEST_TIMEOUT = 60_000;
+
+/**
+ * Helper function to determine if an error is a timeout or abort error
+ */
+function isTimeoutError(err: unknown): boolean {
+  if (err instanceof Error) {
+    const msg = err.message.toLowerCase();
+    if (
+      msg.includes("timeout") ||
+      msg.includes("timed out") ||
+      msg.includes("etimedout") ||
+      err.name === "TimeoutError" ||
+      err.name === "AbortError"
+    ) {
+      return true;
+    }
+  }
+  if (isRecord(err)) {
+    const code = err["code"];
+    if (typeof code === "string" && code.toLowerCase().includes("timeout")) {
+      return true;
+    }
+    const cause = err["cause"];
+    if (cause instanceof Error && isTimeoutError(cause)) {
+      return true;
+    }
+  }
+  return false;
+} // fn: isTimeoutError
