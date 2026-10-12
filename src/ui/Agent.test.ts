@@ -15,6 +15,7 @@ import {
   synthesizeTestSuite,
   selectCoveringResults,
   buildSummaryMarkdown,
+  formatFuzzResult,
   formatLineRanges,
   getToolName,
   synthesizeValidator,
@@ -22,7 +23,8 @@ import {
   synthesizeUserGenerator,
   AgentFuzzOptions,
 } from "./Agent";
-import { FuzzTestResult } from "../fuzzer/Types";
+import { FuzzTestResult, FuzzStopReason } from "../fuzzer/Types";
+import { FuzzStats } from "../fuzzer/FuzzStats";
 import { FuzzConfigStore } from "../fuzzer/FuzzConfigStore";
 
 jasmine.DEFAULT_TIMEOUT_INTERVAL = 60000;
@@ -618,6 +620,73 @@ describe("Agent", () => {
 
     expect(result.status).toBe("error");
     expect(result.summaryText).toContain("❌ NaNofuzz Error");
+  });
+
+  it("formatFuzzResult: preserves accurate counts from stats when passing results are omitted", async () => {
+    const program = ProgramFactory.fromFile(tsFixture);
+    const fnDef = program.functions["testStandardVoidReturnUndefined"];
+    const statsManager = new FuzzStats(
+      getDefaultFuzzOptions(),
+      fnDef,
+      [],
+      [],
+      []
+    );
+
+    const mockResults = statsManager.results;
+    mockResults.stopReason = FuzzStopReason.MAXTESTS;
+    mockResults.stats.counters.passedTests = 99;
+    mockResults.stats.counters.failedTests = 1;
+    mockResults.stats.outcomes.total = 100;
+    mockResults.stats.outcomes.categories.ok = 99;
+    mockResults.stats.outcomes.categories.exception = 1;
+    mockResults.stats.outcomes.exceptions = 1;
+
+    const testResult: FuzzTestResult = {
+      pinned: false,
+      inputGenerated: {
+        value: [{ tag: "ArgValueTypeWrapped", value: 42 }],
+        source: { type: "generator", generator: "RandomInputGenerator" },
+        tick: 0,
+      },
+      input: [
+        {
+          name: "0",
+          offset: 0,
+          value: 42,
+          origin: { type: "generator", generator: "RandomInputGenerator" },
+        },
+      ],
+      output: [],
+      exception: true,
+      exceptionMessage: "kaboom",
+      timeout: false,
+      passedImplicit: "fail",
+      passedHuman: "unknown",
+      passedValidator: "unknown",
+      passedValidators: [],
+      harnessErrors: [],
+      timers: { gen: 1, transform: 0, run: 5 },
+      category: "exception",
+      interestingReasons: [],
+    };
+    mockResults.results = [testResult];
+
+    const formatted = await formatFuzzResult(
+      mockResults,
+      tsFixture,
+      "testStandardVoidReturnUndefined"
+    );
+
+    expect(formatted.totalTests).toBe(100);
+    expect(formatted.passedTests).toBe(99);
+    expect(formatted.failedTests).toBe(1);
+    expect(formatted.exceptions).toBe(1);
+    expect(formatted.status).toBe("counterexample_found");
+    expect(formatted.counterexamples.length).toBe(1);
+    expect(formatted.summaryText).toContain(
+      "failing input(s) out of **100** tests"
+    );
   });
 
   it("summary: diagnostics guidance", () => {

@@ -1229,34 +1229,19 @@ export async function formatFuzzResult(
 ): Promise<AgentFuzzResult> {
   const language = results.env.function.getLang();
   const allResults = results.results ?? [];
-  const executedResults = allResults.filter((r) => !r.skipped);
-
-  const failingResults = executedResults.filter(isCounterexample);
+  const failingResults = allResults.filter(isCounterexample);
   const counterexamples = failingResults.map(mapToAgentCounterexample);
   const primaryFailure = failingResults[0];
   const primaryCounterexample = primaryFailure
     ? mapToAgentCounterexample(primaryFailure)
     : undefined;
 
-  const passedTests = executedResults.filter(
-    (r) =>
-      r.category === "ok" &&
-      !isCounterexample(r) &&
-      r.passedImplicit !== "fail" &&
-      r.passedHuman !== "fail" &&
-      r.passedValidator !== "fail"
-  ).length;
-  const failedTests = failingResults.length;
-  const erroredTests =
-    results.stats?.counters?.erroredTests ??
-    executedResults.filter(
-      (r) =>
-        r.category === "failure" ||
-        (r.harnessErrors && r.harnessErrors.length > 0)
-    ).length;
-  const timeouts = failingResults.filter((r) => r.timeout).length;
-  const exceptions = failingResults.filter((r) => r.exception).length;
-  const totalTests = executedResults.length;
+  const totalTests = results.stats.outcomes.total;
+  const passedTests = results.stats.outcomes.categories.ok;
+  const failedTests = results.stats.counters.failedTests;
+  const erroredTests = results.stats.counters.erroredTests;
+  const timeouts = results.stats.outcomes.timeouts;
+  const exceptions = results.stats.outcomes.exceptions;
 
   let status: AgentFuzzStatus = "success";
   if (counterexamples.length > 0) {
