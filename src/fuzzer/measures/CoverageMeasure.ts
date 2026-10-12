@@ -700,12 +700,12 @@ export class CoverageMeasure extends AbstractMeasure {
   // ---------------------------------------------------------------------------
 
   protected _allocateSlot(
-    fileKey: string,
+    entry: FileSchemaEntry,
     type: "s" | "f" | "b",
     id: string
   ): number {
     const slot = this._slots.length;
-    this._slots.push({ fileKey, type, id });
+    this._slots.push({ entry, type, id });
     if (slot >= this._globalHitCounts.length) {
       const nextCap = Math.max(this._globalHitCounts.length * 2, slot + 1);
       const newCounts = new Uint32Array(nextCap);
@@ -823,7 +823,7 @@ export class CoverageMeasure extends AbstractMeasure {
       };
 
       for (const k of Object.keys(index.templateData.statementMap)) {
-        const slot = this._allocateSlot(normKey, "s", k);
+        const slot = this._allocateSlot(entry, "s", k);
         entry.stmtSlots.set(k, slot);
       }
       for (const [line, sIdx] of index.lineStmtMap.entries()) {
@@ -832,7 +832,7 @@ export class CoverageMeasure extends AbstractMeasure {
       }
 
       for (const k of Object.keys(index.templateData.fnMap)) {
-        const slot = this._allocateSlot(normKey, "f", k);
+        const slot = this._allocateSlot(entry, "f", k);
         entry.fnSlots.set(k, slot);
       }
       for (const fnInfo of index.fnLinesMap) {
@@ -845,7 +845,7 @@ export class CoverageMeasure extends AbstractMeasure {
       for (const k of Object.keys(index.templateData.branchMap)) {
         const len = index.templateData.branchMap[k].locations.length;
         for (let j = 0; j < len; j++) {
-          const slot = this._allocateSlot(normKey, "b", `${k}.${j}`);
+          const slot = this._allocateSlot(entry, "b", `${k}.${j}`);
           entry.branchSlots.set(`${k}.${j}`, slot);
         }
       }
@@ -889,7 +889,7 @@ export class CoverageMeasure extends AbstractMeasure {
 
       if (fileCov.statementMap) {
         for (const k of Object.keys(fileCov.statementMap)) {
-          const slot = this._allocateSlot(normKey, "s", k);
+          const slot = this._allocateSlot(entry, "s", k);
           entry.stmtSlots.set(k, slot);
           const loc = fileCov.statementMap[k];
           if (loc?.start?.line) entry.lineStmtSlots.set(loc.start.line, slot);
@@ -898,7 +898,7 @@ export class CoverageMeasure extends AbstractMeasure {
 
       if (fileCov.fnMap) {
         for (const k of Object.keys(fileCov.fnMap)) {
-          const slot = this._allocateSlot(normKey, "f", k);
+          const slot = this._allocateSlot(entry, "f", k);
           entry.fnSlots.set(k, slot);
         }
       }
@@ -907,7 +907,7 @@ export class CoverageMeasure extends AbstractMeasure {
         for (const k of Object.keys(fileCov.branchMap)) {
           const locs = fileCov.branchMap[k]?.locations ?? [];
           for (let j = 0; j < locs.length; j++) {
-            const slot = this._allocateSlot(normKey, "b", `${k}.${j}`);
+            const slot = this._allocateSlot(entry, "b", `${k}.${j}`);
             entry.branchSlots.set(`${k}.${j}`, slot);
           }
         }
@@ -934,7 +934,7 @@ export class CoverageMeasure extends AbstractMeasure {
             );
             entry.template.statementMap[sIdx] = wholeLine(line);
             entry.template.s[sIdx] = 0;
-            sSlot = this._allocateSlot(entry.path, "s", sIdx);
+            sSlot = this._allocateSlot(entry, "s", sIdx);
             entry.lineStmtSlots.set(line, sSlot);
             entry.stmtSlots.set(sIdx, sSlot);
           }
@@ -974,7 +974,7 @@ export class CoverageMeasure extends AbstractMeasure {
             };
             entry.template.branchMap[bIdx] = branchEntry;
             entry.template.b[bIdx] = [0];
-            bSlot = this._allocateSlot(entry.path, "b", `${bIdx}.0`);
+            bSlot = this._allocateSlot(entry, "b", `${bIdx}.0`);
             entry.branchSlots.set(`${bIdx}.0`, bSlot);
             entry.arcSlots.set(key, bSlot);
           }
@@ -1025,15 +1025,18 @@ export class CoverageMeasure extends AbstractMeasure {
 
   protected _synthesizeMapFromSlots(hitSlots: number[]): CoverageMap {
     const data: CoverageMapData = {};
+    const fcByEntry = new Map<FileSchemaEntry, FileCoverageData>();
     for (const entry of this._files.values()) {
-      data[entry.path] = this._createEmptyFileCoverage(entry);
+      const emptyFc = this._createEmptyFileCoverage(entry);
+      data[entry.path] = emptyFc;
+      fcByEntry.set(entry, emptyFc);
     }
 
     for (let i = 0; i < hitSlots.length; i++) {
       const slot = hitSlots[i];
       const info = this._slots[slot];
       if (!info) continue;
-      const fc = data[info.fileKey] ?? data[normalizePathForKey(info.fileKey)];
+      const fc = fcByEntry.get(info.entry);
       if (!fc) continue;
 
       if (info.type === "s") {
@@ -1062,8 +1065,11 @@ export class CoverageMeasure extends AbstractMeasure {
     }
 
     const data: CoverageMapData = {};
+    const fcByEntry = new Map<FileSchemaEntry, FileCoverageData>();
     for (const entry of this._files.values()) {
-      data[entry.path] = this._createEmptyFileCoverage(entry);
+      const emptyFc = this._createEmptyFileCoverage(entry);
+      data[entry.path] = emptyFc;
+      fcByEntry.set(entry, emptyFc);
     }
 
     for (let slot = 0; slot < this._slots.length; slot++) {
@@ -1071,8 +1077,7 @@ export class CoverageMeasure extends AbstractMeasure {
       if (hits > 0) {
         const info = this._slots[slot];
         if (!info) continue;
-        const fc =
-          data[info.fileKey] ?? data[normalizePathForKey(info.fileKey)];
+        const fc = fcByEntry.get(info.entry);
         if (!fc) continue;
 
         if (info.type === "s") {
@@ -1315,7 +1320,7 @@ function isCoverageMap(obj: unknown): obj is CoverageMap {
 // ---------------------------------------------------------------------------
 
 interface CoverageSlot {
-  fileKey: string;
+  entry: FileSchemaEntry;
   type: "s" | "f" | "b";
   id: string;
 }
