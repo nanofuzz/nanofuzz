@@ -1,4 +1,6 @@
 import * as ChildProcess from "node:child_process";
+import * as Config from "../../Config";
+import { HostWatchdog } from "./HostWatchdog";
 
 /**
  * Abstract representation of a host process
@@ -18,6 +20,7 @@ export abstract class AbstractHost {
   protected _cli;
   protected _onExit;
   protected _onExitSent = false;
+  protected _killReason?: HostKillReason;
 
   constructor(
     env: { [k: string]: string | undefined },
@@ -49,6 +52,9 @@ export abstract class AbstractHost {
     this._proc.once("close", this._onClose);
 
     this._isActive = true;
+    if (this._proc.pid) {
+      HostWatchdog.watch(this);
+    }
   } // constructor
 
   protected abstract _spawn(): ChildProcess.ChildProcessWithoutNullStreams;
@@ -178,6 +184,7 @@ export abstract class AbstractHost {
   };
 
   protected _onClose = (): void => {
+    HostWatchdog.unwatch(this);
     const stderrStr =
       this._stderrChunks.length > 0
         ? Buffer.concat(this._stderrChunks).toString("utf-8")
@@ -244,7 +251,21 @@ export abstract class AbstractHost {
    * Kills the host process and cleans up resources. If the
    * host has already exited, this is a no-op.
    */
-  public kill(): void {
+  public kill(
+    signal: NodeJS.Signals | number = "SIGTERM",
+    reason?: HostKillReason
+  ): void {
+    if (reason && !this._killReason) {
+      this._killReason = reason;
+    }
+    if (this._killReason === "maxRunnerMemory") {
+      const err = new Error(
+        `Host exceeded RAM limit of ${this.maxRunnerMemory} MB. Terminated by watchdog.`
+      );
+      err.name = HostMemoryExceededName;
+      this._errors.push(err);
+    }
+    HostWatchdog.unwatch(this);
     this._isActive = false;
 
     this._proc.stdout.removeListener("data", this._onStdout);
@@ -253,7 +274,7 @@ export abstract class AbstractHost {
     this._proc.stderr.removeListener("error", this._onError);
     this._proc.removeListener("close", this._onClose);
 
-    this._proc.kill();
+    this._proc.kill(signal);
     if (!this._onExitSent) {
       if (this._onExit) {
         this._onExit(0);
@@ -261,6 +282,20 @@ export abstract class AbstractHost {
       }
     }
   } // fn: kill
+
+  /**
+   * Returns the PID of the spawned process, if any.
+   */
+  public get pid(): number | undefined {
+    return this._proc.pid;
+  } // get: pid
+
+  /**
+   * Returns the configured memory limit in MB for this host.
+   */
+  public get maxRunnerMemory(): number {
+    return Config.get<number>("nanofuzz.fuzzer.maxRunnerMemory", 8192);
+  } // get: maxRunnerMemory
 
   /**
    * Reads bytes from the stdout chunk list without continuous reallocations.
@@ -374,10 +409,13 @@ export abstract class AbstractHost {
 } // class: AbstractHost
 
 export const PutTimeoutName = "PutTimeout";
+export const HostMemoryExceededName = "HostMemoryExceededError";
 export const MAX_HEARTBEATS = 1000;
 
 export type HostMessageHandler = (payload: string) => void;
 
 export type HostExitHandler = (rc: number) => void;
+
+export type HostKillReason = "userCancel" | "suiteTimeout" | "maxRunnerMemory";
 
 const PayloadSizeBytes = 4;

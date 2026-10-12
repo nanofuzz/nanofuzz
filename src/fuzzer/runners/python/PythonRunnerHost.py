@@ -1100,10 +1100,12 @@ if __name__ == "__main__":
         except Exception:
             direct_packages = []
 
+        collect_static_arg = sys.argv[6] if len(sys.argv) > 6 else ""
+        is_respawn = collect_static_arg.lower() == "respawn"
         collect_static = (
-            sys.argv[6].lower() == "true"
-            if len(sys.argv) > 6
-            else ("static" in coverage_scope)
+            collect_static_arg.lower() == "true"
+            if len(sys.argv) > 6 and not is_respawn
+            else ("static" in coverage_scope and not is_respawn)
         )
 
         pgm_files = program_files(filename, coverage_scope, direct_packages)
@@ -1111,7 +1113,19 @@ if __name__ == "__main__":
         # One in-memory coverage instance for the whole run.
         cov = coverage.Coverage(include=pgm_files, branch=True, data_file=None)
 
-        if collect_static:
+        if is_respawn:
+            # Respawn: do NOT run init_cov tracer, and skip static_coverage_all AST analysis
+            logging.debug(
+                f"[{pid}] Loading function '{fnname}' in {filename} (respawn)")
+            [loadError, fn] = loadPythonFn(filename, modulename, fnname)
+            if (loadError is not None):
+                logging.debug(f"[{pid}]  - Unable to load")
+            else:
+                logging.debug(f"[{pid}]  - Loaded function")
+
+            covInfo = {}
+            initialCoverage = {}
+        elif collect_static:
             # Start temporary coverage tracer before loading module so static coverage is captured.
             init_cov = coverage.Coverage(branch=True, data_file=None)
             init_cov.start()

@@ -210,6 +210,24 @@ await esbuild.build({
   },
 });
 
+// HostWatchdogWorker
+await esbuild.build({
+  entryPoints: ["./src/fuzzer/runners/HostWatchdogWorker.ts"],
+  outfile: "./build/workers/HostWatchdogWorker.js",
+  bundle: true,
+  platform: "node",
+  metafile: true,
+  minify: false,
+  format: "cjs",
+  sourcemap: "both",
+  tsconfig: "./tsconfig.json",
+  external: ["path", "fs", "crypto"],
+  define: {
+    "process.env.BUILD_TARGET": JSON.stringify("vscode-exthost-worker"),
+    "process.env.NANOFUZZ_VERSION": version,
+  },
+});
+
 // JavascriptRunnerHost
 await esbuild.build({
   entryPoints: ["./src/fuzzer/runners/javascript/JavascriptRunnerHost.ts"],

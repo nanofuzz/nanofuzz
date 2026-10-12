@@ -110,6 +110,12 @@ function createProgram(): Commander.Command {
       parseIntArgGeOne,
       20000
     )
+    .option(
+      `--max-runner-memory <integer>`,
+      `Max RAM for runner host (MB)`,
+      parseIntArgGeOne,
+      8192
+    )
     .option(`--seed <string>`, `PRNG seed for deterministic runs`)
     .option(`--no-shrink`, `Don't shrink failing inputs`)
     .option(
@@ -477,6 +483,12 @@ export async function runCliInProcess(
     "nanofuzz.fuzzer.hostStartupTimeout",
     options["hostStartupTimeout"]
   );
+  if (options["maxRunnerMemory"] !== undefined) {
+    Config.override(
+      "nanofuzz.fuzzer.maxRunnerMemory",
+      options["maxRunnerMemory"]
+    );
+  }
 
   if (options["shrink"] !== undefined) {
     Config.override("nanofuzz.fuzzer.shrinkFailures", options["shrink"]);

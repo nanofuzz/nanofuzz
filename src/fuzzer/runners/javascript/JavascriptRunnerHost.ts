@@ -52,8 +52,10 @@ function getGlobalPaths(): string[] {
 async function main() {
   const initialFilename = process.argv[2];
   const initialFnName = process.argv[3];
+  const collectStaticArg = process.argv[5];
+  const isRespawn = collectStaticArg === "respawn";
   const collectStatic =
-    process.argv[5] !== undefined ? process.argv[5] === "true" : true;
+    collectStaticArg !== undefined ? collectStaticArg === "true" : true;
 
   const loadedModules: Record<string, unknown> = {};
 
@@ -122,11 +124,15 @@ async function main() {
   sendMsg("READY");
 
   // Send initial coverage info
-  const rawCoverage = getGlobalCoverageData() ?? {};
-  if (!collectStatic) {
-    resetCoverageCounters(rawCoverage);
+  if (isRespawn) {
+    sendMsg({});
+  } else {
+    const rawCoverage = getGlobalCoverageData() ?? {};
+    if (!collectStatic) {
+      resetCoverageCounters(rawCoverage);
+    }
+    sendMsg(rawCoverage);
   }
-  sendMsg(rawCoverage);
 
   // Main loop
   while (true) {
