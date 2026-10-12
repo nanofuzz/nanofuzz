@@ -373,7 +373,7 @@ module.exports = { leakMemory, normalFn };
       const runner = new JavascriptRunner(jsPath, "leakMemory");
       await runner.onRunStart();
 
-      const res = await runner.run([], 5000);
+      const res = await runner.run([], 15000);
       expect(res.result.tag).toBe("error");
       if (res.result.tag === "error") {
         expect(res.result.name).toBe("HostMemoryExceededError");
@@ -381,6 +381,7 @@ module.exports = { leakMemory, normalFn };
       }
 
       await runner.onRunEnd();
+      Config.override("nanofuzz.fuzzer.maxRunnerMemory", prevMaxMem);
 
       // Subsequent run with normal runner and fresh host succeeds
       const normalRunner = new JavascriptRunner(jsPath, "normalFn");

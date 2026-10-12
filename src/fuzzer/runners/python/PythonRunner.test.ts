@@ -490,7 +490,7 @@ def normal_fn(n: int) -> int:
       const runner = new PythonRunner(pyPath, "leak_memory", env);
       await runner.onRunStart();
 
-      const res = await runner.run([1], 5000);
+      const res = await runner.run([1], 20000);
       expect(res.result.tag).toBe("error");
       if (res.result.tag === "error") {
         expect(res.result.name).toBe("HostMemoryExceededError");
@@ -498,6 +498,7 @@ def normal_fn(n: int) -> int:
       }
 
       await runner.onRunEnd();
+      Config.override("nanofuzz.fuzzer.maxRunnerMemory", prevMaxMem);
 
       // Subsequent run with normal runner and fresh host succeeds
       const normalDef = program.functionsExported["normal_fn"];

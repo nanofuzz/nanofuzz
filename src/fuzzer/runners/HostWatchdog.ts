@@ -1,5 +1,12 @@
 import { Worker } from "node:worker_threads";
+import * as path from "node:path";
+import * as fs from "node:fs";
+import { findInAncestor } from "../Util";
 import { AbstractHost } from "./AbstractHost";
+import type {
+  WatchdogCommandMessage,
+  WatchdogEventMessage,
+} from "./HostWatchdogWorker";
 
 /**
  * Singleton watchdog that periodically samples memory usage of all active
@@ -21,7 +28,8 @@ export class HostWatchdog {
     this._ensureWorker();
     const maxMb = host.maxRunnerMemory;
     const maxBytes = maxMb <= 65536 ? maxMb * 1024 * 1024 : maxMb;
-    this._worker?.postMessage({ cmd: "watch", pid, maxBytes });
+    const msg: WatchdogCommandMessage = { cmd: "watch", pid, maxBytes };
+    this._worker?.postMessage(msg);
   } // fn: watch
 
   /**
@@ -33,7 +41,8 @@ export class HostWatchdog {
     const pid = host.pid;
     if (!pid) return;
     this._hosts.delete(pid);
-    this._worker?.postMessage({ cmd: "unwatch", pid });
+    const msg: WatchdogCommandMessage = { cmd: "unwatch", pid };
+    this._worker?.postMessage(msg);
     if (this._hosts.size === 0) {
       this._stopWorker();
     }
@@ -55,48 +64,12 @@ export class HostWatchdog {
   private static _ensureWorker(): void {
     if (this._worker) return;
     try {
-      const pidusagePath = require.resolve("pidusage");
-      // Poll interval: 300ms on Windows (NT) to avoid WMI overhead; 100ms on POSIX
-      const interval = process.platform === "win32" ? 300 : 100;
-      const workerCode = `
-        const { parentPort } = require("node:worker_threads");
-        const pidusage = require(${JSON.stringify(pidusagePath)});
-        const targets = new Map();
-        let isChecking = false;
-
-        // Listen for watch / unwatch / reset commands from main thread
-        parentPort.on("message", (msg) => {
-          if (msg.cmd === "watch") {
-            targets.set(msg.pid, msg.maxBytes);
-          } else if (msg.cmd === "unwatch") {
-            targets.delete(msg.pid);
-          } else if (msg.cmd === "reset") {
-            targets.clear();
-          }
-        });
-
-        // Periodic sampling loop
-        setInterval(() => {
-          if (isChecking || targets.size === 0) return;
-          isChecking = true;
-          const pids = Array.from(targets.keys());
-          pidusage(pids, (err, stats) => {
-            isChecking = false;
-            if (err || !stats) return;
-            for (const [pidStr, stat] of Object.entries(stats)) {
-              if (!stat) continue;
-              const pid = Number(pidStr);
-              const limit = targets.get(pid);
-              if (limit !== undefined && stat.memory > limit) {
-                targets.delete(pid);
-                parentPort.postMessage({ event: "exceeded", pid });
-              }
-            }
-          });
-        }, ${interval});
-      `;
-      const worker = new Worker(workerCode, { eval: true });
-      worker.on("message", (msg: { event: string; pid: number }) => {
+      const workerPath = resolveWatchdogWorkerPath();
+      if (!workerPath || !fs.existsSync(workerPath)) {
+        return;
+      }
+      const worker = new Worker(workerPath, { name: "HostWatchdogWorker" });
+      worker.on("message", (msg: WatchdogEventMessage) => {
         if (msg.event === "exceeded") {
           const host = this._hosts.get(msg.pid);
           if (host && host.isActive) {
@@ -125,3 +98,25 @@ export class HostWatchdog {
     }
   } // fn: _stopWorker
 } // class: HostWatchdog
+
+/**
+ * Resolves the path to the built HostWatchdogWorker.js script.
+ */
+function resolveWatchdogWorkerPath(): string | undefined {
+  const currModuleDir =
+    typeof module !== "undefined" && module.filename
+      ? path.dirname(path.resolve(module.filename))
+      : __dirname;
+  const packageJsonPath = findInAncestor(currModuleDir, "package.json");
+  if (!packageJsonPath) {
+    return undefined;
+  }
+  return path.resolve(
+    path.join(
+      path.dirname(packageJsonPath),
+      "build",
+      "workers",
+      "HostWatchdogWorker.js"
+    )
+  );
+} // fn: resolveWatchdogWorkerPath
