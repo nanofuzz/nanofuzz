@@ -490,6 +490,28 @@ describe("cli:", () => {
     expect(Config.get("nanofuzz.fuzzer.maxShrinkTime", 2000)).toBe(5000);
   });
 
+  it("--max-runner-memory flag overrides nanofuzz.fuzzer.maxRunnerMemory", async () => {
+    const outputFile = path.join(tmpDir, "runner_mem_output.json5");
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testCoverageOneFile";
+
+    const res = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--max-runner-memory",
+      "4096",
+      "--max-tests",
+      "1",
+      "--seed",
+      "cli_seed_runner_mem",
+    ]);
+
+    expect(res.status).toBe(0);
+    expect(Config.get("nanofuzz.fuzzer.maxRunnerMemory", 8192)).toBe(4096);
+  });
+
   it("--no-ai-input-backfeed flag overrides backfeedPriorInputs", async () => {
     const outputFile = path.join(tmpDir, "no_backfeed_output.json5");
     const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
