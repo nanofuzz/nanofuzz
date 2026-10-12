@@ -1,17 +1,10 @@
 import { ProgramLanguage } from "../analysis/Types";
-import { AbstractCoverageMeasure } from "./AbstractCoverageMeasure";
+import { CoverageMeasure } from "./CoverageMeasure";
 import { AbstractMeasure } from "./AbstractMeasure";
-import { TypescriptCoverageMeasure } from "./TypescriptCoverageMeasure";
 import { FailedTestMeasure } from "./FailedTestMeasure";
-import { PythonCoverageMeasure } from "./PythonCoverageMeasure";
 
-export function MeasureFactory(lang: ProgramLanguage): AbstractMeasure[] {
-  let covMeasure: AbstractCoverageMeasure;
-  if (lang === "python") {
-    covMeasure = new PythonCoverageMeasure();
-  } else {
-    covMeasure = new TypescriptCoverageMeasure();
-  }
+export function MeasureFactory(_lang: ProgramLanguage): AbstractMeasure[] {
+  const covMeasure = new CoverageMeasure();
   const testMeasure = new FailedTestMeasure(covMeasure);
   return [covMeasure, testMeasure];
-}
+} // fn: MeasureFactory

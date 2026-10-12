@@ -2,9 +2,9 @@ import { CoverageInfo } from "../../runners/python/PythonRunner";
 import { Arc } from "../../runners/AbstractRunner";
 
 /**
- * Coverage fixtures for `PythonCoverageMeasure.test.ts`.
+ * Coverage fixtures for `CoverageMeasure.test.ts` and `CoverageMeasurePython.test.ts`.
  *
- * `PythonCoverageMeasure` does not instrument anything itself: it reads
+ * `CoverageMeasure` does not instrument Python itself: it reads
  * `runner.coverageInfo`, which the Python host fills in from coverage.py.
  * The static half (`executable`, `functions`, `branches`) is sent once when
  * the host starts; the dynamic half (`lines`, `arcs`) is replaced after every

@@ -6,7 +6,7 @@ import {
   CodeCoverageMeasureStats,
   UncoveredCoverageInfo,
   formatLineRanges,
-} from "../measures/AbstractCoverageMeasure";
+} from "../measures/CoverageMeasure";
 
 /**
  * Probabilistically samples code targets from the execution frontier

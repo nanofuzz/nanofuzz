@@ -1,3 +1,4 @@
+import { CoverageMapData } from "istanbul-lib-coverage";
 import { VmGlobals } from "../Types";
 import { AbstractHost } from "./AbstractHost";
 
@@ -34,14 +35,14 @@ export abstract class AbstractRunner {
   /**
    * Optional coverage info captured during test runner initialization or execution.
    */
-  public get coverageInfo(): unknown {
+  public get coverageInfo(): RunnerCoverage | undefined {
     return undefined;
   } // get: coverageInfo
 
   /**
    * Optional coverage info from the most recent run execution.
    */
-  public get lastRunCoverage(): unknown {
+  public get lastRunCoverage(): RunnerCoverage | undefined {
     return undefined;
   } // get: lastRunCoverage
 
@@ -117,15 +118,35 @@ export interface RunnerOverrides {
 }
 
 /**
- * Coverage reported for one file. Used in Python
+ * Coverage reported for one file in Python.
  */
-export type CoverageInfo = {
+export type PythonFileCoverageData = {
   executable: number[]; // static: all executable lines
   functions: FunctionInfo[]; // static: all functions
   branches: BranchInfo[]; // static: all branch points
   lines?: number[]; // dynamic: lines executed by this one call
   arcs?: Arc[]; // dynamic: arcs taken by this one call
 };
+
+/**
+ * Backwards-compatibility alias for PythonFileCoverageData.
+ */
+export type CoverageInfo = PythonFileCoverageData;
+
+/**
+ * Coverage for the entire program under test in Python.
+ */
+export type PythonCoverageMapData = Record<string, PythonFileCoverageData>;
+
+/**
+ * Backwards-compatibility alias for PythonCoverageMapData.
+ */
+export type FullCoverage = PythonCoverageMapData;
+
+/**
+ * Unified runner coverage data: Istanbul CoverageMapData for JS/TS, or PythonCoverageMapData for Python.
+ */
+export type RunnerCoverage = CoverageMapData | PythonCoverageMapData;
 
 /**
  * A function in the program under test. `lines` holds only the function's own
@@ -187,7 +208,7 @@ export type RunnerResult = {
         tag: "timeout";
         coverageData?: Record<string, number[]>;
         coverageArcs?: Record<string, Arc[]>;
-        staticCoverage?: Record<string, CoverageInfo>;
+        staticCoverage?: PythonCoverageMapData;
         validators?: Record<string, ValidatorResult>;
       }
     | {
@@ -198,7 +219,7 @@ export type RunnerResult = {
         source?: "put" | "host"; // if the error originated within the put
         coverageData?: Record<string, number[]>; // lines executed by this call
         coverageArcs?: Record<string, Arc[]>; // arcs taken by this call
-        staticCoverage?: Record<string, CoverageInfo>;
+        staticCoverage?: PythonCoverageMapData;
         validators?: Record<string, ValidatorResult>;
       }
     | {
@@ -206,7 +227,7 @@ export type RunnerResult = {
         message: string;
         coverageData?: Record<string, number[]>; // lines executed by this call
         coverageArcs?: Record<string, Arc[]>; // arcs taken by this call
-        staticCoverage?: Record<string, CoverageInfo>;
+        staticCoverage?: PythonCoverageMapData;
         validators?: Record<string, ValidatorResult>;
       }
     | {
@@ -214,7 +235,7 @@ export type RunnerResult = {
         value: unknown;
         coverageData?: Record<string, number[]>; // lines executed by this call
         coverageArcs?: Record<string, Arc[]>; // arcs taken by this call
-        staticCoverage?: Record<string, CoverageInfo>;
+        staticCoverage?: PythonCoverageMapData;
         validators?: Record<string, ValidatorResult>;
       }
   ) & { seq: number };
