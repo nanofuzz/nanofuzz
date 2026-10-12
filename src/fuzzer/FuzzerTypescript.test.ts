@@ -299,6 +299,51 @@ describe("fuzzer: typescript targets", () => {
     expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
   });
 
+  it("TypeScript unexported function fuzzing", async () => {
+    const fuzzResult = await FuzzerFactory(
+      "./test_fixtures/Fuzzer.testfixtures.ts",
+      "testUnexportedFunction",
+      intOptions
+    ).test([
+      {
+        input: [
+          { name: "x", offset: 0, value: 42, origin: { type: "user" } },
+          { name: "y", offset: 1, value: 42, origin: { type: "user" } },
+        ],
+        output: [],
+        pinned: true,
+      },
+    ]);
+
+    expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
+    expect(fuzzResult.stats.outcomes.exceptions).toBeGreaterThan(0);
+    const firstFailure = fuzzResult.stats.outcomes.firstFailure;
+    expect(firstFailure).toBeDefined();
+    expect(firstFailure?.exceptionMessage).toContain("unexported secret hit");
+  });
+
+  it("TypeScript unexported arrow function fuzzing via rewire accessor", async () => {
+    const fuzzResult = await FuzzerFactory(
+      "./test_fixtures/Fuzzer.testfixtures.ts",
+      "testUnexportedArrowFunction",
+      intOptions
+    ).test([
+      {
+        input: [
+          { name: "s", offset: 0, value: "private", origin: { type: "user" } },
+        ],
+        output: [],
+        pinned: true,
+      },
+    ]);
+
+    expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
+    expect(fuzzResult.stats.outcomes.exceptions).toBeGreaterThan(0);
+    const firstFailure = fuzzResult.stats.outcomes.firstFailure;
+    expect(firstFailure).toBeDefined();
+    expect(firstFailure?.exceptionMessage).toContain("unexported arrow hit");
+  });
+
   it("Typescript transformer skip and modify", async () => {
     const skips: FuzzTestResult[] = [];
     const passed: FuzzTestResult[] = [];
@@ -498,6 +543,17 @@ describe("fuzzer: typescript targets", () => {
       expect<unknown>(r.input[1].value).toBe("custom");
       expect<unknown>(r.output[0].value).toBe(`custom:${r.input[0].value}`);
     });
+
+    const covStats = await fuzzResult.stats.measures.CodeCoverageMeasure?.();
+    expect(covStats).toBeDefined();
+    if (covStats && covStats.files.length) {
+      const fileStats = covStats.files[0];
+      const coveredFnNames = Object.keys(fileStats.fileMap.f).map(
+        (idx) => fileStats.fileMap.fnMap[idx]?.name
+      );
+      expect(coveredFnNames).toContain("targetUserGen");
+      expect(coveredFnNames).toContain("targetUserGenGenerator");
+    }
   });
 
   it("Typescript UserInputGenerator exhaustion", async () => {

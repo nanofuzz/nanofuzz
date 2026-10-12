@@ -1121,6 +1121,60 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
     expect(mutatorNames).toContain("dictionary-clear");
   });
 
+  it("Bytes mutators: generates and executes valid byte mutations for single- and multi-byte inputs", () => {
+    const spec = makeArgDef(
+      dummyModule,
+      "bytesArg",
+      0,
+      ArgTag.BYTES,
+      {
+        ...argOptions,
+        byteLength: { min: 2, max: 10 },
+      },
+      0,
+      false
+    );
+    const input = [
+      {
+        tag: "ArgValueTypeWrapped" as const,
+        value: new Uint8Array([0x10, 0x20, 0x30, 0x40, 0x50]),
+      },
+    ];
+    const validator = new ArgDefValidator([spec]);
+    const mutators = ArgDefMutator.getMutators(
+      [spec],
+      input,
+      seedrandom("bytesMutatorsTest")
+    );
+
+    expect(mutators.length).toBeGreaterThan(0);
+    const names = mutators.map((m) => m.name);
+    // Verify core and new byte mutator presence
+    expect(names.some((n) => n.startsWith("bytes-"))).toBeTrue();
+
+    for (let index = 0; index < mutators.length; index++) {
+      const candidate = [
+        {
+          tag: "ArgValueTypeWrapped" as const,
+          value: new Uint8Array([0x10, 0x20, 0x30, 0x40, 0x50]),
+        },
+      ];
+      const candidateMutators = ArgDefMutator.getMutators(
+        [spec],
+        candidate,
+        seedrandom("bytesMutatorsTest")
+      );
+      candidateMutators[index].fn();
+      expect(validator.validate(candidate)).toBeTrue();
+      const val = candidate[0].value;
+      expect(val instanceof Uint8Array).toBeTrue();
+      if (val instanceof Uint8Array) {
+        expect(val.length).toBeGreaterThanOrEqual(2);
+        expect(val.length).toBeLessThanOrEqual(10);
+      }
+    }
+  });
+
   it("Set mutators reject element mutations that duplicate an existing element in the Set", () => {
     const spec = makeArgDef(
       dummyModule,
@@ -1193,6 +1247,20 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
     mutators[0].fn();
     expect(typeof inputWithUndef[0].value).toBe("bigint");
     expect(ArgDefValidator.validate(inputWithUndef[0].value, spec)).toBeTrue();
+  });
+
+  it("getMutators handles functions with more than 10 arguments without constructor arity error", () => {
+    const specs: ArgDef[] = Array.from(
+      { length: 12 },
+      (_, i) => new ArgDef(`arg${i}`, i, ArgTag.NUMBER, argOptions)
+    );
+    const input: ArgValueTypeWrapped[] = Array.from({ length: 12 }, (_, i) => ({
+      tag: "ArgValueTypeWrapped",
+      value: i,
+    }));
+    const prng = seedrandom("manyArgsMutator");
+    const mutators = ArgDefMutator.getMutators(specs, input, prng);
+    expect(mutators.length).toBeGreaterThan(0);
   });
 
   /**

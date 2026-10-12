@@ -14,7 +14,7 @@ import {
   InputGeneratorStatsAi,
 } from "./generators/Types";
 import { InputSchedulerType } from "./schedulers/Types";
-import { CodeCoverageMeasureStats } from "./measures/AbstractCoverageMeasure";
+import { CodeCoverageMeasureStats } from "./measures/CoverageMeasure";
 
 /**
  * Error occurring in test harness (property validator or input transformer)
@@ -243,6 +243,7 @@ export type FuzzOptions = {
   useHuman: boolean; // use human oracle
   useProperty: boolean; // use property validator oracle
   useTransformer: boolean; // use input transformer
+  workers: number | "auto"; // number of concurrent worker processes ("auto" or >= 1)
   measures: { [k in SupportedMeasures]: BaseMeasureConfig }; // measure config
   generators: { [k in SupportedInputGenerators]: BaseGeneratorConfig }; // generator config
 };
@@ -428,6 +429,17 @@ export type FuzzBusyStatusMessage =
 export type FuzzStatusUpdater = (payload: FuzzBusyStatusMessage) => void;
 
 /**
+ * Fuzzer status observer for progress and busy status updates.
+ */
+export type FuzzStatusGranularity = "result" | number;
+
+export type FuzzStatusObserver = {
+  update: FuzzStatusUpdater;
+  granularity: FuzzStatusGranularity;
+  heartbeat?: true;
+};
+
+/**
  * Callback called for each test result produced during fuzzing
  */
 export type FuzzResultCallback = (result: FuzzTestResult) => void;
@@ -449,6 +461,8 @@ export class TypescriptCompilerError extends Error {
     this.details = details;
   }
 }
+
+export { GeneratorExhaustedError } from "./generators/Types";
 
 /**
  * Throw to skip a test input due to an unsatisfied assumption.

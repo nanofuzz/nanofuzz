@@ -15,6 +15,8 @@ import {
   FuzzResultCategoryValues,
   FuzzStopReason,
   FuzzStatusUpdater,
+  FuzzStatusObserver,
+  FuzzBusyStatusMessage,
   FuzzResultCallback,
   BaseMeasureConfig,
   FuzzerFocus,
@@ -46,6 +48,7 @@ import { AbstractProgram } from "./analysis/AbstractProgram";
 import { AbstractRunner, RunnerResult } from "./runners/AbstractRunner";
 import { CompilerStaleness } from "./compilers/Types";
 import { getToolVersion } from "../ToolVersion";
+import { GeneratorExhaustedError } from "./generators/Types";
 
 export class Tester {
   protected _module: string; // module filename
@@ -106,7 +109,7 @@ export class Tester {
         { cause: e }
       );
     }
-    const fnList = this._program.functionsExported;
+    const fnList = this._program.functions;
     if (!(this._fnName in fnList)) {
       if (this._fnName in this._program.functionsNotSupported) {
         const reason = this._program.functionsNotSupported[this._fnName].reason;
@@ -115,22 +118,19 @@ export class Tester {
         );
       }
       throw new Error(
-        `Could not find exported function ${this._fnName} in: ${this._module}`
+        `Could not find function ${this._fnName} in: ${this._module}`
       );
     }
     this._function = fnList[this._fnName];
 
     // Get the list of property validators
-    this._validators = getValidators(this._program, fnList[this._fnName]);
+    this._validators = getValidators(this._program, this._function);
 
     // Get the list of input transformers
-    this._transformers = getTransformers(this._program, fnList[this._fnName]);
+    this._transformers = getTransformers(this._program, this._function);
 
     // Get the list of user generators
-    this._userGenerators = getUserGenerators(
-      this._program,
-      fnList[this._fnName]
-    );
+    this._userGenerators = getUserGenerators(this._program, this._function);
 
     // Options
     if (!isOptionValid(normalizedOptions)) {
@@ -390,6 +390,20 @@ export class Tester {
   } // property: get state
 
   /**
+   * Returns the active worker count.
+   */
+  public get workerCount(): number {
+    return 1;
+  } // get: workerCount
+
+  /**
+   * Retrieves the fuzzer engine version.
+   */
+  public get engine(): "v1" {
+    return "v1";
+  } // fn: engine
+
+  /**
    * Runs the tester and returns its results.
    *
    * @param `injectTests` tests to inject
@@ -402,13 +416,13 @@ export class Tester {
   public async test(
     injectTests: FuzzPinnedTest[] = [],
     mode: FuzzMode = { gen: true },
-    updateFn?: FuzzStatusUpdater,
+    observer?: FuzzStatusObserver,
     cancelFn?: () => boolean,
     onResultFn?: FuzzResultCallback
   ): Promise<FuzzTestResults> {
     let result: FuzzTestResults | undefined;
     try {
-      const run = this._run(injectTests, mode, updateFn, cancelFn, onResultFn);
+      const run = this._run(injectTests, mode, observer, cancelFn, onResultFn);
       while (!result) {
         result = (await run.next()).value;
       }
@@ -426,7 +440,7 @@ export class Tester {
    *
    * @param `injectTests` tests to inject
    * @param `mode` tester mode
-   * @param `updateFn` called to report status updates
+   * @param `observer` status observer
    * @param `cancelFn` called to check cancel status
    * @param `onResultFn` called for each test result produced
    * @returns test results
@@ -434,7 +448,7 @@ export class Tester {
   protected async *_run(
     injectTests: FuzzPinnedTest[] = [],
     mode: FuzzMode = { gen: true },
-    updateFn?: FuzzStatusUpdater,
+    observer?: FuzzStatusObserver,
     cancelFn?: () => boolean,
     onResultFn?: FuzzResultCallback
   ): AsyncGenerator<
@@ -450,6 +464,12 @@ export class Tester {
     }
     this._results.stats.counters.testingRuns++;
 
+    const intervalMs =
+      typeof observer?.granularity === "number" && observer.granularity > 0
+        ? observer.granularity
+        : 0;
+    let lastClientUpdateTimestamp = 0;
+    let lastPendingPayload: FuzzBusyStatusMessage | undefined = undefined;
     let lastUpdateTimestamp = 0;
     let periodicTimer: ReturnType<typeof setInterval> | undefined = undefined;
 
@@ -459,8 +479,29 @@ export class Tester {
         clearInterval(periodicTimer);
         periodicTimer = undefined;
       }
-      if (updateFn) {
-        updateFn({ ...payload });
+      if (observer) {
+        const isMilestone =
+          payload.type === "compiling" ||
+          payload.type === "instrumenting" ||
+          payload.type === "testing-complete";
+        const now = performance.now();
+        if (isMilestone) {
+          if (lastPendingPayload) {
+            observer.update({ ...lastPendingPayload });
+            lastPendingPayload = undefined;
+          }
+          lastClientUpdateTimestamp = now;
+          observer.update({ ...payload });
+        } else if (
+          intervalMs <= 0 ||
+          now - lastClientUpdateTimestamp >= intervalMs
+        ) {
+          lastPendingPayload = undefined;
+          lastClientUpdateTimestamp = now;
+          observer.update({ ...payload });
+        } else {
+          lastPendingPayload = payload;
+        }
       }
     };
     const runStats: CurrentRunStats = {
@@ -528,13 +569,18 @@ export class Tester {
           this._lastCompiler.getCompiledDependencies(),
           this._measures,
           this._lastCompiler.options.tmpDir,
-          updateFn
+          update
         )
       : mod;
     this._results.stats.timers.instrument = performance.now() - instrumentTime;
 
     // Build a test runner for executing tests
-    const runner = RunnerFactory(this.env, targetMod, this._function.getName());
+    const runner = RunnerFactory(
+      this.env,
+      targetMod,
+      this._function.getName(),
+      { acceptsStaticCoverage: true }
+    );
     await runner.onRunStart();
 
     // Build a test runner for executing transformers, if any are present and enabled
@@ -590,7 +636,7 @@ export class Tester {
       ...propRunners,
     ].filter((r): r is AbstractRunner => r !== undefined);
     this._measures.forEach((m) => {
-      m.onRunStart(runners);
+      m.onRunStart(runners, this.env);
     });
 
     // Injected tests lookup map
@@ -603,6 +649,7 @@ export class Tester {
 
     const checkPeriodicUpdate = () => {
       if (
+        observer?.heartbeat &&
         this._state === "running" &&
         performance.now() - lastUpdateTimestamp >= 100
       ) {
@@ -631,7 +678,9 @@ export class Tester {
       }
     };
 
-    periodicTimer = setInterval(checkPeriodicUpdate, 50);
+    if (observer?.heartbeat) {
+      periodicTimer = setInterval(checkPeriodicUpdate, 50);
+    }
 
     try {
       // Main test loop
@@ -723,6 +772,7 @@ export class Tester {
             [
               runner.onRunEnd(),
               transformRunner?.onRunEnd(),
+              userGenRunner?.onRunEnd(),
               ...propRunners.map((p) => p.onRunEnd()),
             ].filter((e) => e !== undefined)
           );
@@ -846,11 +896,7 @@ export class Tester {
             transformedInput =
               await this._compositeInputGenerator.nextTransformed();
           } catch (e: unknown) {
-            if (
-              isError(e) &&
-              e.message ===
-                "Injected inputs exhausted and input generators are suppressed."
-            ) {
+            if (e instanceof GeneratorExhaustedError) {
               continue; // stopReason checked at top of loop
             }
             this._state = "crashed";
@@ -897,11 +943,7 @@ export class Tester {
           try {
             result.inputGenerated = this._compositeInputGenerator.next();
           } catch (e: unknown) {
-            if (
-              isError(e) &&
-              e.message ===
-                "Injected inputs exhausted and input generators are suppressed."
-            ) {
+            if (e instanceof GeneratorExhaustedError) {
               continue; // stopReason checked at top of loop
             }
             this._state = "crashed";
@@ -1274,7 +1316,8 @@ export class Tester {
           result.interestingReasons =
             this._compositeInputGenerator.onInputFeedback(
               measurements,
-              result.timers.run + result.timers.gen
+              result.timers.run + result.timers.gen,
+              result.inputGenerated
             );
 
           // Measurement stats

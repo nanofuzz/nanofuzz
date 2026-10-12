@@ -667,7 +667,7 @@ from .schemas import *`,
       expect(program.functionsNotSupported["create_prediction"]).toEqual(
         jasmine.objectContaining({ argument: "payload" })
       );
-      expect(console.debug).toHaveBeenCalled();
+      expect(console.debug).not.toHaveBeenCalled();
     });
   });
 

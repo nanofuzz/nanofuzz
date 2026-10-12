@@ -2,17 +2,20 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import vscode from "vscode";
-import pkg from "../../package.json";
+import seedrandom from "seedrandom";
 import * as Config from "../Config";
 import * as JSONN from "../Jsonn";
 import { getToolVersion } from "../ToolVersion";
-import { isError, normalizePathForKey } from "../fuzzer/Util";
+import { getIoKey, isError } from "../fuzzer/Util";
 import { isKeyedObject } from "../Util";
 import { isArgValueType } from "../fuzzer/analysis/Util";
 import * as ParserAdapter from "../fuzzer/adapters/ParserAdapter";
 import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
 import { FunctionDef } from "../fuzzer/analysis/FunctionDef";
 import { ArgDef } from "../fuzzer/analysis/ArgDef";
+import { ArgDefShrinker } from "../fuzzer/analysis/ArgDefShrinker";
+import { RunnerFactory } from "../fuzzer/runners/RunnerFactory";
+import { AbstractRunner } from "../fuzzer/runners/AbstractRunner";
 import {
   ArgOptions,
   ArgValueType,
@@ -35,13 +38,25 @@ import {
 import { FuzzerFactory } from "../fuzzer/FuzzerFactory";
 import { Judgment } from "../fuzzer/oracles/Types";
 import * as TestAdapterFactory from "../fuzzer/adapters/TestAdapterFactory";
-import { CodeCoverageMeasureStats } from "../fuzzer/measures/AbstractCoverageMeasure";
+import {
+  CodeCoverageMeasureStats,
+  extractUncoveredLines,
+  formatLineRanges,
+} from "../fuzzer/measures/CoverageMeasure";
+import { CoverageFrontierSampler } from "../fuzzer/analysis/CoverageFrontierSampler";
 import { LlmAdapter } from "../fuzzer/adapters/LlmAdapter";
 import { synthesizeValidator } from "../fuzzer/synthesis/ValidatorSynthesizer";
 import { synthesizeTransformer } from "../fuzzer/synthesis/TransformerSynthesizer";
+import { synthesizeUserGenerator } from "../fuzzer/synthesis/UserGeneratorSynthesizer";
 import { FuzzerCodeSnippet } from "../fuzzer/synthesis/Types";
+import { FuzzConfigStore } from "../fuzzer/FuzzConfigStore";
 
-export { synthesizeValidator, synthesizeTransformer, FuzzerCodeSnippet };
+export {
+  synthesizeValidator,
+  synthesizeTransformer,
+  synthesizeUserGenerator,
+  FuzzerCodeSnippet,
+};
 
 // -------------------------------------------------------------------------- //
 // Primary Public API
@@ -117,10 +132,10 @@ export async function listTargets(filePath: string): Promise<TargetListResult> {
 
   const program = ProgramFactory.fromFile(resolvedPath);
   const language = program.lang;
-  const exported = program.functionsExported;
+  const allFunctions = program.functions;
   const functions: TargetFunction[] = [];
 
-  for (const fnDef of Object.values(exported)) {
+  for (const fnDef of Object.values(allFunctions)) {
     const argDefs = fnDef.getArgDefs();
     const args: TargetFunctionArg[] = argDefs.map((arg) => ({
       name: arg.getName(),
@@ -140,10 +155,16 @@ export async function listTargets(filePath: string): Promise<TargetListResult> {
       language,
       Object.keys(program.functions)
     );
+    const genSkel = synthesizeUserGenerator(
+      fnDef,
+      language,
+      Object.keys(program.functions)
+    );
 
     functions.push({
       name: fnDef.getName(),
       signature: formatFunctionSignature(fnDef, language),
+      isExported: fnDef.isExported(),
       args,
       returnType: fnDef.getReturnType()?.name,
       isVoid: fnDef.isVoid(),
@@ -153,6 +174,7 @@ export async function listTargets(filePath: string): Promise<TargetListResult> {
       comment: fnDef.getCmt(),
       validatorTemplate: valSkel.fullTemplate,
       transformerTemplate: transSkel.fullTemplate,
+      generatorTemplate: genSkel.fullTemplate,
     });
   }
 
@@ -213,7 +235,17 @@ export async function runFuzz(
       Config.override("nanofuzz.ai.vendor", options.vendor);
     }
 
+    // Load any companion .nano.json5 configuration and saved tests
+    const fnConfig = FuzzConfigStore.loadForFunction(
+      resolvedPath,
+      options.functionName
+    );
+    const persistedTests: FuzzPinnedTest[] = Object.values(
+      fnConfig.tests ?? {}
+    );
+
     const effectiveGenerators = {
+      ...(fnConfig.options?.generators ?? {}),
       ...options.generators,
       ...(shouldAutoEnableCopilot &&
       options.generators?.AiInputGenerator?.enabled === undefined
@@ -222,6 +254,7 @@ export async function runFuzz(
     };
 
     const normalizedOptions = normalizeAgentFuzzOptions({
+      ...(fnConfig.options ?? {}),
       ...options,
       generators: effectiveGenerators,
     });
@@ -232,6 +265,15 @@ export async function runFuzz(
       normalizedOptions
     );
 
+    // Apply custom argument overrides from companion .nano.json5
+    if (fnConfig.argOverrides?.length) {
+      FuzzConfigStore.applyArgOverrides(
+        tester.env.function,
+        fnConfig.argOverrides,
+        tester.env.options.argDefaults
+      );
+    }
+
     const argDefs = tester.env.function.getArgDefs();
     const inputItems: (AgentTestCase | Record<string, unknown> | unknown[])[] =
       [...(options.inputs ?? []), ...(options.tests ?? [])];
@@ -239,12 +281,16 @@ export async function runFuzz(
       inputItems,
       argDefs
     );
-    const allInjected = [...convertedInputs, ...(options.injectTests ?? [])];
+    const allInjected = [
+      ...persistedTests,
+      ...convertedInputs,
+      ...(options.injectTests ?? []),
+    ];
 
     const rawResults = await tester.test(
       allInjected,
       { gen: true },
-      updateFn,
+      updateFn ? { update: updateFn, granularity: "result" } : undefined,
       cancelFn
     );
 
@@ -252,10 +298,39 @@ export async function runFuzz(
       rawResults.stopReason = FuzzStopReason.PAUSE;
     }
 
+    let testSuiteCode: string | undefined = undefined;
+    let testSuiteFilePath: string | undefined = undefined;
+
+    if (options.exportSuite || options.exportFilePath) {
+      testSuiteCode = await synthesizeTestSuite(
+        resolvedPath,
+        options.functionName,
+        rawResults,
+        { shrink: true }
+      );
+
+      if (options.exportFilePath && testSuiteCode) {
+        const outPath = resolveFilePath(options.exportFilePath);
+        const dir = path.dirname(outPath);
+        if (!fs.existsSync(dir)) {
+          fs.mkdirSync(dir, { recursive: true });
+        }
+        fs.writeFileSync(outPath, testSuiteCode, "utf8");
+        testSuiteFilePath = outPath;
+      }
+    }
+
+    const generatorDiagnostics = tester.getInputGeneratorDiagnostics();
+
     return await formatFuzzResult(
       rawResults,
       resolvedPath,
-      options.functionName
+      options.functionName,
+      {
+        testSuiteCode,
+        testSuiteFilePath,
+        diagnostics: generatorDiagnostics,
+      }
     );
   } catch (e: unknown) {
     const errorMsg = isError(e) ? e.message : String(e);
@@ -331,6 +406,7 @@ export function getDefaultFuzzOptions(): FuzzOptions {
     useHuman: true,
     useImplicit: true,
     useProperty: true,
+    workers: Config.get("nanofuzz.fuzzer.workers", "auto"),
     measures: {
       FailedTestMeasure: {
         enabled: true,
@@ -352,7 +428,7 @@ export function getDefaultFuzzOptions(): FuzzOptions {
         enabled: false,
       },
       UserInputGenerator: {
-        enabled: false,
+        enabled: true,
       },
     },
   };
@@ -600,7 +676,7 @@ export function synthesizeReproducer(
   const options = fuzzEnv?.options ?? getDefaultFuzzOptions();
   const validators = fuzzEnv?.validators?.map((v: FunctionRef) => v.name) ?? [];
   const isVoid = fuzzEnv?.function?.isVoid() ?? false;
-  const version = process.env.NANOFUZZ_VERSION ?? pkg.version;
+  const version = FuzzConfigStore.CURR_FILE_FMT_VER;
 
   const fuzzTests: FuzzTests = {
     version,
@@ -610,6 +686,7 @@ export function synthesizeReproducer(
         validators,
         tests: testsObj,
         isVoid,
+        ...(fuzzEnv?.function?.isAsync() ? { isAsync: true as const } : {}),
       },
     },
   };
@@ -625,6 +702,258 @@ export function synthesizeReproducer(
     return `// Reproducer test for ${functionName}\n${functionName}(${inputVals});\n`;
   }
 } // fn: synthesizeReproducer
+
+/**
+ * Selects candidate test results that cover distinct branches or represent failing counterexamples.
+ */
+export function selectCoveringResults(
+  results: FuzzTestResult[]
+): FuzzTestResult[] {
+  if (!results || results.length === 0) return [];
+
+  const selected: FuzzTestResult[] = [];
+  const seenInputs = new Set<string>();
+
+  // 1. All failing counterexamples
+  const failures = results.filter((r) => r.category !== "ok");
+  for (const f of failures) {
+    const key = getIoKey(f.input);
+    if (!seenInputs.has(key)) {
+      seenInputs.add(key);
+      selected.push(f);
+    }
+  }
+
+  // 2. Passing inputs that were marked as interesting (e.g. branch coverage expansion)
+  const interesting = results.filter(
+    (r) =>
+      r.category === "ok" &&
+      r.interestingReasons &&
+      r.interestingReasons.length > 0
+  );
+  for (const item of interesting) {
+    const key = getIoKey(item.input);
+    if (!seenInputs.has(key)) {
+      seenInputs.add(key);
+      selected.push(item);
+    }
+  }
+
+  // 3. Fallback: if no interesting or failing inputs, take the first non-skipped passing result
+  if (selected.length === 0) {
+    const firstOk = results.find((r) => r.category === "ok" && !r.skipped);
+    if (firstOk) {
+      selected.push(firstOk);
+    }
+  }
+
+  return selected;
+} // fn: selectCoveringResults
+
+/**
+ * Shrinks a set of covering fuzz test results to minimal, canonical input values.
+ */
+export async function shrinkCoveringResults(
+  candidates: FuzzTestResult[],
+  env: FuzzEnv
+): Promise<FuzzTestResult[]> {
+  const argDefs = env.function.getArgDefs();
+  if (argDefs.length === 0) {
+    return candidates;
+  }
+
+  // Disable coverage measurement and static coverage collection on the shrink runner
+  const shrinkEnv: FuzzEnv = {
+    ...env,
+    options: {
+      ...env.options,
+      measures: {
+        ...env.options.measures,
+        CoverageMeasure: { enabled: false, weight: 0 },
+      },
+    },
+  };
+
+  let runner: AbstractRunner | undefined;
+  try {
+    runner = RunnerFactory(
+      shrinkEnv,
+      env.function.getModule(),
+      env.function.getName()
+    );
+    await runner.onRunStart();
+  } catch {
+    return candidates;
+  }
+
+  const shrunkenResults: FuzzTestResult[] = [];
+  const prng = seedrandom("suite-shrink-seed");
+  const maxSteps = 30;
+
+  try {
+    for (const candidate of candidates) {
+      if (
+        candidate.category === "ok" &&
+        candidate.inputGenerated?.value &&
+        candidate.inputGenerated.value.length > 0
+      ) {
+        let currentValues = structuredClone(candidate.inputGenerated.value);
+        let currentOutput = candidate.output;
+        let shrinkSteps = 0;
+
+        for (let step = 0; step < maxSteps; step++) {
+          const candidateValues = structuredClone(currentValues);
+          const shrinkers = ArgDefShrinker.getShrinkers(
+            argDefs,
+            candidateValues,
+            prng
+          );
+          if (shrinkers.length === 0) break;
+
+          let improved = false;
+          for (const shrinker of shrinkers) {
+            const testValues = structuredClone(candidateValues);
+            shrinker.fn();
+
+            try {
+              const runRes = await runner.run(
+                testValues.map((w) => w.value),
+                Math.max(env.options.fnTimeout, 100)
+              );
+              if (runRes.result.tag === "value") {
+                currentValues = testValues;
+                currentOutput = [
+                  {
+                    name: "0",
+                    offset: 0,
+                    value: cast<ArgValueType>(runRes.result.value),
+                    origin: { type: "put" },
+                  },
+                ];
+                improved = true;
+                shrinkSteps++;
+                break;
+              }
+            } catch {
+              // Ignore execution error during shrinking
+            }
+          }
+
+          if (!improved) break;
+        }
+
+        shrunkenResults.push({
+          ...candidate,
+          input: currentValues.map((w, idx) => ({
+            name: argDefs[idx] ? argDefs[idx].getName() : String(idx),
+            offset: idx,
+            value: cast<ArgValueType>(w.value),
+            origin: candidate.input[idx]?.origin ?? { type: "user" },
+          })),
+          output: currentOutput,
+          shrinkStep: shrinkSteps,
+        });
+      } else {
+        shrunkenResults.push(candidate);
+      }
+    }
+  } finally {
+    try {
+      await runner.onRunEnd();
+    } catch {
+      // Ignore shutdown errors
+    }
+  }
+
+  return shrunkenResults;
+} // fn: shrinkCoveringResults
+
+/**
+ * Synthesizes an executable test suite (Jest or Pytest) from branch-covering inputs and counterexamples.
+ */
+export async function synthesizeTestSuite(
+  filePath: string,
+  functionName: string,
+  rawResults: FuzzTestResults,
+  options?: {
+    shrink?: boolean;
+  }
+): Promise<string | undefined> {
+  const env = rawResults.env;
+  const executedResults = rawResults.results ?? [];
+  if (executedResults.length === 0) {
+    return undefined;
+  }
+
+  const selectedCandidates = selectCoveringResults(executedResults);
+  if (selectedCandidates.length === 0) {
+    return undefined;
+  }
+
+  const finalCandidates =
+    options?.shrink !== false
+      ? await shrinkCoveringResults(selectedCandidates, env)
+      : selectedCandidates;
+
+  const testsObj: Record<string, FuzzPinnedTest> = {};
+  finalCandidates.forEach((res, idx) => {
+    let expectedOutput: FuzzIoElement[] | undefined = res.expectedOutput;
+    if (!expectedOutput) {
+      if (res.exception) {
+        expectedOutput = [
+          {
+            name: "0",
+            offset: 0,
+            isException: true,
+            value: undefined,
+            origin: { type: "user" },
+          },
+        ];
+      } else if (
+        res.category === "ok" &&
+        !env.function.isVoid() &&
+        res.output &&
+        res.output.length > 0
+      ) {
+        expectedOutput = [
+          {
+            name: "0",
+            offset: 0,
+            value: res.output[0].value,
+            origin: { type: "user" },
+          },
+        ];
+      }
+    }
+
+    testsObj[String(idx)] = {
+      input: res.input,
+      output: res.output,
+      pinned: true,
+      expectedOutput,
+    };
+  });
+
+  const fuzzTests: FuzzTests = {
+    version: FuzzConfigStore.CURR_FILE_FMT_VER,
+    functions: {
+      [functionName]: {
+        options: env.options,
+        validators: env.validators.map((v: FunctionRef) => v.name),
+        tests: testsObj,
+        isVoid: env.function.isVoid(),
+        ...(env.function.isAsync() ? { isAsync: true as const } : {}),
+      },
+    },
+  };
+
+  try {
+    const adapter = TestAdapterFactory.fromSourceFilename(filePath, fuzzTests);
+    return adapter.toString();
+  } catch (_e) {
+    return synthesizeReproducer(filePath, functionName, finalCandidates, env);
+  }
+} // fn: synthesizeTestSuite
 
 /**
  * Computes coverage summary statistics from FuzzTestResults.
@@ -656,83 +985,25 @@ export async function getCoverageSummary(
     const fnPct =
       fnTotal > 0 ? Math.round((fnCovered / fnTotal) * 10000) / 100 : 100;
 
-    const uncoveredLinesByFile: Record<string, number[]> = {};
-    const partiallyCoveredLinesByFile: Record<string, number[]> = {};
-    if (covStats.files) {
-      for (const file of covStats.files) {
-        const fileMap = file.fileMap;
-        if (fileMap) {
-          const lineStats: Record<
-            number,
-            { hitCount: number; zeroCount: number }
-          > = {};
+    const { uncoveredLinesByFile, partiallyCoveredLinesByFile } =
+      extractUncoveredLines(covStats);
 
-          if (fileMap.s && fileMap.statementMap) {
-            for (const [key, hits] of Object.entries(fileMap.s)) {
-              if (fileMap.statementMap[key]) {
-                const startLine = fileMap.statementMap[key].start.line;
-                if (!lineStats[startLine]) {
-                  lineStats[startLine] = { hitCount: 0, zeroCount: 0 };
-                }
-                if (hits > 0) {
-                  lineStats[startLine].hitCount++;
-                } else {
-                  lineStats[startLine].zeroCount++;
-                }
-              }
-            }
-          }
+    const frontierCandidates = CoverageFrontierSampler.getCandidates({
+      covStats,
+      uncoveredInfo: { uncoveredLinesByFile, partiallyCoveredLinesByFile },
+      targetAttempts: {},
+    });
 
-          if (fileMap.b && fileMap.branchMap) {
-            for (const [bKey, hitsArr] of Object.entries(fileMap.b)) {
-              const bDef = fileMap.branchMap[bKey];
-              if (bDef && bDef.locations && Array.isArray(hitsArr)) {
-                for (let i = 0; i < bDef.locations.length; i++) {
-                  const loc = bDef.locations[i];
-                  if (loc && loc.start && typeof loc.start.line === "number") {
-                    const startLine = loc.start.line;
-                    if (!lineStats[startLine]) {
-                      lineStats[startLine] = { hitCount: 0, zeroCount: 0 };
-                    }
-                    const armHits = hitsArr[i];
-                    if (typeof armHits === "number" && armHits > 0) {
-                      lineStats[startLine].hitCount++;
-                    } else if (armHits === 0) {
-                      lineStats[startLine].zeroCount++;
-                    }
-                  }
-                }
-              }
-            }
-          }
+    frontierCandidates.sort((a, b) => b.weight - a.weight);
 
-          const uncoveredLines: number[] = [];
-          const partiallyCoveredLines: number[] = [];
-
-          for (const [lineStr, stats] of Object.entries(lineStats)) {
-            const line = Number(lineStr);
-            if (stats.zeroCount > 0) {
-              if (stats.hitCount === 0) {
-                uncoveredLines.push(line);
-              } else {
-                partiallyCoveredLines.push(line);
-              }
-            }
-          }
-
-          uncoveredLines.sort((a, b) => a - b);
-          partiallyCoveredLines.sort((a, b) => a - b);
-
-          const fileKey = normalizePathForKey(file.path);
-          if (uncoveredLines.length > 0) {
-            uncoveredLinesByFile[fileKey] = uncoveredLines;
-          }
-          if (partiallyCoveredLines.length > 0) {
-            partiallyCoveredLinesByFile[fileKey] = partiallyCoveredLines;
-          }
-        }
-      }
-    }
+    const frontierFunctions: AgentFrontierFunction[] = frontierCandidates
+      .slice(0, 5)
+      .map((c) => ({
+        functionName: c.functionName,
+        filePath: c.filePath,
+        uncoveredLines: c.uncoveredLines,
+        isFrontier: c.isFrontier,
+      }));
 
     return {
       statementsTotal: stmtTotal,
@@ -746,35 +1017,15 @@ export async function getCoverageSummary(
       functionCoveragePercent: fnPct,
       uncoveredLinesByFile,
       partiallyCoveredLinesByFile,
+      frontierFunctions:
+        frontierFunctions.length > 0 ? frontierFunctions : undefined,
     };
   } catch (_e) {
     return undefined;
   }
 } // fn: getCoverageSummary
 
-/**
- * Formats an array of line numbers into concise range strings (e.g. "1-3, 5, 8-10").
- */
-export function formatLineRanges(lines: number[]): string {
-  if (!lines || lines.length === 0) return "";
-  const sorted = Array.from(new Set(lines)).sort((a, b) => a - b);
-  const ranges: string[] = [];
-  let start = sorted[0];
-  let prev = sorted[0];
-
-  for (let i = 1; i < sorted.length; i++) {
-    const curr = sorted[i];
-    if (curr === prev + 1) {
-      prev = curr;
-    } else {
-      ranges.push(start === prev ? `${start}` : `${start}-${prev}`);
-      start = curr;
-      prev = curr;
-    }
-  }
-  ranges.push(start === prev ? `${start}` : `${start}-${prev}`);
-  return ranges.join(", ");
-} // fn: formatLineRanges
+export { formatLineRanges };
 
 /**
  * Builds a formatted Markdown summary string for an AgentFuzzResult.
@@ -929,6 +1180,28 @@ export function buildSummaryMarkdown(
         }
       }
     }
+
+    if (cov.frontierFunctions && cov.frontierFunctions.length > 0) {
+      parts.push(`- **Untaken Branches / Functions (Top 5)**:`);
+      for (const fn of cov.frontierFunctions) {
+        const displayPath = path.isAbsolute(fn.filePath)
+          ? path.relative(process.cwd(), fn.filePath) || fn.filePath
+          : fn.filePath;
+        const fnName = fn.functionName ? `\`${fn.functionName}\` in ` : "";
+        const status = fn.isFrontier ? "partially covered" : "unreached";
+        parts.push(
+          `  - ${fnName}\`${displayPath}\`: line(s) ${formatLineRanges(fn.uncoveredLines)} (${status})`
+        );
+      }
+    }
+  }
+
+  if (result.testSuiteCode) {
+    const lang = result.language === "python" ? "python" : "typescript";
+    const header = result.testSuiteFilePath
+      ? `\n**Synthesized Branch-Covering Test Suite** (written to \`${result.testSuiteFilePath}\`):`
+      : `\n**Synthesized Branch-Covering Test Suite**:`;
+    parts.push(header, `\`\`\`${lang}`, result.testSuiteCode.trim(), `\`\`\``);
   }
 
   if (result.diagnostics && result.diagnostics.length > 0) {
@@ -947,7 +1220,12 @@ export function buildSummaryMarkdown(
 export async function formatFuzzResult(
   results: FuzzTestResults,
   filePath: string,
-  functionName: string
+  functionName: string,
+  options?: {
+    testSuiteCode?: string;
+    testSuiteFilePath?: string;
+    diagnostics?: string[];
+  }
 ): Promise<AgentFuzzResult> {
   const language = results.env.function.getLang();
   const allResults = results.results ?? [];
@@ -1011,6 +1289,9 @@ export async function formatFuzzResult(
   };
 
   const diagnostics: string[] = [];
+  if (options?.diagnostics && options.diagnostics.length > 0) {
+    diagnostics.push(...options.diagnostics);
+  }
   if (
     results.env.options?.generators?.AiInputGenerator?.enabled &&
     !LlmAdapter.isConfigured()
@@ -1036,6 +1317,8 @@ export async function formatFuzzResult(
     counterexamples,
     primaryCounterexample,
     reproducerCode,
+    testSuiteCode: options?.testSuiteCode,
+    testSuiteFilePath: options?.testSuiteFilePath,
     coverage,
     generators,
     diagnostics: diagnostics.length > 0 ? diagnostics : undefined,
@@ -1116,6 +1399,7 @@ export type TargetFunctionArg = {
 export type TargetFunction = {
   name: string;
   signature: string;
+  isExported: boolean;
   args: TargetFunctionArg[];
   returnType?: string;
   isVoid: boolean;
@@ -1125,6 +1409,7 @@ export type TargetFunction = {
   comment?: string;
   validatorTemplate?: string;
   transformerTemplate?: string;
+  generatorTemplate?: string;
 };
 
 /**
@@ -1172,6 +1457,8 @@ export type AgentFuzzOptions = {
   inputs?: (Record<string, unknown> | unknown[])[];
   tests?: (AgentTestCase | Record<string, unknown> | unknown[])[];
   enableCopilotAi?: boolean;
+  exportSuite?: boolean;
+  exportFilePath?: string;
 };
 
 /**
@@ -1219,6 +1506,16 @@ export type AgentGeneratorSummary = {
 };
 
 /**
+ * Untaken branch or unreached function discovered on the execution frontier
+ */
+export type AgentFrontierFunction = {
+  functionName?: string;
+  filePath: string;
+  uncoveredLines: number[];
+  isFrontier: boolean;
+};
+
+/**
  * Code coverage summary details
  */
 export type AgentCoverageSummary = {
@@ -1233,6 +1530,7 @@ export type AgentCoverageSummary = {
   functionCoveragePercent: number;
   uncoveredLinesByFile?: Record<string, number[]>;
   partiallyCoveredLinesByFile?: Record<string, number[]>;
+  frontierFunctions?: AgentFrontierFunction[];
 };
 
 /**
@@ -1264,9 +1562,20 @@ export type AgentFuzzResult = {
   counterexamples: AgentCounterexample[];
   primaryCounterexample?: AgentCounterexample;
   reproducerCode?: string;
+  testSuiteCode?: string;
+  testSuiteFilePath?: string;
   coverage?: AgentCoverageSummary;
   generators?: AgentGeneratorSummary;
   diagnostics?: string[];
   rawResults?: FuzzTestResults;
   summaryText: string;
 };
+
+// -------------------------------------------------------------------------- //
+// Helper Functions
+// -------------------------------------------------------------------------- //
+
+function cast<T>(val: unknown): T;
+function cast(val: unknown): unknown {
+  return val;
+} // fn: cast()

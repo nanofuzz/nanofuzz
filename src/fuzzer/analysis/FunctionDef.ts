@@ -209,7 +209,6 @@ export class FunctionDef {
    */
   public isValidator(): boolean {
     return (
-      this.isExported() &&
       this._argDefs.length === 1 &&
       this._argDefs[0].getTypeRef() === "FuzzTestResult" &&
       this._ref.name.includes("Validator", 1)
@@ -222,7 +221,7 @@ export class FunctionDef {
    * @returns true if the function is an input transformer; false, otherwise.
    */
   public isTransformer(): boolean {
-    return this.isExported() && this._ref.name.endsWith("Transformer");
+    return this._ref.name.endsWith("Transformer");
   } // fn: isTransformer()
 
   /**
@@ -231,11 +230,7 @@ export class FunctionDef {
    * @returns true if the function is a user input generator; false, otherwise.
    */
   public isUserGenerator(): boolean {
-    return (
-      this.isExported() &&
-      this._ref.name.endsWith("Generator") &&
-      !this._ref.name.endsWith("InputGenerator")
-    );
+    return this._ref.name.endsWith("Generator");
   } // fn: isUserGenerator()
 
   /*

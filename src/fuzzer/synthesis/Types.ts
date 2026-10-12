@@ -1,5 +1,5 @@
 /**
- * Code snippet template for testing companion functions (validators, transformers).
+ * Code snippet template for testing companion functions (validators, transformers, generators).
  */
 export type FuzzerCodeSnippet = {
   name: string;

@@ -61,7 +61,7 @@
       {
         "name": "nanofuzz_listTargets",
         "displayName": "List NaNofuzz Targets",
-        "modelDescription": "Discovers and lists all exported functions (synchronous and asynchronous), type signatures, parameter structures, and ready-to-use property validator and input transformer code templates (validatorTemplate and transformerTemplate) in a TypeScript or Python source file that can be targeted for structure-aware fuzzing and property testing. Functions under test with preconditions can be paired with an exported input transformer using assume(condition) or raise/throw UnsatisfiedAssumption(msg) to filter out invalid or out-of-domain inputs from the fuzzing loop. If a target function is not exported or uses unsupported signature types, you can write an exported wrapper function with type annotations in its signature that calls the target function, and list or test that wrapper function instead.",
+        "modelDescription": "Discovers and lists functions (exported and unexported, synchronous and asynchronous), type signatures, parameter structures, and ready-to-use property validator, input transformer, and custom input generator code templates (validatorTemplate, transformerTemplate, and generatorTemplate) in a TypeScript or Python source file that can be targeted for structure-aware fuzzing and property testing. Functions under test with preconditions can be paired with an input transformer using assume(condition) or raise/throw UnsatisfiedAssumption(msg) to filter out invalid or out-of-domain inputs from the fuzzing loop. Functions with domain-specific input distributions or sequences can be paired with a custom generator (<fn>Generator) taking a pseudo-random number generator prng: () => number or prng: Callable[[], float] and returning an argument tuple (or None/undefined when exhausted). If a target function is a class method or uses unsupported signature types, you can write a wrapper function with type annotations in its signature that calls the target function, and list or test that wrapper function instead.",
         "canBeReferencedInPrompt": true,
         "toolReferenceName": "listTargets",
         "icon": "$(symbol-method)",
@@ -81,7 +81,7 @@
       {
         "name": "nanofuzz_fuzzFunction",
         "displayName": "Fuzz Target with NaNofuzz",
-        "modelDescription": "Runs coverage-guided, structure-aware property fuzzing on a target function (synchronous or asynchronous) in TypeScript or Python. Uses dynamic branch-coverage feedback loops, type-aware/grammar generation, coverage-directed mutation, AI input generation, and automated input shrinking (minimization) to find minimal counterexamples, crashes, and edge cases. Returns synthesized executable regression tests (Jest or Pytest) and branch coverage metrics. To filter invalid inputs or express preconditions, write an exported transformer function (<fn>Transformer) using assume(condition) or UnsatisfiedAssumption. If a target function is not exported, is a class method, or uses unsupported signature types, you can write an exported wrapper function with type annotations in its signature that calls the target, and fuzz that wrapper function instead.",
+        "modelDescription": "Runs coverage-guided, structure-aware property fuzzing on a target function (synchronous or asynchronous, exported or unexported) in TypeScript or Python. Uses dynamic branch-coverage feedback loops, type-aware/grammar generation, coverage-directed mutation, AI input generation, and automated input shrinking (minimization) to find minimal counterexamples, crashes, and edge cases. Returns synthesized executable regression tests (Jest or Pytest) and branch coverage metrics. To filter invalid inputs or express preconditions, write an input transformer function (<fn>Transformer) using assume(condition) or UnsatisfiedAssumption. To supply custom domain-specific inputs or sequences, write a generator function (<fn>Generator). If a target function is a class method or uses unsupported signature types, you can write a wrapper function with type annotations in its signature that calls the target, and fuzz that wrapper function instead.",
         "canBeReferencedInPrompt": true,
         "toolReferenceName": "fuzzFunction",
         "icon": "$(beaker)",
@@ -94,7 +94,7 @@
             },
             "functionName": {
               "type": "string",
-              "description": "The exact name of the exported function to test."
+              "description": "The exact name of the function to test."
             },
             "model": {
               "type": "string",
@@ -157,6 +157,14 @@
                   "input"
                 ]
               }
+            },
+            "exportSuite": {
+              "type": "boolean",
+              "description": "If true, synthesizes a complete, minimal branch-covering regression test suite (using shrunken inputs and counterexamples) formatted for Jest or Pytest and includes it in the response."
+            },
+            "exportFilePath": {
+              "type": "string",
+              "description": "Optional destination file path (e.g. 'tests/test_math.py' or 'src/math.test.ts') where the synthesized test suite will be written directly to disk."
             }
           },
           "required": [
@@ -209,9 +217,16 @@
           "nanofuzz.fuzzer.hostStartupTimeout": {
             "title": "Timeout runner host startup after (ms)",
             "type": "integer",
-            "default": 10000,
+            "default": 20000,
             "minimum": 1000,
             "description": "Maximum time (in ms) allowed for the runner host process to startup."
+          },
+          "nanofuzz.fuzzer.maxRunnerMemory": {
+            "title": "Maximum RAM for test runners (MB)",
+            "type": "integer",
+            "default": 8192,
+            "minimum": 128,
+            "description": "Maximum RAM (in MB) allowed for test runner processes."
           },
           "nanofuzz.fuzzer.shrinkFailures": {
             "title": "Shrink failing inputs?",
@@ -242,15 +257,34 @@
             "title": "Fuzzer engine version",
             "type": "string",
             "enum": [
+              "auto",
               "v1",
-              "v2"
+              "v2",
+              "v3"
             ],
             "enumDescriptions": [
+              "auto: Automatic engine selection (v2 for single worker, v3 for multi-worker)",
               "v1: Classic fuzzer experience",
-              "v2: Updated fuzzer experience"
+              "v2: Updated fuzzer experience",
+              "v3: Advanced fuzzer experience"
             ],
-            "default": "v2",
-            "description": "Select the fuzzer engine implementation (v1=classic, v2=updated)",
+            "default": "auto",
+            "description": "Select the fuzzer engine implementation (auto=automatic, v1=classic, v2=updated, v3=pipelined)",
+            "tags": [
+              "experimental"
+            ]
+          },
+          "nanofuzz.fuzzer.workers": {
+            "title": "Fuzzer worker concurrency",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "enum": [
+              "auto"
+            ],
+            "default": "auto",
+            "description": "Number of concurrent worker processes for test execution ('auto' or integer >= 1)",
             "tags": [
               "experimental"
             ]
@@ -323,6 +357,16 @@
               "usesOnlineServices"
             ]
           },
+          "nanofuzz.ai.endpoint": {
+            "title": "Model provider endpoint URL",
+            "order": 35,
+            "type": "string",
+            "default": "",
+            "description": "Optional endpoint URL for the model provider.",
+            "tags": [
+              "usesOnlineServices"
+            ]
+          },
           "nanofuzz.ai.retries": {
             "title": "Maximum retries",
             "order": 40,
@@ -342,7 +386,17 @@
             "order": 60,
             "type": "boolean",
             "default": false,
-            "description": "If enabled, the model will be provided a list of prior inputs (up to 10,000) with a request not to re-generate those inputs. This includes all inputs produced by all generators. Enabling this might improve the inputs produced by the model at the cost of increased tokens. However, current models will still often produce duplicate inputs.",
+            "description": "If enabled, the model will be provided a list of prior inputs with a request not to re-generate those inputs. Includes inputs produced by all generators. Prioritizes interesting inputs. Enabling this can improve input diversity at the cost of increased tokens.",
+            "tags": [
+              "experimental"
+            ]
+          },
+          "nanofuzz.ai.coverageGuidance": {
+            "title": "Send code coverage data to the AI model?",
+            "order": 65,
+            "type": "boolean",
+            "default": true,
+            "description": "If available, send code coverage data to the AI model.",
             "tags": [
               "experimental"
             ]
@@ -726,7 +780,7 @@
     "publish": "npx @vscode/vsce publish --yarn",
     "package": "npx @vscode/vsce package --yarn",
     "pretest": "yarn build && yarn run lint",
-    "nanofuzz": "node ./build/cli/cli.cjs"
+    "nanofuzz": "node --max-old-space-size=8192 ./build/cli/cli.cjs"
   },
   "babel": {
     "presets": [
@@ -744,6 +798,7 @@
   "dependencies": {
     "@vscode/codicons": "^0.0.46-37",
     "@vscode/webview-ui-toolkit": "^1.2.2",
+    "pidusage": "^4.0.1",
     "tree-sitter-python": "^0.25.0",
     "tree-sitter-typescript": "^0.23.2",
     "typescript": "5.9.2",
@@ -764,6 +819,7 @@
     "@types/istanbul-lib-source-maps": "^4.0.4",
     "@types/jasmine": "^5.1.8",
     "@types/node": "22",
+    "@types/pidusage": "^2.0.5",
     "@types/seedrandom": "^2.4.28",
     "@types/vscode": "^1.93.0",
     "@types/vscode-webview": "^1.57.5",

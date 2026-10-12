@@ -167,6 +167,64 @@ describe("fuzzer.oracles.PropertyOracle", () => {
       expect(errCustom.message).toBe("crashed");
     }
   });
+
+  it("Property Oracle - mapJudgments maps value, timeout, skip, error, and return value issues", () => {
+    const validators = [
+      { name: "vPass", module: "mod", startOffset: 0, endOffset: 0 },
+      { name: "vFail", module: "mod", startOffset: 0, endOffset: 0 },
+      { name: "vBoolPass", module: "mod", startOffset: 0, endOffset: 0 },
+      { name: "vBoolFail", module: "mod", startOffset: 0, endOffset: 0 },
+      { name: "vTimeout", module: "mod", startOffset: 0, endOffset: 0 },
+      { name: "vSkip", module: "mod", startOffset: 0, endOffset: 0 },
+      { name: "vError", module: "mod", startOffset: 0, endOffset: 0 },
+      { name: "vBadReturn", module: "mod", startOffset: 0, endOffset: 0 },
+      { name: "vMissing", module: "mod", startOffset: 0, endOffset: 0 },
+    ];
+
+    const validatorResults = {
+      vPass: { tag: "value" as const, value: "pass" },
+      vFail: { tag: "value" as const, value: "fail" },
+      vBoolPass: { tag: "value" as const, value: true },
+      vBoolFail: { tag: "value" as const, value: false },
+      vTimeout: { tag: "timeout" as const },
+      vSkip: { tag: "skip" as const, message: "assumption failed" },
+      vError: {
+        tag: "error" as const,
+        name: "ValidatorException",
+        message: "something went wrong",
+        stack: "Stack trace line",
+      },
+      vBadReturn: { tag: "value" as const, value: 12345 },
+    };
+
+    const { judgments, harnessErrors } = PropertyOracle.mapJudgments(
+      validatorResults,
+      validators,
+      200
+    );
+
+    expect(judgments.length).toBe(9);
+    expect(judgments[0]).toBe("pass");
+    expect(judgments[1]).toBe("fail");
+    expect(judgments[2]).toBe("pass");
+    expect(judgments[3]).toBe("fail");
+    expect(judgments[4]).toBe("unknown");
+    expect(judgments[5]).toBe("unknown");
+    expect(judgments[6]).toBe("unknown");
+    expect(judgments[7]).toBe("unknown");
+    expect(judgments[8]).toBe("unknown");
+
+    expect(harnessErrors.length).toBe(4);
+    expect(harnessErrors[0].kind).toBe("timeout");
+    expect(harnessErrors[0].fnName).toBe("vTimeout");
+    expect(harnessErrors[1].kind).toBe("exception");
+    expect(harnessErrors[1].fnName).toBe("vSkip");
+    expect(harnessErrors[2].kind).toBe("exception");
+    expect(harnessErrors[2].fnName).toBe("vError");
+    expect(harnessErrors[2].message).toBe("something went wrong");
+    expect(harnessErrors[3].kind).toBe("exception");
+    expect(harnessErrors[3].fnName).toBe("vBadReturn");
+  });
 });
 
 /**

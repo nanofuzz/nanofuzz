@@ -305,6 +305,39 @@ describe("ArgDefShrinker", () => {
     expect(names).not.toContain("bytes-insertOneByte");
   });
 
+  it("shrinks multi-byte buffers with block deletions and simplifications", () => {
+    const spec = makeArgDef(
+      dummyModule,
+      "bytesArg",
+      0,
+      ArgTag.BYTES,
+      {
+        ...argOptions,
+        byteLength: { min: 1, max: 10 },
+      },
+      0,
+      false
+    );
+    const input: ArgValueTypeWrapped[] = [
+      {
+        tag: "ArgValueTypeWrapped",
+        value: new Uint8Array([0x50, 0x60, 0x70, 0x80]),
+      },
+    ];
+    const prng = seedrandom("shrinkerMultiBytes");
+    const shrinkers = ArgDefShrinker.getShrinkers([spec], input, prng);
+
+    expect(shrinkers.every((s) => s.simplifies === true)).toBeTrue();
+    const names = shrinkers.map((s) => s.name);
+    expect(
+      names.some(
+        (n) => n === "bytes-deleteOneByte" || n === "bytes-deleteBlock"
+      )
+    ).toBeTrue();
+    expect(names).not.toContain("bytes-insertOneByte");
+    expect(names).not.toContain("bytes-insertBlock");
+  });
+
   it("shrinker produce simplified input", () => {
     const spec = makeArgDef(
       dummyModule,

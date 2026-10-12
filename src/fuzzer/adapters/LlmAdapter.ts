@@ -1,11 +1,8 @@
 import vscode from "vscode";
 import seedrandom from "seedrandom";
 import * as Config from "../../Config";
-import { ArgValueType } from "../analysis/Types";
 import * as JSONN from "../../Jsonn";
-import { FunctionDef } from "../analysis/FunctionDef";
 import * as nodellm from "@node-llm/core";
-import { isError } from "../Util";
 import * as telemetry from "../../telemetry/Telemetry";
 import * as zod from "zod/v4";
 import { zodOutputFormat } from "./AnthropicUtils";
@@ -16,6 +13,10 @@ import {
   LlmCacheStats,
   LlmQueryResult,
 } from "../generators/Types";
+
+// Default system prompt if none is provided
+const DEFAULT_SYSTEM_PROMPT =
+  "You are an experienced software engineer who writes efficient tests that thoroughly evaluate the correctness of programs. You are aware of the important differences between a programming language's various equality operators.";
 
 // Helper function to check if a value is a Record object
 function isRecord(val: unknown): val is Record<string, unknown> {
@@ -58,9 +59,12 @@ export class LlmAdapter {
   protected _backend?: nodellm.NodeLLMCore; // LLM instance
   protected _cacheManager: LlmCacheManager; // Cache manager
   protected _cfgString: string; // LLM config; for detecting config changes
+  protected _systemPrompt: string; // System prompt
 
-  public constructor(prng?: seedrandom.prng) {
+  public constructor(prng?: seedrandom.prng, systemPrompt?: string) {
     LlmAdapter._handleDebug();
+
+    this._systemPrompt = systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
 
     const cfg = LlmAdapter.getConfig();
     this._cfgString = JSONN.stringify(cfg);
@@ -111,6 +115,40 @@ export class LlmAdapter {
       }
     }
 
+    // If endpoint is defined, add it to the config.
+    // Otherwise, let @node-llm use its default endpoint
+    const endpoint = cfg.endpoint.trim();
+    if (endpoint !== "") {
+      switch (cfg.provider) {
+        case "openai":
+          this._modelConfig.openaiApiBase = endpoint;
+          break;
+        case "anthropic":
+          this._modelConfig.anthropicApiBase = endpoint;
+          break;
+        case "gemini":
+          this._modelConfig.geminiApiBase = endpoint;
+          break;
+        case "deepseek":
+          this._modelConfig.deepseekApiBase = endpoint;
+          break;
+        case "ollama":
+          this._modelConfig.ollamaApiBase = endpoint;
+          break;
+        case "openrouter":
+          this._modelConfig.openrouterApiBase = endpoint;
+          break;
+        case "xai":
+          this._modelConfig.xaiApiBase = endpoint;
+          break;
+        case "mistral":
+          this._modelConfig.mistralApiBase = endpoint;
+          break;
+        default:
+          break;
+      }
+    }
+
     // Create the model backend
     if (cfg.provider !== "copilot") {
       this._backend = nodellm.createLLM(this._modelConfig);
@@ -136,9 +174,14 @@ export class LlmAdapter {
       throw new Error("NodeLLMCore backend is not initialized");
     }
     const cfg = LlmAdapter.getConfig();
-    return this._backend.chat(cfg.modelName, {
-      systemPrompt: prompt.system(),
-    });
+    const inRegistry = Boolean(
+      cfg.modelName && nodellm.ModelRegistry.find(cfg.modelName, cfg.provider)
+    );
+    const chatOptions: Parameters<typeof this._backend.chat>[1] = {
+      systemPrompt: this._systemPrompt,
+      ...(inRegistry ? {} : { assumeModelExists: true }),
+    };
+    return this._backend.chat(cfg.modelName, chatOptions);
   } // fn: createChat
 
   /**
@@ -174,88 +217,14 @@ export class LlmAdapter {
   }
 
   /**
-   * Prompt an LLM to generate inputs for a function
+   * Prompts the LLM and returns a response.
    *
-   * @param `fn` function for which inputs should be generated
-   * @param `schema` optional Zod or JSON schema of the function's inputs
-   * @param `directives` formatting directives for input schema
-   * @param `allInputs` map of previously generated inputs
-   * @param `moduleSrc` full module source code
-   * @param `numRequested` number of inputs requested
-   * @param `reqSeqNum` optional 1-indexed sequence number of this request in the session
-   * @returns a set of inputs, stats, and error information
-   */
-  public async genInputs(
-    fn: FunctionDef,
-    schema: zod.ZodType,
-    directives: string[],
-    allInputs: Map<string, unknown>,
-    moduleSrc: string,
-    numRequested: number,
-    reqSeqNum?: number
-  ): Promise<{
-    programInputs: { [k: string]: ArgValueType }[];
-    stats?: Awaited<ReturnType<LlmAdapter["_query"]>>["stats"];
-    error?: { type: "discard" } | { type: "failure"; message: string };
-  }> {
-    let response: Awaited<ReturnType<LlmAdapter["_query"]>>;
-    try {
-      response = await this._query(
-        [
-          prompt.genInputs(
-            fn,
-            directives,
-            allInputs,
-            moduleSrc,
-            numRequested,
-            reqSeqNum
-          ),
-        ],
-        schema
-      );
-      const inputs: { programInputs: { [k: string]: ArgValueType }[] } =
-        JSONN.parse(response.text);
-
-      // Sanity check llm output
-      if (
-        !(
-          typeof inputs === "object" &&
-          "programInputs" in inputs &&
-          Array.isArray(inputs.programInputs) &&
-          inputs.programInputs.every(
-            (e) => typeof e === "object" && !Array.isArray(e)
-          )
-        )
-      ) {
-        return {
-          programInputs: [],
-          error: { type: "discard" },
-          stats: { ...response.stats },
-        };
-      }
-
-      // Deeper validation is the client's role
-      return { ...inputs, stats: { ...response.stats } };
-    } catch (e: unknown) {
-      return {
-        programInputs: [],
-        error: {
-          type: "failure",
-          message: isError(e) ? e.message : "unknown llm failure",
-        },
-      };
-    }
-  } // fn: genInputs
-
-  /**
-   * Prompts the LLM and returns a response
-   *
-   * @param `prompt` LLM prompt
+   * @param `prompt` LLM prompt string or array of prompt parts
    * @param `schema` optional Zod or JSON schema for the response
    * @returns response string and statistics
    */
-  private async _query(
-    prompt: string[],
+  public async query(
+    prompt: string | string[],
     schema?: zod.ZodType
   ): Promise<LlmQueryResult> {
     LlmAdapter._handleDebug();
@@ -267,15 +236,17 @@ export class LlmAdapter {
       ? JSON.stringify(zod.toJSONSchema(schema))
       : undefined;
 
+    const promptArr = Array.isArray(prompt) ? prompt : [prompt];
+
     return await this._cacheManager.query(
       provider,
       modelName,
-      prompt,
+      promptArr,
       schemaJson,
       async () => {
-        const promptParts: nodellm.ContentPart[] = [];
-        prompt.forEach((e) => {
-          promptParts.push({
+        const contentParts: nodellm.ContentPart[] = [];
+        promptArr.forEach((e) => {
+          contentParts.push({
             type: "text",
             text: e,
           });
@@ -286,7 +257,7 @@ export class LlmAdapter {
           new telemetry.LoggerEntry(
             "LlmAdapter.query.send",
             "Sending query to LLM (v=%s;m=%s). Query: %s.",
-            [provider, modelName, prompt.join("\n")]
+            [provider, modelName, promptArr.join("\n")]
           )
         );
 
@@ -324,12 +295,12 @@ export class LlmAdapter {
           const model = models[0];
           if (LlmAdapter.isDebugConfigured()) {
             console.log(
-              `[NaNofuzz Copilot AI] Sending query (${model.vendor}/${model.name || model.id || "copilot"}):\n${prompt.join("\n")}`
+              `[NaNofuzz Copilot AI] Sending query (${model.vendor}/${model.name || model.id || "copilot"}):\n${promptArr.join("\n")}`
             );
           }
 
           const messages = [
-            vscode.LanguageModelChatMessage.User(prompt.join("\n")),
+            vscode.LanguageModelChatMessage.User(promptArr.join("\n")),
           ];
 
           const response = await model.sendRequest(
@@ -345,14 +316,6 @@ export class LlmAdapter {
             console.log(`[NaNofuzz Copilot AI] Received response:\n${text}`);
           }
         } else {
-          const promptParts: nodellm.ContentPart[] = [];
-          prompt.forEach((e) => {
-            promptParts.push({
-              type: "text",
-              text: e,
-            });
-          });
-
           const baseChat = this._createChat();
           const jsonSchemaObj = schema ? zod.toJSONSchema(schema) : undefined;
           const schemaObj = jsonSchemaObj
@@ -378,7 +341,7 @@ export class LlmAdapter {
             }
           }
 
-          const response = await chat.ask(promptParts);
+          const response = await chat.ask(contentParts);
           text = response.toString();
           inputTokens = response.inputTokens ?? 0;
           outputTokens = response.outputTokens ?? 0;
@@ -404,7 +367,7 @@ export class LlmAdapter {
         };
       }
     );
-  } // fn: _query
+  } // fn: query
 
   /**
    * Determines if the LLM is configured and should be active.
@@ -439,6 +402,22 @@ export class LlmAdapter {
   } // fn: getMaxOutputTokens
 
   /**
+   * Returns the context window size supported by the configured model,
+   * or a default fallback if unlisted or unconfigured.
+   */
+  public static getContextWindow(): number {
+    const cfg = LlmAdapter.getConfig();
+    if (cfg.provider === "copilot") {
+      return 128000;
+    }
+    const contextWindow = nodellm.ModelRegistry.getContextWindow(
+      cfg.modelName,
+      cfg.provider
+    );
+    return contextWindow ?? DEFAULT_CONTEXT_WINDOW;
+  } // fn: getContextWindow
+
+  /**
    * Gets the key elements of the LLM configuration
    *
    * @returns provider, modelName, and apiKey
@@ -448,6 +427,7 @@ export class LlmAdapter {
     modelName: string;
     vendor: string;
     apiKey: string;
+    endpoint: string;
     cacheMode: LlmCacheMode;
     cacheFile: string;
     cacheDelay: string;
@@ -457,6 +437,7 @@ export class LlmAdapter {
       modelName: LlmAdapter._getConfigValue("model", ""),
       vendor: LlmAdapter._getConfigValue("vendor", ""),
       apiKey: LlmAdapter._getConfigValue("apiKey", ""),
+      endpoint: LlmAdapter._getConfigValue("endpoint", ""),
       cacheMode: LlmAdapter._getConfigValue<LlmCacheMode>(
         "cacheMode",
         "passthrough"
@@ -498,72 +479,13 @@ export class LlmAdapter {
 } // class: LlmAdapter
 
 /**
- * Parameterized prompts for the LLM
- */
-export const prompt = {
-  system: (): string => {
-    return `You are an experienced software engineer who writes efficient tests that thoroughly evaluate the correctness of programs. You are aware of the important differences between a programming language's various equality operators.`;
-  },
-  genInputs: (
-    fn: FunctionDef,
-    directives: string[],
-    allInputs: Map<string, unknown>,
-    moduleSrc: string,
-    numRequested: number,
-    reqSeqNum: number = 1
-  ): string => {
-    const fnRef = fn.getRef();
-    const spec = (fn.getCmt() ?? "").replaceAll("```", "\\`\\`\\`");
-    const fnSrc = fnRef.src.replaceAll("```", "\\`\\`\\`");
-    const escapedModuleSrc = moduleSrc.replaceAll("```", "\\`\\`\\`");
-
-    const backfeed = Config.get<boolean>(
-      "nanofuzz.ai.backfeedPriorInputs",
-      true
-    );
-    let inputs = backfeed ? Array.from(allInputs.keys()) : [];
-    // draw a line at 10k inputs
-    if (inputs.length > 10000) {
-      inputs = inputs.slice(-10000);
-    }
-
-    const moduleContext = escapedModuleSrc
-      ? `The full module source code containing "${fnRef.name}":
-\`\`\`${fnRef.lang}
-${escapedModuleSrc}
-\`\`\`
-
-`
-      : "";
-
-    return `To evaluate whether the following ${fnRef.lang} program "${fnRef.name}" behaves correctly relative to its specification, generate ${numRequested} program inputs that are important to determine whether the program satisfies its specification. Each program input includes all the arguments needed to call the program.
-
-Format your response as a single minified JSON object without unnecessary whitespace, newlines, or formatting indentation.
-
-The specification for the "${fnRef.name}" program:
-\`\`\`
-${spec ? spec : `(no specification was found. try to infer the spec from the program below)`}
-\`\`\`
-
-The "${fnRef.name}" program:
-\`\`\`${fnRef.lang}
-${fnSrc}
-\`\`\`
-
-${moduleContext}${directives.length ? `Important details about the program's inputs:\n${directives.map((d) => ` - ${d}\n`).join("")}` : ""} 
-
-${
-  backfeed
-    ? inputs.length
-      ? `The following inputs were previously generated and tested, so don't generate these again:\n${inputs.map((u) => ` - ${u}\n`).join("")}`
-      : ""
-    : `This is request number ${reqSeqNum ?? 1} for this testing session. Don't repeat inputs previously generated in this session.\n`
-}`;
-  },
-};
-
-/**
  * Fallback maximum output token limit used when a model's max output token capacity
  * is not specified in the model registry or when no model is configured.
  */
 export const DEFAULT_MAX_OUTPUT_TOKENS = 8192;
+
+/**
+ * Fallback context window size used when a model's context window capacity
+ * is not specified in the model registry or when no model is configured.
+ */
+export const DEFAULT_CONTEXT_WINDOW = 32768;

@@ -49,6 +49,7 @@ export const intOptions: FuzzOptions = {
   useTransformer: true,
   useHuman: true,
   useProperty: false,
+  workers: 2,
   measures: allMeasures,
   generators: allGenerators,
 };
@@ -66,4 +67,4 @@ export const floatOptions: FuzzOptions = {
 
 export async function initParser(): Promise<void> {
   await Parser.init();
-}
+} // fn: initParser
