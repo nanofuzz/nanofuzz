@@ -367,6 +367,14 @@
               "usesOnlineServices"
             ]
           },
+          "nanofuzz.ai.requestTimeout": {
+            "title": "Model request timeout (ms)",
+            "order": 38,
+            "type": "integer",
+            "default": 60000,
+            "minimum": 1000,
+            "description": "Timeout (in ms) for AI model requests"
+          },
           "nanofuzz.ai.retries": {
             "title": "Maximum retries",
             "order": 40,
