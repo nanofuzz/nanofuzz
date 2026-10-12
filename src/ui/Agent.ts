@@ -27,6 +27,7 @@ import {
   FuzzExecutionOptions,
   FuzzIoElement,
   FuzzOptions,
+  FuzzOutputResults,
   FuzzPinnedTest,
   FuzzResultCategory,
   FuzzStatusUpdater,
@@ -265,7 +266,7 @@ export async function runFuzz(
       workers:
         options.workers ??
         Config.get<number | "auto">("nanofuzz.fuzzer.workers", "auto"),
-      outputResults: options.exportSuite ? "all" : "failures",
+      outputResults: options.outputResults ?? "all",
       precompile: false,
     };
 
@@ -1454,6 +1455,7 @@ export type AgentFuzzOptions = {
   exportSuite?: boolean;
   exportFilePath?: string;
   workers?: number | "auto";
+  outputResults?: FuzzOutputResults;
 };
 
 /**

@@ -16,6 +16,7 @@ import * as Config from "../../../Config";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
+import { getDefaultFuzzExecutionOptions } from "../../FuzzerFactory";
 
 describe("fuzzer/runners/PythonRunner", () => {
   beforeAll(async () => {
@@ -1471,7 +1472,6 @@ function createFuzzEnv(
       useHuman: false,
       useProperty: false,
       useTransformer: false,
-      workers: "auto",
       measures: {
         CoverageMeasure: { enabled: true, weight: 1 },
         FailedTestMeasure: { enabled: true, weight: 1 },
@@ -1484,6 +1484,7 @@ function createFuzzEnv(
       },
       ...optionsOverrides,
     },
+    executionOptions: getDefaultFuzzExecutionOptions(),
     validators: [],
     transformers: [],
     userGenerators: [],
