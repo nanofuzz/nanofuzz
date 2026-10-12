@@ -399,7 +399,11 @@ export async function runCliInProcess(
           (lastStats?.counters.passedTests ?? 0) +
           (lastStats?.counters.failedTests ?? 0) +
           (lastStats?.counters.erroredTests ?? 0);
-        const rate = formatThroughput(totalExecuted, elapsedSec);
+        const totalInputs =
+          (lastStats?.counters.inputsInjected ?? 0) +
+          (lastStats?.counters.inputsGenerated ?? 0);
+        const inputsRate = formatThroughput(totalInputs, elapsedSec, "inputs");
+        const execsRate = formatThroughput(totalExecuted, elapsedSec, "execs");
         const testResults = formatTestResults(lastStats);
 
         if (lastWasMilestone) {
@@ -420,10 +424,13 @@ export async function runCliInProcess(
             0,
             {
               runtime: formatDuration(elapsedSec),
-              rate: rate,
+              inputsRate: inputsRate,
+              execsRate: execsRate,
+              rate: execsRate,
             },
             {
-              format: " - Testing [{bar}] {percentage}% @ {runtime}, {rate}",
+              format:
+                " - Testing [{bar}] {percentage}% @ {runtime}, {inputsRate}, {execsRate}",
             }
           );
           resultsBar = multiBar.create(
@@ -447,7 +454,9 @@ export async function runCliInProcess(
         ) {
           progressBar.update(Math.max(0, Math.min(payload.pct, 100)), {
             runtime: formatDuration(elapsedSec),
-            rate: rate,
+            inputsRate: inputsRate,
+            execsRate: execsRate,
+            rate: execsRate,
           });
           resultsBar.update(0, {
             results: testResults,
@@ -1014,15 +1023,17 @@ export function formatDuration(totalSeconds: number): string {
 } // fn: formatDuration
 
 export function formatThroughput(
-  totalExecuted: number,
-  elapsedSec: number
+  total: number,
+  elapsedSec: number,
+  unit: "execs" | "inputs" = "execs"
 ): string {
+  const perSecUnit = unit === "inputs" ? "inputs/s" : "execs/s";
   if (elapsedSec <= 0 || isNaN(elapsedSec)) {
-    return "0 execs/s";
+    return `0 ${perSecUnit}`;
   }
-  if (totalExecuted === 0) {
+  if (total === 0) {
     if (elapsedSec < 60) {
-      return "0 execs/s";
+      return `0 ${perSecUnit}`;
     }
     if (elapsedSec < 3600) {
       return "0 inputs/min";
@@ -1030,18 +1041,18 @@ export function formatThroughput(
     return "0 inputs/hr";
   }
 
-  const execsPerSec = totalExecuted / elapsedSec;
-  if (execsPerSec >= 1) {
-    return `${Math.round(execsPerSec)} execs/s`;
+  const ratePerSec = total / elapsedSec;
+  if (ratePerSec >= 1) {
+    return `${Math.round(ratePerSec)} ${perSecUnit}`;
   }
 
-  const inputsPerMin = execsPerSec * 60;
-  if (inputsPerMin >= 1) {
-    return `${Math.round(inputsPerMin)} inputs/min`;
+  const ratePerMin = ratePerSec * 60;
+  if (ratePerMin >= 1) {
+    return `${Math.round(ratePerMin)} inputs/min`;
   }
 
-  const inputsPerHour = execsPerSec * 3600;
-  return `${Math.round(inputsPerHour)} inputs/hr`;
+  const ratePerHour = ratePerSec * 3600;
+  return `${Math.round(ratePerHour)} inputs/hr`;
 } // fn: formatThroughput
 
 export const formatRate = formatThroughput;
@@ -1050,6 +1061,7 @@ export type TestCounters = {
   failedTests?: number;
   passedTests?: number;
   inputsSkipped?: number;
+  dupesGenerated?: number;
   erroredTests?: number;
 };
 
@@ -1068,6 +1080,9 @@ export function formatTestResults(
   }
   if ((c.inputsSkipped ?? 0) > 0) {
     parts.push(`Skipped: ${c.inputsSkipped}`);
+  }
+  if ((c.dupesGenerated ?? 0) > 0) {
+    parts.push(`Dupes: ${c.dupesGenerated}`);
   }
   if ((c.erroredTests ?? 0) > 0) {
     parts.push(`Errored: ${c.erroredTests}`);
@@ -1090,6 +1105,9 @@ export function formatTestCounts(
   }
   if ((c.inputsSkipped ?? 0) > 0) {
     parts.push(`Skip: ${c.inputsSkipped}`);
+  }
+  if ((c.dupesGenerated ?? 0) > 0) {
+    parts.push(`Dupe: ${c.dupesGenerated}`);
   }
   if ((c.erroredTests ?? 0) > 0) {
     parts.push(`Err: ${c.erroredTests}`);
