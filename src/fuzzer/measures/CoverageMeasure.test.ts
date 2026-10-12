@@ -518,6 +518,30 @@ describe("fuzzer/measures/CoverageMeasure: core logic", () => {
       expect(results.stats.generators).toEqual(before.generators);
     });
 
+    it("getCoverageStats generates CodeCoverageMeasureStats during run", async () => {
+      const measure = singleFileMeasure(twoPathStatic);
+      runTest(measure, twoPathNegative, inputAt(0));
+
+      const stats = await measure.getCoverageStats();
+      expect(stats).toBeDefined();
+      expect(stats.files.length).toEqual(1);
+      expect(stats.counters.statementsTotal).toEqual(4);
+      expect(stats.counters.statementsCovered).toEqual(2);
+    });
+
+    it("getUncoveredLines returns uncovered and partially covered lines", async () => {
+      const measure = singleFileMeasure(twoPathStatic);
+      const uncoveredBefore = await measure.getUncoveredLines();
+      expect(
+        Object.keys(uncoveredBefore.uncoveredLinesByFile).length
+      ).toBeGreaterThan(0);
+
+      runTest(measure, twoPathNegative, inputAt(0));
+      const uncoveredAfter = await measure.getUncoveredLines();
+      expect(uncoveredAfter).toBeDefined();
+      expect(uncoveredAfter.uncoveredLinesByFile).toBeDefined();
+    });
+
     it("the stats report exactly the coverage the run's inputs were credited with", async () => {
       const measure = singleFileMeasure(threePathStatic);
 

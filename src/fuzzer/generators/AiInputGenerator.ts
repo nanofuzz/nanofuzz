@@ -1,3 +1,4 @@
+import * as path from "node:path";
 import { AbstractInputGenerator } from "./AbstractInputGenerator";
 import {
   ArgTag,
@@ -11,14 +12,25 @@ import { LlmAdapter } from "../adapters/LlmAdapter";
 import { ArgDef } from "../analysis/ArgDef";
 import { FunctionDef } from "../analysis/FunctionDef";
 import { FuzzTestResults, InputAndSource } from "../Types";
-import { NextableStatus } from "./Types";
+import { InputGeneratorStatsAi, LlmQueryResult, NextableStatus } from "./Types";
 import { ArgDefValidator } from "../analysis/ArgDefValidator";
 import { ArgDefTokenEstimator } from "../analysis/ArgDefTokenEstimator";
 import * as zod from "zod/v4";
-import { InputGeneratorStatsAi } from "./Types";
 import { isError } from "../Util";
 import { isBufferOrUint8Array } from "../../Util";
 import * as Config from "../../Config";
+import {
+  CoverageMeasure,
+  UncoveredCoverageInfo,
+  extractUncoveredLines,
+  formatLineRanges,
+} from "../measures/CoverageMeasure";
+import {
+  CoverageFrontierSampler,
+  SampledFrontierTarget,
+  formatFrontierContext,
+} from "../analysis/CoverageFrontierSampler";
+import { Leaderboard } from "./Leaderboard";
 
 /**
  * Generates new inputs using a large language model
@@ -30,21 +42,28 @@ export class AiInputGenerator extends AbstractInputGenerator {
   protected _llm?: LlmAdapter; // Back-end AI model
   protected _callsPending = 0; // Number of calls to AI model pending
   protected _stats = _initStats(); // Stats about inputs generated
-  protected _allInputs; // Running list of all generated inputs
+  protected _allInputs: Map<string, unknown>; // Running list of all generated inputs
   protected _exhausted = false; // Set to true when the model produces no new valid inputs or encounters an error
   protected _tokensPerInput: number; // Estimated tokens per input (calculated onRunStart)
   protected _requestedInputCount; // Number of inputs to request per LLM call (calculated per request)
+  protected _covMeasure?: CoverageMeasure; // Code coverage measure provider
+  protected _targetAttempts: Record<string, number> = {}; // Historical attempts per target function to decay weight
+  protected _leaderboard?: Leaderboard<InputAndSource>; // Running list of interesting inputs
 
   public constructor(
     fn: FunctionDef,
     rngSeed: string | undefined,
     allInputs: Map<string, unknown>,
-    moduleSrc: string
+    moduleSrc: string,
+    covMeasure?: CoverageMeasure,
+    leaderboard?: Leaderboard<InputAndSource>
   ) {
     super(fn.getArgDefs(), rngSeed);
     this._fn = fn;
     this._allInputs = allInputs;
     this._moduleSrc = moduleSrc;
+    this._covMeasure = covMeasure;
+    this._leaderboard = leaderboard;
     this._tokensPerInput = this._estimateTokensPerInput();
     this._requestedInputCount = this._getRequestedInputCount();
   } // fn: constructor
@@ -135,6 +154,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
    */
   public onRunStart(active: boolean): void {
     this._exhausted = false;
+    this._targetAttempts = {};
     this._tokensPerInput = this._estimateTokensPerInput();
     this._requestedInputCount = this._getRequestedInputCount();
 
@@ -149,7 +169,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
 
     // Create new back-end if configured but not yet loaded
     if (active && !this._llm && LlmAdapter.isConfigured()) {
-      this._llm = new LlmAdapter(this._prng);
+      this._llm = new LlmAdapter(this._prng, prompt.system());
       this._inputQueue = []; // empty the queue to avoid user confusion
     }
 
@@ -262,18 +282,53 @@ export class AiInputGenerator extends AbstractInputGenerator {
       const [schema, directives] = this._getInputsSchema(this._fn.getLang());
       const numRequested = this._getRequestedInputCount();
 
+      const enableCoverageGuidance = Config.get<boolean>(
+        "nanofuzz.ai.coverageGuidance",
+        true
+      );
+      const coveragePromise =
+        this._covMeasure && enableCoverageGuidance
+          ? this._covMeasure.getCoverageStats().catch(() => undefined)
+          : Promise.resolve(undefined);
+
       // Fetch inputs from the llm
-      this._llm
-        .genInputs(
-          this._fn,
-          schema,
-          directives,
-          this._allInputs,
-          this._moduleSrc,
-          numRequested,
-          this._stats.calls.sent
-        )
-        .then((inputs) => {
+      coveragePromise
+        .then((covStats) => {
+          if (!this._llm) {
+            return undefined;
+          }
+          let uncoveredInfo: UncoveredCoverageInfo | undefined = undefined;
+          let frontierTarget: SampledFrontierTarget | undefined = undefined;
+
+          if (covStats) {
+            uncoveredInfo = extractUncoveredLines(covStats);
+            frontierTarget = CoverageFrontierSampler.sample({
+              covStats,
+              uncoveredInfo,
+              targetAttempts: this._targetAttempts,
+              prng: this._prng,
+            });
+          }
+
+          const promptText = prompt.genInputs(
+            this._fn,
+            directives,
+            this._allInputs,
+            this._moduleSrc,
+            numRequested,
+            this._stats.calls.sent,
+            uncoveredInfo,
+            frontierTarget,
+            this._leaderboard
+          );
+
+          return this._llm.query(promptText, schema);
+        })
+        .then((inputs: LlmQueryResult | undefined) => {
+          if (!inputs) {
+            return;
+          }
+
           // Update tokens received stats
           if (inputs.stats) {
             this._stats.tokens.received += inputs.stats.tokensReceived;
@@ -304,31 +359,40 @@ export class AiInputGenerator extends AbstractInputGenerator {
             }
           }
 
-          // Handle error cases
-          switch (inputs.error?.type) {
-            case undefined:
-              this._stats.calls.valid++;
-              this._stats.calls.history.push({ success: true });
-              break;
-            case "discard":
-              this._stats.calls.invalid++;
-              this._stats.calls.history.push({ discard: true });
-              break;
-            case "failure":
-              this._stats.calls.failed++;
-              this._stats.calls.history.push({
-                failure: true,
-                message: inputs.error.message,
-              });
-              this._exhausted = true;
-              break;
+          let parsed: { programInputs: { [k: string]: ArgValueType }[] };
+          try {
+            parsed = JSONN.parse(inputs.text);
+          } catch {
+            this._stats.calls.invalid++;
+            this._stats.calls.history.push({ discard: true });
+            return;
           }
+
+          // Sanity check llm output
+          if (
+            !(
+              typeof parsed === "object" &&
+              parsed !== null &&
+              "programInputs" in parsed &&
+              Array.isArray(parsed.programInputs) &&
+              parsed.programInputs.every(
+                (e) => typeof e === "object" && e !== null && !Array.isArray(e)
+              )
+            )
+          ) {
+            this._stats.calls.invalid++;
+            this._stats.calls.history.push({ discard: true });
+            return;
+          }
+
+          this._stats.calls.valid++;
+          this._stats.calls.history.push({ success: true });
 
           // Process the inputs
           const specMap = new Map<string, ArgDef>(
             this._specs.map((arg) => [arg.getName(), arg])
           );
-          inputs.programInputs.forEach((input) => {
+          parsed.programInputs.forEach((input) => {
             this._stats.inputs.gen++;
 
             // Decode the input
@@ -379,7 +443,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
             })
           );
 
-          if (this._inputQueue.length === 0 && !inputs.error) {
+          if (this._inputQueue.length === 0) {
             this._exhausted = true;
           }
         })
@@ -832,3 +896,226 @@ export const NANOFUZZ_MISSING_PROPERTY =
 export const NANOFUZZ_TRUE = "___NANOFUZZ____6158195231___TRUE___";
 export const NANOFUZZ_FALSE = "___NANOFUZZ____6158195231___FALSE___";
 export const NANOFUZZ_BIGINT = "___NANOFUZZ____6158195231___BIGINT___";
+
+/**
+ * Maximum token budget allocated for backfeeding prior and interesting inputs to the AI prompt.
+ */
+export const DEFAULT_MAX_BACKFEED_TOKENS = 4000;
+
+// -------------------------------------------------------------------------- //
+// Prompts
+// -------------------------------------------------------------------------- //
+
+/**
+ * Parameterized prompts for the AI Input Generator.
+ */
+export const prompt = {
+  system: (): string => {
+    return `You are an experienced software engineer who writes efficient tests that thoroughly evaluate the correctness of programs. You are aware of the important differences between a programming language's various equality operators.`;
+  },
+  genInputs: (
+    fn: FunctionDef,
+    directives: string[],
+    allInputs: Map<string, unknown>,
+    moduleSrc: string,
+    numRequested: number,
+    reqSeqNum: number = 1,
+    uncoveredInfo?: UncoveredCoverageInfo,
+    frontierTarget?: SampledFrontierTarget,
+    leaderboard?: Leaderboard<InputAndSource>,
+    maxBackfeedTokens?: number
+  ): string => {
+    const fnRef = fn.getRef();
+    const spec = (fn.getCmt() ?? "").replaceAll("```", "\\`\\`\\`");
+    const fnSrc = fnRef.src.replaceAll("```", "\\`\\`\\`");
+    const escapedModuleSrc = moduleSrc.replaceAll("```", "\\`\\`\\`");
+
+    const backfeed = Config.get<boolean>(
+      "nanofuzz.ai.backfeedPriorInputs",
+      true
+    );
+
+    const moduleContext = escapedModuleSrc
+      ? `The full module source code containing "${fnRef.name}":
+\`\`\`${fnRef.lang}
+${escapedModuleSrc}
+\`\`\`
+
+`
+      : "";
+
+    let coverageContext = "";
+    if (uncoveredInfo) {
+      const parts: string[] = [];
+      const uncoveredEntries = Object.entries(
+        uncoveredInfo.uncoveredLinesByFile ?? {}
+      ).filter(([, lines]) => lines.length > 0);
+      const partiallyEntries = Object.entries(
+        uncoveredInfo.partiallyCoveredLinesByFile ?? {}
+      ).filter(([, lines]) => lines.length > 0);
+
+      if (uncoveredEntries.length > 0 || partiallyEntries.length > 0) {
+        parts.push(
+          "Code coverage achieved by prior tests indicates the following lines have NOT been fully executed:"
+        );
+        for (const [filePath, lines] of uncoveredEntries) {
+          const displayPath = path.isAbsolute(filePath)
+            ? path.relative(process.cwd(), filePath) || filePath
+            : filePath;
+          parts.push(
+            ` - Uncovered in \`${displayPath}\`: line(s) ${formatLineRanges(lines)}`
+          );
+        }
+        for (const [filePath, lines] of partiallyEntries) {
+          const displayPath = path.isAbsolute(filePath)
+            ? path.relative(process.cwd(), filePath) || filePath
+            : filePath;
+          parts.push(
+            ` - Partially covered in \`${displayPath}\`: line(s) ${formatLineRanges(lines)}`
+          );
+        }
+        if (frontierTarget) {
+          parts.push("\n" + formatFrontierContext(frontierTarget, fnRef.lang));
+        }
+        parts.push(
+          "Generate inputs that specifically aim to execute these uncovered lines and branches to achieve higher test coverage.\n"
+        );
+        coverageContext = parts.join("\n") + "\n";
+      }
+    }
+
+    let backfeedSection = "";
+    if (backfeed) {
+      const interestingInputs: string[] = [];
+      const interestingSet = new Set<string>();
+
+      if (leaderboard) {
+        const leaders = leaderboard
+          .getLeaders()
+          .sort((a, b) => b.score - a.score);
+        for (const item of leaders) {
+          const repr = ValueMapper.toLang(
+            fn.getLang(),
+            item.leader.value.map((v) => v.value)
+          );
+          if (!interestingSet.has(repr)) {
+            interestingSet.add(repr);
+            interestingInputs.push(repr);
+          }
+        }
+      }
+
+      const otherInputs: string[] = [];
+      for (const key of allInputs.keys()) {
+        if (!interestingSet.has(key)) {
+          otherInputs.push(key);
+        }
+      }
+
+      if (interestingInputs.length > 0 || otherInputs.length > 0) {
+        let budget = maxBackfeedTokens;
+        if (budget === undefined) {
+          const contextWindow = LlmAdapter.getContextWindow();
+          const tokensPerInput = ArgDefTokenEstimator.estimateTokensPerInput(
+            fn.getArgDefs()
+          );
+          const estimatedOutputTokens = Math.max(
+            Math.ceil(numRequested * tokensPerInput),
+            500
+          );
+          const baseChars =
+            spec.length +
+            fnSrc.length +
+            escapedModuleSrc.length +
+            coverageContext.length +
+            500;
+          const estimatedBaseTokens = Math.ceil(baseChars / 3.5);
+          const availableTokens =
+            contextWindow - estimatedBaseTokens - estimatedOutputTokens - 1000;
+          budget = Math.max(
+            0,
+            Math.min(availableTokens, DEFAULT_MAX_BACKFEED_TOKENS)
+          );
+        }
+
+        const estimateInputTokens = (repr: string): number => {
+          return Math.max(1, Math.ceil((repr.length + 2) / 3.5));
+        };
+
+        let interestingBudget = budget;
+        if (interestingInputs.length > 0 && otherInputs.length > 0) {
+          interestingBudget = Math.floor(budget * 0.5);
+        } else if (otherInputs.length > 0) {
+          interestingBudget = 0;
+        }
+
+        const packedInteresting: string[] = [];
+        let interestingTokensUsed = 0;
+        for (const item of interestingInputs) {
+          const cost = estimateInputTokens(item);
+          if (
+            interestingTokensUsed + cost > interestingBudget &&
+            packedInteresting.length > 0
+          ) {
+            break;
+          }
+          packedInteresting.push(item);
+          interestingTokensUsed += cost;
+        }
+
+        const otherBudget = Math.max(0, budget - interestingTokensUsed);
+        const packedOtherReversed: string[] = [];
+        let otherTokensUsed = 0;
+        for (let i = otherInputs.length - 1; i >= 0; i--) {
+          const item = otherInputs[i];
+          const cost = estimateInputTokens(item);
+          if (
+            otherTokensUsed + cost > otherBudget &&
+            packedOtherReversed.length > 0
+          ) {
+            break;
+          }
+          packedOtherReversed.push(item);
+          otherTokensUsed += cost;
+        }
+        const packedOther = packedOtherReversed.reverse();
+
+        const sections: string[] = [];
+        if (packedInteresting.length > 0) {
+          sections.push(
+            `Prior inputs that covered distinct branches or triggered errors (do not repeat):\n[${packedInteresting.join(", ")}]`
+          );
+        }
+        if (packedOther.length > 0) {
+          sections.push(
+            `The following inputs were previously generated and tested, so don't generate these again:\n[${packedOther.join(", ")}]`
+          );
+        }
+
+        if (sections.length > 0) {
+          backfeedSection = sections.join("\n\n") + "\n";
+        }
+      }
+    } else {
+      backfeedSection = `This is request number ${reqSeqNum ?? 1} for this testing session. Don't repeat inputs previously generated in this session.\n`;
+    }
+
+    return `To evaluate whether the following ${fnRef.lang} program "${fnRef.name}" behaves correctly relative to its specification, generate ${numRequested} program inputs that are important to determine whether the program satisfies its specification. Each program input includes all the arguments needed to call the program.
+
+Format your response as a single minified JSON object without unnecessary whitespace, newlines, or formatting indentation.
+
+The specification for the "${fnRef.name}" program:
+\`\`\`
+${spec ? spec : `(no specification was found. try to infer the spec from the program below)`}
+\`\`\`
+
+The "${fnRef.name}" program:
+\`\`\`${fnRef.lang}
+${fnSrc}
+\`\`\`
+
+${moduleContext}${directives.length ? `Important details about the program's inputs:\n${directives.map((d) => ` - ${d}\n`).join("")}` : ""} 
+
+${coverageContext}${backfeedSection}`;
+  },
+};

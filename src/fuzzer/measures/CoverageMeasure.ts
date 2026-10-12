@@ -410,6 +410,147 @@ export class CoverageMeasure extends AbstractMeasure {
   } // fn: getCoverage
 
   /**
+   * Generates CodeCoverageMeasureStats representing coverage accumulated across the run so far.
+   */
+  public async getCoverageStats(): Promise<CodeCoverageMeasureStats> {
+    if (this._files.size === 0) {
+      return {
+        counters: {
+          functionsTotal: 0,
+          functionsCovered: 0,
+          statementsTotal: 0,
+          statementsCovered: 0,
+          branchesTotal: 0,
+          branchesCovered: 0,
+        },
+        files: [],
+      };
+    }
+
+    // 1. Build cumulative CoverageMap from _globalHitCounts
+    const fullCoverageMapData: CoverageMapData = {};
+    for (const fileEntry of this._files.values()) {
+      const fileData: FileCoverageData = {
+        ...fileEntry.template,
+        path: fileEntry.path,
+        statementMap: fileEntry.template.statementMap,
+        fnMap: fileEntry.template.fnMap,
+        branchMap: fileEntry.template.branchMap,
+        s: {},
+        f: {},
+        b: {},
+      };
+
+      for (const k of Object.keys(fileEntry.template.statementMap)) {
+        const slot = fileEntry.stmtSlots.get(k);
+        fileData.s[k] = slot !== undefined ? this._globalHitCounts[slot] : 0;
+      }
+      for (const k of Object.keys(fileEntry.template.fnMap)) {
+        const slot = fileEntry.fnSlots.get(k);
+        fileData.f[k] = slot !== undefined ? this._globalHitCounts[slot] : 0;
+      }
+      for (const k of Object.keys(fileEntry.template.branchMap)) {
+        const len = fileEntry.template.branchMap[k].locations.length;
+        const arms: number[] = [];
+        for (let j = 0; j < len; j++) {
+          const slot = fileEntry.branchSlots.get(`${k}.${j}`);
+          arms.push(slot !== undefined ? this._globalHitCounts[slot] : 0);
+        }
+        fileData.b[k] = arms;
+      }
+
+      fullCoverageMapData[fileEntry.path] = fileData;
+    }
+
+    const rawGlobalMap = createCoverageMap(fullCoverageMapData);
+
+    // 2. If TypeScript source maps are present on disk or registered, transform back to original TS source
+    for (const fileKey of rawGlobalMap.files()) {
+      const normKey = normalizePathForKey(fileKey);
+      const mapPaths = Array.from(
+        new Set([fileKey + ".map", normKey + ".map"])
+      );
+      const mapPath = mapPaths.find((p) => fs.existsSync(p));
+      if (mapPath) {
+        try {
+          const mapData = JSON.parse(fs.readFileSync(mapPath, "utf8"));
+          if (mapData && Array.isArray(mapData.sources)) {
+            const cleanDir = path.dirname(
+              fileKey.replace(/([/\\])inst-[^/\\]+\1/, "$1")
+            );
+            mapData.sources = mapData.sources.map((s: string) =>
+              path.isAbsolute(s) ? s : path.resolve(cleanDir, s)
+            );
+          }
+          this._sourceMapStore.registerMap(fileKey, mapData);
+          if (normKey !== fileKey) {
+            this._sourceMapStore.registerMap(normKey, mapData);
+          }
+        } catch {
+          // ignore
+        }
+      }
+    }
+    const finalMap = await this._sourceMapStore.transformCoverage(rawGlobalMap);
+
+    // 3. Format per-file stats and summary totals
+    const coverageSummary = finalMap.getCoverageSummary();
+    const files: CodeCoverageFileStats[] = finalMap.files().map((filePath) => {
+      const fileSummary = finalMap.fileCoverageFor(filePath).toSummary();
+      const fileMap = createFileCoverage(
+        structuredClone(finalMap.fileCoverageFor(filePath).data)
+      );
+
+      // Omit functions and branches with no hits
+      for (const k of Object.keys(fileMap.f)) {
+        if (fileMap.f[k] === 0) delete fileMap.f[k];
+      }
+      for (const k of Object.keys(fileMap.b)) {
+        if (Math.max(...fileMap.b[k]) === 0) delete fileMap.b[k];
+      }
+      for (const k of Object.keys(fileMap.statementMap)) {
+        if (!(k in fileMap.s)) delete fileMap.statementMap[k];
+      }
+      for (const k of Object.keys(fileMap.branchMap)) {
+        if (!(k in fileMap.b)) delete fileMap.branchMap[k];
+      }
+
+      return {
+        path: normalizePathForKey(filePath),
+        counters: {
+          functionsTotal: fileSummary.functions.total,
+          functionsCovered: fileSummary.functions.covered,
+          statementsTotal: fileSummary.statements.total,
+          statementsCovered: fileSummary.statements.covered,
+          branchesTotal: fileSummary.branches.total,
+          branchesCovered: fileSummary.branches.covered,
+        },
+        fileMap,
+      };
+    });
+
+    return {
+      counters: {
+        functionsTotal: coverageSummary.functions.total,
+        functionsCovered: coverageSummary.functions.covered,
+        statementsTotal: coverageSummary.statements.total,
+        statementsCovered: coverageSummary.statements.covered,
+        branchesTotal: coverageSummary.branches.total,
+        branchesCovered: coverageSummary.branches.covered,
+      },
+      files,
+    };
+  } // fn: getCoverageStats
+
+  /**
+   * Returns uncovered and partially covered line numbers grouped by normalized file path.
+   */
+  public async getUncoveredLines(): Promise<UncoveredCoverageInfo> {
+    const stats = await this.getCoverageStats();
+    return extractUncoveredLines(stats);
+  } // fn: getUncoveredLines
+
+  /**
    * Fills in final run-wide coverage statistics at campaign completion.
    *
    * @param results finalized test results collection
@@ -417,138 +558,7 @@ export class CoverageMeasure extends AbstractMeasure {
   public override onRunEnd(results: FuzzTestResults): void {
     results.stats.measures.CodeCoverageMeasure =
       async (): Promise<CodeCoverageMeasureStats> => {
-        if (this._files.size === 0) {
-          return {
-            counters: {
-              functionsTotal: 0,
-              functionsCovered: 0,
-              statementsTotal: 0,
-              statementsCovered: 0,
-              branchesTotal: 0,
-              branchesCovered: 0,
-            },
-            files: [],
-          };
-        }
-
-        // 1. Build cumulative CoverageMap from _globalHitCounts
-        const fullCoverageMapData: CoverageMapData = {};
-        for (const fileEntry of this._files.values()) {
-          const fileData: FileCoverageData = {
-            ...fileEntry.template,
-            path: fileEntry.path,
-            statementMap: fileEntry.template.statementMap,
-            fnMap: fileEntry.template.fnMap,
-            branchMap: fileEntry.template.branchMap,
-            s: {},
-            f: {},
-            b: {},
-          };
-
-          for (const k of Object.keys(fileEntry.template.statementMap)) {
-            const slot = fileEntry.stmtSlots.get(k);
-            fileData.s[k] =
-              slot !== undefined ? this._globalHitCounts[slot] : 0;
-          }
-          for (const k of Object.keys(fileEntry.template.fnMap)) {
-            const slot = fileEntry.fnSlots.get(k);
-            fileData.f[k] =
-              slot !== undefined ? this._globalHitCounts[slot] : 0;
-          }
-          for (const k of Object.keys(fileEntry.template.branchMap)) {
-            const len = fileEntry.template.branchMap[k].locations.length;
-            const arms: number[] = [];
-            for (let j = 0; j < len; j++) {
-              const slot = fileEntry.branchSlots.get(`${k}.${j}`);
-              arms.push(slot !== undefined ? this._globalHitCounts[slot] : 0);
-            }
-            fileData.b[k] = arms;
-          }
-
-          fullCoverageMapData[fileEntry.path] = fileData;
-        }
-
-        const rawGlobalMap = createCoverageMap(fullCoverageMapData);
-
-        // 2. If TypeScript source maps are present on disk or registered, transform back to original TS source
-        for (const fileKey of rawGlobalMap.files()) {
-          const normKey = normalizePathForKey(fileKey);
-          const mapPaths = Array.from(
-            new Set([fileKey + ".map", normKey + ".map"])
-          );
-          const mapPath = mapPaths.find((p) => fs.existsSync(p));
-          if (mapPath) {
-            try {
-              const mapData = JSON.parse(fs.readFileSync(mapPath, "utf8"));
-              if (mapData && Array.isArray(mapData.sources)) {
-                const cleanDir = path.dirname(
-                  fileKey.replace(/([/\\])inst-[^/\\]+\1/, "$1")
-                );
-                mapData.sources = mapData.sources.map((s: string) =>
-                  path.isAbsolute(s) ? s : path.resolve(cleanDir, s)
-                );
-              }
-              this._sourceMapStore.registerMap(fileKey, mapData);
-              if (normKey !== fileKey) {
-                this._sourceMapStore.registerMap(normKey, mapData);
-              }
-            } catch {
-              // ignore
-            }
-          }
-        }
-        const finalMap =
-          await this._sourceMapStore.transformCoverage(rawGlobalMap);
-
-        // 3. Format per-file stats and summary totals
-        const coverageSummary = finalMap.getCoverageSummary();
-        const files: CodeCoverageFileStats[] = finalMap
-          .files()
-          .map((filePath) => {
-            const fileSummary = finalMap.fileCoverageFor(filePath).toSummary();
-            const fileMap = createFileCoverage(
-              structuredClone(finalMap.fileCoverageFor(filePath).data)
-            );
-
-            // Omit functions and branches with no hits
-            for (const k of Object.keys(fileMap.f)) {
-              if (fileMap.f[k] === 0) delete fileMap.f[k];
-            }
-            for (const k of Object.keys(fileMap.b)) {
-              if (Math.max(...fileMap.b[k]) === 0) delete fileMap.b[k];
-            }
-            for (const k of Object.keys(fileMap.statementMap)) {
-              if (!(k in fileMap.s)) delete fileMap.statementMap[k];
-            }
-            for (const k of Object.keys(fileMap.branchMap)) {
-              if (!(k in fileMap.b)) delete fileMap.branchMap[k];
-            }
-
-            return {
-              path: normalizePathForKey(filePath),
-              counters: {
-                functionsTotal: fileSummary.functions.total,
-                functionsCovered: fileSummary.functions.covered,
-                statementsTotal: fileSummary.statements.total,
-                statementsCovered: fileSummary.statements.covered,
-                branchesTotal: fileSummary.branches.total,
-                branchesCovered: fileSummary.branches.covered,
-              },
-              fileMap,
-            };
-          });
-
-        return {
-          counters: {
-            functionsTotal: coverageSummary.functions.total,
-            functionsCovered: coverageSummary.functions.covered,
-            statementsTotal: coverageSummary.statements.total,
-            statementsCovered: coverageSummary.statements.covered,
-            branchesTotal: coverageSummary.branches.total,
-            branchesCovered: coverageSummary.branches.covered,
-          },
-          files,
-        };
+        return this.getCoverageStats();
       };
   } // fn: onRunEnd
 
@@ -1401,6 +1411,126 @@ export function isRecordOfFileCoverageData(
 ): val is Record<string, FileCoverageData> {
   return typeof val === "object" && val !== null;
 } // fn: isRecordOfFileCoverageData
+
+/**
+ * Summary of uncovered and partially covered lines across files.
+ */
+export type UncoveredCoverageInfo = {
+  uncoveredLinesByFile: Record<string, number[]>;
+  partiallyCoveredLinesByFile: Record<string, number[]>;
+};
+
+/**
+ * Extracts uncovered and partially covered lines from CodeCoverageMeasureStats.
+ */
+export function extractUncoveredLines(
+  covStats: CodeCoverageMeasureStats
+): UncoveredCoverageInfo {
+  const uncoveredLinesByFile: Record<string, number[]> = {};
+  const partiallyCoveredLinesByFile: Record<string, number[]> = {};
+
+  if (covStats.files) {
+    for (const file of covStats.files) {
+      const fileMap = file.fileMap;
+      if (fileMap) {
+        const lineStats: Record<
+          number,
+          { hitCount: number; zeroCount: number }
+        > = {};
+
+        if (fileMap.s && fileMap.statementMap) {
+          for (const [key, hits] of Object.entries(fileMap.s)) {
+            if (fileMap.statementMap[key]) {
+              const startLine = fileMap.statementMap[key].start.line;
+              if (!lineStats[startLine]) {
+                lineStats[startLine] = { hitCount: 0, zeroCount: 0 };
+              }
+              if (hits > 0) {
+                lineStats[startLine].hitCount++;
+              } else {
+                lineStats[startLine].zeroCount++;
+              }
+            }
+          }
+        }
+
+        if (fileMap.b && fileMap.branchMap) {
+          for (const [bKey, hitsArr] of Object.entries(fileMap.b)) {
+            const bDef = fileMap.branchMap[bKey];
+            if (bDef && bDef.locations && Array.isArray(hitsArr)) {
+              for (let i = 0; i < bDef.locations.length; i++) {
+                const loc = bDef.locations[i];
+                if (loc && loc.start && typeof loc.start.line === "number") {
+                  const startLine = loc.start.line;
+                  if (!lineStats[startLine]) {
+                    lineStats[startLine] = { hitCount: 0, zeroCount: 0 };
+                  }
+                  const armHits = hitsArr[i];
+                  if (typeof armHits === "number" && armHits > 0) {
+                    lineStats[startLine].hitCount++;
+                  } else if (armHits === 0) {
+                    lineStats[startLine].zeroCount++;
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        const uncoveredLines: number[] = [];
+        const partiallyCoveredLines: number[] = [];
+
+        for (const [lineStr, stats] of Object.entries(lineStats)) {
+          const line = Number(lineStr);
+          if (stats.zeroCount > 0) {
+            if (stats.hitCount === 0) {
+              uncoveredLines.push(line);
+            } else {
+              partiallyCoveredLines.push(line);
+            }
+          }
+        }
+
+        uncoveredLines.sort((a, b) => a - b);
+        partiallyCoveredLines.sort((a, b) => a - b);
+
+        const fileKey = normalizePathForKey(file.path);
+        if (uncoveredLines.length > 0) {
+          uncoveredLinesByFile[fileKey] = uncoveredLines;
+        }
+        if (partiallyCoveredLines.length > 0) {
+          partiallyCoveredLinesByFile[fileKey] = partiallyCoveredLines;
+        }
+      }
+    }
+  }
+
+  return { uncoveredLinesByFile, partiallyCoveredLinesByFile };
+} // fn: extractUncoveredLines
+
+/**
+ * Formats an array of line numbers into concise range strings (e.g. "1-3, 5, 8-10").
+ */
+export function formatLineRanges(lines: number[]): string {
+  if (!lines || lines.length === 0) return "";
+  const sorted = Array.from(new Set(lines)).sort((a, b) => a - b);
+  const ranges: string[] = [];
+  let start = sorted[0];
+  let prev = sorted[0];
+
+  for (let i = 1; i < sorted.length; i++) {
+    const curr = sorted[i];
+    if (curr === prev + 1) {
+      prev = curr;
+    } else {
+      ranges.push(start === prev ? `${start}` : `${start}-${prev}`);
+      start = curr;
+      prev = curr;
+    }
+  }
+  ranges.push(start === prev ? `${start}` : `${start}-${prev}`);
+  return ranges.join(", ");
+} // fn: formatLineRanges
 
 export { isPythonCoverageMapData, isPythonCoverageMapData as isFullCoverage };
 export { FileCoverage } from "istanbul-lib-coverage";

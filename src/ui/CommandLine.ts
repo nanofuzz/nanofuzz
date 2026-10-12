@@ -185,6 +185,10 @@ function createProgram(): Commander.Command {
       `--no-ai-input-backfeed`,
       `Don't send prior inputs to AI input generator`
     )
+    .option(
+      `--no-ai-coverage-guidance`,
+      `Don't send uncovered code data to AI model`
+    )
 
     // ------------------------ Composite Input Generator ------------------------ //
 
@@ -503,6 +507,12 @@ export async function runCliInProcess(
     Config.override(
       "nanofuzz.ai.backfeedPriorInputs",
       options["aiInputBackfeed"]
+    );
+  }
+  if (options["aiCoverageGuidance"] !== undefined) {
+    Config.override(
+      "nanofuzz.ai.coverageGuidance",
+      options["aiCoverageGuidance"]
     );
   }
 
