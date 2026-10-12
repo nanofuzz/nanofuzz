@@ -354,11 +354,9 @@ module.exports = { crash, ok };
     const jsCode = `
 const leaked = [];
 function leakMemory() {
-  const t0 = Date.now();
-  while (Date.now() - t0 < 3000) {
+  while (true) {
     leaked.push(Buffer.alloc(10 * 1024 * 1024, 1));
   }
-  return leaked.length;
 }
 function normalFn(x) {
   return x * 2;

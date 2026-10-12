@@ -457,15 +457,11 @@ def loop_timeout(n: int) -> int:
     const tmpDir = getTmpDir("nanofuzz-runner-ram-");
     const pyPath = path.join(tmpDir, "leak_test.py");
     const pyCode = `
-import time
 _leaked = []
 
 def leak_memory(n: int) -> int:
-    t0 = time.time()
-    while time.time() - t0 < 3.0:
+    while True:
         _leaked.append(b"x" * (10 * 1024 * 1024))
-        time.sleep(0.01)
-    return len(_leaked)
 
 def normal_fn(n: int) -> int:
     return n * 2
