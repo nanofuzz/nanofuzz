@@ -32,10 +32,8 @@ describe("fuzzer: coverageMultiFile benchmark", () => {
     const fuzzResult = await FuzzerFactory(
       "./test_fixtures/Fuzzer.testfixtures.ts",
       "testCoverageMultiFile",
-      {
-        ...intOptions,
-        workers: 2,
-      }
+      intOptions,
+      { workers: 2 }
     ).test();
 
     expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);

@@ -229,9 +229,23 @@ export function isFuzzResultTab(obj: unknown): obj is FuzzResultTab {
  */
 export type FuzzOutputResults = "all" | "failures" | "none";
 
+/**
+ * Engine version for execution: "auto", "v1", "v2", or "v3"
+ */
+export type FuzzerEngineVersion = "v1" | "v2" | "v3" | "auto";
+
+/**
+ * Execution environment and invocation options for a fuzzing run.
+ */
+export type FuzzExecutionOptions = {
+  engine: FuzzerEngineVersion;
+  workers: number | "auto";
+  outputResults: FuzzOutputResults;
+  precompile: boolean;
+};
+
 export type FuzzOptions = {
   outputFile?: string; // optional file to receive the fuzzing output (JSON format)
-  outputResults?: FuzzOutputResults; // test results retention mode
   argDefaults: ArgOptions; // default options for arguments
   seed?: string; // optional seed for pseudo-random number generator
   maxTests: number; // number of fuzzing tests to execute (>= 0)
@@ -243,7 +257,6 @@ export type FuzzOptions = {
   useHuman: boolean; // use human oracle
   useProperty: boolean; // use property validator oracle
   useTransformer: boolean; // use input transformer
-  workers: number | "auto"; // number of concurrent worker processes ("auto" or >= 1)
   measures: { [k in SupportedMeasures]: BaseMeasureConfig }; // measure config
   generators: { [k in SupportedInputGenerators]: BaseGeneratorConfig }; // generator config
 };
@@ -481,6 +494,7 @@ export type Judgment = _Judgment;
  */
 export type FuzzEnv = {
   options: FuzzOptions; // fuzzer options
+  executionOptions: FuzzExecutionOptions; // execution options
   function: FunctionDef; // the function to fuzz
   validators: FunctionRef[]; // list of the module's validator functions
   transformers: FunctionRef[]; // list of the module's input transformer functions

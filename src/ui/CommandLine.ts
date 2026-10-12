@@ -15,6 +15,7 @@ import { ArgDef } from "../fuzzer/analysis/ArgDef";
 import {
   CurrentRunStats,
   FuzzBusyStatusMessage,
+  FuzzExecutionOptions,
   FuzzOptions,
 } from "../fuzzer/Types";
 import {
@@ -681,6 +682,13 @@ export async function runCliInProcess(
       return cliValue;
     }
 
+    const executionOptions: FuzzExecutionOptions = {
+      engine: options["engine"],
+      workers: options["workers"],
+      outputResults: options["outputResults"],
+      precompile: false,
+    };
+
     const fuzzer = FuzzerFactory(
       filename,
       fnname,
@@ -716,16 +724,6 @@ export async function runCliInProcess(
         useImplicit: options["heuristicOracle"],
         useHuman: options["exampleOracle"],
         useProperty: options["propertyOracle"],
-        outputResults: getEffectiveOption(
-          "outputResults",
-          "outputResults",
-          options["outputResults"] ?? "failures"
-        ),
-        workers: getEffectiveOption(
-          "workers",
-          "workers",
-          options["workers"] ?? "auto"
-        ),
         outputFile: outfile,
         measures: {
           CoverageMeasure: {
@@ -750,7 +748,7 @@ export async function runCliInProcess(
           },
         },
       },
-      { engine: options["engine"] }
+      executionOptions
     );
 
     // Apply custom argument overrides from companion .nano.json5

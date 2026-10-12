@@ -24,6 +24,7 @@ import {
 } from "../fuzzer/analysis/Types";
 import {
   FuzzEnv,
+  FuzzExecutionOptions,
   FuzzIoElement,
   FuzzOptions,
   FuzzPinnedTest,
@@ -259,10 +260,20 @@ export async function runFuzz(
       generators: effectiveGenerators,
     });
 
+    const executionOptions: FuzzExecutionOptions = {
+      engine: "auto",
+      workers:
+        options.workers ??
+        Config.get<number | "auto">("nanofuzz.fuzzer.workers", "auto"),
+      outputResults: options.exportSuite ? "all" : "failures",
+      precompile: false,
+    };
+
     const tester = FuzzerFactory(
       resolvedPath,
       options.functionName,
-      normalizedOptions
+      normalizedOptions,
+      executionOptions
     );
 
     // Apply custom argument overrides from companion .nano.json5
@@ -395,7 +406,6 @@ export function getToolName(): string {
  */
 export function getDefaultFuzzOptions(): FuzzOptions {
   return {
-    outputResults: "all",
     argDefaults: ArgDef.getDefaultOptions(),
     maxTests: Config.get("nanofuzz.fuzzer.maxTests", 1000),
     fnTimeout: Config.get("nanofuzz.fuzzer.fnTimeout", 200),
@@ -406,7 +416,6 @@ export function getDefaultFuzzOptions(): FuzzOptions {
     useHuman: true,
     useImplicit: true,
     useProperty: true,
-    workers: Config.get("nanofuzz.fuzzer.workers", "auto"),
     measures: {
       FailedTestMeasure: {
         enabled: true,
@@ -1444,6 +1453,7 @@ export type AgentFuzzOptions = {
   enableCopilotAi?: boolean;
   exportSuite?: boolean;
   exportFilePath?: string;
+  workers?: number | "auto";
 };
 
 /**

@@ -12,6 +12,7 @@ import { FunctionDef } from "./analysis/FunctionDef";
 import {
   BaseMeasureConfig,
   FuzzEnv,
+  FuzzExecutionOptions,
   FuzzMode,
   FuzzOptions,
   FuzzPinnedTest,
@@ -64,6 +65,7 @@ export class FuzzerV3 {
   protected _module: string;
   protected _fnName: string;
   protected _options: FuzzOptions;
+  protected _executionOptions: FuzzExecutionOptions;
   protected _program: AbstractProgram;
   protected _function: FunctionDef;
   protected _validators: FunctionRef[] = [];
@@ -96,10 +98,11 @@ export class FuzzerV3 {
     module: string,
     fnName: string,
     options: FuzzOptions,
-    mode: { precompile?: true } = {}
+    executionOptions: FuzzExecutionOptions
   ) {
     this._module = require.resolve(module);
     this._fnName = fnName;
+    this._executionOptions = structuredClone(executionOptions);
 
     const normalizedOptions: FuzzOptions = {
       ...options,
@@ -157,7 +160,8 @@ export class FuzzerV3 {
       this._function,
       this._validators,
       this._transformers,
-      this._userGenerators
+      this._userGenerators,
+      this._executionOptions
     );
 
     this._compositeInputGenerator = new CompositeInputGenerator(
@@ -172,7 +176,7 @@ export class FuzzerV3 {
       this.getFuzzerFocus.bind(this)
     );
 
-    if (mode.precompile) {
+    if (this._executionOptions.precompile) {
       CompilerFactory.fromSourcefile(module)?.compileAsync(module);
     }
   } // constructor
@@ -256,12 +260,20 @@ export class FuzzerV3 {
   public get env(): FuzzEnv {
     return {
       options: structuredClone(this._options),
+      executionOptions: structuredClone(this._executionOptions),
       function: this._function,
       validators: structuredClone(this._validators),
       transformers: structuredClone(this._transformers),
       userGenerators: structuredClone(this._userGenerators),
     };
   } // get: env
+
+  /**
+   * Retrieves the current execution options.
+   */
+  public get executionOptions(): FuzzExecutionOptions {
+    return structuredClone(this._executionOptions);
+  } // get: executionOptions
 
   /**
    * Retrieves the current state of the fuzzer.
@@ -276,7 +288,7 @@ export class FuzzerV3 {
   public get workerCount(): number {
     return (
       this._executor?.workers.length ||
-      determineWorkerCount(this._options.workers)
+      determineWorkerCount(this._executionOptions.workers)
     );
   } // get: workerCount
 

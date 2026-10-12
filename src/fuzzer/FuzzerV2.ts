@@ -13,6 +13,7 @@ import { FunctionDef } from "./analysis/FunctionDef";
 import {
   BaseMeasureConfig,
   FuzzEnv,
+  FuzzExecutionOptions,
   FuzzMode,
   FuzzOptions,
   FuzzPinnedTest,
@@ -53,6 +54,7 @@ export class FuzzerV2 {
   protected _module: string;
   protected _fnName: string;
   protected _options: FuzzOptions;
+  protected _executionOptions: FuzzExecutionOptions;
   protected _program: AbstractProgram;
   protected _function: FunctionDef;
   protected _validators: FunctionRef[] = [];
@@ -81,10 +83,11 @@ export class FuzzerV2 {
     module: string,
     fnName: string,
     options: FuzzOptions,
-    mode: { precompile?: true } = {}
+    executionOptions: FuzzExecutionOptions
   ) {
     this._module = require.resolve(module);
     this._fnName = fnName;
+    this._executionOptions = structuredClone(executionOptions);
 
     const normalizedOptions: FuzzOptions = {
       ...options,
@@ -142,7 +145,8 @@ export class FuzzerV2 {
       this._function,
       this._validators,
       this._transformers,
-      this._userGenerators
+      this._userGenerators,
+      this._executionOptions
     );
 
     this._compositeInputGenerator = new CompositeInputGenerator(
@@ -157,7 +161,7 @@ export class FuzzerV2 {
       this.getFuzzerFocus.bind(this)
     );
 
-    if (mode.precompile) {
+    if (this._executionOptions.precompile) {
       CompilerFactory.fromSourcefile(module)?.compileAsync(module);
     }
   } // fn: constructor
@@ -241,12 +245,20 @@ export class FuzzerV2 {
   public get env(): FuzzEnv {
     return {
       options: structuredClone(this._options),
+      executionOptions: structuredClone(this._executionOptions),
       function: this._function,
       validators: structuredClone(this._validators),
       transformers: structuredClone(this._transformers),
       userGenerators: structuredClone(this._userGenerators),
     };
   } // get: env
+
+  /**
+   * Retrieves the current execution options.
+   */
+  public get executionOptions(): FuzzExecutionOptions {
+    return structuredClone(this._executionOptions);
+  } // get: executionOptions
 
   /**
    * Retrieves the current state of the fuzzer.

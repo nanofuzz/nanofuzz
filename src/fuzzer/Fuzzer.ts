@@ -23,6 +23,7 @@ import {
   TransformedInputAndSource,
   InputAndSource,
   FuzzOptions,
+  FuzzExecutionOptions,
   FuzzEnv,
   FuzzMode,
   FuzzTestResults,
@@ -60,6 +61,7 @@ export class Tester {
     "init"; // tester state
 
   protected _options: FuzzOptions; // testing options
+  protected _executionOptions: FuzzExecutionOptions; // execution options
   protected _program: AbstractProgram; // program under test
   protected _function: FunctionDef; // function under test
   protected _compositeInputGenerator: CompositeInputGenerator; // composite input generator
@@ -84,10 +86,11 @@ export class Tester {
     module: string,
     fnName: string,
     options: FuzzOptions,
-    mode: { precompile?: true } = {}
+    executionOptions: FuzzExecutionOptions
   ) {
     this._module = require.resolve(module);
     this._fnName = fnName;
+    this._executionOptions = structuredClone(executionOptions);
 
     const normalizedOptions: FuzzOptions = {
       ...options,
@@ -169,7 +172,7 @@ export class Tester {
 
     // Start a background compilation if precompile mode is active
     // and this is a compiled language.
-    if (mode.precompile) {
+    if (this._executionOptions.precompile) {
       CompilerFactory.fromSourcefile(module)?.compileAsync(module);
     }
   } // constructor
@@ -228,6 +231,7 @@ export class Tester {
       toolVersion: getToolVersion(),
       env: {
         options: structuredClone(this._options),
+        executionOptions: structuredClone(this._executionOptions),
         function: this._function,
         validators: structuredClone(this._validators),
         transformers: getTransformers(this._program, this._function),
@@ -375,12 +379,20 @@ export class Tester {
   public get env(): FuzzEnv {
     return {
       options: structuredClone(this._options),
+      executionOptions: structuredClone(this._executionOptions),
       function: this._function,
       validators: structuredClone(this._validators),
       transformers: structuredClone(this._transformers),
       userGenerators: structuredClone(this._userGenerators),
     };
   } // property: get env
+
+  /**
+   * Returns the current execution options
+   */
+  public get executionOptions(): FuzzExecutionOptions {
+    return structuredClone(this._executionOptions);
+  } // property: get executionOptions
 
   /**
    * Returns the current state
@@ -1329,7 +1341,7 @@ export class Tester {
         }
 
         // Store the result for this iteration
-        const retention = this._options.outputResults ?? "all";
+        const retention = this._executionOptions.outputResults;
         const shouldRetain =
           retention === "all" ||
           Boolean(result.inputGenerated?.injected) ||

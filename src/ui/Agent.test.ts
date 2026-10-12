@@ -630,7 +630,13 @@ describe("Agent", () => {
       fnDef,
       [],
       [],
-      []
+      [],
+      {
+        engine: "auto",
+        workers: "auto",
+        outputResults: "failures",
+        precompile: false,
+      }
     );
 
     const mockResults = statsManager.results;
