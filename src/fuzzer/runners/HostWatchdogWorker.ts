@@ -7,7 +7,7 @@ if (
   moduleApi.enableCompileCache();
 }
 import { parentPort } from "node:worker_threads";
-import { spawn, ChildProcess } from "node:child_process";
+import { spawn, spawnSync, ChildProcess } from "node:child_process";
 import pidusage from "pidusage";
 
 const targets = new Map<number, number>();
@@ -143,7 +143,7 @@ function getWindowsPyProc(): ChildProcess | undefined {
     return winPyProc;
   }
   try {
-    const pythonBin = process.env.PYTHON || "python";
+    const pythonBin = resolveWindowsPythonBin();
     const proc = spawn(pythonBin, ["-u", "-c", WIN_CTYPES_SCRIPT], {
       windowsHide: true,
       stdio: ["pipe", "pipe", "ignore"],
@@ -195,6 +195,34 @@ function getWindowsPyProc(): ChildProcess | undefined {
     return undefined;
   }
 } // fn: getWindowsPyProc
+
+let cachedPythonBin: string | undefined;
+
+/**
+ * Probes candidate Python executables on Windows (python, python3, py) to find
+ * one that is runnable. Caches the result to avoid repeated lookups.
+ */
+function resolveWindowsPythonBin(): string {
+  if (cachedPythonBin) return cachedPythonBin;
+  if (process.env.PYTHON) {
+    cachedPythonBin = process.env.PYTHON;
+    return cachedPythonBin;
+  }
+  const candidates = ["python", "python3", "py"];
+  for (const bin of candidates) {
+    try {
+      const res = spawnSync(bin, ["-c", "import sys"], { windowsHide: true });
+      if (res.status === 0 && !res.error) {
+        cachedPythonBin = bin;
+        return bin;
+      }
+    } catch {
+      // continue
+    }
+  }
+  cachedPythonBin = "python";
+  return cachedPythonBin;
+} // fn: resolveWindowsPythonBin
 
 /**
  * Standalone Python script running inside a persistent background process on Windows.
