@@ -179,6 +179,7 @@ export class LlmAdapter {
     );
     const chatOptions: Parameters<typeof this._backend.chat>[1] = {
       systemPrompt: this._systemPrompt,
+      requestTimeout: cfg.requestTimeout,
       ...(inRegistry ? {} : { assumeModelExists: true }),
     };
     return this._backend.chat(cfg.modelName, chatOptions);
@@ -428,6 +429,7 @@ export class LlmAdapter {
     vendor: string;
     apiKey: string;
     endpoint: string;
+    requestTimeout: number;
     cacheMode: LlmCacheMode;
     cacheFile: string;
     cacheDelay: string;
@@ -438,6 +440,10 @@ export class LlmAdapter {
       vendor: LlmAdapter._getConfigValue("vendor", ""),
       apiKey: LlmAdapter._getConfigValue("apiKey", ""),
       endpoint: LlmAdapter._getConfigValue("endpoint", ""),
+      requestTimeout: LlmAdapter._getConfigValue<number>(
+        "requestTimeout",
+        DEFAULT_REQUEST_TIMEOUT
+      ),
       cacheMode: LlmAdapter._getConfigValue<LlmCacheMode>(
         "cacheMode",
         "passthrough"
@@ -489,3 +495,8 @@ export const DEFAULT_MAX_OUTPUT_TOKENS = 8192;
  * is not specified in the model registry or when no model is configured.
  */
 export const DEFAULT_CONTEXT_WINDOW = 32768;
+
+/**
+ * Fallback request timeout (in ms) for AI model requests.
+ */
+export const DEFAULT_REQUEST_TIMEOUT = 60_000;
