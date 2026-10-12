@@ -95,6 +95,54 @@ function sortTestFiles(files) {
   });
 }
 
+// Disaffinity groups: suites within the same group must not execute concurrently.
+// This prevents multiple heavy subprocess or fuzzer workloads from thrashing CPU and
+// starving sub-second timeouts.
+const disaffinityGroups = [
+  // Group 1: Subprocess-heavy Python runner & adapter suites
+  // No two of these may run at the same time.
+  [
+    "PythonRunner.test.ts",
+    "PytestAdapter.test.ts",
+    "CommandLine.test.ts",
+    "FuzzerPython.test.ts",
+    "CommandLineAiCache.test.ts",
+  ],
+  // Group 2: Heavy multi-worker fuzzing campaigns
+  // No two of these may run at the same time.
+  [
+    "FuzzerCoverageOneFile.test.ts",
+    "FuzzerCoverageMultiFile.test.ts",
+    "FuzzerExamples1.test.ts",
+    "FuzzerExamples2.test.ts",
+    "CommandLine.test.ts",
+    "FuzzerTypescript.test.ts",
+    "Fuzzer.test.ts",
+    "Agent.test.ts",
+    "VscodeLmAdapter.test.ts",
+  ],
+];
+
+function hasConflict(fileA, fileB) {
+  const baseA = path.basename(fileA);
+  const baseB = path.basename(fileB);
+  for (const group of disaffinityGroups) {
+    const hasA = group.some((g) => baseA === g || fileA.includes(g));
+    const hasB = group.some((g) => baseB === g || fileB.includes(g));
+    if (hasA && hasB) return true;
+  }
+  return false;
+}
+
+function canRunFile(candidateFile, currentlyRunningFiles) {
+  for (const running of currentlyRunningFiles) {
+    if (hasConflict(candidateFile, running)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 // Run a single test file in a spawned Node or pytest process
 function runTestFile(file) {
   return new Promise((resolve) => {
@@ -263,32 +311,75 @@ async function main() {
   let totalSpecsRun = 0;
   let totalFailures = 0;
 
-  // Work queue worker pool
+  const queue = [...testFiles];
+  const runningFiles = new Set();
+  let waiters = [];
+
+  function notifyWaiters() {
+    const list = waiters;
+    waiters = [];
+    for (const resolve of list) {
+      resolve();
+    }
+  }
+
+  function waitForChange() {
+    return new Promise((resolve) => {
+      waiters.push(resolve);
+    });
+  }
+
+  function pickNextFile() {
+    for (let i = 0; i < queue.length; i++) {
+      const candidate = queue[i];
+      if (canRunFile(candidate, runningFiles)) {
+        queue.splice(i, 1);
+        runningFiles.add(candidate);
+        return candidate;
+      }
+    }
+    return null;
+  }
+
+  // Work queue worker pool with disaffinity scheduling
   async function worker() {
-    while (testFiles.length > 0) {
-      const file = testFiles.shift();
-      const res = await runTestFile(file);
-      results.push(res);
-      completedCount++;
-      totalSpecsRun += res.specs;
-      totalFailures += res.failures;
-
-      const statusTag = res.code === 0 ? "✓ PASS" : "❌ FAIL";
-      const progress = `[${completedCount}/${totalFiles}]`;
-      console.log(
-        `${progress.padStart(7)} ${statusTag} ${res.file} (${res.durationSec}s)`
-      );
-
-      if (isVerbose && res.stdout) {
-        process.stdout.write(res.stdout);
+    while (true) {
+      const file = pickNextFile();
+      if (!file) {
+        if (queue.length === 0) {
+          break;
+        }
+        await waitForChange();
+        continue;
       }
 
-      // Print output inline if test failed
-      if (res.code !== 0) {
-        console.error(`\n--- FAILURE OUTPUT: ${res.file} ---`);
-        if (res.stdout && !isVerbose) console.error(res.stdout);
-        if (res.stderr) console.error(res.stderr);
-        console.error(`--- END FAILURE OUTPUT ---\n`);
+      try {
+        const res = await runTestFile(file);
+        results.push(res);
+        completedCount++;
+        totalSpecsRun += res.specs;
+        totalFailures += res.failures;
+
+        const statusTag = res.code === 0 ? "✓ PASS" : "❌ FAIL";
+        const progress = `[${completedCount}/${totalFiles}]`;
+        console.log(
+          `${progress.padStart(7)} ${statusTag} ${res.file} (${res.durationSec}s)`
+        );
+
+        if (isVerbose && res.stdout) {
+          process.stdout.write(res.stdout);
+        }
+
+        // Print output inline if test failed
+        if (res.code !== 0) {
+          console.error(`\n--- FAILURE OUTPUT: ${res.file} ---`);
+          if (res.stdout && !isVerbose) console.error(res.stdout);
+          if (res.stderr) console.error(res.stderr);
+          console.error(`--- END FAILURE OUTPUT ---\n`);
+        }
+      } finally {
+        runningFiles.delete(file);
+        notifyWaiters();
       }
     }
   }
