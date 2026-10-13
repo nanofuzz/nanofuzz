@@ -126,3 +126,6 @@ __pycache__/
 # direnv files
 /.direnv/
 /.envrc
+
+# CPU profiler output
+*.cpuprofile
