@@ -212,6 +212,35 @@ describe("src/fuzzer/adapters/LlmAdapter:", () => {
     expect(askCount).toBe(3);
   });
 
+  it("query: extracts token costs when provided by model response", async () => {
+    Config.override("nanofuzz.ai.provider", "openai");
+    Config.override("nanofuzz.ai.model", "gpt-4o");
+    Config.override("nanofuzz.ai.apiKey", "mock-key");
+
+    spyOn(nodellm.Chat.prototype, "ask").and.callFake(async () => {
+      return new nodellm.ChatResponseString(
+        '{"output": "ok"}',
+        {
+          input_tokens: 150,
+          output_tokens: 50,
+          total_tokens: 200,
+          input_cost: 0.000375,
+          output_cost: 0.0005,
+          cost: 0.000875,
+        },
+        "gpt-4o",
+        "openai"
+      );
+    });
+
+    const adapter = new LlmAdapter();
+    const res = await adapter.query("generate inputs");
+    expect(res.stats.tokensSent).toBe(150);
+    expect(res.stats.tokensSentCost).toEqual({ amt: 0.000375, unit: "USD" });
+    expect(res.stats.tokensReceived).toBe(50);
+    expect(res.stats.tokensReceivedCost).toEqual({ amt: 0.0005, unit: "USD" });
+  });
+
   it("query: does not retry on non-timeout error", async () => {
     Config.override("nanofuzz.ai.provider", "ollama");
     Config.override("nanofuzz.ai.model", "qwen2.5-coder:7b");
