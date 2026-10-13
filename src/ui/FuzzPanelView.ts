@@ -32,6 +32,7 @@ import {
   FuzzPanelPinMessage,
   FuzzPanelViewState,
 } from "./FuzzPanelController";
+import { renderArgDefForms } from "./FuzzPanelArgForm";
 
 const vscode = acquireVsCodeApi();
 
@@ -145,6 +146,26 @@ let coverageHeatmapIsStale = false;
 async function main() {
   // Initialize the parser
   const parserPromise = Parser.init();
+
+  // ----------------------- Data Loads ----------------------- //
+
+  // Load unified view state from the packed HTML script element
+  const viewStateElem = getElementByIdOrThrow("fuzzViewState");
+  const rawB64 = viewStateElem.textContent?.trim() ?? "";
+  const packedBytes = Uint8Array.from(atob(rawB64), (c) => c.charCodeAt(0));
+  const viewState = JSONN.unpack<FuzzPanelViewState>(packedBytes);
+
+  // Render argument form into #argDefs if provided
+  if (viewState.argDefs) {
+    const argDefsContainer = document.getElementById("argDefs");
+    if (argDefsContainer) {
+      argDefsContainer.innerHTML = renderArgDefForms(
+        viewState.argDefs,
+        viewState.lang,
+        Boolean(viewState.disabled)
+      );
+    }
+  }
 
   // --------------------- Event Handlers --------------------- //
 
@@ -432,14 +453,6 @@ async function main() {
       }, 100);
     }); // onScroll event handler
   } // if: tabstrip found
-
-  // ----------------------- Data Loads ----------------------- //
-
-  // Load unified view state from the packed HTML script element
-  const viewStateElem = getElementByIdOrThrow("fuzzViewState");
-  const rawB64 = viewStateElem.textContent?.trim() ?? "";
-  const packedBytes = Uint8Array.from(atob(rawB64), (c) => c.charCodeAt(0));
-  const viewState = JSONN.unpack<FuzzPanelViewState>(packedBytes);
 
   // Load the fuzzer results data from the view state
   resultsData = viewState.results

@@ -3,17 +3,14 @@ import * as JSONN from "../Jsonn";
 import * as Config from "../Config";
 import * as ValueMapper from "../fuzzer/mappers/ValueMapper";
 import * as fuzzer from "../fuzzer/Types";
-import { ArgDef } from "../fuzzer/analysis/ArgDef";
 import { FunctionDef } from "../fuzzer/analysis/FunctionDef";
 import {
   ArgOptions,
-  ArgTag,
   ArgValueTypeWrapped,
   FunctionRef,
   ProgramLanguage,
 } from "../fuzzer/analysis/Types";
 import {
-  bigIntOrThrow,
   getTransformers,
   getUserGenerators,
   getValidators,
@@ -28,7 +25,7 @@ import {
   normalizePathForKey,
 } from "../fuzzer/Util";
 import { parseCoverageScope } from "../fuzzer/measures/Util";
-import { removeTickFromOrigin, encodeEscapeSequences } from "../Util";
+import { removeTickFromOrigin } from "../Util";
 import { FuzzerFactory, IFuzzer } from "../fuzzer/FuzzerFactory";
 import {
   applyCoverageHeatmapToEditor,
@@ -42,6 +39,7 @@ import { synthesizeValidator } from "../fuzzer/synthesis/ValidatorSynthesizer";
 import { synthesizeTransformer } from "../fuzzer/synthesis/TransformerSynthesizer";
 import { synthesizeUserGenerator } from "../fuzzer/synthesis/UserGeneratorSynthesizer";
 import { FuzzConfigStore, CURR_FILE_FMT_VER } from "../fuzzer/FuzzConfigStore";
+import { ArgDefLike } from "./FuzzPanelArgForm";
 
 /**
  * FuzzPanel displays fuzzer options, actions, and the last results for a
@@ -1738,7 +1736,6 @@ export class FuzzPanel {
       const fn = env.function; // Function under test
       const lang = this._fuzzEnv.function.getLang(); // function language
       const argDefs = fn.getArgDefs();
-      const counterArgDef = { id: 0 }; // Unique counter for argument ids
       const heuristicFailValues = [
         ...new Set(
           (fn.isVoid() ? [undefined] : [null, undefined, Infinity, NaN]).map(
@@ -1789,19 +1786,7 @@ export class FuzzPanel {
             </p>
 
             <!-- Function Arguments -->
-            <div id="argDefs">${
-              argDefs
-                .map((arg, i) =>
-                  this._argDefToHtmlForm(
-                    arg,
-                    counterArgDef,
-                    "",
-                    i === argDefs.length - 1 ? "" : ",",
-                    undefined
-                  )
-                )
-                .join("")
-            }</div>
+            <div id="argDefs"></div>
 
             <!-- Change Validators Options -->
             <div style="clear: both;">
@@ -2865,6 +2850,9 @@ export class FuzzPanel {
         userGenerators: this._fuzzEnv.userGenerators.map((e) => e.name),
         lang,
         panelState: this.getState(),
+        argDefs: this._fuzzEnv.function.getArgDefs(),
+        argOverrides: this._argOverrides,
+        disabled: this._state === FuzzPanelState.busyTesting,
       };
 
       const packedViewState = Buffer.from(JSONN.pack(viewState)).toString(
@@ -2900,464 +2888,6 @@ export class FuzzPanel {
     this._panel.webview.html = html;
     this.onDidChangeConfiguration();
   } // fn: _updateHtml()
-
-  /**
-   * Returns an HTML form representing an argument definition.  The counter
-   * is passed by reference so it can be unique across the entire tree of
-   * arguments: objects can be nested arbitrarily.
-   *
-   * @param arg Argument definition to render
-   * @param counter Counter internally incremented for each argument
-   * @returns html string of the argument definition form
-   */
-  private _argDefToHtmlForm(
-    arg: ArgDef,
-    counter: { id: number }, // pass counter by reference
-    beginSep: string,
-    endSep: string,
-    parentTag?: ArgTag
-  ): string {
-    const id = counter.id++; // unique id for each argument
-    const idBase = `argDef-${id}`; // base HTML id for this argument
-    const argType = arg.getType(); // type of argument
-    const argName = arg.getName(); // name of the argument
-    const disabledFlag =
-      this._state === FuzzPanelState.busyTesting ? ` disabled ` : ""; // Disable inputs if busy
-    const dimString = "[]".repeat(arg.getDim()); // Text indicating array dimensions
-    const optionalString = arg.isOptional() ? "?" : ""; // Text indication arg optionality
-    const htmlEllipsis = `<span class="hidden argDef-ellipsis">...</span>`;
-    const isArgArray = arg.getDim() > 0; // Is this an array argument?
-    const lang = this._fuzzEnv.function.getLang();
-
-    let typeString: string; // Text indicating the type of argument
-    const argTypeRef = arg.getTypeRef();
-    if (argTypeRef !== undefined) {
-      typeString = htmlEscape(
-        argTypeRef.substring(argTypeRef.lastIndexOf(".") + 1)
-      );
-    } else {
-      typeString = htmlEscape(argType.toLowerCase());
-
-      switch (argType) {
-        case ArgTag.OBJECT:
-          typeString = "Object";
-          break;
-        case ArgTag.DICTIONARY:
-          typeString = "Dict";
-          break;
-        case ArgTag.SET:
-          typeString = "Set";
-          break;
-        case ArgTag.LITERAL:
-          if (arg.isConstant()) {
-            const constantValue = arg.getConstantValue();
-            typeString = htmlEscape(ValueMapper.toLang(lang, constantValue));
-          }
-          break;
-        case ArgTag.BIGINT:
-        case ArgTag.NUMBER:
-        case ArgTag.STRING:
-        case ArgTag.BOOLEAN:
-        case ArgTag.UNION:
-        case ArgTag.TUPLE:
-        case ArgTag.UNRESOLVED:
-        case ArgTag.BYTES:
-          break;
-      }
-    }
-
-    let html = /*html*/ `
-    <!-- Argument Definition -->
-    <div class="argDef" id="${idBase}">`;
-
-    html += /*html*/ `
-      <!-- Argument Name -->
-      <div class="argDef-name">${beginSep}`;
-
-    if (argName !== "unknown") {
-      html += /*html*/ `
-          <strong>${argName}</strong>${optionalString}: 
-        `;
-    }
-
-    let sep: string;
-    switch (argType) {
-      case ArgTag.LITERAL:
-        sep = endSep;
-        break;
-      case ArgTag.UNION:
-        sep = ":";
-        break;
-      case ArgTag.SET:
-      case ArgTag.OBJECT:
-      case ArgTag.DICTIONARY:
-        sep = ` = {` + htmlEllipsis;
-        break;
-      case ArgTag.TUPLE:
-        sep = ` = [` + htmlEllipsis;
-        break;
-      case ArgTag.NUMBER:
-      case ArgTag.STRING:
-      case ArgTag.BOOLEAN:
-      case ArgTag.UNRESOLVED:
-      case ArgTag.BIGINT:
-      case ArgTag.BYTES:
-        sep = " = " + htmlEllipsis;
-        break;
-    }
-
-    html += /*html*/ `
-         ${typeString}${dimString}${sep}
-      </div>`;
-
-    // Give the option of suppressing generation of optional members
-    if (
-      parentTag === ArgTag.UNION ||
-      (parentTag === ArgTag.OBJECT && arg.isOptional())
-    ) {
-      // prettier-ignore
-      html += /*html*/ `
-        <div class="isNoInput tooltipped tooltipped-nw" aria-label="Generate inputs of this type?">
-          <vscode-checkbox id="${idBase}-isNoInput" ${disabledFlag} ${arg.isNoInput() ? "" : "checked"} current-checked="${arg.isNoInput() ? "false" : "true"}"></vscode-checkbox>
-        </div>`
-    }
-
-    html += /*html*/ `
-      <!-- Argument isArray -->
-      <div class="argDef-isArray argDef-isArray-${htmlEscape(
-        isArgArray ? "true" : "false"
-      )}" id="${idBase}-${
-        isArgArray ? "true" : "false"
-      }" style="padding-left: 1em;"></div>`;
-
-    html += /*html*/ `
-      <!-- Argument Type -->
-      <div class="argDef-type argDef-type-${htmlEscape(
-        arg.getType()
-      )}" id="${idBase}-${argType}" style="padding-left: 1em;">
-      <!-- Argument Options -->`;
-
-    // Argument options
-    switch (arg.getType()) {
-      // Number-specific Options
-      case ArgTag.NUMBER: {
-        // TODO: validate for ints and floats !!!
-        html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-min" name="${idBase}-min" value="${htmlEscape(
-          Number(arg.getIntervals()[0].min).toString()
-        )}">Min value</vscode-text-field>`;
-        html += " ";
-        html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-max" name="${idBase}-max" value="${htmlEscape(
-          Number(arg.getIntervals()[0].max).toString()
-        )}">Max value</vscode-text-field>`;
-        html += " ";
-        html +=
-          /*html*/
-          `<vscode-radio-group style="display: inline-block;">
-            <vscode-radio ${disabledFlag} id="${idBase}-numInteger" name="${idBase}-numInteger" ${
-              arg.getOptions().numInteger ? " checked " : ""
-            }>Integer</vscode-radio>
-            <vscode-radio ${disabledFlag} id="${idBase}-numInteger" name="${idBase}-numInteger" ${
-              !arg.getOptions().numInteger ? " checked " : ""
-            }>Float</vscode-radio>
-          </vscode-radio-group>`;
-        break;
-      }
-
-      // BigInt-specific Options
-      case ArgTag.BIGINT: {
-        // Note: bigints use their own control ids so that the front-end can
-        // tell them apart from numbers, which it parses with `Number()`.
-        // A bigint is always integral, so there is no Integer/Float choice.
-        const interval = arg.getIntervals()[0];
-        html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-bigIntMin" name="${idBase}-bigIntMin" value="${htmlEscape(
-          bigIntOrThrow(interval.min).toString()
-        )}">Min value</vscode-text-field>`;
-        html += " ";
-        html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-bigIntMax" name="${idBase}-bigIntMax" value="${htmlEscape(
-          bigIntOrThrow(interval.max).toString()
-        )}">Max value</vscode-text-field>`;
-        break;
-      }
-
-      // String-specific Options
-      case ArgTag.STRING: {
-        // TODO: validate for ints > 0 !!!
-        html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-minStrLen" name="${idBase}-min" value="${htmlEscape(
-          arg.getOptions().strLength.min.toString()
-        )}">Min length</vscode-text-field>`;
-        html += " ";
-        html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-maxStrLen" name="${idBase}-max" value="${htmlEscape(
-          arg.getOptions().strLength.max.toString()
-        )}">Max length</vscode-text-field>`;
-        html += " ";
-        html += /*html*/ `<vscode-text-field size="10" ${disabledFlag} id="${idBase}-strCharset" name="${idBase}-strCharset" value="${htmlEscape(
-          encodeEscapeSequences(arg.getOptions().strCharset)
-        )}">Character set</vscode-text-field>`;
-        html += " ";
-        html += /*html*/ `<vscode-text-field size="10" ${disabledFlag} id="${idBase}-strRegex" placeholder="(none)" name="${idBase}-strRegex" value="${htmlEscape(
-          arg.getOptions().strRegex ?? ""
-        )}">Regex</vscode-text-field>`;
-        break;
-      }
-
-      // Bytes-specific Options
-      case ArgTag.BYTES: {
-        html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-minByteLen" name="${idBase}-min" value="${htmlEscape(
-          arg.getOptions().byteLength.min.toString()
-        )}">Min length</vscode-text-field>`;
-        html += " ";
-        html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-maxByteLen" name="${idBase}-max" value="${htmlEscape(
-          arg.getOptions().byteLength.max.toString()
-        )}">Max length</vscode-text-field>`;
-        break;
-      }
-
-      // Dictionary-specific Options
-      case ArgTag.DICTIONARY: {
-        html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-minDictLen" name="${idBase}-min" value="${htmlEscape(
-          arg.getOptions().dictLength.min.toString()
-        )}">Min entries</vscode-text-field>`;
-        html += " ";
-        html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-maxDictLen" name="${idBase}-max" value="${htmlEscape(
-          arg.getOptions().dictLength.max.toString()
-        )}">Max entries</vscode-text-field>`;
-
-        html += `<div>`;
-        const children = arg.getChildren();
-        if (children.length === 2) {
-          html += this._argDefToHtmlForm(
-            children[0],
-            counter,
-            "",
-            "",
-            arg.getType()
-          );
-          html += this._argDefToHtmlForm(
-            children[1],
-            counter,
-            "",
-            "",
-            arg.getType()
-          );
-        }
-        html += `</div>`;
-        html += this._argDefArrayToHtmlForm(arg, idBase, disabledFlag);
-        break;
-      }
-
-      // Set-specific Options
-      case ArgTag.SET: {
-        html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-minSetLen" name="${idBase}-min" value="${htmlEscape(
-          arg.getOptions().setLength.min.toString()
-        )}">Min entries</vscode-text-field>`;
-        html += " ";
-        html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-maxSetLen" name="${idBase}-max" value="${htmlEscape(
-          arg.getOptions().setLength.max.toString()
-        )}">Max entries</vscode-text-field>`;
-
-        html += `<div>`;
-        const children = arg.getChildren();
-        if (children.length >= 1) {
-          html += this._argDefToHtmlForm(
-            children[0],
-            counter,
-            "",
-            "",
-            arg.getType()
-          );
-        }
-        html += `</div>`;
-        html += this._argDefArrayToHtmlForm(arg, idBase, disabledFlag);
-        break;
-      }
-
-      // Boolean-specific Options
-      case ArgTag.BOOLEAN: {
-        let intervals = arg.getIntervals();
-        if (intervals.length === 0) {
-          intervals = [{ min: false, max: true }];
-        }
-        html +=
-          /*html*/
-          `<vscode-radio-group>
-            <!--<label slot="label">Values</label>-->
-            <vscode-radio ${disabledFlag} id="${idBase}-trueFalse" name="${idBase}-trueFalse" ${
-              intervals[0].min !== intervals[0].max ? " checked " : ""
-            }>True and false</vscode-radio>
-            <vscode-radio ${disabledFlag} id="${idBase}-trueOnly" name="${idBase}-trueOnly" ${
-              intervals[0].min && intervals[0].max ? " checked " : ""
-            }>True</vscode-radio>
-            <vscode-radio ${disabledFlag} id="${idBase}-falseOnly" name="${idBase}-falseOnly" ${
-              !intervals[0].min && !intervals[0].max ? " checked " : ""
-            }>False</vscode-radio>
-          </vscode-radio-group>`;
-        break;
-      }
-
-      // Union-specific Options
-      case ArgTag.UNION: {
-        // Output the array form prior to the child arguments.
-        // This seems odd, but the screen reads better to the user this way.
-        html += this._argDefArrayToHtmlForm(arg, idBase, disabledFlag);
-        html += `<div>`;
-        arg
-          .getChildren()
-          .forEach(
-            (child) =>
-              (html += this._argDefToHtmlForm(
-                child,
-                counter,
-                " | ",
-                "",
-                arg.getType()
-              ))
-          );
-        html += `</div>`;
-        break;
-      }
-
-      // Object-specific Options
-      case ArgTag.OBJECT: {
-        // Output the array form prior to the child arguments.
-        // This seems odd, but the screen reads better to the user this way.
-        html += this._argDefArrayToHtmlForm(arg, idBase, disabledFlag);
-        html += `<div>`;
-        const children = arg.getChildren();
-        children.forEach(
-          (child, i) =>
-            (html += this._argDefToHtmlForm(
-              child,
-              counter,
-              "",
-              i === children.length - 1 ? "" : ",",
-              arg.getType()
-            ))
-        );
-        html += `</div>`;
-        break;
-      }
-
-      case ArgTag.LITERAL:
-        // A literal typed input has only one possible value
-        break;
-
-      // Tuple-specific Options
-      case ArgTag.TUPLE: {
-        // Output the array form prior to the child arguments.
-        // This seems odd, but the screen reads better to the user this way.
-        html += this._argDefArrayToHtmlForm(arg, idBase, disabledFlag);
-        html += `<div>`;
-        arg
-          .getChildren()
-          .forEach(
-            (child) =>
-              (html += this._argDefToHtmlForm(
-                child,
-                counter,
-                "",
-                "",
-                arg.getType()
-              ))
-          );
-        html += `</div>`;
-        break;
-      }
-
-      case ArgTag.UNRESOLVED:
-        throw new Error(
-          `Cannot render an unresolved argument definition as an HTML form.`
-        );
-    }
-
-    // For composite types: array settings were already output prior to children
-    if (
-      argType !== ArgTag.OBJECT &&
-      argType !== ArgTag.UNION &&
-      argType !== ArgTag.TUPLE &&
-      argType !== ArgTag.DICTIONARY &&
-      argType !== ArgTag.SET
-    ) {
-      html += this._argDefArrayToHtmlForm(arg, idBase, disabledFlag);
-    }
-
-    html += `</div>`;
-    // For container types: output end character ("}" or "]") here
-    if (
-      argType === ArgTag.OBJECT ||
-      argType === ArgTag.TUPLE ||
-      argType === ArgTag.DICTIONARY ||
-      argType === ArgTag.SET
-    ) {
-      const closeChar = argType === ArgTag.TUPLE ? "]" : "}";
-      html += /*html*/ `<div class="argDef-preClose"></div><div class="argDef-close">${closeChar}${endSep}</div>`;
-    }
-    html += `</div>`;
-
-    // Return the argument's HTML
-    return html;
-  } // fn: _argDefToHtmlForm()
-
-  /**
-   * Returns an HTML form representing an array argument definition.
-   *
-   * @param arg Argument definition to render as an array
-   * @param idBase The arg id base of the parent argument form
-   * @param disabledFlag Indicates whether controls are disabled
-   * @returns html string representing an argument's array form
-   */
-  private _argDefArrayToHtmlForm(
-    arg: ArgDef,
-    idBase: string,
-    disabledFlag: string
-  ): string {
-    let html = "";
-    const argOptions = arg.getOptions();
-
-    // Array dimensions
-    for (let dim = 0; dim < arg.getDim(); dim++) {
-      const arrayBase = `${idBase}-array-${dim}`;
-      const arrayDimOptions = argOptions.dimLength;
-      const minValue =
-        arrayDimOptions.length > dim
-          ? arrayDimOptions[dim].min
-          : argOptions.dftDimLength.min;
-      const maxValue =
-        arrayDimOptions.length > dim
-          ? arrayDimOptions[dim].max
-          : argOptions.dftDimLength.max;
-
-      // TODO: validate for ints > 0 !!!
-      html += /*html*/ ``;
-      html +=
-        /*html*/
-        `<div class="argDef-array">
-          <vscode-text-field size="3" ${disabledFlag} id="${arrayBase}-min" name="${arrayBase}-min" value="${htmlEscape(
-            minValue.toString()
-          )}">Array${"[]".repeat(dim + 1)}: Min 
-          </vscode-text-field>
-          <vscode-text-field size="3" ${disabledFlag} id="${arrayBase}-max" name="${arrayBase}-max" value="${htmlEscape(
-            maxValue.toString()
-          )}">Max length
-          </vscode-text-field>
-          ${
-            dim === 0
-              ? /*html*/ `
-                <span class="tooltipped tooltipped-n" aria-label="Fill array with unique values?">
-                  <vscode-checkbox ${disabledFlag} id="${arrayBase}-unique" ${
-                    argOptions.dimsUnique === true ? "checked" : ""
-                  } current-checked="${
-                    argOptions.dimsUnique === true ? "true" : "false"
-                  }">
-                    Unique?
-                  </vscode-checkbox>
-                </span>`
-              : ""
-          }
-        </div>`;
-    }
-
-    return html;
-  } // fn: _arraySizeHtmlForm()
 } // class: FuzzPanel
 
 // ------------------------ Helper Functions ----------------------- //
@@ -3985,6 +3515,9 @@ export type FuzzPanelViewState = {
   userGenerators: string[];
   lang: ProgramLanguage;
   panelState: FuzzPanelStateSerialized;
+  argDefs?: ArgDefLike[];
+  argOverrides?: fuzzer.FuzzArgOverride[];
+  disabled?: boolean;
 };
 
 /**
