@@ -1,7 +1,6 @@
 import * as http from "http";
 import * as fs from "fs";
 import * as path from "path";
-import * as net from "net";
 
 const MIME_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -35,7 +34,9 @@ export class FuzzPanelTestServer {
       }
 
       // Resolve static asset from repository root
-      const relPath = cleanPath.startsWith("/") ? cleanPath.slice(1) : cleanPath;
+      const relPath = cleanPath.startsWith("/")
+        ? cleanPath.slice(1)
+        : cleanPath;
       const fullPath = path.resolve(process.cwd(), relPath);
 
       if (fs.existsSync(fullPath) && fs.statSync(fullPath).isFile()) {
@@ -58,9 +59,13 @@ export class FuzzPanelTestServer {
   public async start(): Promise<string> {
     return new Promise((resolve, reject) => {
       this._server.listen(0, "127.0.0.1", () => {
-        const addr = this._server.address() as net.AddressInfo;
-        this._port = addr.port;
-        resolve(`http://127.0.0.1:${this._port}/`);
+        const addr = this._server.address();
+        if (addr && typeof addr === "object" && "port" in addr) {
+          this._port = addr.port;
+          resolve(`http://127.0.0.1:${this._port}/`);
+        } else {
+          reject(new Error("Failed to determine server port"));
+        }
       });
       this._server.on("error", reject);
     });

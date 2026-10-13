@@ -187,13 +187,11 @@ export function argDefToHtmlForm(
     case ArgTag.NUMBER: {
       const interval = getArgIntervals(arg)[0] ?? { min: 0, max: 100 };
       const numInteger = getArgOptions(arg).numInteger ?? true;
-      html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-min" name="${idBase}-min" value="${htmlEscape(
-        Number(interval.min).toString()
-      )}">Min value</vscode-text-field>`;
+      const minValStr = htmlEscape(Number(interval.min).toString());
+      const maxValStr = htmlEscape(Number(interval.max).toString());
+      html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-min" name="${idBase}-min" value="${minValStr}" current-value="${minValStr}">Min value</vscode-text-field>`;
       html += " ";
-      html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-max" name="${idBase}-max" value="${htmlEscape(
-        Number(interval.max).toString()
-      )}">Max value</vscode-text-field>`;
+      html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-max" name="${idBase}-max" value="${maxValStr}" current-value="${maxValStr}">Max value</vscode-text-field>`;
       html += " ";
       html += /*html*/ `<vscode-radio-group style="display: inline-block;">
             <vscode-radio ${disabledFlag} id="${idBase}-numInteger" name="${idBase}-numInteger" ${
@@ -209,60 +207,52 @@ export function argDefToHtmlForm(
     // BigInt-specific Options
     case ArgTag.BIGINT: {
       const interval = getArgIntervals(arg)[0] ?? { min: 0n, max: 100n };
-      html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-bigIntMin" name="${idBase}-bigIntMin" value="${htmlEscape(
-        bigIntOrThrow(interval.min).toString()
-      )}">Min value</vscode-text-field>`;
+      const minBigValStr = htmlEscape(bigIntOrThrow(interval.min).toString());
+      const maxBigValStr = htmlEscape(bigIntOrThrow(interval.max).toString());
+      html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-bigIntMin" name="${idBase}-bigIntMin" value="${minBigValStr}" current-value="${minBigValStr}">Min value</vscode-text-field>`;
       html += " ";
-      html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-bigIntMax" name="${idBase}-bigIntMax" value="${htmlEscape(
-        bigIntOrThrow(interval.max).toString()
-      )}">Max value</vscode-text-field>`;
+      html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-bigIntMax" name="${idBase}-bigIntMax" value="${maxBigValStr}" current-value="${maxBigValStr}">Max value</vscode-text-field>`;
       break;
     }
 
     // String-specific Options
     case ArgTag.STRING: {
       const options = getArgOptions(arg);
-      html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-minStrLen" name="${idBase}-min" value="${htmlEscape(
-        (options.strLength?.min ?? 0).toString()
-      )}">Min length</vscode-text-field>`;
-      html += " ";
-      html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-maxStrLen" name="${idBase}-max" value="${htmlEscape(
-        (options.strLength?.max ?? 10).toString()
-      )}">Max length</vscode-text-field>`;
-      html += " ";
-      html += /*html*/ `<vscode-text-field size="10" ${disabledFlag} id="${idBase}-strCharset" name="${idBase}-strCharset" value="${htmlEscape(
+      const minStrVal = htmlEscape((options.strLength?.min ?? 0).toString());
+      const maxStrVal = htmlEscape((options.strLength?.max ?? 10).toString());
+      const charsetVal = htmlEscape(
         encodeEscapeSequences(options.strCharset ?? "")
-      )}">Character set</vscode-text-field>`;
+      );
+      const regexVal = htmlEscape(options.strRegex ?? "");
+      html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-minStrLen" name="${idBase}-min" value="${minStrVal}" current-value="${minStrVal}">Min length</vscode-text-field>`;
       html += " ";
-      html += /*html*/ `<vscode-text-field size="10" ${disabledFlag} id="${idBase}-strRegex" placeholder="(none)" name="${idBase}-strRegex" value="${htmlEscape(
-        options.strRegex ?? ""
-      )}">Regex</vscode-text-field>`;
+      html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-maxStrLen" name="${idBase}-max" value="${maxStrVal}" current-value="${maxStrVal}">Max length</vscode-text-field>`;
+      html += " ";
+      html += /*html*/ `<vscode-text-field size="10" ${disabledFlag} id="${idBase}-strCharset" name="${idBase}-strCharset" value="${charsetVal}" current-value="${charsetVal}">Character set</vscode-text-field>`;
+      html += " ";
+      html += /*html*/ `<vscode-text-field size="10" ${disabledFlag} id="${idBase}-strRegex" placeholder="(none)" name="${idBase}-strRegex" value="${regexVal}" current-value="${regexVal}">Regex</vscode-text-field>`;
       break;
     }
 
     // Bytes-specific Options
     case ArgTag.BYTES: {
       const options = getArgOptions(arg);
-      html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-minByteLen" name="${idBase}-min" value="${htmlEscape(
-        (options.byteLength?.min ?? 0).toString()
-      )}">Min length</vscode-text-field>`;
+      const minByteVal = htmlEscape((options.byteLength?.min ?? 0).toString());
+      const maxByteVal = htmlEscape((options.byteLength?.max ?? 4).toString());
+      html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-minByteLen" name="${idBase}-min" value="${minByteVal}" current-value="${minByteVal}">Min length</vscode-text-field>`;
       html += " ";
-      html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-maxByteLen" name="${idBase}-max" value="${htmlEscape(
-        (options.byteLength?.max ?? 4).toString()
-      )}">Max length</vscode-text-field>`;
+      html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-maxByteLen" name="${idBase}-max" value="${maxByteVal}" current-value="${maxByteVal}">Max length</vscode-text-field>`;
       break;
     }
 
     // Dictionary-specific Options
     case ArgTag.DICTIONARY: {
       const options = getArgOptions(arg);
-      html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-minDictLen" name="${idBase}-min" value="${htmlEscape(
-        (options.dictLength?.min ?? 0).toString()
-      )}">Min entries</vscode-text-field>`;
+      const minDictVal = htmlEscape((options.dictLength?.min ?? 0).toString());
+      const maxDictVal = htmlEscape((options.dictLength?.max ?? 4).toString());
+      html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-minDictLen" name="${idBase}-min" value="${minDictVal}" current-value="${minDictVal}">Min entries</vscode-text-field>`;
       html += " ";
-      html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-maxDictLen" name="${idBase}-max" value="${htmlEscape(
-        (options.dictLength?.max ?? 4).toString()
-      )}">Max entries</vscode-text-field>`;
+      html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-maxDictLen" name="${idBase}-max" value="${maxDictVal}" current-value="${maxDictVal}">Max entries</vscode-text-field>`;
 
       html += `<div>`;
       const children = getArgChildren(arg);
@@ -294,13 +284,11 @@ export function argDefToHtmlForm(
     // Set-specific Options
     case ArgTag.SET: {
       const options = getArgOptions(arg);
-      html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-minSetLen" name="${idBase}-min" value="${htmlEscape(
-        (options.setLength?.min ?? 0).toString()
-      )}">Min entries</vscode-text-field>`;
+      const minSetVal = htmlEscape((options.setLength?.min ?? 0).toString());
+      const maxSetVal = htmlEscape((options.setLength?.max ?? 4).toString());
+      html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-minSetLen" name="${idBase}-min" value="${minSetVal}" current-value="${minSetVal}">Min entries</vscode-text-field>`;
       html += " ";
-      html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-maxSetLen" name="${idBase}-max" value="${htmlEscape(
-        (options.setLength?.max ?? 4).toString()
-      )}">Max entries</vscode-text-field>`;
+      html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-maxSetLen" name="${idBase}-max" value="${maxSetVal}" current-value="${maxSetVal}">Max entries</vscode-text-field>`;
 
       html += `<div>`;
       const children = getArgChildren(arg);
@@ -469,14 +457,15 @@ export function argDefArrayToHtmlForm(
         ? arrayDimOptions[dim].max
         : (argOptions.dftDimLength?.max ?? 4);
 
+    const minArrVal = htmlEscape(minValue.toString());
+    const maxArrVal = htmlEscape(maxValue.toString());
+
     html += /*html*/ `<div class="argDef-array">
-          <vscode-text-field size="3" ${disabledFlag} id="${arrayBase}-min" name="${arrayBase}-min" value="${htmlEscape(
-            minValue.toString()
-          )}">Array${"[]".repeat(dim + 1)}: Min 
+          <vscode-text-field size="3" ${disabledFlag} id="${arrayBase}-min" name="${arrayBase}-min" value="${minArrVal}" current-value="${minArrVal}">Array${"[]".repeat(
+            dim + 1
+          )}: Min 
           </vscode-text-field>
-          <vscode-text-field size="3" ${disabledFlag} id="${arrayBase}-max" name="${arrayBase}-max" value="${htmlEscape(
-            maxValue.toString()
-          )}">Max length
+          <vscode-text-field size="3" ${disabledFlag} id="${arrayBase}-max" name="${arrayBase}-max" value="${maxArrVal}" current-value="${maxArrVal}">Max length
           </vscode-text-field>
           ${
             dim === 0
@@ -518,7 +507,7 @@ export type ArgDefData = {
 export type ArgDefLike = ArgDef | ArgDefData;
 
 function isArgDefInstance(arg: ArgDefLike): arg is ArgDef {
-  return typeof (arg as ArgDef).getName === "function";
+  return "getName" in arg && typeof arg.getName === "function";
 } // fn: isArgDefInstance()
 
 function getArgType(arg: ArgDefLike): ArgTag {
@@ -548,7 +537,7 @@ function getArgIntervals(arg: ArgDefLike): Interval<ArgType>[] {
 function getArgOptions(arg: ArgDefLike): ArgOptions {
   return isArgDefInstance(arg)
     ? arg.getOptions()
-    : (arg.options ?? ({} as ArgOptions));
+    : (arg.options ?? cast<ArgOptions>({}));
 } // fn: getArgOptions()
 
 function getArgChildren(arg: ArgDefLike): ArgDefLike[] {
@@ -595,3 +584,8 @@ function htmlEscape(text: string): string {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
 } // fn: htmlEscape()
+
+function cast<T>(val: unknown): T;
+function cast(val: unknown): unknown {
+  return val;
+} // fn: cast()
