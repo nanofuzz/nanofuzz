@@ -6,7 +6,7 @@ import { ArgDef } from "../analysis/ArgDef";
 import { ArgTag } from "../analysis/Types";
 import { LlmQueryResult } from "./Types";
 import { FunctionDef } from "../analysis/FunctionDef";
-import { LlmAdapter } from "../adapters/LlmAdapter";
+import { LlmAdapter, LlmQueryOptions } from "../adapters/LlmAdapter";
 import { Leaderboard } from "./Leaderboard";
 import { InputAndSource } from "../Types";
 import { prompt } from "./AiInputGenerator";
@@ -977,6 +977,7 @@ describe("src/fuzzer/generators/AiInputGenerator: ", () => {
     Config.override("nanofuzz.ai.model", "gemini-flash");
     Config.override("nanofuzz.ai.apiKey", "test-key");
     Config.override("nanofuzz.ai.backfeedPriorInputs", false);
+    Config.override("nanofuzz.ai.retryDelay", 0);
 
     try {
       // 1. Valid inputs parsed and queued
@@ -1050,6 +1051,200 @@ describe("src/fuzzer/generators/AiInputGenerator: ", () => {
       expect(gen4.getCallStats().history[0]).toEqual({
         failure: true,
         message: "simulated model timeout",
+      });
+    } finally {
+      Config.clearOverrides();
+    }
+  });
+
+  it("disables adapter retries via query options and refreshes query on timeout", async () => {
+    class TestableAiInputGenerator extends AiInputGenerator.AiInputGenerator {
+      public setLlm(llm: LlmAdapter): void {
+        this._llm = llm;
+      }
+      public callGetMoreInputs(): void {
+        this._getMoreInputs();
+      }
+      public getQueueLength(): number {
+        return this._inputQueue.length;
+      }
+      public getCallStats() {
+        return this._stats.calls;
+      }
+    }
+
+    class MockLlmAdapter extends LlmAdapter {
+      public queryCount = 0;
+      public readonly prompts: string[] = [];
+      public readonly receivedOptions: (LlmQueryOptions | undefined)[] = [];
+
+      public override get id(): string {
+        return "test-model";
+      }
+      public override async query(
+        promptText: string | string[],
+        _schema?: zod.ZodType,
+        options?: LlmQueryOptions
+      ): Promise<LlmQueryResult> {
+        this.queryCount++;
+        this.receivedOptions.push(options);
+        this.prompts.push(
+          Array.isArray(promptText) ? promptText.join("\n") : promptText
+        );
+        if (this.queryCount === 1) {
+          throw new Error("Request timeout after 60000ms");
+        }
+        return {
+          text: JSON.stringify({ programInputs: [{ x: 42 }] }),
+          stats: {
+            tokensSent: 10,
+            tokensSentCost: { amt: 0, unit: "USD" },
+            tokensReceived: 5,
+            tokensReceivedCost: { amt: 0, unit: "USD" },
+          },
+        };
+      }
+    }
+
+    const argDef = makeArgDef(
+      "test.ts",
+      "x",
+      0,
+      ArgTag.NUMBER,
+      ArgDef.getDefaultOptions(),
+      0
+    );
+    const fnDef = FunctionDef.fromFunctionRef({
+      module: "test.ts",
+      name: "testFn",
+      src: "function testFn(x: number) {}",
+      lang: "typescript",
+      startOffset: 0,
+      endOffset: 30,
+      isExported: true,
+      isVoid: true,
+      args: [],
+    });
+
+    Config.override("nanofuzz.ai.provider", "gemini");
+    Config.override("nanofuzz.ai.model", "gemini-flash");
+    Config.override("nanofuzz.ai.apiKey", "test-key");
+    Config.override("nanofuzz.ai.backfeedPriorInputs", false);
+    Config.override("nanofuzz.ai.retries", 3);
+    Config.override("nanofuzz.ai.retryDelay", 0);
+
+    try {
+      const gen = new TestableAiInputGenerator(
+        fnDef,
+        "seed_retry",
+        new Map([["x", argDef]]),
+        "function testFn(x: number) {}"
+      );
+      const mockLlm = new MockLlmAdapter();
+      gen.setLlm(mockLlm);
+      gen.callGetMoreInputs();
+      await new Promise((resolve) => setTimeout(resolve, 15));
+
+      // Adapter retry was disabled on both queries
+      expect(mockLlm.queryCount).toBe(2);
+      expect(mockLlm.receivedOptions[0]?.retryOnTimeout).toBeFalse();
+      expect(mockLlm.receivedOptions[0]?.retries).toBe(0);
+      expect(mockLlm.receivedOptions[1]?.retryOnTimeout).toBeFalse();
+
+      // Second query was refreshed with sequence number 2
+      expect(mockLlm.prompts[0]).toContain(
+        "This is request number 1 for this testing session."
+      );
+      expect(mockLlm.prompts[1]).toContain(
+        "This is request number 2 for this testing session."
+      );
+
+      // Inputs were successfully queued after refreshed query
+      expect(gen.getQueueLength()).toBe(1);
+      expect(gen.getCallStats().valid).toBe(1);
+      expect(gen.getCallStats().failed).toBe(0);
+    } finally {
+      Config.clearOverrides();
+    }
+  });
+
+  it("does not retry when non-timeout error occurs during query", async () => {
+    class TestableAiInputGenerator extends AiInputGenerator.AiInputGenerator {
+      public setLlm(llm: LlmAdapter): void {
+        this._llm = llm;
+      }
+      public callGetMoreInputs(): void {
+        this._getMoreInputs();
+      }
+      public getQueueLength(): number {
+        return this._inputQueue.length;
+      }
+      public getCallStats() {
+        return this._stats.calls;
+      }
+    }
+
+    class MockLlmAdapter extends LlmAdapter {
+      public queryCount = 0;
+
+      public override get id(): string {
+        return "test-model";
+      }
+      public override async query(
+        _promptText: string | string[],
+        _schema?: zod.ZodType,
+        _options?: LlmQueryOptions
+      ): Promise<LlmQueryResult> {
+        this.queryCount++;
+        throw new Error("Authentication failed: invalid API key");
+      }
+    }
+
+    const argDef = makeArgDef(
+      "test.ts",
+      "x",
+      0,
+      ArgTag.NUMBER,
+      ArgDef.getDefaultOptions(),
+      0
+    );
+    const fnDef = FunctionDef.fromFunctionRef({
+      module: "test.ts",
+      name: "testFn",
+      src: "function testFn(x: number) {}",
+      lang: "typescript",
+      startOffset: 0,
+      endOffset: 30,
+      isExported: true,
+      isVoid: true,
+      args: [],
+    });
+
+    Config.override("nanofuzz.ai.provider", "gemini");
+    Config.override("nanofuzz.ai.model", "gemini-flash");
+    Config.override("nanofuzz.ai.apiKey", "test-key");
+    Config.override("nanofuzz.ai.retries", 3);
+    Config.override("nanofuzz.ai.retryDelay", 0);
+
+    try {
+      const gen = new TestableAiInputGenerator(
+        fnDef,
+        "seed_auth_fail",
+        new Map([["x", argDef]]),
+        "function testFn(x: number) {}"
+      );
+      const mockLlm = new MockLlmAdapter();
+      gen.setLlm(mockLlm);
+      gen.callGetMoreInputs();
+      await new Promise((resolve) => setTimeout(resolve, 15));
+
+      // No retries on non-timeout error
+      expect(mockLlm.queryCount).toBe(1);
+      expect(gen.getQueueLength()).toBe(0);
+      expect(gen.getCallStats().failed).toBe(1);
+      expect(gen.getCallStats().history[0]).toEqual({
+        failure: true,
+        message: "Authentication failed: invalid API key",
       });
     } finally {
       Config.clearOverrides();

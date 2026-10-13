@@ -249,4 +249,61 @@ describe("src/fuzzer/adapters/LlmAdapter:", () => {
     );
     expect(askCount).toBe(3);
   });
+
+  it("query: does not retry on timeout when retryOnTimeout option is false", async () => {
+    Config.override("nanofuzz.ai.provider", "ollama");
+    Config.override("nanofuzz.ai.model", "qwen2.5-coder:7b");
+    Config.override("nanofuzz.ai.retries", 3);
+    Config.override("nanofuzz.ai.retryDelay", 1);
+
+    let askCount = 0;
+    spyOn(nodellm.Chat.prototype, "ask").and.callFake(async () => {
+      askCount++;
+      throw new Error("Request timeout after 60000ms");
+    });
+
+    const adapter = new LlmAdapter();
+    await expectAsync(
+      adapter.query("generate inputs", undefined, { retryOnTimeout: false })
+    ).toBeRejectedWithError(/Request timeout after 60000ms/);
+    expect(askCount).toBe(1);
+  });
+
+  it("query: does not retry on timeout when noRetries option is true", async () => {
+    Config.override("nanofuzz.ai.provider", "ollama");
+    Config.override("nanofuzz.ai.model", "qwen2.5-coder:7b");
+    Config.override("nanofuzz.ai.retries", 3);
+    Config.override("nanofuzz.ai.retryDelay", 1);
+
+    let askCount = 0;
+    spyOn(nodellm.Chat.prototype, "ask").and.callFake(async () => {
+      askCount++;
+      throw new Error("Request timeout after 60000ms");
+    });
+
+    const adapter = new LlmAdapter();
+    await expectAsync(
+      adapter.query("generate inputs", undefined, { noRetries: true })
+    ).toBeRejectedWithError(/Request timeout after 60000ms/);
+    expect(askCount).toBe(1);
+  });
+
+  it("query: does not retry on timeout when retries option is 0", async () => {
+    Config.override("nanofuzz.ai.provider", "ollama");
+    Config.override("nanofuzz.ai.model", "qwen2.5-coder:7b");
+    Config.override("nanofuzz.ai.retries", 3);
+    Config.override("nanofuzz.ai.retryDelay", 1);
+
+    let askCount = 0;
+    spyOn(nodellm.Chat.prototype, "ask").and.callFake(async () => {
+      askCount++;
+      throw new Error("Request timeout after 60000ms");
+    });
+
+    const adapter = new LlmAdapter();
+    await expectAsync(
+      adapter.query("generate inputs", undefined, { retries: 0 })
+    ).toBeRejectedWithError(/Request timeout after 60000ms/);
+    expect(askCount).toBe(1);
+  });
 });

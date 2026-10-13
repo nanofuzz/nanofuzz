@@ -8,7 +8,7 @@ import {
 } from "../analysis/Types";
 import * as JSONN from "../../Jsonn";
 import * as ValueMapper from "../mappers/ValueMapper";
-import { LlmAdapter } from "../adapters/LlmAdapter";
+import { LlmAdapter, isTimeoutError } from "../adapters/LlmAdapter";
 import { ArgDef } from "../analysis/ArgDef";
 import { FunctionDef } from "../analysis/FunctionDef";
 import { FuzzTestResults, InputAndSource } from "../Types";
@@ -49,6 +49,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
   protected _covMeasure?: CoverageMeasure; // Code coverage measure provider
   protected _targetAttempts: Record<string, number> = {}; // Historical attempts per target function to decay weight
   protected _leaderboard?: Leaderboard<InputAndSource>; // Running list of interesting inputs
+  protected _validator: ArgDefValidator; // Validator for argument constraints
 
   public constructor(
     fn: FunctionDef,
@@ -64,6 +65,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
     this._moduleSrc = moduleSrc;
     this._covMeasure = covMeasure;
     this._leaderboard = leaderboard;
+    this._validator = new ArgDefValidator(this._specs);
     this._tokensPerInput = this._estimateTokensPerInput();
     this._requestedInputCount = this._getRequestedInputCount();
   } // fn: constructor
@@ -155,6 +157,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
   public onRunStart(active: boolean): void {
     this._exhausted = false;
     this._targetAttempts = {};
+    this._validator = new ArgDefValidator(this._specs);
     this._tokensPerInput = this._estimateTokensPerInput();
     this._requestedInputCount = this._getRequestedInputCount();
 
@@ -176,9 +179,8 @@ export class AiInputGenerator extends AbstractInputGenerator {
     // Input generation options may have changed, so re-validate
     // any cached inputs
     if (this._inputQueue.length) {
-      const validator = new ArgDefValidator(this._specs);
       this._inputQueue = this._inputQueue.filter((e) => {
-        const isValid = validator.validate(e.value);
+        const isValid = this._validator.validate(e.value);
         if (!isValid) {
           this._stats.inputs.invalidLater++;
         }
@@ -262,206 +264,240 @@ export class AiInputGenerator extends AbstractInputGenerator {
    */
   protected _getMoreInputs(): void {
     // Let any prior calls finish before making a new one
-    if (this._callsPending || this._exhausted) {
+    if (this._callsPending || this._exhausted || !this._llm) {
       return;
     }
 
-    if (this._llm) {
-      let resolvePending: (hasInputs: boolean) => void = () => {};
-      this._pendingPromise = new Promise<boolean>((resolve) => {
-        resolvePending = resolve;
-      });
+    let resolvePending: (hasInputs: boolean) => void = () => {};
+    this._pendingPromise = new Promise<boolean>((resolve) => {
+      resolvePending = resolve;
+    });
 
-      this._callsPending++;
+    this._callsPending++;
+
+    this._fetchInputs().finally(() => {
+      this._callsPending--;
+      resolvePending(this._inputQueue.length > 0);
+      this._pendingPromise = undefined;
+    });
+  } // fn: _getMoreInputs
+
+  /**
+   * Fetches inputs from the back-end AI model, refreshing the prompt on timeout.
+   */
+  protected async _fetchInputs(): Promise<void> {
+    if (!this._llm) {
+      return;
+    }
+
+    try {
       const modelId = this._llm.id;
-      const validInputs: { [k: string]: ArgValueType }[] = [];
-      const invalidInputs: { [k: string]: ArgValueType }[] = [];
-      const validator = new ArgDefValidator(this._specs);
-
-      this._stats.calls.sent++;
       const [schema, directives] = this._getInputsSchema(this._fn.getLang());
-      const numRequested = this._getRequestedInputCount();
 
       const enableCoverageGuidance = Config.get<boolean>(
         "nanofuzz.ai.coverageGuidance",
         true
       );
-      const coveragePromise =
-        this._covMeasure && enableCoverageGuidance
-          ? this._covMeasure.getCoverageStats().catch(() => undefined)
-          : Promise.resolve(undefined);
+      const cfg = LlmAdapter.getConfig();
+      const maxAttempts = Math.max(1, cfg.retries);
 
-      // Fetch inputs from the llm
-      coveragePromise
-        .then((covStats) => {
-          if (!this._llm) {
-            return undefined;
-          }
-          let uncoveredInfo: UncoveredCoverageInfo | undefined = undefined;
-          let frontierTarget: SampledFrontierTarget | undefined = undefined;
+      let inputs: LlmQueryResult | undefined;
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        if (!this._llm || this._exhausted) {
+          return;
+        }
 
-          if (covStats) {
-            uncoveredInfo = extractUncoveredLines(covStats);
-            frontierTarget = CoverageFrontierSampler.sample({
-              covStats,
-              uncoveredInfo,
-              targetAttempts: this._targetAttempts,
-              prng: this._prng,
-            });
-          }
+        const covStats =
+          this._covMeasure && enableCoverageGuidance
+            ? await this._covMeasure.getCoverageStats().catch(() => undefined)
+            : undefined;
 
-          const promptText = prompt.genInputs(
-            this._fn,
-            directives,
-            this._allInputs,
-            this._moduleSrc,
-            numRequested,
-            this._stats.calls.sent,
+        let uncoveredInfo: UncoveredCoverageInfo | undefined = undefined;
+        let frontierTarget: SampledFrontierTarget | undefined = undefined;
+
+        if (covStats) {
+          uncoveredInfo = extractUncoveredLines(covStats);
+          frontierTarget = CoverageFrontierSampler.sample({
+            covStats,
             uncoveredInfo,
-            frontierTarget,
-            this._leaderboard
-          );
-
-          return this._llm.query(promptText, schema);
-        })
-        .then((inputs: LlmQueryResult | undefined) => {
-          if (!inputs) {
-            return;
-          }
-
-          // Update tokens received stats
-          if (inputs.stats) {
-            this._stats.tokens.received += inputs.stats.tokensReceived;
-            if (!this._stats.tokens.receivedCost) {
-              this._stats.tokens.receivedCost = {
-                ...inputs.stats.tokensReceivedCost,
-              };
-            } else if (
-              this._stats.tokens.receivedCost.unit ===
-              inputs.stats.tokensReceivedCost.unit
-            ) {
-              this._stats.tokens.receivedCost.amt +=
-                inputs.stats.tokensReceivedCost.amt;
-            }
-
-            // Update tokens sent stats
-            this._stats.tokens.sent += inputs.stats.tokensSent;
-            if (!this._stats.tokens.sentCost) {
-              this._stats.tokens.sentCost = {
-                ...inputs.stats.tokensSentCost,
-              };
-            } else if (
-              this._stats.tokens.sentCost.unit ===
-              inputs.stats.tokensSentCost.unit
-            ) {
-              this._stats.tokens.sentCost.amt +=
-                inputs.stats.tokensSentCost.amt;
-            }
-          }
-
-          let parsed: { programInputs: { [k: string]: ArgValueType }[] };
-          try {
-            parsed = JSONN.parse(inputs.text);
-          } catch {
-            this._stats.calls.invalid++;
-            this._stats.calls.history.push({ discard: true });
-            return;
-          }
-
-          // Sanity check llm output
-          if (
-            !(
-              typeof parsed === "object" &&
-              parsed !== null &&
-              "programInputs" in parsed &&
-              Array.isArray(parsed.programInputs) &&
-              parsed.programInputs.every(
-                (e) => typeof e === "object" && e !== null && !Array.isArray(e)
-              )
-            )
-          ) {
-            this._stats.calls.invalid++;
-            this._stats.calls.history.push({ discard: true });
-            return;
-          }
-
-          this._stats.calls.valid++;
-          this._stats.calls.history.push({ success: true });
-
-          // Process the inputs
-          const specMap = new Map<string, ArgDef>(
-            this._specs.map((arg) => [arg.getName(), arg])
-          );
-          parsed.programInputs.forEach((input) => {
-            this._stats.inputs.gen++;
-
-            // Decode the input
-            Object.keys(input).forEach((k) => {
-              input[k] = _decode(input[k], specMap.get(k));
-            });
-
-            // Validate the input
-            if (
-              validator.validate(
-                this._specs.map((arg) => {
-                  return {
-                    tag: "ArgValueTypeWrapped",
-                    value: input[arg.getName()],
-                  };
-                })
-              )
-            ) {
-              validInputs.push(input);
-            } else {
-              invalidInputs.push(input);
-              this._stats.inputs.invalid++;
-            }
+            targetAttempts: this._targetAttempts,
+            prng: this._prng,
           });
-          if (invalidInputs.length && LlmAdapter.isDebugConfigured()) {
-            console.debug(
-              `Discarded ${invalidInputs.length} of ${invalidInputs.length + validInputs.length} LLM inputs for being invalid: ${JSONN.stringify(invalidInputs, null, 2)}`
-            );
-          }
+        }
 
-          // Push valid inputs to the input queue
-          this._inputQueue.push(
-            ...validInputs.map((input): InputAndSource => {
+        const numRequested = this._getRequestedInputCount();
+        this._stats.calls.sent++;
+
+        const promptText = prompt.genInputs(
+          this._fn,
+          directives,
+          this._allInputs,
+          this._moduleSrc,
+          numRequested,
+          this._stats.calls.sent,
+          uncoveredInfo,
+          frontierTarget,
+          this._leaderboard
+        );
+
+        try {
+          inputs = await this._llm.query(promptText, schema, {
+            retryOnTimeout: false,
+            retries: 0,
+          });
+          break;
+        } catch (err: unknown) {
+          if (
+            isTimeoutError(err) &&
+            attempt < maxAttempts &&
+            !this._exhausted
+          ) {
+            if (LlmAdapter.isDebugConfigured()) {
+              console.log(
+                `[NaNofuzz AI] Request timed out on attempt ${attempt}/${maxAttempts}. Refreshing query and retrying in ${cfg.retryDelay}ms...`
+              );
+            }
+            if (cfg.retryDelay > 0) {
+              await new Promise((resolve) =>
+                setTimeout(resolve, cfg.retryDelay)
+              );
+            }
+            continue;
+          }
+          throw err;
+        }
+      }
+
+      if (!inputs) {
+        return;
+      }
+
+      // Update tokens received stats
+      if (inputs.stats) {
+        this._stats.tokens.received += inputs.stats.tokensReceived;
+        if (!this._stats.tokens.receivedCost) {
+          this._stats.tokens.receivedCost = {
+            ...inputs.stats.tokensReceivedCost,
+          };
+        } else if (
+          this._stats.tokens.receivedCost.unit ===
+          inputs.stats.tokensReceivedCost.unit
+        ) {
+          this._stats.tokens.receivedCost.amt +=
+            inputs.stats.tokensReceivedCost.amt;
+        }
+
+        // Update tokens sent stats
+        this._stats.tokens.sent += inputs.stats.tokensSent;
+        if (!this._stats.tokens.sentCost) {
+          this._stats.tokens.sentCost = {
+            ...inputs.stats.tokensSentCost,
+          };
+        } else if (
+          this._stats.tokens.sentCost.unit === inputs.stats.tokensSentCost.unit
+        ) {
+          this._stats.tokens.sentCost.amt += inputs.stats.tokensSentCost.amt;
+        }
+      }
+
+      let parsed: { programInputs: Record<string, ArgValueType>[] };
+      try {
+        parsed = JSONN.parse(inputs.text);
+      } catch {
+        this._stats.calls.invalid++;
+        this._stats.calls.history.push({ discard: true });
+        return;
+      }
+
+      // Sanity check llm output
+      if (
+        !(
+          typeof parsed === "object" &&
+          parsed !== null &&
+          "programInputs" in parsed &&
+          Array.isArray(parsed.programInputs) &&
+          parsed.programInputs.every(
+            (e) => typeof e === "object" && e !== null && !Array.isArray(e)
+          )
+        )
+      ) {
+        this._stats.calls.invalid++;
+        this._stats.calls.history.push({ discard: true });
+        return;
+      }
+
+      this._stats.calls.valid++;
+      this._stats.calls.history.push({ success: true });
+
+      // Process the inputs
+      const validInputs: Record<string, ArgValueType>[] = [];
+      const invalidInputs: Record<string, ArgValueType>[] = [];
+      const specMap = new Map<string, ArgDef>(
+        this._specs.map((arg) => [arg.getName(), arg])
+      );
+      parsed.programInputs.forEach((input) => {
+        this._stats.inputs.gen++;
+
+        // Decode the input
+        Object.keys(input).forEach((k) => {
+          input[k] = _decode(input[k], specMap.get(k));
+        });
+
+        // Validate the input
+        if (
+          this._validator.validate(
+            this._specs.map((arg) => {
               return {
-                tick: 0,
-                value: this._specs.map((arg): ArgValueTypeWrapped => {
-                  return {
-                    tag: "ArgValueTypeWrapped",
-                    value: input[arg.getName()],
-                  };
-                }),
-                source: {
-                  type: "generator",
-                  generator: "AiInputGenerator",
-                  model: modelId ?? "unknown model",
-                },
+                tag: "ArgValueTypeWrapped",
+                value: input[arg.getName()],
               };
             })
-          );
+          )
+        ) {
+          validInputs.push(input);
+        } else {
+          invalidInputs.push(input);
+          this._stats.inputs.invalid++;
+        }
+      });
+      if (invalidInputs.length && LlmAdapter.isDebugConfigured()) {
+        console.debug(
+          `Discarded ${invalidInputs.length} of ${invalidInputs.length + validInputs.length} LLM inputs for being invalid: ${JSONN.stringify(invalidInputs, null, 2)}`
+        );
+      }
 
-          if (this._inputQueue.length === 0) {
-            this._exhausted = true;
-          }
+      // Push valid inputs to the input queue
+      this._inputQueue.push(
+        ...validInputs.map((input): InputAndSource => {
+          return {
+            tick: 0,
+            value: this._specs.map((arg): ArgValueTypeWrapped => {
+              return {
+                tag: "ArgValueTypeWrapped",
+                value: input[arg.getName()],
+              };
+            }),
+            source: {
+              type: "generator",
+              generator: "AiInputGenerator",
+              model: modelId ?? "unknown model",
+            },
+          };
         })
-        .catch((e: unknown) => {
-          this._stats.calls.failed++;
-          this._stats.calls.history.push({
-            failure: true,
-            message: isError(e) ? e.message : "unknown error",
-          });
-          this._exhausted = true;
-        })
-        .finally(() => {
-          this._callsPending--;
-          resolvePending(this._inputQueue.length > 0);
-          this._pendingPromise = undefined;
-        });
+      );
+
+      if (this._inputQueue.length === 0) {
+        this._exhausted = true;
+      }
+    } catch (e: unknown) {
+      this._stats.calls.failed++;
+      this._stats.calls.history.push({
+        failure: true,
+        message: isError(e) ? e.message : "unknown error",
+      });
+      this._exhausted = true;
     }
-  } // fn: _getMoreInputs
+  } // fn: _fetchInputs
 
   /**
    * Returns a JSON schema representing the function inputs.
@@ -469,7 +505,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
    * @returns JSON schema
    */
   protected _getInputsSchema(lang: ProgramLanguage): [zod.ZodObject, string[]] {
-    const zodObj: { [k: string]: zod.ZodType } = {};
+    const zodObj: Record<string, zod.ZodType> = {};
     const directives: string[] = [];
     this._specs.forEach((arg) => {
       zodObj[arg.getName()] = this._argDefToSchema(
@@ -629,7 +665,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
           break;
         }
         case ArgTag.OBJECT: {
-          const obj: { [k: string]: zod.ZodType } = {};
+          const obj: Record<string, zod.ZodType> = {};
           argChildren.forEach((child) => {
             const zodChild = this._argDefToSchema(
               child,
