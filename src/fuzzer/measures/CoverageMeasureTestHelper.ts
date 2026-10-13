@@ -10,6 +10,7 @@ import {
 } from "../Types";
 import { ArgDef } from "../analysis/ArgDef";
 import { FunctionDef } from "../analysis/FunctionDef";
+import { getDefaultFuzzExecutionOptions } from "../FuzzerFactory";
 
 /**
  * Shared test helpers and stubs for CoverageMeasure test suites.
@@ -48,7 +49,6 @@ export const anyEnv: FuzzEnv = {
     useHuman: false,
     useProperty: false,
     useTransformer: false,
-    workers: "auto",
     measures: {
       FailedTestMeasure: { enabled: false, weight: 0 },
       CoverageMeasure: { enabled: true, weight: 1 },
@@ -60,6 +60,7 @@ export const anyEnv: FuzzEnv = {
       UserInputGenerator: { enabled: false },
     },
   },
+  executionOptions: getDefaultFuzzExecutionOptions(),
   function: FunctionDef.fromFunctionRef({
     module: "/tmp/abs_value.py",
     name: "abs_value",
