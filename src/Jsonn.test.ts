@@ -293,6 +293,30 @@ describe("JSONN: ", () => {
     expect(unpackedMap).toEqual(mapVal);
   });
 
+  it("pack/unpack ignores functions on objects and array elements", () => {
+    const objWithFunctions = {
+      name: "test",
+      syncFn: () => "hello",
+      asyncFn: async () => "world",
+      nested: {
+        val: 42,
+        nestedAsync: async () => 100,
+      },
+      list: [1, () => "ignored", 3],
+    };
+
+    const packed = JSONN.pack(objWithFunctions);
+    const unpacked = JSONN.unpack<typeof objWithFunctions>(packed);
+
+    expect(unpacked.name).toBe("test");
+    expect("syncFn" in unpacked).toBeFalse();
+    expect("asyncFn" in unpacked).toBeFalse();
+    expect(unpacked.nested.val).toBe(42);
+    expect("nestedAsync" in unpacked.nested).toBeFalse();
+    expect(unpacked.list[0]).toBe(1);
+    expect(unpacked.list[2]).toBe(3);
+  });
+
   it("packString canonical for literal and cloned objects", () => {
     const obj = { x: [1, 2, 3], y: "test", z: new Set([10, 20]) };
     const clonedObj = structuredClone(obj);

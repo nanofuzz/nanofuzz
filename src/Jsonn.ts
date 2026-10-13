@@ -301,6 +301,9 @@ function jsonnReplacerMsgpack(
 ): unknown {
   const current = replacer ? replacer.call(holder, key, value) : value;
 
+  if (typeof current === "function") {
+    return undefined;
+  }
   if (isBufferOrUint8Array(current)) {
     return current;
   }
@@ -331,14 +334,24 @@ function jsonnReplacerMsgpack(
     };
   }
   if (Array.isArray(current)) {
-    return current.map((item, index) =>
-      jsonnReplacerMsgpack(current, String(index), item, replacer)
-    );
+    return current.map((item, index) => {
+      const sanitized = jsonnReplacerMsgpack(
+        current,
+        String(index),
+        item,
+        replacer
+      );
+      return typeof sanitized === "function" ? null : sanitized;
+    });
   }
   if (current !== null && typeof current === "object") {
     const obj: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(current)) {
-      obj[k] = jsonnReplacerMsgpack(current, k, v, replacer);
+      if (typeof v === "function") continue;
+      const sanitized = jsonnReplacerMsgpack(current, k, v, replacer);
+      if (typeof sanitized !== "function" && typeof sanitized !== "undefined") {
+        obj[k] = sanitized;
+      }
     }
     return obj;
   }

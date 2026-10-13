@@ -30,6 +30,7 @@ import {
   FuzzPanelMessageToWebView,
   FuzzPanelMessageFromWebView,
   FuzzPanelPinMessage,
+  FuzzPanelViewState,
 } from "./FuzzPanelController";
 
 const vscode = acquireVsCodeApi();
@@ -434,39 +435,29 @@ async function main() {
 
   // ----------------------- Data Loads ----------------------- //
 
-  // Load the fuzzer results data from the HTML
-  resultsData = JSONN.parse(
-    htmlUnescape(getElementByIdOrThrow("fuzzResultsData").innerHTML)
-  );
+  // Load unified view state from the packed HTML script element
+  const viewStateElem = getElementByIdOrThrow("fuzzViewState");
+  const rawB64 = viewStateElem.textContent?.trim() ?? "";
+  const packedBytes = Uint8Array.from(atob(rawB64), (c) => c.charCodeAt(0));
+  const viewState = JSONN.unpack<FuzzPanelViewState>(packedBytes);
 
-  // Load & display the validator functions from the HTML
-  validators = JSONN.parse(
-    htmlUnescape(getElementByIdOrThrow("validators").innerHTML)
-  );
+  // Load the fuzzer results data from the view state
+  resultsData = viewState.results
+    ? viewState.results
+    : cast<FuzzTestResults>({});
+
+  // Load & display the validator functions from the view state
+  validators = viewState.validators;
   refreshValidators(validators);
 
-  // Load & display the transformer state from the HTML
-  const transformersElem = document.getElementById("transformers");
-  if (transformersElem) {
-    const transformersList: string[] = JSONN.parse(
-      htmlUnescape(transformersElem.innerHTML)
-    );
-    refreshTransformers(transformersList);
-  }
+  // Load & display the transformer state from the view state
+  refreshTransformers(viewState.transformers);
 
-  // Load & display the user generator state from the HTML
-  const userGeneratorsElem = document.getElementById("userGenerators");
-  if (userGeneratorsElem) {
-    const userGeneratorsList: string[] = JSONN.parse(
-      htmlUnescape(userGeneratorsElem.innerHTML)
-    );
-    refreshUserGenerators(userGeneratorsList);
-  }
+  // Load & display the user generator state from the view state
+  refreshUserGenerators(viewState.userGenerators ?? []);
 
-  // Load column sort orders from the HTML
-  columnSortOrders = JSONN.parse(
-    htmlUnescape(getElementByIdOrThrow("fuzzSortColumns").innerHTML)
-  );
+  // Load column sort orders from the view state
+  columnSortOrders = viewState.sortColumns ?? defaultColumnSortOrders;
   if (Object.keys(columnSortOrders).length === 0) {
     columnSortOrders = defaultColumnSortOrders;
   }
@@ -477,8 +468,8 @@ async function main() {
     }
   });
 
-  // Load the coverage heatmap state from the HTML
-  if (getElementByIdOrThrow("fuzzShowCoverageHeatmap").innerText === "true") {
+  // Load the coverage heatmap state from the view state
+  if (viewState.showCoverageHeatmap) {
     handleToggleCoverageHeatmap();
   }
 
@@ -568,27 +559,18 @@ async function main() {
   // Load and save the state back to the webview.  There does not seem to be
   // an 'official' way to directly persist state within the extension itself,
   // at least as of vscode 1.69.2.  Hence, the roundtrip.
-  vscode.setState(
-    JSONN.parse(htmlUnescape(getElementByIdOrThrow("fuzzPanelState").innerHTML))
-  );
+  vscode.setState(viewState.panelState);
 
   // Update the list of hidden columns
-  const addlHiddenColumns = JSONN.parse(
-    htmlUnescape(getElementByIdOrThrow("fuzzHideColumns").innerHTML)
-  );
-  if (Array.isArray(addlHiddenColumns)) {
-    hiddenColumns.push(...addlHiddenColumns);
+  if (Array.isArray(viewState.hiddenColumns)) {
+    hiddenColumns.push(...viewState.hiddenColumns);
   }
 
   // Get the fuzzer language
-  lang = JSONN.parse<ProgramLanguage>(
-    htmlUnescape(getElementByIdOrThrow("fuzzLang").innerHTML)
-  );
+  lang = viewState.lang;
 
   // Get the PUT's current input argument names
-  putInputCols = JSONN.parse<string[]>(
-    htmlUnescape(getElementByIdOrThrow("fuzzInputCols").innerHTML)
-  );
+  putInputCols = viewState.inputCols;
 
   // ----------------------- Fill Grids ----------------------- //
 
@@ -955,11 +937,8 @@ async function main() {
     }); // for each type (e.g. bad output, passed)
 
     // If we need to toast a result, do that now
-    const toastResultElement = document.getElementById("fuzzFocusInput");
-    if (toastResultElement) {
-      const toastResult: unknown = JSONN.parse(
-        htmlUnescape(toastResultElement.innerHTML)
-      );
+    if (viewState.focusInput) {
+      const toastResult = viewState.focusInput;
       if (
         Array.isArray(toastResult) &&
         toastResult.length === 2 &&
@@ -2922,22 +2901,10 @@ function getIdBase(i: number) {
   return "argDef-" + i;
 } // fn: getIdBase()
 
-/**
- * Adapted from: escape-goat/index.js
- *
- * Unescapes an HTML string.
- *
- * @param html HTML to unescape
- * @returns unescaped string
- */
-function htmlUnescape(html: string) {
-  return html
-    .replace(/&gt;/g, ">")
-    .replace(/&lt;/g, "<")
-    .replace(/&#0?39;/g, "'")
-    .replace(/&quot;/g, '"')
-    .replace(/&amp;/g, "&");
-} // fn: htmlUnescape()
+function cast<T>(val: unknown): T;
+function cast(val: unknown): unknown {
+  return val;
+} // fn: cast()
 
 /**
  * Adapted from: escape-goat/index.js
