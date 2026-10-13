@@ -6,6 +6,11 @@ import * as JSONN from "../Jsonn";
 import * as Config from "../Config";
 import { FuzzStopReason, FuzzTestResults } from "../fuzzer/Types";
 import { CodeCoverageMeasureStats } from "../fuzzer/measures/CoverageMeasure";
+import { FuzzConfigStore } from "../fuzzer/FuzzConfigStore";
+import {
+  clearCapturedConsoleLogs,
+  getCapturedConsoleLogs,
+} from "./ConsoleIsolator";
 import {
   formatDuration,
   formatRate,
@@ -658,6 +663,142 @@ describe("cli:", () => {
     expect(res.status).toBe(0);
     expect(res.stdout).toContain("Online: 1 worker, v2 engine, mab scheduler.");
     expect(res.stdout).not.toContain("qwen2.5-coder:7b");
+  });
+
+  it("captures and suppresses NodeLLM console spam during CommandLine runs", async () => {
+    clearCapturedConsoleLogs();
+    const outputFile = path.join(tmpDir, "nodellm_spam_suppression.json5");
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testCoverageOneFile";
+
+    const origLoad = FuzzConfigStore.loadForFunction;
+    spyOn(FuzzConfigStore, "loadForFunction").and.callFake((...args) => {
+      console.warn(
+        "[NodeLLM] Skipping structured output capability validation for model qwen2.5-coder:32b"
+      );
+      console.log("[NodeLLM] Informational log from backend");
+      return origLoad(...args);
+    });
+
+    const res = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--no-ai-input-generator",
+      "--max-tests",
+      "1",
+      "--seed",
+      "cli_seed_nodellm_spam",
+    ]);
+
+    expect(res.status).toBe(0);
+    expect(res.stdout).not.toContain("[NodeLLM]");
+    expect(res.stderr).not.toContain("[NodeLLM]");
+    expect(res.stdout).toContain("NaNofuzz v");
+    expect(res.stdout).toContain("Target: testCoverageOneFile");
+
+    const captured = getCapturedConsoleLogs();
+    expect(captured.length).toBeGreaterThanOrEqual(2);
+    expect(
+      captured.some((e) =>
+        e.message.includes(
+          "Skipping structured output capability validation for model qwen2.5-coder:32b"
+        )
+      )
+    ).toBeTrue();
+    expect(
+      captured.some((e) => e.message.includes("Informational log from backend"))
+    ).toBeTrue();
+  });
+
+  it("redirects non-CommandLine stdout writes to stderr so only CommandLine writes to stdout", async () => {
+    clearCapturedConsoleLogs();
+    const outputFile = path.join(tmpDir, "stdout_isolation.json5");
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testCoverageOneFile";
+
+    const origLoad = FuzzConfigStore.loadForFunction;
+    spyOn(FuzzConfigStore, "loadForFunction").and.callFake((...args) => {
+      process.stdout.write(
+        "[DirectStream] Direct stdout write from dependency\n"
+      );
+      return origLoad(...args);
+    });
+
+    const res = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--no-ai-input-generator",
+      "--max-tests",
+      "1",
+      "--seed",
+      "cli_seed_stdout_isolation",
+    ]);
+
+    expect(res.status).toBe(0);
+    // Non-CommandLine outputs MUST NOT be in stdout
+    expect(res.stdout).not.toContain("[DirectStream]");
+
+    // CommandLine's own outputs MUST be in stdout
+    expect(res.stdout).toContain("NaNofuzz v");
+    expect(res.stdout).toContain("Target: testCoverageOneFile");
+    expect(res.stdout).toContain("Online:");
+
+    // Non-CommandLine outputs MUST be redirected to stderr
+    expect(res.stderr).toContain(
+      "[DirectStream] Direct stdout write from dependency"
+    );
+  });
+
+  it("routes captured library console logs to stderr when debug is configured without polluting stdout", async () => {
+    clearCapturedConsoleLogs();
+    const outputFile = path.join(tmpDir, "nodellm_debug_ai.json5");
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testCoverageOneFile";
+
+    const origLoad = FuzzConfigStore.loadForFunction;
+    spyOn(FuzzConfigStore, "loadForFunction").and.callFake((...args) => {
+      console.warn(
+        "[NodeLLM] Skipping structured output capability validation for model qwen2.5-coder:32b"
+      );
+      console.log("[NodeLLM Debug] Querying Ollama endpoint");
+      return origLoad(...args);
+    });
+
+    const res = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--debug",
+      "ai",
+      "--no-ai-input-generator",
+      "--max-tests",
+      "1",
+      "--seed",
+      "cli_seed_nodellm_debug_ai",
+    ]);
+
+    expect(res.status).toBe(0);
+    // Stdout must never have external logs or debug output
+    expect(res.stdout).not.toContain("[NodeLLM]");
+    // Debug info and warnings are routed cleanly to stderr
+    expect(res.stderr).toContain("[NodeLLM Debug] Querying Ollama endpoint");
+    expect(res.stderr).toContain(
+      "Skipping structured output capability validation for model qwen2.5-coder:32b"
+    );
+
+    const captured = getCapturedConsoleLogs();
+    expect(
+      captured.some((e) =>
+        e.message.includes(
+          "Skipping structured output capability validation for model qwen2.5-coder:32b"
+        )
+      )
+    ).toBeTrue();
   });
 
   it("formatDuration: formats seconds, minutes, and hours correctly", () => {
