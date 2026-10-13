@@ -40,11 +40,12 @@ describe("fuzzer: general & parameterized engine tests", () => {
   });
 
   it("FuzzerFactory instantiates v1, v2, or v3 based on engine option and auto logic", () => {
-    // Default engine ("auto") with workers !== 1 (intOptions has workers: 2) -> FuzzerV3
+    // Default engine ("auto") with workers !== 1 -> FuzzerV3
     const testerDefaultMulti = FuzzerFactory(
       "nanofuzz-study/examples/1.ts",
       "minValue",
-      intOptions
+      intOptions,
+      { workers: 2 }
     );
     expect(testerDefaultMulti.constructor.name).toBe("FuzzerV3");
     expect(testerDefaultMulti.engine).toBe("v3");
@@ -53,7 +54,8 @@ describe("fuzzer: general & parameterized engine tests", () => {
     const testerDefaultSingle = FuzzerFactory(
       "nanofuzz-study/examples/1.ts",
       "minValue",
-      { ...intOptions, workers: 1 }
+      intOptions,
+      { workers: 1 }
     );
     expect(testerDefaultSingle.constructor.name).toBe("FuzzerV2");
     expect(testerDefaultSingle.engine).toBe("v2");
@@ -62,8 +64,8 @@ describe("fuzzer: general & parameterized engine tests", () => {
     const testerAutoSingle = FuzzerFactory(
       "nanofuzz-study/examples/1.ts",
       "minValue",
-      { ...intOptions, workers: 1 },
-      { engine: "auto" }
+      intOptions,
+      { engine: "auto", workers: 1 }
     );
     expect(testerAutoSingle.constructor.name).toBe("FuzzerV2");
     expect(testerAutoSingle.engine).toBe("v2");
@@ -72,8 +74,8 @@ describe("fuzzer: general & parameterized engine tests", () => {
     const testerAutoMulti = FuzzerFactory(
       "nanofuzz-study/examples/1.ts",
       "minValue",
-      { ...intOptions, workers: 4 },
-      { engine: "auto" }
+      intOptions,
+      { engine: "auto", workers: 4 }
     );
     expect(testerAutoMulti.constructor.name).toBe("FuzzerV3");
     expect(testerAutoMulti.engine).toBe("v3");
@@ -82,8 +84,8 @@ describe("fuzzer: general & parameterized engine tests", () => {
     const testerAutoWorkersAuto = FuzzerFactory(
       "nanofuzz-study/examples/1.ts",
       "minValue",
-      { ...intOptions, workers: "auto" },
-      { engine: "auto" }
+      intOptions,
+      { engine: "auto", workers: "auto" }
     );
     expect(testerAutoWorkersAuto.constructor.name).toBe("FuzzerV3");
     expect(testerAutoWorkersAuto.engine).toBe("v3");
@@ -92,8 +94,8 @@ describe("fuzzer: general & parameterized engine tests", () => {
     const testerV1 = FuzzerFactory(
       "nanofuzz-study/examples/1.ts",
       "minValue",
-      { ...intOptions, workers: 1 },
-      { engine: "v1" }
+      intOptions,
+      { engine: "v1", workers: 1 }
     );
     expect(testerV1.constructor.name).toBe("Tester");
     expect(testerV1.engine).toBe("v1");
@@ -102,8 +104,8 @@ describe("fuzzer: general & parameterized engine tests", () => {
     const testerV2 = FuzzerFactory(
       "nanofuzz-study/examples/1.ts",
       "minValue",
-      { ...intOptions, workers: 4 },
-      { engine: "v2" }
+      intOptions,
+      { engine: "v2", workers: 4 }
     );
     expect(testerV2.constructor.name).toBe("FuzzerV2");
     expect(testerV2.engine).toBe("v2");
@@ -112,8 +114,8 @@ describe("fuzzer: general & parameterized engine tests", () => {
     const testerV3 = FuzzerFactory(
       "nanofuzz-study/examples/1.ts",
       "minValue",
-      { ...intOptions, workers: 1 },
-      { engine: "v3" }
+      intOptions,
+      { engine: "v3", workers: 1 }
     );
     expect(testerV3.constructor.name).toBe("FuzzerV3");
     expect(testerV3.engine).toBe("v3");
@@ -162,7 +164,6 @@ describe("fuzzer: general & parameterized engine tests", () => {
         "minValue",
         {
           ...intOptions,
-          workers: 4,
           maxTests: 10,
           useTransformer: false,
           useProperty: false,
@@ -170,6 +171,12 @@ describe("fuzzer: general & parameterized engine tests", () => {
             ...intOptions.generators,
             UserInputGenerator: { enabled: false },
           },
+        },
+        {
+          engine: "v3",
+          workers: 4,
+          outputResults: "all",
+          precompile: false,
         }
       );
 
@@ -189,7 +196,6 @@ describe("fuzzer: general & parameterized engine tests", () => {
         "async_greeting",
         {
           ...intOptions,
-          workers: 3,
           maxTests: 10,
           useProperty: true,
           useTransformer: false,
@@ -197,6 +203,12 @@ describe("fuzzer: general & parameterized engine tests", () => {
             ...intOptions.generators,
             UserInputGenerator: { enabled: false },
           },
+        },
+        {
+          engine: "v3",
+          workers: 3,
+          outputResults: "all",
+          precompile: false,
         }
       );
 
@@ -216,7 +228,6 @@ describe("fuzzer: general & parameterized engine tests", () => {
         "py_user_gen",
         {
           ...intOptions,
-          workers: 3,
           maxTests: 10,
           useProperty: false,
           useTransformer: false,
@@ -226,6 +237,12 @@ describe("fuzzer: general & parameterized engine tests", () => {
             AiInputGenerator: { enabled: false },
             UserInputGenerator: { enabled: true },
           },
+        },
+        {
+          engine: "v3",
+          workers: 3,
+          outputResults: "all",
+          precompile: false,
         }
       );
 
@@ -245,7 +262,6 @@ describe("fuzzer: general & parameterized engine tests", () => {
         "targetTransformed",
         {
           ...intOptions,
-          workers: 4,
           maxTests: 10,
           useTransformer: true,
           useProperty: false,
@@ -253,6 +269,12 @@ describe("fuzzer: general & parameterized engine tests", () => {
             ...intOptions.generators,
             UserInputGenerator: { enabled: false },
           },
+        },
+        {
+          engine: "v3",
+          workers: 4,
+          outputResults: "all",
+          precompile: false,
         }
       );
 

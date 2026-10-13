@@ -3,6 +3,7 @@ import { FunctionDef } from "./analysis/FunctionDef";
 import { FunctionRef } from "./analysis/Types";
 import {
   CurrentRunStats,
+  FuzzExecutionOptions,
   FuzzOptions,
   FuzzResultCategoryValues,
   FuzzStopReason,
@@ -17,6 +18,7 @@ import {
  */
 export class FuzzStats {
   protected _options: FuzzOptions;
+  protected _executionOptions: FuzzExecutionOptions;
   protected _function: FunctionDef;
   protected _validators: FunctionRef[];
   protected _transformers: FunctionRef[];
@@ -31,9 +33,11 @@ export class FuzzStats {
     fnDef: FunctionDef,
     validators: FunctionRef[],
     transformers: FunctionRef[] = [],
-    userGenerators: FunctionRef[] = []
+    userGenerators: FunctionRef[] = [],
+    executionOptions: FuzzExecutionOptions
   ) {
     this._options = options;
+    this._executionOptions = structuredClone(executionOptions);
     this._function = fnDef;
     this._validators = validators;
     this._transformers = transformers;
@@ -45,6 +49,15 @@ export class FuzzStats {
   public get results(): FuzzTestResults {
     return this._results;
   } // get: results
+
+  public get executionOptions(): FuzzExecutionOptions {
+    return structuredClone(this._executionOptions);
+  } // get: executionOptions
+
+  public set executionOptions(options: FuzzExecutionOptions) {
+    this._executionOptions = structuredClone(options);
+    this._results.env.executionOptions = structuredClone(options);
+  } // set: executionOptions
 
   public set options(options: FuzzOptions) {
     this._options = options;
@@ -169,7 +182,7 @@ export class FuzzStats {
     }
 
     // 5. Result retention policy
-    const retention = this._options.outputResults ?? "all";
+    const retention = this._executionOptions.outputResults;
     const shouldRetain =
       retention === "all" ||
       Boolean(candidate.injected) ||
@@ -327,6 +340,7 @@ export class FuzzStats {
       toolVersion: getToolVersion(),
       env: {
         options: structuredClone(this._options),
+        executionOptions: structuredClone(this._executionOptions),
         function: this._function,
         validators: structuredClone(this._validators),
         transformers: structuredClone(this._transformers),

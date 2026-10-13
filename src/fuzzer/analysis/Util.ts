@@ -2,7 +2,7 @@ import { ArgDef } from "./ArgDef";
 import { AbstractProgram } from "./AbstractProgram";
 import { FunctionDef } from "./FunctionDef";
 import { ArgType, ArgValueType, FunctionRef } from "./Types";
-import { FuzzOptions } from "../Types";
+import { FuzzExecutionOptions, FuzzOptions } from "../Types";
 
 /**
  * Replacer function for JSON.stringify that removes the parent property
@@ -76,10 +76,6 @@ export function isOptionValid(options: FuzzOptions): boolean {
     options.maxTests >= 0 &&
     options.maxDupeInputs >= 0 &&
     options.maxFailures >= 0 &&
-    (options.outputResults === undefined ||
-      ["all", "failures", "none"].includes(options.outputResults)) &&
-    (options.workers === "auto" ||
-      (typeof options.workers === "number" && options.workers >= 1)) &&
     ArgDef.isOptionValid(options.argDefaults) &&
     typeof options.generators === "object" &&
     "RandomInputGenerator" in options.generators &&
@@ -87,6 +83,22 @@ export function isOptionValid(options: FuzzOptions): boolean {
     typeof options.measures === "object"
   );
 } // fn: isOptionValid()
+
+/**
+ * Validates a FuzzExecutionOptions object.
+ *
+ * @param options execution options
+ * @returns true if the options are valid, false otherwise
+ */
+export function isExecutionOptionValid(options: FuzzExecutionOptions): boolean {
+  return (
+    ["auto", "v1", "v2", "v3"].includes(options.engine) &&
+    (options.workers === "auto" ||
+      (typeof options.workers === "number" && options.workers >= 1)) &&
+    ["all", "failures", "none"].includes(options.outputResults) &&
+    typeof options.precompile === "boolean"
+  );
+} // fn: isExecutionOptionValid()
 
 /**
  * Returns the given interval bound as a bigint.

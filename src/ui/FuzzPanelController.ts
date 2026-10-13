@@ -144,6 +144,9 @@ export class FuzzPanel {
         panel,
         extensionUri,
         FuzzerFactory(moduleFile, fnName, normalizeFuzzOptions(options), {
+          engine: "auto",
+          workers: Config.get("nanofuzz.fuzzer.workers", "auto"),
+          outputResults: "all",
           precompile: true,
         })
       );
@@ -207,7 +210,12 @@ export class FuzzPanel {
             state.fnRef.module,
             state.fnRef.name,
             normalizeFuzzOptions(state.options),
-            { precompile: true }
+            {
+              engine: "auto",
+              workers: Config.get("nanofuzz.fuzzer.workers", "auto"),
+              outputResults: "all",
+              precompile: true,
+            }
           )
         );
         fuzzPanel = localFuzzPanel;
@@ -1230,7 +1238,13 @@ export class FuzzPanel {
         this._tester = FuzzerFactory(
           this._fuzzEnv.function.getModule(),
           this._fuzzEnv.function.getName(),
-          this._fuzzEnv.options
+          this._fuzzEnv.options,
+          {
+            engine: "auto",
+            workers: Config.get("nanofuzz.fuzzer.workers", "auto"),
+            outputResults: "all",
+            precompile: false,
+          }
         );
       } catch (e: unknown) {
         this._state = FuzzPanelState.error;
@@ -1424,7 +1438,13 @@ export class FuzzPanel {
       this._tester = FuzzerFactory(
         this._fuzzEnv.function.getModule(),
         this._fuzzEnv.function.getName(),
-        this._fuzzEnv.options
+        this._fuzzEnv.options,
+        {
+          engine: "auto",
+          workers: Config.get("nanofuzz.fuzzer.workers", "auto"),
+          outputResults: "all",
+          precompile: true,
+        }
       );
     } catch (e: unknown) {
       this._state = FuzzPanelState.error;
@@ -3476,7 +3496,12 @@ export async function handleFuzzWithValidatorCommand(
 
   let tester: IFuzzer;
   try {
-    tester = FuzzerFactory(srcFile, fnName, fuzzOptions);
+    tester = FuzzerFactory(srcFile, fnName, fuzzOptions, {
+      engine: "auto",
+      workers: Config.get("nanofuzz.fuzzer.workers", "auto"),
+      outputResults: "all",
+      precompile: false,
+    });
   } catch (e: unknown) {
     const msg = getErrorMessageOrJson(e);
     vscode.window.showErrorMessage(
