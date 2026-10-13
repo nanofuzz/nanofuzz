@@ -72,7 +72,7 @@ export class FuzzPanel {
     ) {
       FuzzPanel.panelShowingCoverage._doStaleNotify();
     }
-  }, 5000);
+  }, 5000).unref();
 
   // Instance variables
   private readonly _panel: vscode.WebviewPanel; // The WebView panel for this FuzzPanel instance
