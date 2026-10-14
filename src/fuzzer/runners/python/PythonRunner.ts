@@ -371,7 +371,7 @@ export class PythonRunner extends AbstractRunner {
       pyPaths.push(
         ...pythonEnv.env.PYTHONPATH.split(
           process.platform === "win32" ? ";" : ":"
-        )
+        ).map((p) => (p ? path.resolve(p) : p))
       );
     }
 
