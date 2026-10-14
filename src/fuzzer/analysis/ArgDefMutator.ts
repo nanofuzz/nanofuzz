@@ -1160,6 +1160,111 @@ export class ArgDefMutator {
                 }
               }
 
+              // 6. Delete block of entries (AFL++ HAVOC_DEL_BLOCK style)
+              const maxDel = keys.length - dictLen.min;
+              if (maxDel >= 2) {
+                const delLen = Math.min(
+                  maxDel,
+                  2 + Math.floor(prng() * maxDel)
+                );
+                const maxStart = keys.length - delLen;
+                const startPos = Math.floor(prng() * (maxStart + 1));
+                const deleteKeys = new Set(
+                  keys.slice(startPos, startPos + delLen)
+                );
+                const newDict: Record<string, ArgValueType> = {};
+                for (const k of keys) {
+                  if (!deleteKeys.has(k)) {
+                    newDict[k] = dict[k];
+                  }
+                }
+                if (ArgDefValidator.validate(newDict, spec)) {
+                  addMutations([
+                    {
+                      name: "dictionary-deleteBlock",
+                      value: newDict,
+                      path: [...subInput.subPath],
+                      simplifies: true,
+                    },
+                  ]);
+                }
+              }
+
+              // 7. Truncate to minimum dictionary length (simplification / escape local minima)
+              if (keys.length > dictLen.min + 1) {
+                const newDict: Record<string, ArgValueType> = {};
+                for (let i = 0; i < dictLen.min; i++) {
+                  newDict[keys[i]] = dict[keys[i]];
+                }
+                if (ArgDefValidator.validate(newDict, spec)) {
+                  addMutations([
+                    {
+                      name: "dictionary-truncateToMin",
+                      value: newDict,
+                      path: [...subInput.subPath],
+                      simplifies: true,
+                    },
+                  ]);
+                }
+              }
+
+              // 8. Swap values between two keys (AFL++ swap style)
+              if (keys.length >= 2) {
+                const idx1 = Math.floor(prng() * keys.length);
+                let idx2 = Math.floor(prng() * (keys.length - 1));
+                if (idx2 >= idx1) idx2++;
+                const k1 = keys[idx1];
+                const k2 = keys[idx2];
+                if (JSONN.stringify(dict[k1]) !== JSONN.stringify(dict[k2])) {
+                  const newDict: Record<string, ArgValueType> = {
+                    ...dict,
+                    [k1]: dict[k2],
+                    [k2]: dict[k1],
+                  };
+                  if (ArgDefValidator.validate(newDict, spec)) {
+                    addMutations([
+                      {
+                        name: "dictionary-swapValues",
+                        value: newDict,
+                        path: [...subInput.subPath],
+                      },
+                    ]);
+                  }
+                }
+              }
+
+              // 9. Replace multiple values in a block (AFL++ fill_block / replace_block style)
+              if (keys.length >= 2 && valueSpec && !valueSpec.isNoInput()) {
+                const replaceCount = Math.min(
+                  keys.length,
+                  2 + Math.floor(prng() * Math.min(5, keys.length - 1))
+                );
+                const maxStart = keys.length - replaceCount;
+                const startPos = Math.floor(prng() * (maxStart + 1));
+                const targetKeys = keys.slice(
+                  startPos,
+                  startPos + replaceCount
+                );
+                const newDict = { ...dict };
+                for (const k of targetKeys) {
+                  newDict[k] = ArgDefGenerator.gen(
+                    valueSpec,
+                    prng,
+                    true,
+                    false
+                  );
+                }
+                if (ArgDefValidator.validate(newDict, spec)) {
+                  addMutations([
+                    {
+                      name: "dictionary-replaceBlock",
+                      value: newDict,
+                      path: [...subInput.subPath],
+                    },
+                  ]);
+                }
+              }
+
               // Mapping keys are dynamic, unlike object-property names.  Walk
               // each existing value with the shared value specification; key
               // renames are intentionally left to dictionary regeneration.

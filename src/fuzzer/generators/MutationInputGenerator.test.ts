@@ -9,6 +9,7 @@ import { ArgDefMutator } from "../analysis/ArgDefMutator";
 import { ArgDef } from "../analysis/ArgDef";
 import { ArgTag } from "../analysis/Types";
 import * as JSONN from "../../Jsonn";
+import * as Parser from "../adapters/ParserAdapter";
 
 /**
  * Provide a seed to ensure tests are deterministic.
@@ -302,6 +303,73 @@ describe("fuzzer/generator/MutationInputGenerator:", () => {
       gen = new MutationInputGenerator(arg, seed, leaderboard);
       gen.onRunStart(true);
       expect(gen.nextable()).toBe("now");
+    });
+
+    it("escapes local minima on dictionaries with distinct-value preconditions", async () => {
+      await Parser.init();
+      const program = ProgramFactory.fromSource(
+        () => `
+from hypothesis import strategies as st
+
+@given(
+    d=st.dictionaries(
+        st.integers(),
+        st.integers(),
+        min_size=2,
+    ),
+    k_idx=st.integers(),
+    new_v=st.integers(),
+)
+def test_bug1_inverse_consistent_after_key_update(d, k_idx, new_v):
+    pass
+`,
+        "python"
+      );
+      const specs =
+        program.functionsExported[
+          "test_bug1_inverse_consistent_after_key_update"
+        ].getArgDefs();
+
+      function checkAssumptions(input: any[]): boolean {
+        const d = input[0].value;
+        const new_v = input[2].value;
+        if (!d || typeof d !== "object") return false;
+        const values = Object.values(d);
+        const keys = Object.keys(d);
+        if (new Set(values).size !== values.length) return false;
+        if (keys.length < 2) return false;
+        if (values.includes(new_v)) return false;
+        return true;
+      }
+
+      let stuckRuns = 0;
+      let evaluatedFailingRuns = 0;
+
+      for (let s = 0; s < 10 && evaluatedFailingRuns < 3; s++) {
+        const testSeed = `test_seed_${s}`;
+        const leaderboard = new Leaderboard<InputAndSource>();
+        const gen = new MutationInputGenerator(specs, testSeed, leaderboard);
+        const first = gen.next();
+        if (checkAssumptions(first.value)) {
+          continue;
+        }
+        evaluatedFailingRuns++;
+        leaderboard.postScore(first, 1.0);
+
+        let passedInMutation = 0;
+        for (let step = 0; step < 500; step++) {
+          const mutant = gen.next();
+          if (checkAssumptions(mutant.value)) {
+            passedInMutation++;
+            break;
+          }
+        }
+        if (passedInMutation === 0) {
+          stuckRuns++;
+        }
+      }
+      expect(evaluatedFailingRuns).toBeGreaterThan(0);
+      expect(stuckRuns).toBe(0);
     });
   });
 });
