@@ -400,11 +400,6 @@ async function main() {
     }); // onScroll event handler
   } // if: tabstrip found
 
-  // Load the fuzzer results data from the view state
-  resultsData = viewState.results
-    ? viewState.results
-    : cast<FuzzTestResults>({});
-
   // Listen for messages from the extension
   window.addEventListener("message", async (event) => {
     const rawData: unknown = event.data;
@@ -494,6 +489,11 @@ async function main() {
   // Apply initial view state immediately
   applyStateUpdate(viewState);
 
+  // Load the coverage heatmap state from the view state if needed
+  if (viewState.showCoverageHeatmap) {
+    handleToggleCoverageHeatmap();
+  }
+
   // Await parser init before signaling ready
   await parserPromise;
 
@@ -522,11 +522,7 @@ function resetBusyStatus(): void {
  * @param disabled True to disable controls, false to enable
  */
 function setControlsDisabled(disabled: boolean): void {
-  const ids = [
-    "fuzz-useImplicit",
-    "fuzz-useProperty",
-    "fuzz-useTransformer",
-  ];
+  const ids = ["fuzz-useImplicit", "fuzz-useProperty", "fuzz-useTransformer"];
   ids.forEach((id) => {
     const el = document.getElementById(id);
     if (el) {
@@ -2903,7 +2899,6 @@ function getConfigFromUi(): FuzzPanelFuzzRunMessage {
       useHuman: true, // always active
       useProperty: getBooleanValue("useProperty"),
       useTransformer: getBooleanValue("useTransformer"),
-      workers: "auto",
       measures: {
         CoverageMeasure: {
           enabled:

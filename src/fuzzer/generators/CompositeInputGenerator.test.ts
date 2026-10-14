@@ -15,6 +15,7 @@ import { GeneratorExhaustedError, NextableStatus } from "./Types";
 import { AbstractRunner, RunnerResult } from "../runners/AbstractRunner";
 import * as ValueMapper from "../mappers/ValueMapper";
 import * as Config from "../../Config";
+import { getDefaultFuzzExecutionOptions } from "../FuzzerFactory";
 
 function createGenStats(): FuzzTestStats["generators"] {
   return {
@@ -94,13 +95,13 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
       useHuman: false,
       useProperty: true,
       useTransformer: false,
-      workers: "auto",
     };
 
     const mockResults: FuzzTestResults = {
       toolVersion: "test",
       env: {
         options: mockFuzzOptions,
+        executionOptions: getDefaultFuzzExecutionOptions(),
         function: fnDef,
         validators: [],
         transformers: [],
@@ -223,13 +224,13 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
         useHuman: false,
         useProperty: true,
         useTransformer: false,
-        workers: "auto",
       };
 
       const mockResults: FuzzTestResults = {
         toolVersion: "test",
         env: {
           options: mockFuzzOptions,
+          executionOptions: getDefaultFuzzExecutionOptions(),
           function: fnDef,
           validators: [],
           transformers: [],
@@ -370,13 +371,13 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
         useHuman: false,
         useProperty: true,
         useTransformer: false,
-        workers: "auto",
       };
 
       const mockResults: FuzzTestResults = {
         toolVersion: "test",
         env: {
           options: mockFuzzOptions,
+          executionOptions: getDefaultFuzzExecutionOptions(),
           function: fnDef,
           validators: [],
           transformers: [],
@@ -595,13 +596,13 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
         useHuman: false,
         useProperty: true,
         useTransformer: false,
-        workers: "auto",
       };
 
       const mockResults: FuzzTestResults = {
         toolVersion: "test",
         env: {
           options: mockFuzzOptions,
+          executionOptions: getDefaultFuzzExecutionOptions(),
           function: fnDef,
           validators: [],
           transformers: [],

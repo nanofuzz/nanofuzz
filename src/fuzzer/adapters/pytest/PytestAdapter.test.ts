@@ -36,7 +36,6 @@ const baseOptions: Omit<
   useImplicit: false,
   useHuman: false,
   useProperty: false,
-  workers: "auto",
 };
 
 const measures: FuzzOptions["measures"] = {

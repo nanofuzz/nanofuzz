@@ -24,8 +24,10 @@ import {
 } from "../fuzzer/analysis/Types";
 import {
   FuzzEnv,
+  FuzzExecutionOptions,
   FuzzIoElement,
   FuzzOptions,
+  FuzzOutputResults,
   FuzzPinnedTest,
   FuzzResultCategory,
   FuzzStatusUpdater,
@@ -259,10 +261,20 @@ export async function runFuzz(
       generators: effectiveGenerators,
     });
 
+    const executionOptions: FuzzExecutionOptions = {
+      engine: "auto",
+      workers:
+        options.workers ??
+        Config.get<number | "auto">("nanofuzz.fuzzer.workers", "auto"),
+      outputResults: options.outputResults ?? "all",
+      precompile: false,
+    };
+
     const tester = FuzzerFactory(
       resolvedPath,
       options.functionName,
-      normalizedOptions
+      normalizedOptions,
+      executionOptions
     );
 
     // Apply custom argument overrides from companion .nano.json5
@@ -395,7 +407,6 @@ export function getToolName(): string {
  */
 export function getDefaultFuzzOptions(): FuzzOptions {
   return {
-    outputResults: "all",
     argDefaults: ArgDef.getDefaultOptions(),
     maxTests: Config.get("nanofuzz.fuzzer.maxTests", 1000),
     fnTimeout: Config.get("nanofuzz.fuzzer.fnTimeout", 200),
@@ -406,7 +417,6 @@ export function getDefaultFuzzOptions(): FuzzOptions {
     useHuman: true,
     useImplicit: true,
     useProperty: true,
-    workers: Config.get("nanofuzz.fuzzer.workers", "auto"),
     measures: {
       FailedTestMeasure: {
         enabled: true,
@@ -1229,34 +1239,19 @@ export async function formatFuzzResult(
 ): Promise<AgentFuzzResult> {
   const language = results.env.function.getLang();
   const allResults = results.results ?? [];
-  const executedResults = allResults.filter((r) => !r.skipped);
-
-  const failingResults = executedResults.filter(isCounterexample);
+  const failingResults = allResults.filter(isCounterexample);
   const counterexamples = failingResults.map(mapToAgentCounterexample);
   const primaryFailure = failingResults[0];
   const primaryCounterexample = primaryFailure
     ? mapToAgentCounterexample(primaryFailure)
     : undefined;
 
-  const passedTests = executedResults.filter(
-    (r) =>
-      r.category === "ok" &&
-      !isCounterexample(r) &&
-      r.passedImplicit !== "fail" &&
-      r.passedHuman !== "fail" &&
-      r.passedValidator !== "fail"
-  ).length;
-  const failedTests = failingResults.length;
-  const erroredTests =
-    results.stats?.counters?.erroredTests ??
-    executedResults.filter(
-      (r) =>
-        r.category === "failure" ||
-        (r.harnessErrors && r.harnessErrors.length > 0)
-    ).length;
-  const timeouts = failingResults.filter((r) => r.timeout).length;
-  const exceptions = failingResults.filter((r) => r.exception).length;
-  const totalTests = executedResults.length;
+  const totalTests = results.stats.outcomes.total;
+  const passedTests = results.stats.outcomes.categories.ok;
+  const failedTests = results.stats.counters.failedTests;
+  const erroredTests = results.stats.counters.erroredTests;
+  const timeouts = results.stats.outcomes.timeouts;
+  const exceptions = results.stats.outcomes.exceptions;
 
   let status: AgentFuzzStatus = "success";
   if (counterexamples.length > 0) {
@@ -1459,6 +1454,8 @@ export type AgentFuzzOptions = {
   enableCopilotAi?: boolean;
   exportSuite?: boolean;
   exportFilePath?: string;
+  workers?: number | "auto";
+  outputResults?: FuzzOutputResults;
 };
 
 /**

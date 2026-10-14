@@ -201,7 +201,7 @@ describe("cli:", () => {
     expect(outputData.env.options.maxDupeInputs).toBe(maxDupeInputs);
     expect(outputData.env.options.fnTimeout).toBe(fnTimeout);
     expect(outputData.env.options.seed).toBe(seed);
-    expect(outputData.env.options.workers).toBe("auto");
+    expect(outputData.env.executionOptions.workers).toBe("auto");
 
     // Verify test results were produced
     expect(outputData.stats.outcomes.total).toBeGreaterThan(0);
@@ -417,7 +417,7 @@ describe("cli:", () => {
       fs.readFileSync(outputFile, "utf8")
     );
 
-    expect(outputData.env.options.workers).toBe(3);
+    expect(outputData.env.executionOptions.workers).toBe(3);
   });
 
   it("--engine auto selects v2 for 1 worker and v3 for multiple workers", async () => {
@@ -1362,6 +1362,26 @@ def ${targetFn}(n: int) -> int:
     );
     expect(dataFailures.results.length).toBe(0);
     expect(dataFailures.stats.outcomes.total).toBe(5);
+
+    // 2b. Mode omitted on CLI -> defaults to failures, records 0 results for passing target
+    const outFileOmitted = path.join(tmpDir, "out_results_omitted.json5");
+    const resOmitted = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outFileOmitted,
+      "--max-tests",
+      "5",
+      "--seed",
+      "cli_seed_ret_omitted",
+    ]);
+    expect(resOmitted.status).toBe(0);
+    const dataOmitted = JSON5.parse<FuzzTestResults>(
+      fs.readFileSync(outFileOmitted, "utf8")
+    );
+    expect(dataOmitted.results.length).toBe(0);
+    expect(dataOmitted.stats.outcomes.total).toBe(5);
+    expect(dataOmitted.env.executionOptions.outputResults).toBe("failures");
 
     // 3. Mode: none -> records 0 results even with failures
     const failTargetFn = "testStandardVoidReturnException";

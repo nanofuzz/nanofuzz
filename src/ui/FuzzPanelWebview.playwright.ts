@@ -4,7 +4,10 @@ import * as vscode from "vscode";
 import { FuzzPanelTestServer } from "./FuzzPanelWebviewHarness";
 import * as fp from "./FuzzPanelController";
 import * as fuzzer from "../fuzzer/Types";
-import { IFuzzer } from "../fuzzer/FuzzerFactory";
+import {
+  IFuzzer,
+  getDefaultFuzzExecutionOptions,
+} from "../fuzzer/FuzzerFactory";
 import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
 import * as JSONN from "../Jsonn";
 import {
@@ -166,7 +169,9 @@ test.describe("FuzzPanel Webview End-to-End Flow", () => {
         validators: [],
         transformers: [],
         userGenerators: [],
+        executionOptions: getDefaultFuzzExecutionOptions(),
       },
+      executionOptions: getDefaultFuzzExecutionOptions(),
       workerCount: 1,
       engine: "v2",
       options: fp.getDefaultFuzzOptions(),
