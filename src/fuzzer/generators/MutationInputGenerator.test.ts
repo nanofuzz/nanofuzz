@@ -7,7 +7,7 @@ import { FuzzGeneratorStatsBase, InputAndSource } from "../Types";
 import { ArgDefValidator } from "../analysis/ArgDefValidator";
 import { ArgDefMutator } from "../analysis/ArgDefMutator";
 import { ArgDef } from "../analysis/ArgDef";
-import { ArgTag } from "../analysis/Types";
+import { ArgTag, ArgValueTypeWrapped } from "../analysis/Types";
 import * as JSONN from "../../Jsonn";
 import * as Parser from "../adapters/ParserAdapter";
 
@@ -330,10 +330,19 @@ def test_bug1_inverse_consistent_after_key_update(d, k_idx, new_v):
           "test_bug1_inverse_consistent_after_key_update"
         ].getArgDefs();
 
-      function checkAssumptions(input: any[]): boolean {
+      function checkAssumptions(input: ArgValueTypeWrapped[]): boolean {
         const d = input[0].value;
         const new_v = input[2].value;
-        if (!d || typeof d !== "object") return false;
+        if (
+          typeof d !== "object" ||
+          d === null ||
+          Array.isArray(d) ||
+          d instanceof Uint8Array ||
+          d instanceof Set ||
+          d instanceof Map
+        ) {
+          return false;
+        }
         const values = Object.values(d);
         const keys = Object.keys(d);
         if (new Set(values).size !== values.length) return false;
