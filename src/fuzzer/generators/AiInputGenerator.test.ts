@@ -1,7 +1,11 @@
 import * as path from "node:path";
 import * as zod from "zod/v4";
 import * as AiInputGenerator from "./AiInputGenerator";
-import { makeArgDef, getRandomArgDef } from "../analysis/TestUtils";
+import {
+  makeArgDef,
+  makeTypeRef,
+  getRandomArgDef,
+} from "../analysis/TestUtils";
 import { ArgDef } from "../analysis/ArgDef";
 import { ArgTag } from "../analysis/Types";
 import { LlmQueryResult } from "./Types";
@@ -57,6 +61,102 @@ describe("src/fuzzer/generators/AiInputGenerator: ", () => {
 
     expect(directives).toContain(
       "items: array length must be >= 3 && <= 3; all elements in the array must be unique"
+    );
+  });
+
+  it("dictLength schema directives", () => {
+    const argOptions = ArgDef.getDefaultOptions();
+    const keyRef = makeTypeRef("test.ts", "keys", ArgTag.NUMBER, 0);
+    const valRef = makeTypeRef("test.ts", "values", ArgTag.NUMBER, 0);
+    const dictDef = makeArgDef(
+      "test.ts",
+      "dictArg",
+      0,
+      ArgTag.DICTIONARY,
+      {
+        ...argOptions,
+        dictLength: { min: 2, max: 10 },
+      },
+      0,
+      false,
+      [keyRef, valRef]
+    );
+
+    const directives: string[] = [];
+    const fnDef = FunctionDef.fromFunctionRef({
+      module: "test.ts",
+      name: "testFn",
+      src: "function testFn() {}",
+      lang: "typescript",
+      startOffset: 0,
+      endOffset: 20,
+      isExported: true,
+      isVoid: true,
+      args: [],
+    });
+    class TestAiGenerator extends AiInputGenerator.AiInputGenerator {
+      public testArgDefToSchema(
+        arg: ArgDef,
+        path: string,
+        directivesList: string[]
+      ) {
+        return this._argDefToSchema(arg, path, directivesList);
+      }
+    }
+    const gen = new TestAiGenerator(fnDef, "seed", new Map(), "");
+    gen.testArgDefToSchema(dictDef, "dictArg", directives);
+
+    expect(directives).toContain(
+      "dictArg: dictionary length must be >= 2 && <= 10"
+    );
+    expect(directives).toContain(
+      'dictArg: dictionary keys must be formatted as integer strings (e.g. "0", "1")'
+    );
+  });
+
+  it("strRegex schema directives", () => {
+    const argOptions = ArgDef.getDefaultOptions();
+    const strDef = makeArgDef(
+      "test.ts",
+      "uid",
+      0,
+      ArgTag.STRING,
+      {
+        ...argOptions,
+        strLength: { min: 36, max: 36 },
+        strCharset: "0123456789abcdef-",
+        strRegex:
+          "\\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\Z",
+      },
+      0
+    );
+
+    const directives: string[] = [];
+    const fnDef = FunctionDef.fromFunctionRef({
+      module: "test.ts",
+      name: "testFn",
+      src: "function testFn() {}",
+      lang: "typescript",
+      startOffset: 0,
+      endOffset: 20,
+      isExported: true,
+      isVoid: true,
+      args: [],
+    });
+    class TestAiGenerator extends AiInputGenerator.AiInputGenerator {
+      public testArgDefToSchema(
+        arg: ArgDef,
+        path: string,
+        directivesList: string[]
+      ) {
+        return this._argDefToSchema(arg, path, directivesList);
+      }
+    }
+    const gen = new TestAiGenerator(fnDef, "seed", new Map(), "");
+    gen.testArgDefToSchema(strDef, "uid", directives);
+
+    expect(directives).toContain(
+      "uid: string length must be >= 36 && <= 36; the string may contain only the following characters: 0123456789abcdef-; string must match regex pattern /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/"
     );
   });
 

@@ -76,6 +76,66 @@ describe("fuzzer/analysis/typescript/ArgDefValidator:", () => {
     expect(ArgDefValidator.validate("a1", regexString)).toBe(false);
   });
 
+  it("Validates dictionaries with numeric, boolean, and bigint keys", () => {
+    const numDict = makeArgDef(
+      dummyModule,
+      "numDict",
+      0,
+      ArgTag.DICTIONARY,
+      { ...argOptions, dictLength: { min: 1, max: 5 } },
+      0,
+      false,
+      [
+        makeTypeRef(dummyModule, "k", ArgTag.NUMBER, 0),
+        makeTypeRef(dummyModule, "v", ArgTag.STRING, 0),
+      ]
+    );
+
+    expect(ArgDefValidator.validate({ "10": "a" }, numDict)).toBe(true);
+    expect(ArgDefValidator.validate({ "": "a" }, numDict)).toBe(false);
+    expect(ArgDefValidator.validate({ abc: "a" }, numDict)).toBe(false);
+    expect(ArgDefValidator.validate({}, numDict)).toBe(false);
+
+    const boolDict = makeArgDef(
+      dummyModule,
+      "boolDict",
+      0,
+      ArgTag.DICTIONARY,
+      { ...argOptions, dictLength: { min: 1, max: 2 } },
+      0,
+      false,
+      [
+        makeTypeRef(dummyModule, "k", ArgTag.BOOLEAN, 0),
+        makeTypeRef(dummyModule, "v", ArgTag.NUMBER, 0),
+      ]
+    );
+
+    expect(ArgDefValidator.validate({ true: 1, false: 2 }, boolDict)).toBe(
+      true
+    );
+    expect(ArgDefValidator.validate({ maybe: 1 }, boolDict)).toBe(false);
+
+    const bigintDict = makeArgDef(
+      dummyModule,
+      "bigintDict",
+      0,
+      ArgTag.DICTIONARY,
+      { ...argOptions, dictLength: { min: 1, max: 2 } },
+      0,
+      false,
+      [
+        makeTypeRef(dummyModule, "k", ArgTag.BIGINT, 0),
+        makeTypeRef(dummyModule, "v", ArgTag.NUMBER, 0),
+      ]
+    );
+
+    expect(ArgDefValidator.validate({ "42": 1 }, bigintDict)).toBe(true);
+    expect(ArgDefValidator.validate({ "105": 1 }, bigintDict)).toBe(false);
+    expect(ArgDefValidator.validate({ invalid_bigint: 1 }, bigintDict)).toBe(
+      false
+    );
+  });
+
   it("Validates outer dimension uniqueness when dimsUnique===true", () => {
     const uniqueArrayDef = makeArgDef(
       dummyModule,

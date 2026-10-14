@@ -303,7 +303,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
 
       let inputs: LlmQueryResult | undefined;
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-        if (!this._llm || this._exhausted) {
+        if (!this._llm || this._exhausted || LlmAdapter.isAbandoned) {
           return;
         }
 
@@ -350,7 +350,8 @@ export class AiInputGenerator extends AbstractInputGenerator {
           if (
             isTimeoutError(err) &&
             attempt < maxAttempts &&
-            !this._exhausted
+            !this._exhausted &&
+            !LlmAdapter.isAbandoned
           ) {
             if (LlmAdapter.isDebugConfigured()) {
               console.log(
@@ -601,8 +602,11 @@ export class AiInputGenerator extends AbstractInputGenerator {
           const maxDesc = Number.isFinite(argOptions.strLength.max)
             ? ` && <= ${argOptions.strLength.max}`
             : "";
-          const desc = `string length must be >= ${argOptions.strLength.min}${maxDesc}; the string may contain only the following characters: ${charSet}`;
-          directives.push(`${path}: ${desc}}`);
+          const regexDesc = argOptions.strRegex
+            ? `; string must match regex pattern /${argOptions.strRegex.replace(/^\\A/, "^").replace(/\\Z$/, "$")}/`
+            : "";
+          const desc = `string length must be >= ${argOptions.strLength.min}${maxDesc}; the string may contain only the following characters: ${charSet}${regexDesc}`;
+          directives.push(`${path}: ${desc}`);
           let schema = zod.string().min(argOptions.strLength.min);
           if (Number.isFinite(argOptions.strLength.max)) {
             schema = schema.max(argOptions.strLength.max);
@@ -692,15 +696,38 @@ export class AiInputGenerator extends AbstractInputGenerator {
           if (!key || !value) {
             throw new Error("Dictionary arguments require key and value types");
           }
+          const maxDesc =
+            typeof argOptions.dictLength?.max === "number" &&
+            Number.isFinite(argOptions.dictLength.max)
+              ? ` && <= ${argOptions.dictLength.max}`
+              : "";
+          const desc = `dictionary length must be >= ${argOptions.dictLength.min}${maxDesc}`;
+          directives.push(`${path}: ${desc}`);
+          if (key.getType() === ArgTag.NUMBER) {
+            const isInt = key.getOptions().numInteger;
+            directives.push(
+              `${path}: dictionary keys must be formatted as ${isInt ? "integer" : "number"} strings (e.g. "0", "1")`
+            );
+          } else if (key.getType() === ArgTag.BOOLEAN) {
+            directives.push(
+              `${path}: dictionary keys must be formatted as boolean strings ("true" or "false")`
+            );
+          } else if (key.getType() === ArgTag.BIGINT) {
+            directives.push(
+              `${path}: dictionary keys must be formatted as integer strings (e.g. "0", "1")`
+            );
+          }
           const zodKey = this._argDefToSchema(key, `${path}.keys`, directives);
           if (
             zodKey instanceof zod.ZodString ||
             zodKey instanceof zod.ZodNumber
           ) {
-            return zod.record(
-              zodKey,
-              this._argDefToSchema(value, `${path}.values`, directives)
-            );
+            return zod
+              .record(
+                zodKey,
+                this._argDefToSchema(value, `${path}.values`, directives)
+              )
+              .describe(desc);
           } else {
             throw new Error("Dictionary key must be of type string or number");
           }

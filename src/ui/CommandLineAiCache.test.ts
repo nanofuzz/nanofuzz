@@ -3,6 +3,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 import JSON5 from "json5";
 import * as zod from "zod/v4";
+import * as nodellm from "@node-llm/core";
 import * as Config from "../Config";
 import { FuzzTestResults } from "../fuzzer/Types";
 import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
@@ -276,6 +277,66 @@ describe("cli: ai cache", () => {
     expect(aiGenStats?.cache?.hits).toBe(1);
     expect(aiGenStats?.cache?.misses).toBe(0);
     expect(aiGenStats?.calls.sent).toBe(1);
+  });
+
+  it("--ai-cache-mode record: abandons in-flight AI call on SIGINT without waiting", async () => {
+    const outputFile = path.join(tmpDir, "ai_abandon_output.json5");
+    const cacheFile = path.join(tmpDir, "cli_llm_cache_abandon.json");
+    const targetFile = path.resolve(
+      "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts"
+    );
+    const targetFn = "testCoverageOneFile";
+
+    let askCallCount = 0;
+    let sigintTime = 0;
+    spyOn(nodellm.Chat.prototype, "ask").and.callFake(async () => {
+      askCallCount++;
+      sigintTime = performance.now();
+      // Emit SIGINT while call is in-flight
+      process.emit("SIGINT");
+      // Simulate long-running request
+      await new Promise((r) => setTimeout(r, 5000));
+      const dummyUsage: nodellm.Usage = {
+        input_tokens: 1,
+        output_tokens: 1,
+        total_tokens: 2,
+      };
+      return new nodellm.ChatResponseString(
+        "{}",
+        dummyUsage,
+        "gemini-flash",
+        "gemini"
+      );
+    });
+
+    const res = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--model-provider",
+      "gemini",
+      "--model-name",
+      "gemini-flash",
+      "--model-key",
+      "test-key",
+      "--ai-cache-mode",
+      "record",
+      "--ai-cache-file",
+      cacheFile,
+      "--no-random-input-generator",
+      "--no-mutation-input-generator",
+      "--max-tests",
+      "10",
+      "--seed",
+      "cli_seed_sigint_abandon",
+    ]);
+    const elapsedSinceSigint = performance.now() - sigintTime;
+
+    expect(res.status).toBe(2); // USER_CANCELLED
+    expect(sigintTime).toBeGreaterThan(0);
+    expect(elapsedSinceSigint).toBeLessThan(3500); // abandoned promptly, did not wait for the in-flight query
+    expect(askCallCount).toBe(1); // did not retry after being abandoned
   });
 
   it("--ai-cache-delay: validates and perturbs delay", async () => {
