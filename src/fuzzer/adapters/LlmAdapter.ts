@@ -23,7 +23,7 @@ function isRecord(val: unknown): val is Record<string, unknown> {
   return typeof val === "object" && val !== null && !Array.isArray(val);
 }
 
-// Cleans internal JSON schema fields ($schema, $defs, additionalProperties) that Gemini API rejects
+// Cleans internal JSON schema fields ($schema, $defs, additionalProperties: boolean) that Gemini API rejects
 function cleanJsonSchema(
   schema: Record<string, unknown>
 ): Record<string, unknown> {
@@ -34,7 +34,7 @@ function cleanJsonSchema(
       key === "$id" ||
       key === "$defs" ||
       key === "definitions" ||
-      key === "additionalProperties"
+      (key === "additionalProperties" && typeof value === "boolean")
     ) {
       continue;
     }
