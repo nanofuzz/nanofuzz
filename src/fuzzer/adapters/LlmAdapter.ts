@@ -314,6 +314,8 @@ export class LlmAdapter {
         let text = "";
         let inputTokens = 0;
         let outputTokens = 0;
+        let inputCost = 0;
+        let outputCost = 0;
 
         if (provider === "copilot") {
           if (!vscode.lm || typeof vscode.lm.selectChatModels !== "function") {
@@ -416,6 +418,8 @@ export class LlmAdapter {
               text = response.toString();
               inputTokens = response.inputTokens ?? 0;
               outputTokens = response.outputTokens ?? 0;
+              inputCost = response.input_cost ?? 0;
+              outputCost = response.output_cost ?? 0;
               lastError = undefined;
               break;
             } catch (err: unknown) {
@@ -458,9 +462,9 @@ export class LlmAdapter {
           text,
           stats: {
             tokensSent: inputTokens,
-            tokensSentCost: { amt: 0, unit: "USD" },
+            tokensSentCost: { amt: inputCost, unit: "USD" },
             tokensReceived: outputTokens,
-            tokensReceivedCost: { amt: 0, unit: "USD" },
+            tokensReceivedCost: { amt: outputCost, unit: "USD" },
           },
         };
       }
