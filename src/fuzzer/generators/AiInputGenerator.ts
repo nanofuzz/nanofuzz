@@ -303,7 +303,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
 
       let inputs: LlmQueryResult | undefined;
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-        if (!this._llm || this._exhausted) {
+        if (!this._llm || this._exhausted || LlmAdapter.isAbandoned) {
           return;
         }
 
@@ -350,7 +350,8 @@ export class AiInputGenerator extends AbstractInputGenerator {
           if (
             isTimeoutError(err) &&
             attempt < maxAttempts &&
-            !this._exhausted
+            !this._exhausted &&
+            !LlmAdapter.isAbandoned
           ) {
             if (LlmAdapter.isDebugConfigured()) {
               console.log(

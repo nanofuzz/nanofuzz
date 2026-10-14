@@ -97,18 +97,22 @@ export class LlmCacheManager {
     schemaJson: string | undefined,
     liveQueryFn: () => Promise<LlmQueryResult>
   ): Promise<LlmQueryResult> {
-    const queryPromise = this._executeQuery(
-      provider,
-      modelName,
-      prompt,
-      schemaJson,
-      liveQueryFn
-    );
+    let resolveQuery!: () => void;
+    const queryPromise = new Promise<void>((resolve) => {
+      resolveQuery = resolve;
+    });
     this._pendingQueries.add(queryPromise);
     try {
-      return await queryPromise;
+      return await this._executeQuery(
+        provider,
+        modelName,
+        prompt,
+        schemaJson,
+        liveQueryFn
+      );
     } finally {
       this._pendingQueries.delete(queryPromise);
+      resolveQuery();
     }
   }
 

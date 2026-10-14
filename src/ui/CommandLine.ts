@@ -305,6 +305,8 @@ export async function runCliInProcess(
   let restoreCursor: (() => void) | undefined;
   let sigintListener: (() => void) | undefined;
 
+  LlmAdapter.resetAbandoned();
+
   const isolator = ConsoleIsolator.activate({ isDebug: isDebugConfigured });
 
   try {
@@ -385,6 +387,11 @@ export async function runCliInProcess(
       }
     }; // fn: stopBars
 
+    let abandonRun: (() => void) | undefined;
+    const abandonPromise = new Promise<void>((resolve) => {
+      abandonRun = resolve;
+    });
+
     sigintListener = () => {
       if (isCancelled) {
         // ignore
@@ -392,6 +399,18 @@ export async function runCliInProcess(
         isCancelled = true;
         stopBars();
         isolator.log("Cancellation requested. Stopping NaNofuzz...");
+
+        // If recording AI interactions when SIGINT arrives, do not wait for
+        // in-flight requests, retries, or cache flushes to finish; abandon
+        // them immediately so the process exits promptly.
+        const cacheMode = Config.get<string>(
+          "nanofuzz.ai.cacheMode",
+          "passthrough"
+        );
+        if (cacheMode.includes("record") && LlmAdapter.isInFlight) {
+          LlmAdapter.abandon();
+          abandonRun?.();
+        }
       }
     }; // fn: sigintListener
 
@@ -846,12 +865,34 @@ export async function runCliInProcess(
         `Online: ${workerWord}, ${engine} engine, ${scheduler} scheduler${modelWord}.`
       );
 
-      const results = await fuzzer.test(
-        injectTests,
-        undefined,
-        { update: updateFn, granularity: 100, heartbeat: true },
-        () => isCancelled
-      );
+      const testPromise = fuzzer
+        .test(
+          injectTests,
+          undefined,
+          { update: updateFn, granularity: 100, heartbeat: true },
+          () => isCancelled
+        )
+        .catch((e: unknown) => {
+          if (isCancelled || LlmAdapter.isAbandoned) {
+            return undefined;
+          }
+          throw e;
+        });
+
+      const outcome = await Promise.race([
+        testPromise.then((res) => ({
+          type: "completed" as const,
+          results: res,
+        })),
+        abandonPromise.then(() => ({ type: "abandoned" as const })),
+      ]);
+
+      if (outcome.type === "abandoned" || !outcome.results) {
+        stopBars();
+        return USER_CANCELLED;
+      }
+
+      const results = outcome.results;
 
       process.removeListener("SIGINT", sigintListener);
       process.removeListener("exit", restoreCursor);
@@ -900,7 +941,9 @@ export async function runCliInProcess(
       stopBars();
       process.removeListener("SIGINT", sigintListener);
       process.removeListener("exit", restoreCursor);
-      await LlmAdapter.flushCache(5000);
+      if (!isCancelled && !LlmAdapter.isAbandoned) {
+        await LlmAdapter.flushCache(5000);
+      }
       if (isError(e)) {
         if (e.stack) {
           isolator.error(e.stack);

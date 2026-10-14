@@ -60,6 +60,7 @@ export class LlmAdapter {
   protected _cacheManager: LlmCacheManager; // Cache manager
   protected _cfgString: string; // LLM config; for detecting config changes
   protected _systemPrompt: string; // System prompt
+  protected static _abandoned = false; // Flag indicating if in-flight and pending LLM queries should be abandoned
 
   public constructor(prng?: seedrandom.prng, systemPrompt?: string) {
     LlmAdapter._handleDebug();
@@ -162,7 +163,7 @@ export class LlmAdapter {
       delayConfig,
       prng
     );
-  }
+  } // constructor
 
   /**
    * Creates a fresh, stateless LLM chat session for a single query.
@@ -209,13 +210,59 @@ export class LlmAdapter {
     return `v=${this._backend?.provider?.id},n=${cfg.modelName}`;
   } // getter: id
 
+  /**
+   * Get cache statistics from the active cache manager
+   *
+   * @returns statistics on cache hits, misses, recordings, and token usage
+   */
   public get cacheStats(): LlmCacheStats {
     return this._cacheManager.stats;
-  }
+  } // getter: cacheStats
 
+  /**
+   * Marks active and pending LLM calls as abandoned (e.g. on SIGINT)
+   * to avoid waiting for in-flight requests or executing retries
+   */
+  public static abandon(): void {
+    LlmAdapter._abandoned = true;
+  } // fn: abandon
+
+  /**
+   * Resets the abandoned state
+   */
+  public static resetAbandoned(): void {
+    LlmAdapter._abandoned = false;
+  } // fn: resetAbandoned
+
+  /**
+   * Indicates whether LLM requests have been abandoned
+   *
+   * @returns `true` if LLM requests have been abandoned; `false` otherwise
+   */
+  public static get isAbandoned(): boolean {
+    return LlmAdapter._abandoned;
+  } // getter: isAbandoned
+
+  /**
+   * Indicates whether any LLM queries are currently in flight across all active cache managers
+   *
+   * @returns `true` if any LLM queries are currently in flight; `false` otherwise
+   */
+  public static get isInFlight(): boolean {
+    return LlmCacheManager.inFlight.length > 0;
+  } // getter: isInFlight
+
+  /**
+   * Flushes cached requests across all active cache managers to disk
+   *
+   * @param `timeoutMs` max time in ms to wait for pending queries to finish flushing
+   */
   public static async flushCache(timeoutMs = 5000): Promise<void> {
+    if (LlmAdapter._abandoned) {
+      return;
+    }
     await LlmCacheManager.flushAllActive(timeoutMs);
-  }
+  } // fn: flushCache
 
   /**
    * Prompts the LLM and returns a response.
@@ -376,7 +423,8 @@ export class LlmAdapter {
               if (
                 !retryOnTimeout ||
                 !isTimeoutError(err) ||
-                attempt >= maxAttempts
+                attempt >= maxAttempts ||
+                LlmAdapter._abandoned
               ) {
                 throw err;
               }
