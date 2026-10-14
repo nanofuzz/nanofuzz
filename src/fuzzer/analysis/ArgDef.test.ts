@@ -1121,6 +1121,64 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
     expect(mutatorNames).toContain("dictionary-clear");
   });
 
+  it("Dictionary AFL++ mutators: deleteBlock, truncateToMin, swapValues, replaceBlock", () => {
+    const spec = makeArgDef(
+      dummyModule,
+      "dictArg",
+      0,
+      ArgTag.DICTIONARY,
+      {
+        ...argOptions,
+        dictLength: { min: 2, max: 10 },
+      },
+      0,
+      false,
+      [
+        makeTypeRef(dummyModule, "keys", ArgTag.STRING, 0),
+        makeTypeRef(dummyModule, "values", ArgTag.NUMBER, 0),
+      ]
+    );
+    const input = [
+      {
+        tag: "ArgValueTypeWrapped" as const,
+        value: { a: 10, b: 20, c: 30, d: 40, e: 50 },
+      },
+    ];
+    const mutators = ArgDefMutator.getMutators(
+      [spec],
+      input,
+      seedrandom("dictAflMutators")
+    );
+    const mutatorNames = mutators.map((m) => m.name);
+
+    expect(mutatorNames).toContain("dictionary-deleteBlock");
+    expect(mutatorNames).toContain("dictionary-truncateToMin");
+    expect(mutatorNames).toContain("dictionary-swapValues");
+    expect(mutatorNames).toContain("dictionary-replaceBlock");
+
+    // Execute each AFL++ dictionary mutator and verify the output validates
+    const validator = new ArgDefValidator([spec]);
+    for (const name of [
+      "dictionary-deleteBlock",
+      "dictionary-truncateToMin",
+      "dictionary-swapValues",
+      "dictionary-replaceBlock",
+    ]) {
+      const candidateInput = structuredClone(input);
+      const targetMutators = ArgDefMutator.getMutators(
+        [spec],
+        candidateInput,
+        seedrandom("dictAflExecution")
+      );
+      const target = targetMutators.find((m) => m.name === name);
+      expect(target).toBeDefined();
+      if (target) {
+        target.fn();
+        expect(validator.validate(candidateInput)).toBeTrue();
+      }
+    }
+  });
+
   it("Bytes mutators: generates and executes valid byte mutations for single- and multi-byte inputs", () => {
     const spec = makeArgDef(
       dummyModule,
