@@ -781,6 +781,7 @@
   "scripts": {
     "build": "npx tsc -noEmit && node build.mjs",
     "test": "node test.cjs",
+    "test:ui": "playwright test",
     "test:runtime": "pytest packages/runtime/python/tests && yarn --cwd packages/runtime/typescript test",
     "lint": "eslint src",
     "lint:errors": "eslint --quiet src",
@@ -820,6 +821,7 @@
     "@eslint/js": "^10.0.1",
     "@msgpack/msgpack": "^3.1.3",
     "@node-llm/core": "^1.16.2",
+    "@playwright/test": "^1.64.0",
     "@types/babel__core": "^7.20.5",
     "@types/cli-progress": "^3.11.6",
     "@types/istanbul-lib-hook": "^2.0.4",
