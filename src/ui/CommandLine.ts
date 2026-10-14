@@ -36,6 +36,7 @@ import { LlmDelayCalculator } from "../fuzzer/adapters/LlmDelayCalculator";
 import { FuzzPinnedTest } from "../fuzzer/Types";
 import { InputSchedulerType } from "../fuzzer/schedulers/Types";
 import { FuzzConfigStore } from "../fuzzer/FuzzConfigStore";
+import { ConsoleIsolator } from "./ConsoleIsolator";
 import pkg from "../../package.json";
 
 const nanofuzzVersion = process.env.NANOFUZZ_VERSION ?? pkg.version;
@@ -301,580 +302,622 @@ function createProgram(): Commander.Command {
 export async function runCliInProcess(
   args: string[] = process.argv.slice(2)
 ): Promise<number> {
-  const program = createProgram();
+  let restoreCursor: (() => void) | undefined;
+  let sigintListener: (() => void) | undefined;
 
-  program.exitOverride((_err: Commander.CommanderError) => {
-    throw _err;
-  });
+  const isolator = ConsoleIsolator.activate({ isDebug: isDebugConfigured });
 
   try {
-    program.parse(args, { from: "user" });
-  } catch (_e: unknown) {
-    // Commander throws a CommanderError with exitCode = 0 when handling --help or --version.
-    // In exitOverride() mode, catch this and return EXIT_OK (0) instead of treating it as a usage error.
-    if (_e instanceof Commander.CommanderError && _e.exitCode === 0) {
-      return EXIT_OK;
-    }
-    return ERROR_USAGE; // command line usage error
-  }
+    const program = createProgram();
 
-  console.info(`NaNofuzz v${nanofuzzVersion}`);
+    program.exitOverride((_err: Commander.CommanderError) => {
+      throw _err;
+    });
 
-  if (program.args.length < 2) {
-    console.error("Error: missing required arguments <filename> <function>");
-    return ERROR_USAGE;
-  }
-
-  // Resolve the filename
-  const filenameIn: string = program.args[0];
-  let filename: string;
-  try {
-    filename = require.resolve(filenameIn);
-  } catch (_e: unknown) {
-    if (fs.existsSync(path.resolve(filenameIn))) {
-      filename = path.resolve(filenameIn);
-    } else {
-      console.error(`Error: file not found: ${filenameIn}`);
+    try {
+      isolator.asCli(() => {
+        program.parse(args, { from: "user" });
+      });
+    } catch (_e: unknown) {
+      // Commander throws a CommanderError with exitCode = 0 when handling --help or --version.
+      // In exitOverride() mode, catch this and return EXIT_OK (0) instead of treating it as a usage error.
+      if (_e instanceof Commander.CommanderError && _e.exitCode === 0) {
+        return EXIT_OK;
+      }
       return ERROR_USAGE; // command line usage error
     }
-  }
 
-  const fnname = program.args[1];
-  const options = program.opts();
+    isolator.info(`NaNofuzz v${nanofuzzVersion}`);
 
-  // Resolve the output file
-  const outfile = options["outputFile"]
-    ? path.resolve(options["outputFile"])
-    : undefined;
-
-  // Setup update message handler & the progress bar
-  let isCancelled = false;
-  let lastWasMilestone = true;
-  let lastStats: CurrentRunStats | undefined;
-  let multiBar: MultiBar | undefined;
-  let progressBar: SingleBar | undefined;
-  let resultsBar: SingleBar | undefined;
-
-  const restoreCursor = () => {
-    if (process.stderr.isTTY) process.stderr.write("\x1B[?25h");
-    if (process.stdout.isTTY) process.stdout.write("\x1B[?25h");
-  };
-  process.on("exit", restoreCursor);
-
-  const stopBars = () => {
-    if (!lastWasMilestone && multiBar) {
-      multiBar.stop();
-      multiBar = undefined;
-      progressBar = undefined;
-      resultsBar = undefined;
-      lastWasMilestone = true;
-      restoreCursor();
-    }
-  };
-
-  const sigintListener = () => {
-    if (isCancelled) {
-      // ignore
-    } else {
-      isCancelled = true;
-      stopBars();
-      console.log("Cancellation requested. Stopping NaNofuzz...");
-    }
-  };
-
-  process.on("SIGINT", sigintListener);
-
-  const updateFn = (payload: FuzzBusyStatusMessage) => {
-    if (isCancelled) return;
-    switch (payload.type) {
-      case "compiling": {
-        stopBars();
-        console.log(formatCompilingStatus(payload));
-        break;
-      }
-      case "instrumenting": {
-        stopBars();
-        console.log(formatInstrumentingStatus(payload));
-        break;
-      }
-      case "testing":
-      case "waiting-for-generator":
-      case "progress-tick": {
-        if ("stats" in payload && payload.stats) {
-          lastStats = payload.stats;
-        }
-        const elapsedSec =
-          lastStats?.timers.startTime && lastStats.timers.startTime > 0
-            ? (performance.now() - lastStats.timers.startTime) / 1000
-            : 0;
-        const totalExecuted =
-          (lastStats?.counters.passedTests ?? 0) +
-          (lastStats?.counters.failedTests ?? 0) +
-          (lastStats?.counters.erroredTests ?? 0);
-        const totalInputs =
-          (lastStats?.counters.inputsInjected ?? 0) +
-          (lastStats?.counters.inputsGenerated ?? 0);
-        const inputsRate = formatThroughput(totalInputs, elapsedSec, "inputs");
-        const execsRate = formatThroughput(totalExecuted, elapsedSec, "execs");
-        const testResults = formatTestResults(lastStats);
-
-        if (lastWasMilestone) {
-          if (process.stderr.isTTY) process.stderr.write("\x1B[?25l");
-          if (process.stdout.isTTY) process.stdout.write("\x1B[?25l");
-          multiBar = new MultiBar(
-            {
-              clearOnComplete: true,
-              linewrap: true,
-              barsize: 20,
-              hideCursor: true,
-              gracefulExit: true,
-            },
-            Presets.shades_classic
-          );
-          progressBar = multiBar.create(
-            100,
-            0,
-            {
-              runtime: formatDuration(elapsedSec),
-              inputsRate: inputsRate,
-              execsRate: execsRate,
-              rate: execsRate,
-            },
-            {
-              format:
-                " - Testing [{bar}] {percentage}% @ {runtime}, {inputsRate}, {execsRate}",
-            }
-          );
-          resultsBar = multiBar.create(
-            100,
-            0,
-            {
-              results: testResults,
-            },
-            {
-              format: " - Results [{results}]",
-            }
-          );
-          multiBar.update();
-          lastWasMilestone = false;
-        }
-        if (
-          typeof payload.pct === "number" &&
-          progressBar &&
-          resultsBar &&
-          multiBar
-        ) {
-          progressBar.update(Math.max(0, Math.min(payload.pct, 100)), {
-            runtime: formatDuration(elapsedSec),
-            inputsRate: inputsRate,
-            execsRate: execsRate,
-            rate: execsRate,
-          });
-          resultsBar.update(0, {
-            results: testResults,
-          });
-          multiBar.update();
-        }
-        break;
-      }
-      case "testing-complete": {
-        stopBars();
-        break;
-      }
-    }
-  };
-
-  // infrastructure options
-  Config.override(
-    "nanofuzz.fuzzer.hostStartupTimeout",
-    options["hostStartupTimeout"]
-  );
-  if (options["maxRunnerMemory"] !== undefined) {
-    Config.override(
-      "nanofuzz.fuzzer.maxRunnerMemory",
-      options["maxRunnerMemory"]
-    );
-  }
-
-  if (options["shrink"] !== undefined) {
-    Config.override("nanofuzz.fuzzer.shrinkFailures", options["shrink"]);
-  }
-  if (options["maxShrinkTime"] !== undefined) {
-    Config.override("nanofuzz.fuzzer.maxShrinkTime", options["maxShrinkTime"]);
-  }
-
-  // measure options
-  if (options["coverageScope"] !== undefined) {
-    Config.override("nanofuzz.fuzzer.coverageScope", options["coverageScope"]);
-  }
-
-  // ai config options
-  if (options["modelProvider"] !== undefined) {
-    Config.override("nanofuzz.ai.provider", options["modelProvider"]);
-  }
-  if (options["modelName"] !== undefined) {
-    Config.override("nanofuzz.ai.model", options["modelName"]);
-  }
-  if (options["modelKey"] !== undefined) {
-    Config.override("nanofuzz.ai.apiKey", options["modelKey"]);
-  }
-  if (options["modelEndpoint"] !== undefined) {
-    Config.override("nanofuzz.ai.endpoint", options["modelEndpoint"]);
-  }
-  if (options["modelTimeout"] !== undefined) {
-    Config.override("nanofuzz.ai.requestTimeout", options["modelTimeout"]);
-  }
-  if (options["aiCacheMode"] !== undefined) {
-    Config.override("nanofuzz.ai.cacheMode", options["aiCacheMode"]);
-  }
-  if (options["aiCacheFile"] !== undefined) {
-    Config.override("nanofuzz.ai.cacheFile", options["aiCacheFile"]);
-  }
-  if (options["aiCacheDelay"] !== undefined) {
-    Config.override("nanofuzz.ai.cacheDelay", options["aiCacheDelay"]);
-  }
-  if (options["aiInputBackfeed"] !== undefined) {
-    Config.override(
-      "nanofuzz.ai.backfeedPriorInputs",
-      options["aiInputBackfeed"]
-    );
-  }
-  if (options["aiCoverageGuidance"] !== undefined) {
-    Config.override(
-      "nanofuzz.ai.coverageGuidance",
-      options["aiCoverageGuidance"]
-    );
-  }
-
-  // composite input generator config options
-  if (options["cigScheduler"] !== undefined) {
-    Config.override(
-      "nanofuzz.generators.scheduler.impl",
-      options["cigScheduler"]
-    );
-  }
-  if (options["cigSchedulerUcb1Exploration"] !== undefined) {
-    Config.override(
-      "nanofuzz.generators.scheduler.ucb1.exploration",
-      options["cigSchedulerUcb1Exploration"]
-    );
-  }
-  if (options["cigSchedulerThompsonPriorVariance"] !== undefined) {
-    Config.override(
-      "nanofuzz.generators.scheduler.thompson.priorVariance",
-      options["cigSchedulerThompsonPriorVariance"]
-    );
-  }
-  if (options["cigSchedulerEwmaAlpha"] !== undefined) {
-    Config.override(
-      "nanofuzz.generators.scheduler.ewma.alpha",
-      options["cigSchedulerEwmaAlpha"]
-    );
-  }
-  if (options["cigSchedulerEwmaExploration"] !== undefined) {
-    Config.override(
-      "nanofuzz.generators.scheduler.ewma.exploration",
-      options["cigSchedulerEwmaExploration"]
-    );
-  }
-  if (options["cigSchedulerMoptSwarmSize"] !== undefined) {
-    Config.override(
-      "nanofuzz.generators.scheduler.mopt.swarmSize",
-      options["cigSchedulerMoptSwarmSize"]
-    );
-  }
-  if (options["cigSchedulerMoptPeriod"] !== undefined) {
-    Config.override(
-      "nanofuzz.generators.scheduler.mopt.period",
-      options["cigSchedulerMoptPeriod"]
-    );
-  }
-  if (options["cigSchedulerMoptInertia"] !== undefined) {
-    Config.override(
-      "nanofuzz.generators.scheduler.mopt.inertia",
-      options["cigSchedulerMoptInertia"]
-    );
-  }
-  if (options["cigSchedulerMoptExploration"] !== undefined) {
-    Config.override(
-      "nanofuzz.generators.scheduler.mopt.exploration",
-      options["cigSchedulerMoptExploration"]
-    );
-  }
-  if (options["cigSchedulerMabLookback"] !== undefined) {
-    Config.override(
-      "nanofuzz.generators.scheduler.mab.lookback",
-      options["cigSchedulerMabLookback"]
-    );
-  }
-  if (options["cigSchedulerMabExploration"] !== undefined) {
-    Config.override(
-      "nanofuzz.generators.scheduler.mab.exploration",
-      options["cigSchedulerMabExploration"]
-    );
-  }
-  Config.override(
-    "nanofuzz.generators.compositeChunkSize",
-    options["cigInputChunkSize"]
-  );
-  Config.override(
-    "nanofuzz.generators.leaderboardInitialFocus",
-    options["cigInputFocus"]
-  );
-  Config.override(
-    "nanofuzz.generators.leaderboardFocusDecay",
-    options["cigInputFocusDecay"]
-  );
-  Config.override(
-    "nanofuzz.generators.compositeTrackCheckpoints",
-    Boolean(options["cigStatsCheckpoints"])
-  );
-
-  // debug options
-  const debugVal = options["debug"];
-  if (debugVal !== false && debugVal !== undefined) {
-    const scope =
-      typeof debugVal === "string" ? debugVal.toLowerCase().trim() : "*";
-    const scopes = scope.split(",").map((s) => s.trim());
-    Config.override(
-      "nanofuzz.debug.runners",
-      scopes.includes("*") || scopes.includes("runners")
-    );
-    Config.override(
-      "nanofuzz.ai.debug",
-      scopes.includes("*") || scopes.includes("ai")
-    );
-  } else {
-    Config.override("nanofuzz.debug.runners", false);
-    Config.override("nanofuzz.ai.debug", false);
-  }
-
-  // Clear compiler cache if requested
-  if (options["clearCompileCache"]) {
-    CompilerFactory.clean();
-  }
-
-  try {
-    await ParserAdapter.init();
-
-    const programObj = ProgramFactory.fromFile(filename);
-    const targetFnDef = programObj.functions[fnname];
-    if (!targetFnDef) {
-      if (fnname in programObj.functionsNotSupported) {
-        const info = programObj.functionsNotSupported[fnname];
-        console.error(
-          `Error: Function '${fnname}' in ${filename} is not supported.`
-        );
-        if (info.argument) {
-          console.error(`  - Argument: ${info.argument}`);
-        }
-        if (info.reason) {
-          console.error(`  - Reason: ${info.reason}`);
-        }
-        return ERROR_USAGE;
-      }
-      console.error(`Error: Function '${fnname}' not found in ${filename}`);
+    if (program.args.length < 2) {
+      isolator.error("Error: missing required arguments <filename> <function>");
       return ERROR_USAGE;
     }
-    const fnRef = targetFnDef.getRef();
-    const fnFuzzOptions = fnRef?.fuzzOptions;
 
-    // Load companion .nano.json5 configuration and pinned tests (with version upgrade and migration)
-    const useConfigFile = options["configFile"] !== false;
-    const fnConfig = useConfigFile
-      ? FuzzConfigStore.loadForFunction(filename, fnname)
-      : FuzzConfigStore.createDefaultFunctionConfig(fnname);
-    const injectTests: FuzzPinnedTest[] = Object.values(fnConfig.tests ?? {});
-
-    function getEffectiveOption<K extends keyof FuzzOptions>(
-      cliOptionName: string,
-      fuzzOptKey: K,
-      cliValue: FuzzOptions[K]
-    ): FuzzOptions[K] {
-      const isDefault =
-        program.getOptionValueSource(cliOptionName) === "default";
-      if (
-        isDefault &&
-        fnFuzzOptions &&
-        fnFuzzOptions[fuzzOptKey] !== undefined
-      ) {
-        return fnFuzzOptions[fuzzOptKey]!;
+    // Resolve the filename
+    const filenameIn: string = program.args[0];
+    let filename: string;
+    try {
+      filename = require.resolve(filenameIn);
+    } catch (_e: unknown) {
+      if (fs.existsSync(path.resolve(filenameIn))) {
+        filename = path.resolve(filenameIn);
+      } else {
+        isolator.error(`Error: file not found: ${filenameIn}`);
+        return ERROR_USAGE; // command line usage error
       }
-      if (
-        useConfigFile &&
-        isDefault &&
-        fnConfig.options &&
-        fnConfig.options[fuzzOptKey] !== undefined
-      ) {
-        return fnConfig.options[fuzzOptKey]!;
-      }
-      return cliValue;
     }
 
-    const executionOptions: FuzzExecutionOptions = {
-      engine: options["engine"],
-      workers: options["workers"],
-      outputResults: options["outputResults"],
-      precompile: false,
+    const fnname = program.args[1];
+    const options = program.opts();
+
+    // Resolve the output file
+    const outfile = options["outputFile"]
+      ? path.resolve(options["outputFile"])
+      : undefined;
+
+    // Setup update message handler & the progress bar
+    let isCancelled = false;
+    let lastWasMilestone = true;
+    let lastStats: CurrentRunStats | undefined;
+    let multiBar: MultiBar | undefined;
+    let progressBar: SingleBar | undefined;
+    let resultsBar: SingleBar | undefined;
+
+    restoreCursor = () => {
+      isolator.asCli(() => {
+        if (process.stderr.isTTY) process.stderr.write("\x1B[?25h");
+        if (process.stdout.isTTY) process.stdout.write("\x1B[?25h");
+      });
+    }; // fn: restoreCursor
+    process.on("exit", restoreCursor);
+
+    const stopBars = () => {
+      if (!lastWasMilestone && multiBar) {
+        isolator.asCli(() => {
+          multiBar?.stop();
+          multiBar = undefined;
+          progressBar = undefined;
+          resultsBar = undefined;
+          lastWasMilestone = true;
+          if (restoreCursor) restoreCursor();
+        });
+      }
+    }; // fn: stopBars
+
+    sigintListener = () => {
+      if (isCancelled) {
+        // ignore
+      } else {
+        isCancelled = true;
+        stopBars();
+        isolator.log("Cancellation requested. Stopping NaNofuzz...");
+      }
+    }; // fn: sigintListener
+
+    process.on("SIGINT", sigintListener);
+
+    const updateFn = (payload: FuzzBusyStatusMessage) => {
+      if (isCancelled) return;
+      switch (payload.type) {
+        case "compiling": {
+          stopBars();
+          isolator.log(formatCompilingStatus(payload));
+          break;
+        }
+        case "instrumenting": {
+          stopBars();
+          isolator.log(formatInstrumentingStatus(payload));
+          break;
+        }
+        case "testing":
+        case "waiting-for-generator":
+        case "progress-tick": {
+          if ("stats" in payload && payload.stats) {
+            lastStats = payload.stats;
+          }
+          const elapsedSec =
+            lastStats?.timers.startTime && lastStats.timers.startTime > 0
+              ? (performance.now() - lastStats.timers.startTime) / 1000
+              : 0;
+          const totalExecuted =
+            (lastStats?.counters.passedTests ?? 0) +
+            (lastStats?.counters.failedTests ?? 0) +
+            (lastStats?.counters.erroredTests ?? 0);
+          const totalInputs =
+            (lastStats?.counters.inputsInjected ?? 0) +
+            (lastStats?.counters.inputsGenerated ?? 0);
+          const inputsRate = formatThroughput(
+            totalInputs,
+            elapsedSec,
+            "inputs"
+          );
+          const execsRate = formatThroughput(
+            totalExecuted,
+            elapsedSec,
+            "execs"
+          );
+          const testResults = formatTestResults(lastStats);
+
+          if (lastWasMilestone) {
+            isolator.asCli(() => {
+              if (process.stderr.isTTY) process.stderr.write("\x1B[?25l");
+              if (process.stdout.isTTY) process.stdout.write("\x1B[?25l");
+              multiBar = new MultiBar(
+                {
+                  clearOnComplete: true,
+                  linewrap: true,
+                  barsize: 20,
+                  hideCursor: true,
+                  gracefulExit: true,
+                },
+                Presets.shades_classic
+              );
+              progressBar = multiBar.create(
+                100,
+                0,
+                {
+                  runtime: formatDuration(elapsedSec),
+                  inputsRate: inputsRate,
+                  execsRate: execsRate,
+                  rate: execsRate,
+                },
+                {
+                  format:
+                    " - Testing [{bar}] {percentage}% @ {runtime}, {inputsRate}, {execsRate}",
+                }
+              );
+              resultsBar = multiBar.create(
+                100,
+                0,
+                {
+                  results: testResults,
+                },
+                {
+                  format: " - Results [{results}]",
+                }
+              );
+              multiBar.update();
+              lastWasMilestone = false;
+            });
+          }
+          if (
+            typeof payload.pct === "number" &&
+            progressBar &&
+            resultsBar &&
+            multiBar
+          ) {
+            const pct = payload.pct;
+            const pb = progressBar;
+            const rb = resultsBar;
+            const mb = multiBar;
+            isolator.asCli(() => {
+              pb.update(Math.max(0, Math.min(pct, 100)), {
+                runtime: formatDuration(elapsedSec),
+                inputsRate: inputsRate,
+                execsRate: execsRate,
+                rate: execsRate,
+              });
+              rb.update(0, {
+                results: testResults,
+              });
+              mb.update();
+            });
+          }
+          break;
+        }
+        case "testing-complete": {
+          stopBars();
+          break;
+        }
+      }
     };
 
-    const fuzzer = FuzzerFactory(
-      filename,
-      fnname,
-      {
-        argDefaults: ArgDef.getDefaultOptions(),
-        maxTests: getEffectiveOption(
-          "maxTests",
-          "maxTests",
-          options["maxTests"]
-        ),
-        fnTimeout: getEffectiveOption(
-          "fnTimeout",
-          "fnTimeout",
-          options["fnTimeout"]
-        ),
-        suiteTimeout: getEffectiveOption(
-          "maxRuntime",
-          "suiteTimeout",
-          options["maxRuntime"]
-        ),
-        seed: options["seed"],
-        maxDupeInputs: getEffectiveOption(
-          "maxDupeInputs",
-          "maxDupeInputs",
-          options["maxDupeInputs"]
-        ),
-        maxFailures: getEffectiveOption(
-          "maxFailures",
-          "maxFailures",
-          options["maxFailures"]
-        ),
-        useTransformer: options["transformer"],
-        useImplicit: options["heuristicOracle"],
-        useHuman: options["exampleOracle"],
-        useProperty: options["propertyOracle"],
-        outputFile: outfile,
-        measures: {
-          CoverageMeasure: {
-            enabled: options["coverageMeasure"],
-            weight: 1,
-          },
-          FailedTestMeasure: {
-            enabled: options["failedTestMeasure"],
-            weight: 1,
-          },
-        },
-        generators: {
-          AiInputGenerator: { enabled: options["aiInputGenerator"] },
-          MutationInputGenerator: {
-            enabled: options["mutationInputGenerator"],
-          },
-          RandomInputGenerator: {
-            enabled: options["randomInputGenerator"],
-          },
-          UserInputGenerator: {
-            enabled: options["userInputGenerator"] ?? true,
-          },
-        },
-      },
-      executionOptions
+    // infrastructure options
+    Config.override(
+      "nanofuzz.fuzzer.hostStartupTimeout",
+      options["hostStartupTimeout"]
     );
-
-    // Apply custom argument overrides from companion .nano.json5
-    if (useConfigFile && fnConfig.argOverrides?.length) {
-      FuzzConfigStore.applyArgOverrides(
-        fuzzer.env.function,
-        fnConfig.argOverrides,
-        fuzzer.env.options.argDefaults
+    if (options["maxRunnerMemory"] !== undefined) {
+      Config.override(
+        "nanofuzz.fuzzer.maxRunnerMemory",
+        options["maxRunnerMemory"]
       );
     }
 
-    const engine = fuzzer.engine;
-    const scheduler = options["cigScheduler"] ?? "mab";
-    const workersCount = fuzzer.workerCount;
-    const workerWord =
-      workersCount === 1 ? "1 worker" : `${workersCount} workers`;
-
-    const isAiGenEnabled = options["aiInputGenerator"] !== false;
-    const isModelConfigured = LlmAdapter.isConfigured();
-    const modelConfig = LlmAdapter.getConfig();
-    const modelName =
-      modelConfig.modelName ||
-      (modelConfig.provider === "copilot" ? "copilot" : "");
-    const modelWord =
-      isAiGenEnabled && isModelConfigured && modelName ? `, ${modelName}` : "";
-
-    console.log(`Target: ${fnname} of ${filename}`);
-    console.log(
-      `Online: ${workerWord}, ${engine} engine, ${scheduler} scheduler${modelWord}.`
-    );
-
-    const results = await fuzzer.test(
-      injectTests,
-      undefined,
-      { update: updateFn, granularity: 100, heartbeat: true },
-      () => isCancelled
-    );
-
-    process.removeListener("SIGINT", sigintListener);
-    process.removeListener("exit", restoreCursor);
-
-    if (outfile) {
-      const covStats =
-        typeof results.stats.measures.CodeCoverageMeasure === "function"
-          ? await results.stats.measures.CodeCoverageMeasure()
-          : undefined;
-      JSONN.toFile(outfile, results, (k: string, v: unknown) =>
-        k === "CodeCoverageMeasure"
-          ? covStats
-          : k === "coverageMeasure" && isKeyedObject(v)
-            ? { current: v.current }
-            : v
+    if (options["shrink"] !== undefined) {
+      Config.override("nanofuzz.fuzzer.shrinkFailures", options["shrink"]);
+    }
+    if (options["maxShrinkTime"] !== undefined) {
+      Config.override(
+        "nanofuzz.fuzzer.maxShrinkTime",
+        options["maxShrinkTime"]
       );
     }
 
-    stopBars();
-
-    const diagnostics = fuzzer.getInputGeneratorDiagnostics();
-    console.log(formatRunSummary(results, diagnostics, isCancelled));
-
-    if (isCancelled) {
-      return USER_CANCELLED;
+    // measure options
+    if (options["coverageScope"] !== undefined) {
+      Config.override(
+        "nanofuzz.fuzzer.coverageScope",
+        options["coverageScope"]
+      );
     }
 
-    const totalTestsRan =
-      results.stats.counters.passedTests +
-      results.stats.counters.failedTests +
-      results.stats.counters.erroredTests;
-    const totalTestsFailed =
-      results.stats.counters.failedTests + results.stats.counters.erroredTests;
+    // ai config options
+    if (options["modelProvider"] !== undefined) {
+      Config.override("nanofuzz.ai.provider", options["modelProvider"]);
+    }
+    if (options["modelName"] !== undefined) {
+      Config.override("nanofuzz.ai.model", options["modelName"]);
+    }
+    if (options["modelKey"] !== undefined) {
+      Config.override("nanofuzz.ai.apiKey", options["modelKey"]);
+    }
+    if (options["modelEndpoint"] !== undefined) {
+      Config.override("nanofuzz.ai.endpoint", options["modelEndpoint"]);
+    }
+    if (options["modelTimeout"] !== undefined) {
+      Config.override("nanofuzz.ai.requestTimeout", options["modelTimeout"]);
+    }
+    if (options["aiCacheMode"] !== undefined) {
+      Config.override("nanofuzz.ai.cacheMode", options["aiCacheMode"]);
+    }
+    if (options["aiCacheFile"] !== undefined) {
+      Config.override("nanofuzz.ai.cacheFile", options["aiCacheFile"]);
+    }
+    if (options["aiCacheDelay"] !== undefined) {
+      Config.override("nanofuzz.ai.cacheDelay", options["aiCacheDelay"]);
+    }
+    if (options["aiInputBackfeed"] !== undefined) {
+      Config.override(
+        "nanofuzz.ai.backfeedPriorInputs",
+        options["aiInputBackfeed"]
+      );
+    }
+    if (options["aiCoverageGuidance"] !== undefined) {
+      Config.override(
+        "nanofuzz.ai.coverageGuidance",
+        options["aiCoverageGuidance"]
+      );
+    }
 
-    if (totalTestsRan > 0) {
-      if (totalTestsFailed > 0) {
-        return ERROR_TEST_FAILURE; // tests ran and some failed
-      } else {
-        return EXIT_OK; // tests ran and none failed
-      }
+    // composite input generator config options
+    if (options["cigScheduler"] !== undefined) {
+      Config.override(
+        "nanofuzz.generators.scheduler.impl",
+        options["cigScheduler"]
+      );
+    }
+    if (options["cigSchedulerUcb1Exploration"] !== undefined) {
+      Config.override(
+        "nanofuzz.generators.scheduler.ucb1.exploration",
+        options["cigSchedulerUcb1Exploration"]
+      );
+    }
+    if (options["cigSchedulerThompsonPriorVariance"] !== undefined) {
+      Config.override(
+        "nanofuzz.generators.scheduler.thompson.priorVariance",
+        options["cigSchedulerThompsonPriorVariance"]
+      );
+    }
+    if (options["cigSchedulerEwmaAlpha"] !== undefined) {
+      Config.override(
+        "nanofuzz.generators.scheduler.ewma.alpha",
+        options["cigSchedulerEwmaAlpha"]
+      );
+    }
+    if (options["cigSchedulerEwmaExploration"] !== undefined) {
+      Config.override(
+        "nanofuzz.generators.scheduler.ewma.exploration",
+        options["cigSchedulerEwmaExploration"]
+      );
+    }
+    if (options["cigSchedulerMoptSwarmSize"] !== undefined) {
+      Config.override(
+        "nanofuzz.generators.scheduler.mopt.swarmSize",
+        options["cigSchedulerMoptSwarmSize"]
+      );
+    }
+    if (options["cigSchedulerMoptPeriod"] !== undefined) {
+      Config.override(
+        "nanofuzz.generators.scheduler.mopt.period",
+        options["cigSchedulerMoptPeriod"]
+      );
+    }
+    if (options["cigSchedulerMoptInertia"] !== undefined) {
+      Config.override(
+        "nanofuzz.generators.scheduler.mopt.inertia",
+        options["cigSchedulerMoptInertia"]
+      );
+    }
+    if (options["cigSchedulerMoptExploration"] !== undefined) {
+      Config.override(
+        "nanofuzz.generators.scheduler.mopt.exploration",
+        options["cigSchedulerMoptExploration"]
+      );
+    }
+    if (options["cigSchedulerMabLookback"] !== undefined) {
+      Config.override(
+        "nanofuzz.generators.scheduler.mab.lookback",
+        options["cigSchedulerMabLookback"]
+      );
+    }
+    if (options["cigSchedulerMabExploration"] !== undefined) {
+      Config.override(
+        "nanofuzz.generators.scheduler.mab.exploration",
+        options["cigSchedulerMabExploration"]
+      );
+    }
+    Config.override(
+      "nanofuzz.generators.compositeChunkSize",
+      options["cigInputChunkSize"]
+    );
+    Config.override(
+      "nanofuzz.generators.leaderboardInitialFocus",
+      options["cigInputFocus"]
+    );
+    Config.override(
+      "nanofuzz.generators.leaderboardFocusDecay",
+      options["cigInputFocusDecay"]
+    );
+    Config.override(
+      "nanofuzz.generators.compositeTrackCheckpoints",
+      Boolean(options["cigStatsCheckpoints"])
+    );
+
+    // debug options
+    const debugVal = options["debug"];
+    if (debugVal !== false && debugVal !== undefined) {
+      const scope =
+        typeof debugVal === "string" ? debugVal.toLowerCase().trim() : "*";
+      const scopes = scope.split(",").map((s) => s.trim());
+      Config.override(
+        "nanofuzz.debug.runners",
+        scopes.includes("*") || scopes.includes("runners")
+      );
+      Config.override(
+        "nanofuzz.ai.debug",
+        scopes.includes("*") || scopes.includes("ai")
+      );
     } else {
-      return ERROR_INTERNAL; // internal error (0 tests ran)
+      Config.override("nanofuzz.debug.runners", false);
+      Config.override("nanofuzz.ai.debug", false);
     }
-  } catch (e: unknown) {
-    stopBars();
-    process.removeListener("SIGINT", sigintListener);
-    process.removeListener("exit", restoreCursor);
-    await LlmAdapter.flushCache(5000);
-    if (isError(e)) {
-      if (e.stack) {
-        console.error(e.stack);
-      } else {
-        console.error(`${e.name}: ${e.message}`);
+
+    // Clear compiler cache if requested
+    if (options["clearCompileCache"]) {
+      CompilerFactory.clean();
+    }
+
+    try {
+      await ParserAdapter.init();
+
+      const programObj = ProgramFactory.fromFile(filename);
+      const targetFnDef = programObj.functions[fnname];
+      if (!targetFnDef) {
+        if (fnname in programObj.functionsNotSupported) {
+          const info = programObj.functionsNotSupported[fnname];
+          isolator.error(
+            `Error: Function '${fnname}' in ${filename} is not supported.`
+          );
+          if (info.argument) {
+            isolator.error(`  - Argument: ${info.argument}`);
+          }
+          if (info.reason) {
+            isolator.error(`  - Reason: ${info.reason}`);
+          }
+          return ERROR_USAGE;
+        }
+        isolator.error(`Error: Function '${fnname}' not found in ${filename}`);
+        return ERROR_USAGE;
       }
-    } else {
-      console.error("Unknown internal error");
+      const fnRef = targetFnDef.getRef();
+      const fnFuzzOptions = fnRef?.fuzzOptions;
+
+      // Load companion .nano.json5 configuration and pinned tests (with version upgrade and migration)
+      const useConfigFile = options["configFile"] !== false;
+      const fnConfig = useConfigFile
+        ? FuzzConfigStore.loadForFunction(filename, fnname)
+        : FuzzConfigStore.createDefaultFunctionConfig(fnname);
+      const injectTests: FuzzPinnedTest[] = Object.values(fnConfig.tests ?? {});
+
+      function getEffectiveOption<K extends keyof FuzzOptions>(
+        cliOptionName: string,
+        fuzzOptKey: K,
+        cliValue: FuzzOptions[K]
+      ): FuzzOptions[K] {
+        const isDefault =
+          program.getOptionValueSource(cliOptionName) === "default";
+        if (
+          isDefault &&
+          fnFuzzOptions &&
+          fnFuzzOptions[fuzzOptKey] !== undefined
+        ) {
+          return fnFuzzOptions[fuzzOptKey]!;
+        }
+        if (
+          useConfigFile &&
+          isDefault &&
+          fnConfig.options &&
+          fnConfig.options[fuzzOptKey] !== undefined
+        ) {
+          return fnConfig.options[fuzzOptKey]!;
+        }
+        return cliValue;
+      }
+
+      const executionOptions: FuzzExecutionOptions = {
+        engine: options["engine"],
+        workers: options["workers"],
+        outputResults: options["outputResults"],
+        precompile: false,
+      };
+
+      const fuzzer = FuzzerFactory(
+        filename,
+        fnname,
+        {
+          argDefaults: ArgDef.getDefaultOptions(),
+          maxTests: getEffectiveOption(
+            "maxTests",
+            "maxTests",
+            options["maxTests"]
+          ),
+          fnTimeout: getEffectiveOption(
+            "fnTimeout",
+            "fnTimeout",
+            options["fnTimeout"]
+          ),
+          suiteTimeout: getEffectiveOption(
+            "maxRuntime",
+            "suiteTimeout",
+            options["maxRuntime"]
+          ),
+          seed: options["seed"],
+          maxDupeInputs: getEffectiveOption(
+            "maxDupeInputs",
+            "maxDupeInputs",
+            options["maxDupeInputs"]
+          ),
+          maxFailures: getEffectiveOption(
+            "maxFailures",
+            "maxFailures",
+            options["maxFailures"]
+          ),
+          useTransformer: options["transformer"],
+          useImplicit: options["heuristicOracle"],
+          useHuman: options["exampleOracle"],
+          useProperty: options["propertyOracle"],
+          outputFile: outfile,
+          measures: {
+            CoverageMeasure: {
+              enabled: options["coverageMeasure"],
+              weight: 1,
+            },
+            FailedTestMeasure: {
+              enabled: options["failedTestMeasure"],
+              weight: 1,
+            },
+          },
+          generators: {
+            AiInputGenerator: { enabled: options["aiInputGenerator"] },
+            MutationInputGenerator: {
+              enabled: options["mutationInputGenerator"],
+            },
+            RandomInputGenerator: {
+              enabled: options["randomInputGenerator"],
+            },
+            UserInputGenerator: {
+              enabled: options["userInputGenerator"] ?? true,
+            },
+          },
+        },
+        executionOptions
+      );
+
+      // Apply custom argument overrides from companion .nano.json5
+      if (useConfigFile && fnConfig.argOverrides?.length) {
+        FuzzConfigStore.applyArgOverrides(
+          fuzzer.env.function,
+          fnConfig.argOverrides,
+          fuzzer.env.options.argDefaults
+        );
+      }
+
+      const engine = fuzzer.engine;
+      const scheduler = options["cigScheduler"] ?? "mab";
+      const workersCount = fuzzer.workerCount;
+      const workerWord =
+        workersCount === 1 ? "1 worker" : `${workersCount} workers`;
+
+      const isAiGenEnabled = options["aiInputGenerator"] !== false;
+      const isModelConfigured = LlmAdapter.isConfigured();
+      const modelConfig = LlmAdapter.getConfig();
+      const modelName =
+        modelConfig.modelName ||
+        (modelConfig.provider === "copilot" ? "copilot" : "");
+      const modelWord =
+        isAiGenEnabled && isModelConfigured && modelName
+          ? `, ${modelName}`
+          : "";
+
+      isolator.log(`Target: ${fnname} of ${filename}`);
+      isolator.log(
+        `Online: ${workerWord}, ${engine} engine, ${scheduler} scheduler${modelWord}.`
+      );
+
+      const results = await fuzzer.test(
+        injectTests,
+        undefined,
+        { update: updateFn, granularity: 100, heartbeat: true },
+        () => isCancelled
+      );
+
+      process.removeListener("SIGINT", sigintListener);
+      process.removeListener("exit", restoreCursor);
+
+      if (outfile) {
+        const covStats =
+          typeof results.stats.measures.CodeCoverageMeasure === "function"
+            ? await results.stats.measures.CodeCoverageMeasure()
+            : undefined;
+        JSONN.toFile(outfile, results, (k: string, v: unknown) =>
+          k === "CodeCoverageMeasure"
+            ? covStats
+            : k === "coverageMeasure" && isKeyedObject(v)
+              ? { current: v.current }
+              : v
+        );
+      }
+
+      stopBars();
+
+      const diagnostics = fuzzer.getInputGeneratorDiagnostics();
+      isolator.log(formatRunSummary(results, diagnostics, isCancelled));
+
+      if (isCancelled) {
+        return USER_CANCELLED;
+      }
+
+      const totalTestsRan =
+        results.stats.counters.passedTests +
+        results.stats.counters.failedTests +
+        results.stats.counters.erroredTests;
+      const totalTestsFailed =
+        results.stats.counters.failedTests +
+        results.stats.counters.erroredTests;
+
+      if (totalTestsRan > 0) {
+        if (totalTestsFailed > 0) {
+          return ERROR_TEST_FAILURE; // tests ran and some failed
+        } else {
+          return EXIT_OK; // tests ran and none failed
+        }
+      } else {
+        return ERROR_INTERNAL; // internal error (0 tests ran)
+      }
+    } catch (e: unknown) {
+      stopBars();
+      process.removeListener("SIGINT", sigintListener);
+      process.removeListener("exit", restoreCursor);
+      await LlmAdapter.flushCache(5000);
+      if (isError(e)) {
+        if (e.stack) {
+          isolator.error(e.stack);
+        } else {
+          isolator.error(`${e.name}: ${e.message}`);
+        }
+      } else {
+        isolator.error("Unknown internal error");
+      }
+      return ERROR_INTERNAL; // internal error
     }
-    return ERROR_INTERNAL; // internal error
+  } finally {
+    if (sigintListener) process.removeListener("SIGINT", sigintListener);
+    if (restoreCursor) process.removeListener("exit", restoreCursor);
+    isolator.restore();
   }
-}
+} // fn: runCliInProcess
 
 if (require.main === module) {
   runCliInProcess().then((code) => process.exit(code));
@@ -1135,3 +1178,12 @@ export function formatTestCounts(
   }
   return ` [${parts.join(", ")}]`;
 } // fn: formatTestCounts
+
+// ------------------------------ Helper Functions ----------------------------- //
+
+function isDebugConfigured(): boolean {
+  return (
+    Config.get<boolean>("nanofuzz.ai.debug", false) ||
+    Config.get<boolean>("nanofuzz.debug.runners", false)
+  );
+} // fn: isDebugConfigured

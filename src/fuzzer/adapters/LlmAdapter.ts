@@ -222,11 +222,13 @@ export class LlmAdapter {
    *
    * @param `prompt` LLM prompt string or array of prompt parts
    * @param `schema` optional Zod or JSON schema for the response
+   * @param `options` optional query options to configure retry behavior
    * @returns response string and statistics
    */
   public async query(
     prompt: string | string[],
-    schema?: zod.ZodType
+    schema?: zod.ZodType,
+    options?: LlmQueryOptions
   ): Promise<LlmQueryResult> {
     LlmAdapter._handleDebug();
 
@@ -317,7 +319,19 @@ export class LlmAdapter {
             console.log(`[NaNofuzz Copilot AI] Received response:\n${text}`);
           }
         } else {
-          const maxAttempts = Math.max(1, cfg.retries);
+          const retryOnTimeout =
+            options?.noRetries === true
+              ? false
+              : (options?.retryOnTimeout ?? options?.retries !== 0);
+          const maxAttempts =
+            options?.noRetries === true
+              ? 1
+              : options?.retries !== undefined
+                ? Math.max(1, options.retries)
+                : retryOnTimeout
+                  ? Math.max(1, cfg.retries)
+                  : 1;
+
           let lastError: unknown;
           for (let attempt = 1; attempt <= maxAttempts; attempt++) {
             try {
@@ -359,7 +373,11 @@ export class LlmAdapter {
               break;
             } catch (err: unknown) {
               lastError = err;
-              if (!isTimeoutError(err) || attempt >= maxAttempts) {
+              if (
+                !retryOnTimeout ||
+                !isTimeoutError(err) ||
+                attempt >= maxAttempts
+              ) {
                 throw err;
               }
               if (LlmAdapter.isDebugConfigured()) {
@@ -512,6 +530,16 @@ export class LlmAdapter {
   } // fn: isDebugActive
 
   /**
+   * Helper function to determine if an error is a timeout or abort error.
+   *
+   * @param err Unknown error to test
+   * @returns True if error is a timeout error; false otherwise
+   */
+  public static isTimeoutError(err: unknown): boolean {
+    return isTimeoutError(err);
+  } // fn: isTimeoutError
+
+  /**
    * Turns debug logging on or off depending on the `nanofuzz.ai.debug` option
    */
   protected static _handleDebug(): void {
@@ -539,7 +567,7 @@ export const DEFAULT_REQUEST_TIMEOUT = 60_000;
 /**
  * Helper function to determine if an error is a timeout or abort error
  */
-function isTimeoutError(err: unknown): boolean {
+export function isTimeoutError(err: unknown): boolean {
   if (err instanceof Error) {
     const msg = err.message.toLowerCase();
     if (
@@ -564,3 +592,15 @@ function isTimeoutError(err: unknown): boolean {
   }
   return false;
 } // fn: isTimeoutError
+
+/**
+ * Options to control query execution and retry policies in LlmAdapter.
+ */
+export interface LlmQueryOptions {
+  /** Maximum retry attempts for this query. 0 or 1 disables retries. Defaults to configured nanofuzz.ai.retries. */
+  retries?: number;
+  /** Whether to retry on timeout errors in LlmAdapter. Defaults to true. If false, timeouts fail immediately without retrying. */
+  retryOnTimeout?: boolean;
+  /** If true, disables all retries for this query. */
+  noRetries?: boolean;
+}
