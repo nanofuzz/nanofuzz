@@ -400,14 +400,8 @@ export async function runCliInProcess(
         stopBars();
         isolator.log("Cancellation requested. Stopping NaNofuzz...");
 
-        // If recording AI interactions when SIGINT arrives, do not wait for
-        // in-flight requests, retries, or cache flushes to finish; abandon
-        // them immediately so the process exits promptly.
-        const cacheMode = Config.get<string>(
-          "nanofuzz.ai.cacheMode",
-          "passthrough"
-        );
-        if (cacheMode.includes("record") && LlmAdapter.isInFlight) {
+        // Upon SIGINT, abandon any in-flight AI requests or retries.
+        if (LlmAdapter.isInFlight) {
           LlmAdapter.abandon();
           abandonRun?.();
         }
