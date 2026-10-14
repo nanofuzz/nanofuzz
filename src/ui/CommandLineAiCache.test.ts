@@ -288,8 +288,10 @@ describe("cli: ai cache", () => {
     const targetFn = "testCoverageOneFile";
 
     let askCallCount = 0;
+    let sigintTime = 0;
     spyOn(nodellm.Chat.prototype, "ask").and.callFake(async () => {
       askCallCount++;
+      sigintTime = performance.now();
       // Emit SIGINT while call is in-flight
       process.emit("SIGINT");
       // Simulate long-running request
@@ -307,7 +309,6 @@ describe("cli: ai cache", () => {
       );
     });
 
-    const start = performance.now();
     const res = await runCli([
       targetFile,
       targetFn,
@@ -330,10 +331,11 @@ describe("cli: ai cache", () => {
       "--seed",
       "cli_seed_sigint_abandon",
     ]);
-    const elapsed = performance.now() - start;
+    const elapsedSinceSigint = performance.now() - sigintTime;
 
     expect(res.status).toBe(2); // USER_CANCELLED
-    expect(elapsed).toBeLessThan(3500); // abandoned promptly, did not wait for the in-flight query
+    expect(sigintTime).toBeGreaterThan(0);
+    expect(elapsedSinceSigint).toBeLessThan(3500); // abandoned promptly, did not wait for the in-flight query
     expect(askCallCount).toBe(1); // did not retry after being abandoned
   });
 
