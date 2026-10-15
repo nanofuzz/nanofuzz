@@ -5,14 +5,44 @@ import {
   DEFAULT_REQUEST_TIMEOUT,
 } from "./LlmAdapter";
 import * as nodellm from "@node-llm/core";
+import {
+  Agent,
+  Dispatcher,
+  EnvHttpProxyAgent,
+  getGlobalDispatcher,
+  setGlobalDispatcher,
+} from "undici";
 
 describe("src/fuzzer/adapters/LlmAdapter:", () => {
+  let savedDispatcher: Dispatcher;
+  const proxyEnvVars = [
+    "HTTPS_PROXY",
+    "https_proxy",
+    "HTTP_PROXY",
+    "http_proxy",
+    "NO_PROXY",
+    "no_proxy",
+  ];
+  const savedEnv: Record<string, string | undefined> = {};
+
   beforeEach(() => {
     Config.clearOverrides();
+    savedDispatcher = getGlobalDispatcher();
+    for (const key of proxyEnvVars) {
+      savedEnv[key] = process.env[key];
+    }
   });
 
   afterEach(() => {
     Config.clearOverrides();
+    setGlobalDispatcher(savedDispatcher);
+    for (const key of proxyEnvVars) {
+      if (savedEnv[key] !== undefined) {
+        process.env[key] = savedEnv[key];
+      } else {
+        delete process.env[key];
+      }
+    }
   });
 
   it("isConfigured: correctly checks configuration state", () => {
@@ -122,6 +152,42 @@ describe("src/fuzzer/adapters/LlmAdapter:", () => {
     expect(Reflect.get(provider ?? {}, "baseUrl")).toBe(
       "https://custom-openai-proxy.internal/v1"
     );
+  });
+
+  it("configureProxy: returns false when no proxy environment variables are set", () => {
+    for (const key of proxyEnvVars) {
+      delete process.env[key];
+    }
+    setGlobalDispatcher(new Agent());
+    expect(LlmAdapter.configureProxy()).toBeFalse();
+    expect(getGlobalDispatcher() instanceof EnvHttpProxyAgent).toBeFalse();
+  });
+
+  it("configureProxy: configures EnvHttpProxyAgent when proxy env var is set", () => {
+    for (const key of [
+      "HTTPS_PROXY",
+      "https_proxy",
+      "HTTP_PROXY",
+      "http_proxy",
+    ] as const) {
+      for (const k of proxyEnvVars) {
+        delete process.env[k];
+      }
+      setGlobalDispatcher(new Agent());
+      process.env[key] = "http://proxy.internal:8080";
+      expect(LlmAdapter.configureProxy()).toBeTrue();
+      expect(getGlobalDispatcher() instanceof EnvHttpProxyAgent).toBeTrue();
+    }
+  });
+
+  it("constructor: configures proxy when proxy environment variable is present", () => {
+    Config.override("nanofuzz.ai.provider", "ollama");
+    Config.override("nanofuzz.ai.model", "qwen2.5-coder:7b");
+    setGlobalDispatcher(new Agent());
+    process.env.HTTPS_PROXY = "http://proxy.internal:8080";
+
+    expect(new LlmAdapter()).toBeDefined();
+    expect(getGlobalDispatcher() instanceof EnvHttpProxyAgent).toBeTrue();
   });
 
   it("_createChat: sets assumeModelExists to true for unlisted/local models", () => {
