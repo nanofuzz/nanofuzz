@@ -62,6 +62,8 @@ export class LlmAdapter {
   protected _cfgString: string; // LLM config; for detecting config changes
   protected _systemPrompt: string; // System prompt
   protected static _abandoned = false; // Flag indicating if in-flight and pending LLM queries should be abandoned
+  protected static _abandonPromise: Promise<never> | undefined;
+  protected static _abandonReject: ((reason?: unknown) => void) | undefined;
 
   public constructor(prng?: seedrandom.prng, systemPrompt?: string) {
     LlmAdapter.configureProxy();
@@ -227,6 +229,11 @@ export class LlmAdapter {
    */
   public static abandon(): void {
     LlmAdapter._abandoned = true;
+    if (LlmAdapter._abandonReject) {
+      const reject = LlmAdapter._abandonReject;
+      LlmAdapter._abandonReject = undefined;
+      reject(new LlmAbandonedError());
+    }
   } // fn: abandon
 
   /**
@@ -234,6 +241,10 @@ export class LlmAdapter {
    */
   public static resetAbandoned(): void {
     LlmAdapter._abandoned = false;
+    LlmAdapter._abandonPromise = new Promise<never>((_, reject) => {
+      LlmAdapter._abandonReject = reject;
+    });
+    LlmAdapter._abandonPromise.catch(() => {});
   } // fn: resetAbandoned
 
   /**
@@ -279,6 +290,9 @@ export class LlmAdapter {
     schema?: zod.ZodType,
     options?: LlmQueryOptions
   ): Promise<LlmQueryResult> {
+    if (LlmAdapter._abandoned) {
+      throw new LlmAbandonedError();
+    }
     LlmAdapter._handleDebug();
 
     const cfg = LlmAdapter.getConfig();
@@ -290,187 +304,211 @@ export class LlmAdapter {
 
     const promptArr = Array.isArray(prompt) ? prompt : [prompt];
 
-    return await this._cacheManager.query(
-      provider,
-      modelName,
-      promptArr,
-      schemaJson,
-      async () => {
-        const contentParts: nodellm.ContentPart[] = [];
-        promptArr.forEach((e) => {
-          contentParts.push({
-            type: "text",
-            text: e,
+    const abandonPromise =
+      LlmAdapter._abandonPromise ?? Promise.reject(new LlmAbandonedError());
+
+    return await Promise.race([
+      this._cacheManager.query(
+        provider,
+        modelName,
+        promptArr,
+        schemaJson,
+        async () => {
+          const contentParts: nodellm.ContentPart[] = [];
+          promptArr.forEach((e) => {
+            contentParts.push({
+              type: "text",
+              text: e,
+            });
           });
-        });
 
-        vscode.commands.executeCommand(
-          telemetry.commands.logTelemetry.name,
-          new telemetry.LoggerEntry(
-            "LlmAdapter.query.send",
-            "Sending query to LLM (v=%s;m=%s). Query: %s.",
-            [provider, modelName, promptArr.join("\n")]
-          )
-        );
-
-        let text = "";
-        let inputTokens = 0;
-        let outputTokens = 0;
-        let inputCost = 0;
-        let outputCost = 0;
-
-        if (provider === "copilot") {
-          if (!vscode.lm || typeof vscode.lm.selectChatModels !== "function") {
-            throw new Error(
-              "Copilot Language Model API is not available in the current environment."
-            );
-          }
-
-          const selector: vscode.LanguageModelChatSelector = {};
-          if (cfg.vendor) {
-            selector.vendor = cfg.vendor;
-          }
-          if (modelName) {
-            selector.family = modelName;
-          }
-
-          let models = await vscode.lm.selectChatModels(
-            Object.keys(selector).length > 0 ? selector : undefined
+          vscode.commands.executeCommand(
+            telemetry.commands.logTelemetry.name,
+            new telemetry.LoggerEntry(
+              "LlmAdapter.query.send",
+              "Sending query to LLM (v=%s;m=%s). Query: %s.",
+              [provider, modelName, promptArr.join("\n")]
+            )
           );
-          if (!models || models.length === 0) {
-            models = await vscode.lm.selectChatModels();
-          }
-          if (!models || models.length === 0) {
-            throw new Error(
-              "No Language Models available in VS Code. Ensure a model provider is installed and active in VS Code."
+
+          let text = "";
+          let inputTokens = 0;
+          let outputTokens = 0;
+          let inputCost = 0;
+          let outputCost = 0;
+
+          if (provider === "copilot") {
+            if (
+              !vscode.lm ||
+              typeof vscode.lm.selectChatModels !== "function"
+            ) {
+              throw new Error(
+                "Copilot Language Model API is not available in the current environment."
+              );
+            }
+
+            const selector: vscode.LanguageModelChatSelector = {};
+            if (cfg.vendor) {
+              selector.vendor = cfg.vendor;
+            }
+            if (modelName) {
+              selector.family = modelName;
+            }
+
+            let models = await vscode.lm.selectChatModels(
+              Object.keys(selector).length > 0 ? selector : undefined
             );
-          }
+            if (!models || models.length === 0) {
+              models = await vscode.lm.selectChatModels();
+            }
+            if (!models || models.length === 0) {
+              throw new Error(
+                "No Language Models available in VS Code. Ensure a model provider is installed and active in VS Code."
+              );
+            }
 
-          const model = models[0];
-          if (LlmAdapter.isDebugConfigured()) {
-            console.log(
-              `[NaNofuzz Copilot AI] Sending query (${model.vendor}/${model.name || model.id || "copilot"}):\n${promptArr.join("\n")}`
-            );
-          }
+            const model = models[0];
+            if (LlmAdapter.isDebugConfigured()) {
+              console.log(
+                `[NaNofuzz Copilot AI] Sending query (${model.vendor}/${model.name || model.id || "copilot"}):\n${promptArr.join("\n")}`
+              );
+            }
 
-          const messages = [
-            vscode.LanguageModelChatMessage.User(promptArr.join("\n")),
-          ];
+            const messages = [
+              vscode.LanguageModelChatMessage.User(promptArr.join("\n")),
+            ];
 
-          const response = await model.sendRequest(
-            messages,
-            {},
-            new vscode.CancellationTokenSource().token
-          );
-          for await (const chunk of response.text) {
-            text += chunk;
-          }
+            const response = await Promise.race([
+              model.sendRequest(
+                messages,
+                {},
+                new vscode.CancellationTokenSource().token
+              ),
+              abandonPromise,
+            ]);
+            for await (const chunk of response.text) {
+              if (LlmAdapter._abandoned) {
+                throw new LlmAbandonedError();
+              }
+              text += chunk;
+            }
 
-          if (LlmAdapter.isDebugConfigured()) {
-            console.log(`[NaNofuzz Copilot AI] Received response:\n${text}`);
-          }
-        } else {
-          const retryOnTimeout =
-            options?.noRetries === true
-              ? false
-              : (options?.retryOnTimeout ?? options?.retries !== 0);
-          const maxAttempts =
-            options?.noRetries === true
-              ? 1
-              : options?.retries !== undefined
-                ? Math.max(1, options.retries)
-                : retryOnTimeout
-                  ? Math.max(1, cfg.retries)
-                  : 1;
+            if (LlmAdapter.isDebugConfigured()) {
+              console.log(`[NaNofuzz Copilot AI] Received response:\n${text}`);
+            }
+          } else {
+            const retryOnTimeout =
+              options?.noRetries === true
+                ? false
+                : (options?.retryOnTimeout ?? options?.retries !== 0);
+            const maxAttempts =
+              options?.noRetries === true
+                ? 1
+                : options?.retries !== undefined
+                  ? Math.max(1, options.retries)
+                  : retryOnTimeout
+                    ? Math.max(1, cfg.retries)
+                    : 1;
 
-          let lastError: unknown;
-          for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-            try {
-              const baseChat = this._createChat();
-              const jsonSchemaObj = schema
-                ? zod.toJSONSchema(schema)
-                : undefined;
-              const schemaObj = jsonSchemaObj
-                ? nodellm.Schema.fromJson(
-                    "output",
-                    cleanJsonSchema(jsonSchemaObj)
-                  )
-                : undefined;
-              let chat = (schemaObj ? baseChat.withSchema(schemaObj) : baseChat)
-                .withRequestOptions({
-                  responseFormat: { type: "json_object" },
-                })
-                .withParams({
-                  max_tokens: undefined, // Overrides default 4096 with undefined
-                });
-
-              // Provider specific settings
-              if (provider === "anthropic") {
-                if (schema) {
-                  // Anthropic doesn't always respect responseFormat
-                  chat = chat.withParams({
-                    output_config: {
-                      format: zodOutputFormat(schema),
-                    },
+            let lastError: unknown;
+            for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+              try {
+                const baseChat = this._createChat();
+                const jsonSchemaObj = schema
+                  ? zod.toJSONSchema(schema)
+                  : undefined;
+                const schemaObj = jsonSchemaObj
+                  ? nodellm.Schema.fromJson(
+                      "output",
+                      cleanJsonSchema(jsonSchemaObj)
+                    )
+                  : undefined;
+                let chat = (
+                  schemaObj ? baseChat.withSchema(schemaObj) : baseChat
+                )
+                  .withRequestOptions({
+                    responseFormat: { type: "json_object" },
+                  })
+                  .withParams({
+                    max_tokens: undefined, // Overrides default 4096 with undefined
                   });
+
+                // Provider specific settings
+                if (provider === "anthropic") {
+                  if (schema) {
+                    // Anthropic doesn't always respect responseFormat
+                    chat = chat.withParams({
+                      output_config: {
+                        format: zodOutputFormat(schema),
+                      },
+                    });
+                  }
+                }
+
+                const response = await Promise.race([
+                  chat.ask(contentParts),
+                  abandonPromise,
+                ]);
+                text = response.toString();
+                inputTokens = response.inputTokens ?? 0;
+                outputTokens = response.outputTokens ?? 0;
+                inputCost = response.input_cost ?? 0;
+                outputCost = response.output_cost ?? 0;
+                lastError = undefined;
+                break;
+              } catch (err: unknown) {
+                lastError = err;
+                if (
+                  isAbandonedError(err) ||
+                  LlmAdapter._abandoned ||
+                  !retryOnTimeout ||
+                  !isTimeoutError(err) ||
+                  attempt >= maxAttempts
+                ) {
+                  throw err;
+                }
+                if (LlmAdapter.isDebugConfigured()) {
+                  console.log(
+                    `[NaNofuzz AI] Request timed out on attempt ${attempt}/${maxAttempts}. Retrying in ${cfg.retryDelay}ms...`
+                  );
+                }
+                if (cfg.retryDelay > 0) {
+                  await Promise.race([
+                    new Promise((resolve) =>
+                      setTimeout(resolve, cfg.retryDelay)
+                    ),
+                    abandonPromise,
+                  ]);
                 }
               }
-
-              const response = await chat.ask(contentParts);
-              text = response.toString();
-              inputTokens = response.inputTokens ?? 0;
-              outputTokens = response.outputTokens ?? 0;
-              inputCost = response.input_cost ?? 0;
-              outputCost = response.output_cost ?? 0;
-              lastError = undefined;
-              break;
-            } catch (err: unknown) {
-              lastError = err;
-              if (
-                !retryOnTimeout ||
-                !isTimeoutError(err) ||
-                attempt >= maxAttempts ||
-                LlmAdapter._abandoned
-              ) {
-                throw err;
-              }
-              if (LlmAdapter.isDebugConfigured()) {
-                console.log(
-                  `[NaNofuzz AI] Request timed out on attempt ${attempt}/${maxAttempts}. Retrying in ${cfg.retryDelay}ms...`
-                );
-              }
-              if (cfg.retryDelay > 0) {
-                await new Promise((resolve) =>
-                  setTimeout(resolve, cfg.retryDelay)
-                );
-              }
+            }
+            if (lastError) {
+              throw lastError;
             }
           }
-          if (lastError) {
-            throw lastError;
-          }
+
+          vscode.commands.executeCommand(
+            telemetry.commands.logTelemetry.name,
+            new telemetry.LoggerEntry(
+              "LlmAdapter.query.response",
+              "Received response from LLM (v=%s;m=%s). Response: %s.",
+              [provider, modelName, text]
+            )
+          );
+
+          return {
+            text,
+            stats: {
+              tokensSent: inputTokens,
+              tokensSentCost: { amt: inputCost, unit: "USD" },
+              tokensReceived: outputTokens,
+              tokensReceivedCost: { amt: outputCost, unit: "USD" },
+            },
+          };
         }
-
-        vscode.commands.executeCommand(
-          telemetry.commands.logTelemetry.name,
-          new telemetry.LoggerEntry(
-            "LlmAdapter.query.response",
-            "Received response from LLM (v=%s;m=%s). Response: %s.",
-            [provider, modelName, text]
-          )
-        );
-
-        return {
-          text,
-          stats: {
-            tokensSent: inputTokens,
-            tokensSentCost: { amt: inputCost, unit: "USD" },
-            tokensReceived: outputTokens,
-            tokensReceivedCost: { amt: outputCost, unit: "USD" },
-          },
-        };
-      }
-    );
+      ),
+      abandonPromise,
+    ]);
   } // fn: query
 
   /**
@@ -623,6 +661,7 @@ export class LlmAdapter {
 
 // Enable standard proxy routing for all LLM fetch requests
 LlmAdapter.configureProxy();
+LlmAdapter.resetAbandoned();
 
 /**
  * Fallback maximum output token limit used when a model's max output token capacity
@@ -681,3 +720,26 @@ export interface LlmQueryOptions {
   /** If true, disables all retries for this query. */
   noRetries?: boolean;
 }
+
+/**
+ * Error thrown when an in-flight LLM query is abandoned on SIGINT or cancellation.
+ */
+export class LlmAbandonedError extends Error {
+  public constructor(message = "LLM query abandoned") {
+    super(message);
+    this.name = "LlmAbandonedError";
+  } // fn: constructor
+} // class: LlmAbandonedError
+
+/**
+ * Helper function to determine if an error was caused by an abandoned query.
+ */
+export function isAbandonedError(err: unknown): boolean {
+  if (err instanceof LlmAbandonedError) {
+    return true;
+  }
+  if (err instanceof Error && err.name === "LlmAbandonedError") {
+    return true;
+  }
+  return false;
+} // fn: isAbandonedError

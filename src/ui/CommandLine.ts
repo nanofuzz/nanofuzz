@@ -390,11 +390,6 @@ export async function runCliInProcess(
       }
     }; // fn: stopBars
 
-    let abandonRun: (() => void) | undefined;
-    const abandonPromise = new Promise<void>((resolve) => {
-      abandonRun = resolve;
-    });
-
     sigintListener = () => {
       if (isCancelled) {
         // ignore
@@ -404,10 +399,7 @@ export async function runCliInProcess(
         isolator.log("Cancellation requested. Stopping NaNofuzz...");
 
         // Upon SIGINT, abandon any in-flight AI requests or retries.
-        if (LlmAdapter.isInFlight) {
-          LlmAdapter.abandon();
-          abandonRun?.();
-        }
+        LlmAdapter.abandon();
       }
     }; // fn: sigintListener
 
@@ -865,7 +857,7 @@ export async function runCliInProcess(
         `Online: ${workerWord}, ${engine} engine, ${scheduler} scheduler${modelWord}.`
       );
 
-      const testPromise = fuzzer
+      const results = await fuzzer
         .test(
           injectTests,
           undefined,
@@ -879,23 +871,13 @@ export async function runCliInProcess(
           throw e;
         });
 
-      const outcome = await Promise.race([
-        testPromise.then((res) => ({
-          type: "completed" as const,
-          results: res,
-        })),
-        abandonPromise.then(() => ({ type: "abandoned" as const })),
-      ]);
+      process.removeListener("SIGINT", sigintListener);
+      process.removeListener("exit", restoreCursor);
 
-      if (outcome.type === "abandoned" || !outcome.results) {
+      if (!results) {
         stopBars();
         return USER_CANCELLED;
       }
-
-      const results = outcome.results;
-
-      process.removeListener("SIGINT", sigintListener);
-      process.removeListener("exit", restoreCursor);
 
       if (outfile) {
         const covStats =

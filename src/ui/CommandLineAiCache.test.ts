@@ -5,7 +5,7 @@ import JSON5 from "json5";
 import * as zod from "zod/v4";
 import * as nodellm from "@node-llm/core";
 import * as Config from "../Config";
-import { FuzzTestResults } from "../fuzzer/Types";
+import { FuzzStopReason, FuzzTestResults } from "../fuzzer/Types";
 import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
 import {
   AiInputGenerator,
@@ -337,6 +337,12 @@ describe("cli: ai cache", () => {
     expect(sigintTime).toBeGreaterThan(0);
     expect(elapsedSinceSigint).toBeLessThan(3500); // abandoned promptly, did not wait for the in-flight query
     expect(askCallCount).toBe(1); // did not retry after being abandoned
+    expect(fs.existsSync(outputFile)).toBeTrue();
+    const outputData = JSON5.parse<FuzzTestResults>(
+      fs.readFileSync(outputFile, "utf8")
+    );
+    expect(outputData.toolVersion).toBeDefined();
+    expect(outputData.stopReason).toBe(FuzzStopReason.PAUSE);
   });
 
   it("--ai-cache-delay: validates and perturbs delay", async () => {

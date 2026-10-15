@@ -8,7 +8,11 @@ import {
 } from "../analysis/Types";
 import * as JSONN from "../../Jsonn";
 import * as ValueMapper from "../mappers/ValueMapper";
-import { LlmAdapter, isTimeoutError } from "../adapters/LlmAdapter";
+import {
+  LlmAdapter,
+  isAbandonedError,
+  isTimeoutError,
+} from "../adapters/LlmAdapter";
 import { ArgDef } from "../analysis/ArgDef";
 import { FunctionDef } from "../analysis/FunctionDef";
 import { FuzzTestResults, InputAndSource } from "../Types";
@@ -88,14 +92,17 @@ export class AiInputGenerator extends AbstractInputGenerator {
         this._inputQueue.length < getChunkSize() &&
         !this._callsPending &&
         this._llm &&
-        !this._exhausted
+        !this._exhausted &&
+        !LlmAdapter.isAbandoned
       ) {
         this._getMoreInputs();
       }
       return "now";
+    } else if (LlmAdapter.isAbandoned || this._exhausted) {
+      return false;
     } else if (this._callsPending) {
       return "soon";
-    } else if (this._llm && !this._exhausted) {
+    } else if (this._llm) {
       this._getMoreInputs();
       return this._callsPending ? "soon" : false;
     } else {
@@ -264,7 +271,12 @@ export class AiInputGenerator extends AbstractInputGenerator {
    */
   protected _getMoreInputs(): void {
     // Let any prior calls finish before making a new one
-    if (this._callsPending || this._exhausted || !this._llm) {
+    if (
+      this._callsPending ||
+      this._exhausted ||
+      !this._llm ||
+      LlmAdapter.isAbandoned
+    ) {
       return;
     }
 
@@ -348,10 +360,11 @@ export class AiInputGenerator extends AbstractInputGenerator {
           break;
         } catch (err: unknown) {
           if (
+            !LlmAdapter.isAbandoned &&
+            !isAbandonedError(err) &&
             isTimeoutError(err) &&
             attempt < maxAttempts &&
-            !this._exhausted &&
-            !LlmAdapter.isAbandoned
+            !this._exhausted
           ) {
             if (LlmAdapter.isDebugConfigured()) {
               console.log(
@@ -491,11 +504,13 @@ export class AiInputGenerator extends AbstractInputGenerator {
         this._exhausted = true;
       }
     } catch (e: unknown) {
-      this._stats.calls.failed++;
-      this._stats.calls.history.push({
-        failure: true,
-        message: isError(e) ? e.message : "unknown error",
-      });
+      if (!LlmAdapter.isAbandoned && !isAbandonedError(e)) {
+        this._stats.calls.failed++;
+        this._stats.calls.history.push({
+          failure: true,
+          message: isError(e) ? e.message : "unknown error",
+        });
+      }
       this._exhausted = true;
     }
   } // fn: _fetchInputs
