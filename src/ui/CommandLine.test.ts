@@ -132,6 +132,7 @@ describe("cli:", () => {
     const helpRes = await runCli(["--help"]);
     expect(helpRes.status).toBe(0);
     expect(helpRes.stdout).toContain("Usage: nanofuzz");
+    expect(helpRes.stdout).toContain("--no-progress-bar");
 
     const versionRes = await runCli(["--version"]);
     expect(versionRes.status).toBe(0);
@@ -1044,6 +1045,39 @@ describe("cli:", () => {
       expect(res.stderr).toMatch(/(inputs\/s|inputs\/min)/);
       expect(res.stderr).toMatch(/(execs\/s|inputs\/min)/);
       expect(res.stderr).toMatch(/Results \[.*Passed:/);
+    } finally {
+      Object.defineProperty(process.stderr, "isTTY", {
+        value: origIsTTY,
+        configurable: true,
+        writable: true,
+      });
+    }
+  });
+
+  it("--no-progress-bar: disables progress bar in stderr", async () => {
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testCoverageOneFile";
+
+    const origIsTTY = process.stderr.isTTY;
+    try {
+      Object.defineProperty(process.stderr, "isTTY", {
+        value: true,
+        configurable: true,
+        writable: true,
+      });
+      const res = await runCli([
+        targetFile,
+        targetFn,
+        "--no-progress-bar",
+        "--max-tests",
+        "5",
+        "--seed",
+        "cli_seed_no_progress_bar",
+      ]);
+
+      expect(res.status).toBe(0);
+      expect(res.stderr).not.toMatch(/Testing \[.*\]/);
+      expect(res.stderr).not.toMatch(/Results \[.*Passed:/);
     } finally {
       Object.defineProperty(process.stderr, "isTTY", {
         value: origIsTTY,

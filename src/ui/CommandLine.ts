@@ -132,6 +132,7 @@ function createProgram(): Commander.Command {
       parseOutputResults,
       "failures"
     )
+    .option(`--no-progress-bar`, `Disable progress bar`)
     .option(`--no-config-file`, `Ignore .nano.json5 config`)
     .option(
       `--engine <v1|v2|v3|auto>`,
@@ -358,6 +359,8 @@ export async function runCliInProcess(
       ? path.resolve(options["outputFile"])
       : undefined;
 
+    const showProgressBar = options["progressBar"] !== false;
+
     // Setup update message handler & the progress bar
     let isCancelled = false;
     let lastWasMilestone = true;
@@ -428,6 +431,9 @@ export async function runCliInProcess(
         case "progress-tick": {
           if ("stats" in payload && payload.stats) {
             lastStats = payload.stats;
+          }
+          if (!showProgressBar) {
+            break;
           }
           const elapsedSec =
             lastStats?.timers.startTime && lastStats.timers.startTime > 0
