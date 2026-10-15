@@ -5,6 +5,7 @@ import * as JSONN from "../../Jsonn";
 import * as nodellm from "@node-llm/core";
 import * as telemetry from "../../telemetry/Telemetry";
 import * as zod from "zod/v4";
+import { EnvHttpProxyAgent, setGlobalDispatcher } from "undici";
 import { zodOutputFormat } from "./AnthropicUtils";
 import { LlmCacheManager } from "./LlmCacheManager";
 import { LlmDelayCalculator } from "./LlmDelayCalculator";
@@ -63,6 +64,7 @@ export class LlmAdapter {
   protected static _abandoned = false; // Flag indicating if in-flight and pending LLM queries should be abandoned
 
   public constructor(prng?: seedrandom.prng, systemPrompt?: string) {
+    LlmAdapter.configureProxy();
     LlmAdapter._handleDebug();
 
     this._systemPrompt = systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
@@ -592,12 +594,35 @@ export class LlmAdapter {
   } // fn: isTimeoutError
 
   /**
+   * Configures the global Undici dispatcher with EnvHttpProxyAgent
+   * if proxy environment variables are set.
+   *
+   * @returns `true` if proxy agent was configured; `false` otherwise
+   */
+  public static configureProxy(): boolean {
+    const proxyUrl =
+      process.env.HTTPS_PROXY ||
+      process.env.https_proxy ||
+      process.env.HTTP_PROXY ||
+      process.env.http_proxy;
+
+    if (proxyUrl) {
+      setGlobalDispatcher(new EnvHttpProxyAgent());
+      return true;
+    }
+    return false;
+  } // fn: configureProxy
+
+  /**
    * Turns debug logging on or off depending on the `nanofuzz.ai.debug` option
    */
   protected static _handleDebug(): void {
     process.env["NODELLM_DEBUG"] = String(LlmAdapter.isDebugConfigured());
   } // fn: _handleDebug
 } // class: LlmAdapter
+
+// Enable standard proxy routing for all LLM fetch requests
+LlmAdapter.configureProxy();
 
 /**
  * Fallback maximum output token limit used when a model's max output token capacity
