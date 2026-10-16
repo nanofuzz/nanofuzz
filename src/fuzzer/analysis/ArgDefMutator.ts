@@ -630,30 +630,36 @@ export class ArgDefMutator {
               });
             }
 
-            const rPos = Math.floor(prng() * Math.max(0, value.length - 1));
             const charSet = options.strCharset;
-            const rChar = charSet[Math.floor(prng() * (charSet.length - 1))];
+            const rChar = charSet[Math.floor(prng() * charSet.length)];
 
-            strProposals.push(
-              {
-                name: "string-deleteOneChar",
-                value: `${value.slice(0, rPos)}${value.slice(rPos + 1)}`,
-                path: [...subInput.subPath],
-                simplifies: true,
-              },
-              {
-                name: "string-replaceOneChar",
-                value: `${value.slice(0, rPos)}${rChar}${value.slice(
-                  rPos + 1
-                )}`,
-                path: [...subInput.subPath],
-              },
-              {
-                name: "string-insertOneChar",
-                value: `${value.slice(0, rPos)}${rChar}${value.slice(rPos)}`,
-                path: [...subInput.subPath],
-              }
-            );
+            if (value.length > 0) {
+              const rPos = Math.floor(prng() * value.length);
+              strProposals.push(
+                {
+                  name: "string-deleteOneChar",
+                  value: `${value.slice(0, rPos)}${value.slice(rPos + 1)}`,
+                  path: [...subInput.subPath],
+                  simplifies: true,
+                },
+                {
+                  name: "string-replaceOneChar",
+                  value: `${value.slice(0, rPos)}${rChar}${value.slice(
+                    rPos + 1
+                  )}`,
+                  path: [...subInput.subPath],
+                }
+              );
+            }
+
+            const insertPos = Math.floor(prng() * (value.length + 1));
+            strProposals.push({
+              name: "string-insertOneChar",
+              value: `${value.slice(0, insertPos)}${rChar}${value.slice(
+                insertPos
+              )}`,
+              path: [...subInput.subPath],
+            });
             /*
             {
               name: "string-reverse",
@@ -687,7 +693,6 @@ export class ArgDefMutator {
                 ? subElem.filter((e): e is number => typeof e === "number")
                 : [];
             const len = rawBytes.length;
-            const rPos = Math.floor(prng() * Math.max(0, len - 1));
             const rByte = Math.floor(prng() * 256);
             const rBit = Math.floor(prng() * 8);
 
@@ -704,6 +709,7 @@ export class ArgDefMutator {
             }
 
             if (len > 0) {
+              const rPos = Math.floor(prng() * len);
               // Single-bit flip
               const bitFlipped = new Uint8Array(rawBytes);
               const bitWasSet = (rawBytes[rPos] & (1 << rBit)) !== 0;
@@ -1034,11 +1040,12 @@ export class ArgDefMutator {
 
             // Insertion / Growth operations
             if (len < options.byteLength.max) {
+              const insPos = Math.floor(prng() * (len + 1));
               // Single-byte insert
               const inserted = new Uint8Array(len + 1);
-              inserted.set(rawBytes.slice(0, rPos));
-              inserted[rPos] = rByte;
-              inserted.set(rawBytes.slice(rPos), rPos + 1);
+              inserted.set(rawBytes.slice(0, insPos));
+              inserted[insPos] = rByte;
+              inserted.set(rawBytes.slice(insPos), insPos + 1);
               proposals.push({
                 name: "bytes-insertOneByte",
                 value: inserted,
@@ -1050,11 +1057,11 @@ export class ArgDefMutator {
               if (maxIns >= 2) {
                 const insLen = Math.floor(prng() * (maxIns - 1)) + 2;
                 const insBlock = new Uint8Array(len + insLen);
-                insBlock.set(rawBytes.slice(0, rPos));
+                insBlock.set(rawBytes.slice(0, insPos));
                 for (let k = 0; k < insLen; k++) {
-                  insBlock[rPos + k] = Math.floor(prng() * 256);
+                  insBlock[insPos + k] = Math.floor(prng() * 256);
                 }
-                insBlock.set(rawBytes.slice(rPos), rPos + insLen);
+                insBlock.set(rawBytes.slice(insPos), insPos + insLen);
                 proposals.push({
                   name: "bytes-insertBlock",
                   value: insBlock,
