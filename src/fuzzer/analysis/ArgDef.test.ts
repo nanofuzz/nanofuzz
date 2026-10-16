@@ -1179,6 +1179,87 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
     }
   });
 
+  it("Array mutators: deleteBlock, truncateToMin, swapElements, rotate, insertElement, replaceBlock, duplicateBlock, fillBlock, and single deleteElement", () => {
+    const spec = makeArgDef(
+      dummyModule,
+      "arrArg",
+      0,
+      ArgTag.NUMBER,
+      {
+        ...argOptions,
+        dimLength: [{ min: 2, max: 10 }],
+      },
+      1,
+      false
+    );
+    const input = [
+      {
+        tag: "ArgValueTypeWrapped" as const,
+        value: [10, 20, 30, 40, 50],
+      },
+    ];
+    const mutators = ArgDefMutator.getMutators(
+      [spec],
+      input,
+      seedrandom("arrayBlockMutators")
+    );
+    const mutatorMap = new Map(mutators.map((m) => [m.name, m]));
+
+    // Check all array mutators are present
+    expect(mutatorMap.has("array-deleteElement")).toBeTrue();
+    expect(mutatorMap.has("array-deleteBlock")).toBeTrue();
+    expect(mutatorMap.has("array-truncateToMin")).toBeTrue();
+    expect(mutatorMap.has("array-swapElements")).toBeTrue();
+    expect(mutatorMap.has("array-rotate")).toBeTrue();
+    expect(mutatorMap.has("array-insertElement")).toBeTrue();
+    expect(mutatorMap.has("array-replaceBlock")).toBeTrue();
+    expect(mutatorMap.has("array-duplicateBlock")).toBeTrue();
+    expect(mutatorMap.has("array-fillBlock")).toBeTrue();
+
+    // Verify simplifies flags as described:
+    // Only deleteElement, deleteBlock, and truncateToMin simplify
+    expect(mutatorMap.get("array-deleteElement")?.simplifies).toBeTrue();
+    expect(mutatorMap.get("array-deleteBlock")?.simplifies).toBeTrue();
+    expect(mutatorMap.get("array-truncateToMin")?.simplifies).toBeTrue();
+
+    expect(mutatorMap.get("array-swapElements")?.simplifies).toBeFalse();
+    expect(mutatorMap.get("array-rotate")?.simplifies).toBeFalse();
+    expect(mutatorMap.get("array-insertElement")?.simplifies).toBeFalse();
+    expect(mutatorMap.get("array-replaceBlock")?.simplifies).toBeFalse();
+    expect(mutatorMap.get("array-duplicateBlock")?.simplifies).toBeFalse();
+    expect(mutatorMap.get("array-fillBlock")?.simplifies).toBeFalse();
+    expect(mutatorMap.get("array-jumble")?.simplifies).toBeFalse();
+    expect(mutatorMap.get("array-reverse")?.simplifies).toBeFalse();
+    expect(mutatorMap.get("array-appendNewElement")?.simplifies).toBeFalse();
+
+    // Execute each array mutator and verify the output validates
+    const validator = new ArgDefValidator([spec]);
+    for (const name of [
+      "array-deleteElement",
+      "array-deleteBlock",
+      "array-truncateToMin",
+      "array-swapElements",
+      "array-rotate",
+      "array-insertElement",
+      "array-replaceBlock",
+      "array-duplicateBlock",
+      "array-fillBlock",
+    ]) {
+      const candidateInput = structuredClone(input);
+      const targetMutators = ArgDefMutator.getMutators(
+        [spec],
+        candidateInput,
+        seedrandom("arrayExecution")
+      );
+      const target = targetMutators.find((m) => m.name === name);
+      expect(target).toBeDefined();
+      if (target) {
+        target.fn();
+        expect(validator.validate(candidateInput)).toBeTrue();
+      }
+    }
+  });
+
   it("Bytes mutators: generates and executes valid byte mutations for single- and multi-byte inputs", () => {
     const spec = makeArgDef(
       dummyModule,

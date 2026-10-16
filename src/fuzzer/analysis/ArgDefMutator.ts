@@ -176,15 +176,100 @@ export class ArgDefMutator {
               name: "array-jumble",
               value: [...a].sort(() => 0.5 - prng()),
               path: [...path],
+              simplifies: false,
             },
             {
               name: "array-reverse",
               value: [...a].reverse(),
               path: [...path],
+              simplifies: false,
             },
           ].filter((e) => JSONN.stringify(e.value) !== JSONN.stringify(a))
         );
       } // if: array length > 1
+
+      // Swap two elements
+      if (a.length >= 2) {
+        const idx1 = Math.floor(prng() * a.length);
+        let idx2 = Math.floor(prng() * (a.length - 1));
+        if (idx2 >= idx1) idx2++;
+        if (JSONN.stringify(a[idx1]) !== JSONN.stringify(a[idx2])) {
+          const newArr = [...a];
+          newArr[idx1] = a[idx2];
+          newArr[idx2] = a[idx1];
+          addMutations([
+            {
+              name: "array-swapElements",
+              value: newArr,
+              path: [...path],
+              simplifies: false,
+            },
+          ]);
+        }
+      }
+
+      // Rotate elements cyclically
+      if (a.length >= 2) {
+        const k = 1 + Math.floor(prng() * (a.length - 1));
+        const newArr = [...a.slice(k), ...a.slice(0, k)];
+        if (JSONN.stringify(newArr) !== JSONN.stringify(a)) {
+          addMutations([
+            {
+              name: "array-rotate",
+              value: newArr,
+              path: [...path],
+              simplifies: false,
+            },
+          ]);
+        }
+      }
+
+      // Delete single element (stochastic sampling to balance proposal distribution)
+      if (a.length > options.dimLength[level - 1].min) {
+        const delIdx = Math.floor(prng() * a.length);
+        addMutations([
+          {
+            name: "array-deleteElement",
+            value: a.filter((_v, j) => delIdx !== j),
+            path: [...path],
+            simplifies: true,
+          },
+        ]);
+      }
+
+      // Delete block of elements
+      const maxDel = a.length - options.dimLength[level - 1].min;
+      if (maxDel >= 2) {
+        const delLen = Math.min(
+          maxDel,
+          2 + Math.floor(prng() * Math.min(maxDel - 1, 8))
+        );
+        const maxStart = a.length - delLen;
+        const startPos = Math.floor(prng() * (maxStart + 1));
+        const newArr = [...a.slice(0, startPos), ...a.slice(startPos + delLen)];
+        addMutations([
+          {
+            name: "array-deleteBlock",
+            value: newArr,
+            path: [...path],
+            simplifies: true,
+          },
+        ]);
+      }
+
+      // Truncate to minimum array length (simplification / escape local minima)
+      const minLen = options.dimLength[level - 1].min;
+      if (a.length > minLen + 1) {
+        const newArr = a.slice(0, minLen);
+        addMutations([
+          {
+            name: "array-truncateToMin",
+            value: newArr,
+            path: [...path],
+            simplifies: true,
+          },
+        ]);
+      }
 
       // Add elements if the dimension is not yet full
       if (options.dimLength[level - 1].max > a.length) {
@@ -201,6 +286,7 @@ export class ArgDefMutator {
                   ArgDefGenerator.gen(spec, prng, false /* w/o dimensions */),
                 ],
                 path: [...path],
+                simplifies: false,
               },
             ].filter(
               (e) =>
@@ -209,9 +295,123 @@ export class ArgDefMutator {
                 options.dimLength[level - 1].min <= e.value.length
             ) // filter
           ); // push
+
+          // Insert new element at random position (head, interior, tail)
+          let insertAttempts = 0;
+          const maxInsertAttempts = options.dimsUnique ? 20 : 1;
+          while (insertAttempts++ < maxInsertAttempts) {
+            const insertPos = Math.floor(prng() * (a.length + 1));
+            const newElem = ArgDefGenerator.gen(spec, prng, false);
+            const newArr = [
+              ...a.slice(0, insertPos),
+              newElem,
+              ...a.slice(insertPos),
+            ];
+            if (
+              JSONN.stringify(newArr) !== JSONN.stringify(a) &&
+              newArr.length <= options.dimLength[level - 1].max &&
+              newArr.length >= options.dimLength[level - 1].min
+            ) {
+              const proposal: MutationProposal = {
+                name: "array-insertElement",
+                value: newArr,
+                path: [...path],
+                simplifies: false,
+              };
+              if (preservesUniqueDimensions(proposal)) {
+                mutations.push(proposal);
+                break;
+              }
+            }
+          }
         }
         // TODO: non-terminal dimension: generate a dimensional element
       } // if: dimension is not yet full
+
+      // Duplicate block of elements
+      if (a.length >= 1 && a.length < options.dimLength[level - 1].max) {
+        const maxDup = Math.min(
+          8,
+          a.length,
+          options.dimLength[level - 1].max - a.length
+        );
+        if (maxDup >= 1) {
+          const dupLen = Math.floor(prng() * maxDup) + 1;
+          const srcPos = Math.floor(prng() * (a.length - dupLen + 1));
+          const dstPos = Math.floor(prng() * (a.length + 1));
+          const slice = a.slice(srcPos, srcPos + dupLen);
+          const newArr = [...a.slice(0, dstPos), ...slice, ...a.slice(dstPos)];
+          if (
+            JSONN.stringify(newArr) !== JSONN.stringify(a) &&
+            newArr.length <= options.dimLength[level - 1].max &&
+            newArr.length >= options.dimLength[level - 1].min
+          ) {
+            addMutations([
+              {
+                name: "array-duplicateBlock",
+                value: newArr,
+                path: [...path],
+                simplifies: false,
+              },
+            ]);
+          }
+        }
+      }
+
+      // Replace block of elements
+      if (level === spec.getDim() && a.length >= 2) {
+        let replaceAttempts = 0;
+        const maxReplaceAttempts = options.dimsUnique ? 10 : 1;
+        while (replaceAttempts++ < maxReplaceAttempts) {
+          const replaceCount = Math.min(
+            a.length,
+            2 + Math.floor(prng() * Math.min(5, a.length - 1))
+          );
+          const maxStart = a.length - replaceCount;
+          const startPos = Math.floor(prng() * (maxStart + 1));
+          const newArr = [...a];
+          for (let k = 0; k < replaceCount; k++) {
+            newArr[startPos + k] = ArgDefGenerator.gen(spec, prng, false);
+          }
+          if (JSONN.stringify(newArr) !== JSONN.stringify(a)) {
+            const proposal: MutationProposal = {
+              name: "array-replaceBlock",
+              value: newArr,
+              path: [...path],
+              simplifies: false,
+            };
+            if (preservesUniqueDimensions(proposal)) {
+              mutations.push(proposal);
+              break;
+            }
+          }
+        }
+      }
+
+      // Fill block with constant element
+      if (level === spec.getDim() && a.length >= 2) {
+        const maxFill = Math.min(8, a.length);
+        const fillLen = Math.floor(prng() * (maxFill - 1)) + 2;
+        const fillStart = Math.floor(prng() * (a.length - fillLen + 1));
+        const fillVal =
+          prng() < 0.5
+            ? a[Math.floor(prng() * a.length)]
+            : ArgDefGenerator.gen(spec, prng, false);
+        const newArr = [...a];
+        for (let k = 0; k < fillLen; k++) {
+          newArr[fillStart + k] = fillVal;
+        }
+        if (JSONN.stringify(newArr) !== JSONN.stringify(a)) {
+          addMutations([
+            {
+              name: "array-fillBlock",
+              value: newArr,
+              path: [...path],
+              simplifies: false,
+            },
+          ]);
+        }
+      }
 
       // Process each element in this level of the array
       for (const i in a) {
@@ -234,20 +434,6 @@ export class ArgDefMutator {
             otherSiblingStrings,
           });
         }
-        addMutations(
-          [
-            {
-              name: `array-deleteElement${i}`,
-              value: [...a.filter((_v, j) => index !== j)],
-              path: [...path],
-              simplifies: true,
-            },
-          ].filter(
-            (e) =>
-              options.dimLength[level - 1].max >= e.value.length &&
-              options.dimLength[level - 1].min <= e.value.length
-          )
-        );
 
         if (level === spec.getDim()) {
           const replacedArray = [...a];
@@ -258,6 +444,7 @@ export class ArgDefMutator {
                 name: `array-replaceElement${i}`,
                 value: replacedArray,
                 path: [...path],
+                simplifies: false,
               },
             ].filter(
               (e) =>

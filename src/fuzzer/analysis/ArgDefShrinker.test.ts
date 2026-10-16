@@ -73,9 +73,17 @@ describe("ArgDefShrinker", () => {
     const names = shrinkers.map((s) => s.name);
     expect(names).toContain("array-clear");
     expect(names.some((n) => n.startsWith("array-deleteElement"))).toBeTrue();
+    expect(names).toContain("array-deleteBlock");
+    expect(names).toContain("array-truncateToMin");
     expect(names).not.toContain("array-jumble");
     expect(names).not.toContain("array-reverse");
     expect(names).not.toContain("array-appendNewElement");
+    expect(names).not.toContain("array-swapElements");
+    expect(names).not.toContain("array-rotate");
+    expect(names).not.toContain("array-insertElement");
+    expect(names).not.toContain("array-replaceBlock");
+    expect(names).not.toContain("array-duplicateBlock");
+    expect(names).not.toContain("array-fillBlock");
   });
 
   it("shrink numbers towards zero", () => {
