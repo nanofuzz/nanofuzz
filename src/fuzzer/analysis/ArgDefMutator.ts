@@ -176,15 +176,100 @@ export class ArgDefMutator {
               name: "array-jumble",
               value: [...a].sort(() => 0.5 - prng()),
               path: [...path],
+              simplifies: false,
             },
             {
               name: "array-reverse",
               value: [...a].reverse(),
               path: [...path],
+              simplifies: false,
             },
           ].filter((e) => JSONN.stringify(e.value) !== JSONN.stringify(a))
         );
       } // if: array length > 1
+
+      // Swap two elements
+      if (a.length >= 2) {
+        const idx1 = Math.floor(prng() * a.length);
+        let idx2 = Math.floor(prng() * (a.length - 1));
+        if (idx2 >= idx1) idx2++;
+        if (JSONN.stringify(a[idx1]) !== JSONN.stringify(a[idx2])) {
+          const newArr = [...a];
+          newArr[idx1] = a[idx2];
+          newArr[idx2] = a[idx1];
+          addMutations([
+            {
+              name: "array-swapElements",
+              value: newArr,
+              path: [...path],
+              simplifies: false,
+            },
+          ]);
+        }
+      }
+
+      // Rotate elements cyclically
+      if (a.length >= 2) {
+        const k = 1 + Math.floor(prng() * (a.length - 1));
+        const newArr = [...a.slice(k), ...a.slice(0, k)];
+        if (JSONN.stringify(newArr) !== JSONN.stringify(a)) {
+          addMutations([
+            {
+              name: "array-rotate",
+              value: newArr,
+              path: [...path],
+              simplifies: false,
+            },
+          ]);
+        }
+      }
+
+      // Delete single element (stochastic sampling to balance proposal distribution)
+      if (a.length > options.dimLength[level - 1].min) {
+        const delIdx = Math.floor(prng() * a.length);
+        addMutations([
+          {
+            name: "array-deleteElement",
+            value: a.filter((_v, j) => delIdx !== j),
+            path: [...path],
+            simplifies: true,
+          },
+        ]);
+      }
+
+      // Delete block of elements
+      const maxDel = a.length - options.dimLength[level - 1].min;
+      if (maxDel >= 2) {
+        const delLen = Math.min(
+          maxDel,
+          2 + Math.floor(prng() * Math.min(maxDel - 1, 8))
+        );
+        const maxStart = a.length - delLen;
+        const startPos = Math.floor(prng() * (maxStart + 1));
+        const newArr = [...a.slice(0, startPos), ...a.slice(startPos + delLen)];
+        addMutations([
+          {
+            name: "array-deleteBlock",
+            value: newArr,
+            path: [...path],
+            simplifies: true,
+          },
+        ]);
+      }
+
+      // Truncate to minimum array length (simplification / escape local minima)
+      const minLen = options.dimLength[level - 1].min;
+      if (a.length > minLen + 1) {
+        const newArr = a.slice(0, minLen);
+        addMutations([
+          {
+            name: "array-truncateToMin",
+            value: newArr,
+            path: [...path],
+            simplifies: true,
+          },
+        ]);
+      }
 
       // Add elements if the dimension is not yet full
       if (options.dimLength[level - 1].max > a.length) {
@@ -201,6 +286,7 @@ export class ArgDefMutator {
                   ArgDefGenerator.gen(spec, prng, false /* w/o dimensions */),
                 ],
                 path: [...path],
+                simplifies: false,
               },
             ].filter(
               (e) =>
@@ -209,9 +295,123 @@ export class ArgDefMutator {
                 options.dimLength[level - 1].min <= e.value.length
             ) // filter
           ); // push
+
+          // Insert new element at random position (head, interior, tail)
+          let insertAttempts = 0;
+          const maxInsertAttempts = options.dimsUnique ? 20 : 1;
+          while (insertAttempts++ < maxInsertAttempts) {
+            const insertPos = Math.floor(prng() * (a.length + 1));
+            const newElem = ArgDefGenerator.gen(spec, prng, false);
+            const newArr = [
+              ...a.slice(0, insertPos),
+              newElem,
+              ...a.slice(insertPos),
+            ];
+            if (
+              JSONN.stringify(newArr) !== JSONN.stringify(a) &&
+              newArr.length <= options.dimLength[level - 1].max &&
+              newArr.length >= options.dimLength[level - 1].min
+            ) {
+              const proposal: MutationProposal = {
+                name: "array-insertElement",
+                value: newArr,
+                path: [...path],
+                simplifies: false,
+              };
+              if (preservesUniqueDimensions(proposal)) {
+                mutations.push(proposal);
+                break;
+              }
+            }
+          }
         }
         // TODO: non-terminal dimension: generate a dimensional element
       } // if: dimension is not yet full
+
+      // Duplicate block of elements
+      if (a.length >= 1 && a.length < options.dimLength[level - 1].max) {
+        const maxDup = Math.min(
+          8,
+          a.length,
+          options.dimLength[level - 1].max - a.length
+        );
+        if (maxDup >= 1) {
+          const dupLen = Math.floor(prng() * maxDup) + 1;
+          const srcPos = Math.floor(prng() * (a.length - dupLen + 1));
+          const dstPos = Math.floor(prng() * (a.length + 1));
+          const slice = a.slice(srcPos, srcPos + dupLen);
+          const newArr = [...a.slice(0, dstPos), ...slice, ...a.slice(dstPos)];
+          if (
+            JSONN.stringify(newArr) !== JSONN.stringify(a) &&
+            newArr.length <= options.dimLength[level - 1].max &&
+            newArr.length >= options.dimLength[level - 1].min
+          ) {
+            addMutations([
+              {
+                name: "array-duplicateBlock",
+                value: newArr,
+                path: [...path],
+                simplifies: false,
+              },
+            ]);
+          }
+        }
+      }
+
+      // Replace block of elements
+      if (level === spec.getDim() && a.length >= 2) {
+        let replaceAttempts = 0;
+        const maxReplaceAttempts = options.dimsUnique ? 10 : 1;
+        while (replaceAttempts++ < maxReplaceAttempts) {
+          const replaceCount = Math.min(
+            a.length,
+            2 + Math.floor(prng() * Math.min(5, a.length - 1))
+          );
+          const maxStart = a.length - replaceCount;
+          const startPos = Math.floor(prng() * (maxStart + 1));
+          const newArr = [...a];
+          for (let k = 0; k < replaceCount; k++) {
+            newArr[startPos + k] = ArgDefGenerator.gen(spec, prng, false);
+          }
+          if (JSONN.stringify(newArr) !== JSONN.stringify(a)) {
+            const proposal: MutationProposal = {
+              name: "array-replaceBlock",
+              value: newArr,
+              path: [...path],
+              simplifies: false,
+            };
+            if (preservesUniqueDimensions(proposal)) {
+              mutations.push(proposal);
+              break;
+            }
+          }
+        }
+      }
+
+      // Fill block with constant element
+      if (level === spec.getDim() && a.length >= 2) {
+        const maxFill = Math.min(8, a.length);
+        const fillLen = Math.floor(prng() * (maxFill - 1)) + 2;
+        const fillStart = Math.floor(prng() * (a.length - fillLen + 1));
+        const fillVal =
+          prng() < 0.5
+            ? a[Math.floor(prng() * a.length)]
+            : ArgDefGenerator.gen(spec, prng, false);
+        const newArr = [...a];
+        for (let k = 0; k < fillLen; k++) {
+          newArr[fillStart + k] = fillVal;
+        }
+        if (JSONN.stringify(newArr) !== JSONN.stringify(a)) {
+          addMutations([
+            {
+              name: "array-fillBlock",
+              value: newArr,
+              path: [...path],
+              simplifies: false,
+            },
+          ]);
+        }
+      }
 
       // Process each element in this level of the array
       for (const i in a) {
@@ -234,20 +434,6 @@ export class ArgDefMutator {
             otherSiblingStrings,
           });
         }
-        addMutations(
-          [
-            {
-              name: `array-deleteElement${i}`,
-              value: [...a.filter((_v, j) => index !== j)],
-              path: [...path],
-              simplifies: true,
-            },
-          ].filter(
-            (e) =>
-              options.dimLength[level - 1].max >= e.value.length &&
-              options.dimLength[level - 1].min <= e.value.length
-          )
-        );
 
         if (level === spec.getDim()) {
           const replacedArray = [...a];
@@ -258,6 +444,7 @@ export class ArgDefMutator {
                 name: `array-replaceElement${i}`,
                 value: replacedArray,
                 path: [...path],
+                simplifies: false,
               },
             ].filter(
               (e) =>
@@ -443,45 +630,308 @@ export class ArgDefMutator {
               });
             }
 
-            const rPos = Math.floor(prng() * Math.max(0, value.length - 1));
             const charSet = options.strCharset;
-            const rChar = charSet[Math.floor(prng() * (charSet.length - 1))];
+            const rChar = charSet[Math.floor(prng() * charSet.length)];
 
-            strProposals.push(
-              {
-                name: "string-deleteOneChar",
-                value: `${value.slice(0, rPos)}${value.slice(rPos + 1)}`,
+            if (value.length > 0) {
+              const rPos = Math.floor(prng() * value.length);
+              strProposals.push(
+                {
+                  name: "string-deleteOneChar",
+                  value: `${value.slice(0, rPos)}${value.slice(rPos + 1)}`,
+                  path: [...subInput.subPath],
+                  simplifies: true,
+                },
+                {
+                  name: "string-replaceOneChar",
+                  value: `${value.slice(0, rPos)}${rChar}${value.slice(
+                    rPos + 1
+                  )}`,
+                  path: [...subInput.subPath],
+                }
+              );
+            }
+
+            const insertPos = Math.floor(prng() * (value.length + 1));
+            strProposals.push({
+              name: "string-insertOneChar",
+              value: `${value.slice(0, insertPos)}${rChar}${value.slice(
+                insertPos
+              )}`,
+              path: [...subInput.subPath],
+              simplifies: false,
+            });
+
+            // Unicode code-point-aware reversal
+            const chars = Array.from(value);
+            if (chars.length >= 2) {
+              const reversed = [...chars].reverse().join("");
+              if (reversed !== value) {
+                strProposals.push({
+                  name: "string-reverse",
+                  value: reversed,
+                  path: [...subInput.subPath],
+                  simplifies: false,
+                });
+              }
+            }
+
+            // Localized slice reversal
+            if (chars.length >= 3) {
+              const maxSpan = Math.min(8, chars.length - 1);
+              let attempts = 0;
+              while (attempts++ < 5) {
+                const span = 2 + Math.floor(prng() * (maxSpan - 1));
+                const start = Math.floor(prng() * (chars.length - span + 1));
+                const reversedSub = chars.slice(start, start + span).reverse();
+                const newChars = [
+                  ...chars.slice(0, start),
+                  ...reversedSub,
+                  ...chars.slice(start + span),
+                ];
+                const candidate = newChars.join("");
+                if (candidate !== value) {
+                  strProposals.push({
+                    name: "string-reverseSlice",
+                    value: candidate,
+                    path: [...subInput.subPath],
+                    simplifies: false,
+                  });
+                  break;
+                }
+              }
+            }
+
+            // Delete block of characters
+            const maxDel = chars.length - options.strLength.min;
+            if (maxDel >= 2) {
+              const delLen = Math.min(
+                maxDel,
+                2 + Math.floor(prng() * Math.min(maxDel - 1, 8))
+              );
+              const maxStart = chars.length - delLen;
+              const startPos = Math.floor(prng() * (maxStart + 1));
+              const candidate = [
+                ...chars.slice(0, startPos),
+                ...chars.slice(startPos + delLen),
+              ].join("");
+              strProposals.push({
+                name: "string-deleteBlock",
+                value: candidate,
                 path: [...subInput.subPath],
                 simplifies: true,
-              },
-              {
-                name: "string-replaceOneChar",
-                value: `${value.slice(0, rPos)}${rChar}${value.slice(
-                  rPos + 1
-                )}`,
+              });
+            }
+
+            // Truncate to minimum string length
+            if (chars.length > options.strLength.min + 1) {
+              const candidate = chars.slice(0, options.strLength.min).join("");
+              strProposals.push({
+                name: "string-truncateToMin",
+                value: candidate,
                 path: [...subInput.subPath],
-              },
-              {
-                name: "string-insertOneChar",
-                value: `${value.slice(0, rPos)}${rChar}${value.slice(rPos)}`,
-                path: [...subInput.subPath],
+                simplifies: true,
+              });
+            }
+
+            // Swap two characters
+            if (chars.length >= 2) {
+              const idx1 = Math.floor(prng() * chars.length);
+              let idx2 = Math.floor(prng() * (chars.length - 1));
+              if (idx2 >= idx1) idx2++;
+              if (chars[idx1] !== chars[idx2]) {
+                const newChars = [...chars];
+                newChars[idx1] = chars[idx2];
+                newChars[idx2] = chars[idx1];
+                strProposals.push({
+                  name: "string-swapChars",
+                  value: newChars.join(""),
+                  path: [...subInput.subPath],
+                  simplifies: false,
+                });
               }
-            );
-            /*
-            {
-              name: "string-reverse",
-              value: value.split("").reverse().join(""),
-              path: [...subInput.subPath],
-            },
-            {
-              name: "string-jumble",
-              value: value
-                .split("")
-                .sort(() => 0.5 - prng())
-                .join(""),
-              path: [...subInput.subPath],
-            },
-            */
+            }
+
+            // Rotate characters cyclically
+            if (chars.length >= 2) {
+              const k = 1 + Math.floor(prng() * (chars.length - 1));
+              const candidate = [...chars.slice(k), ...chars.slice(0, k)].join(
+                ""
+              );
+              if (candidate !== value) {
+                strProposals.push({
+                  name: "string-rotate",
+                  value: candidate,
+                  path: [...subInput.subPath],
+                  simplifies: false,
+                });
+              }
+            }
+
+            // Replace block of characters
+            if (chars.length >= 2) {
+              const replaceCount = Math.min(
+                chars.length,
+                2 + Math.floor(prng() * Math.min(5, chars.length - 1))
+              );
+              const maxStart = chars.length - replaceCount;
+              const startPos = Math.floor(prng() * (maxStart + 1));
+              const newChars = [...chars];
+              for (let k = 0; k < replaceCount; k++) {
+                newChars[startPos + k] =
+                  charSet[Math.floor(prng() * charSet.length)];
+              }
+              const candidate = newChars.join("");
+              if (candidate !== value) {
+                strProposals.push({
+                  name: "string-replaceBlock",
+                  value: candidate,
+                  path: [...subInput.subPath],
+                  simplifies: false,
+                });
+              }
+            }
+
+            // Insert block of characters
+            if (chars.length < options.strLength.max) {
+              const maxIns = Math.min(8, options.strLength.max - chars.length);
+              if (maxIns >= 2) {
+                const insLen = Math.floor(prng() * (maxIns - 1)) + 2;
+                const insPos = Math.floor(prng() * (chars.length + 1));
+                const blockChars: string[] = [];
+                for (let k = 0; k < insLen; k++) {
+                  blockChars.push(charSet[Math.floor(prng() * charSet.length)]);
+                }
+                const candidate = [
+                  ...chars.slice(0, insPos),
+                  ...blockChars,
+                  ...chars.slice(insPos),
+                ].join("");
+                strProposals.push({
+                  name: "string-insertBlock",
+                  value: candidate,
+                  path: [...subInput.subPath],
+                  simplifies: false,
+                });
+              }
+            }
+
+            // Duplicate block of characters
+            if (chars.length >= 1 && chars.length < options.strLength.max) {
+              const maxDup = Math.min(
+                8,
+                chars.length,
+                options.strLength.max - chars.length
+              );
+              if (maxDup >= 1) {
+                const dupLen = Math.floor(prng() * maxDup) + 1;
+                const srcPos = Math.floor(prng() * (chars.length - dupLen + 1));
+                const dstPos = Math.floor(prng() * (chars.length + 1));
+                const slice = chars.slice(srcPos, srcPos + dupLen);
+                const candidate = [
+                  ...chars.slice(0, dstPos),
+                  ...slice,
+                  ...chars.slice(dstPos),
+                ].join("");
+                if (candidate !== value) {
+                  strProposals.push({
+                    name: "string-duplicateBlock",
+                    value: candidate,
+                    path: [...subInput.subPath],
+                    simplifies: false,
+                  });
+                }
+              }
+            }
+
+            // Shuffling/jumble
+            if (chars.length >= 2) {
+              const jumbled = [...chars].sort(() => 0.5 - prng()).join("");
+              if (jumbled !== value) {
+                strProposals.push({
+                  name: "string-jumble",
+                  value: jumbled,
+                  path: [...subInput.subPath],
+                  simplifies: false,
+                });
+              }
+            }
+
+            // Case transform (upper <-> lower)
+            if (chars.length >= 1) {
+              const transformableIndices: number[] = [];
+              for (let idx = 0; idx < chars.length; idx++) {
+                const ch = chars[idx];
+                const flipped =
+                  ch === ch.toUpperCase() ? ch.toLowerCase() : ch.toUpperCase();
+                if (flipped !== ch && options.strCharset.includes(flipped)) {
+                  transformableIndices.push(idx);
+                }
+              }
+              if (transformableIndices.length > 0) {
+                const cPos =
+                  transformableIndices[
+                    Math.floor(prng() * transformableIndices.length)
+                  ];
+                const targetChar = chars[cPos];
+                const flipped =
+                  targetChar === targetChar.toUpperCase()
+                    ? targetChar.toLowerCase()
+                    : targetChar.toUpperCase();
+                const newChars = [...chars];
+                newChars[cPos] = flipped;
+                strProposals.push({
+                  name: "string-caseTransform",
+                  value: newChars.join(""),
+                  path: [...subInput.subPath],
+                  simplifies: false,
+                });
+              }
+            }
+
+            // Insert boundary token
+            const boundaryTokens = [
+              " ",
+              "\t",
+              "\n",
+              '"',
+              "'",
+              "/",
+              "\\",
+              ",",
+              ";",
+              ":",
+              "=",
+              "&",
+              "?",
+              "0",
+              "-1",
+            ];
+            const validTokens = boundaryTokens.filter((token) => {
+              const tChars = Array.from(token);
+              return (
+                chars.length + tChars.length <= options.strLength.max &&
+                tChars.every((tc) => options.strCharset.includes(tc))
+              );
+            });
+            if (validTokens.length > 0) {
+              const chosenToken =
+                validTokens[Math.floor(prng() * validTokens.length)];
+              const bPos = Math.floor(prng() * (chars.length + 1));
+              const tChars = Array.from(chosenToken);
+              const candidate = [
+                ...chars.slice(0, bPos),
+                ...tChars,
+                ...chars.slice(bPos),
+              ].join("");
+              strProposals.push({
+                name: "string-insertBoundaryToken",
+                value: candidate,
+                path: [...subInput.subPath],
+                simplifies: false,
+              });
+            }
+
             addMutations(
               strProposals.filter(
                 (e) =>
@@ -500,7 +950,6 @@ export class ArgDefMutator {
                 ? subElem.filter((e): e is number => typeof e === "number")
                 : [];
             const len = rawBytes.length;
-            const rPos = Math.floor(prng() * Math.max(0, len - 1));
             const rByte = Math.floor(prng() * 256);
             const rBit = Math.floor(prng() * 8);
 
@@ -517,6 +966,7 @@ export class ArgDefMutator {
             }
 
             if (len > 0) {
+              const rPos = Math.floor(prng() * len);
               // Single-bit flip
               const bitFlipped = new Uint8Array(rawBytes);
               const bitWasSet = (rawBytes[rPos] & (1 << rBit)) !== 0;
@@ -847,11 +1297,12 @@ export class ArgDefMutator {
 
             // Insertion / Growth operations
             if (len < options.byteLength.max) {
+              const insPos = Math.floor(prng() * (len + 1));
               // Single-byte insert
               const inserted = new Uint8Array(len + 1);
-              inserted.set(rawBytes.slice(0, rPos));
-              inserted[rPos] = rByte;
-              inserted.set(rawBytes.slice(rPos), rPos + 1);
+              inserted.set(rawBytes.slice(0, insPos));
+              inserted[insPos] = rByte;
+              inserted.set(rawBytes.slice(insPos), insPos + 1);
               proposals.push({
                 name: "bytes-insertOneByte",
                 value: inserted,
@@ -863,11 +1314,11 @@ export class ArgDefMutator {
               if (maxIns >= 2) {
                 const insLen = Math.floor(prng() * (maxIns - 1)) + 2;
                 const insBlock = new Uint8Array(len + insLen);
-                insBlock.set(rawBytes.slice(0, rPos));
+                insBlock.set(rawBytes.slice(0, insPos));
                 for (let k = 0; k < insLen; k++) {
-                  insBlock[rPos + k] = Math.floor(prng() * 256);
+                  insBlock[insPos + k] = Math.floor(prng() * 256);
                 }
-                insBlock.set(rawBytes.slice(rPos), rPos + insLen);
+                insBlock.set(rawBytes.slice(insPos), insPos + insLen);
                 proposals.push({
                   name: "bytes-insertBlock",
                   value: insBlock,

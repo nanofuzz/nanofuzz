@@ -73,9 +73,17 @@ describe("ArgDefShrinker", () => {
     const names = shrinkers.map((s) => s.name);
     expect(names).toContain("array-clear");
     expect(names.some((n) => n.startsWith("array-deleteElement"))).toBeTrue();
+    expect(names).toContain("array-deleteBlock");
+    expect(names).toContain("array-truncateToMin");
     expect(names).not.toContain("array-jumble");
     expect(names).not.toContain("array-reverse");
     expect(names).not.toContain("array-appendNewElement");
+    expect(names).not.toContain("array-swapElements");
+    expect(names).not.toContain("array-rotate");
+    expect(names).not.toContain("array-insertElement");
+    expect(names).not.toContain("array-replaceBlock");
+    expect(names).not.toContain("array-duplicateBlock");
+    expect(names).not.toContain("array-fillBlock");
   });
 
   it("shrink numbers towards zero", () => {
@@ -162,8 +170,20 @@ describe("ArgDefShrinker", () => {
     const names = shrinkers.map((s) => s.name);
     expect(names).toContain("string-clear");
     expect(names).toContain("string-deleteOneChar");
+    expect(names).toContain("string-deleteBlock");
+    expect(names).toContain("string-truncateToMin");
     expect(names).not.toContain("string-insertOneChar");
     expect(names).not.toContain("string-replaceOneChar");
+    expect(names).not.toContain("string-reverse");
+    expect(names).not.toContain("string-reverseSlice");
+    expect(names).not.toContain("string-swapChars");
+    expect(names).not.toContain("string-rotate");
+    expect(names).not.toContain("string-replaceBlock");
+    expect(names).not.toContain("string-insertBlock");
+    expect(names).not.toContain("string-duplicateBlock");
+    expect(names).not.toContain("string-jumble");
+    expect(names).not.toContain("string-caseTransform");
+    expect(names).not.toContain("string-insertBoundaryToken");
   });
 
   it("shrinks objects", () => {
