@@ -3,7 +3,7 @@ import { intOptions, initParser } from "./FuzzerTestHelper";
 import { FuzzTestResult } from "./Types";
 
 const coverageSearchSeeds = [
-  "qwertyuiop" /*, "coverage", "needle", "mutation"*/,
+  "l0deeld" /*, "qwertyuiop", "coverage", "needle", "mutation"*/,
 ];
 const coverageSearchMinSolved = 1;
 

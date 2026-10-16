@@ -1260,6 +1260,93 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
     }
   });
 
+  it("String mutators: reverse, reverseSlice, blocks, and tokens generate valid mutations and preserve Unicode code points", () => {
+    const spec = makeArgDef(
+      dummyModule,
+      "strArg",
+      0,
+      ArgTag.STRING,
+      {
+        ...argOptions,
+        strLength: { min: 2, max: 20 },
+        strCharset:
+          "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ 01- 👋",
+      },
+      0,
+      false
+    );
+    const input = [
+      {
+        tag: "ArgValueTypeWrapped" as const,
+        value: "abcdef 👋",
+      },
+    ];
+    const validator = new ArgDefValidator([spec]);
+    const mutators = ArgDefMutator.getMutators(
+      [spec],
+      input,
+      seedrandom("stringMutatorsTest")
+    );
+    const mutatorMap = new Map(mutators.map((m) => [m.name, m]));
+
+    expect(mutatorMap.has("string-reverse")).toBeTrue();
+    expect(mutatorMap.has("string-reverseSlice")).toBeTrue();
+    expect(mutatorMap.has("string-deleteBlock")).toBeTrue();
+    expect(mutatorMap.has("string-truncateToMin")).toBeTrue();
+    expect(mutatorMap.has("string-swapChars")).toBeTrue();
+    expect(mutatorMap.has("string-rotate")).toBeTrue();
+    expect(mutatorMap.has("string-replaceBlock")).toBeTrue();
+    expect(mutatorMap.has("string-insertBlock")).toBeTrue();
+    expect(mutatorMap.has("string-duplicateBlock")).toBeTrue();
+    expect(mutatorMap.has("string-jumble")).toBeTrue();
+    expect(mutatorMap.has("string-caseTransform")).toBeTrue();
+    expect(mutatorMap.has("string-insertBoundaryToken")).toBeTrue();
+
+    // Verify simplifies flags
+    expect(mutatorMap.get("string-deleteBlock")?.simplifies).toBeTrue();
+    expect(mutatorMap.get("string-truncateToMin")?.simplifies).toBeTrue();
+    expect(mutatorMap.get("string-reverse")?.simplifies).toBeFalse();
+    expect(mutatorMap.get("string-reverseSlice")?.simplifies).toBeFalse();
+    expect(mutatorMap.get("string-swapChars")?.simplifies).toBeFalse();
+    expect(mutatorMap.get("string-rotate")?.simplifies).toBeFalse();
+    expect(mutatorMap.get("string-replaceBlock")?.simplifies).toBeFalse();
+    expect(mutatorMap.get("string-insertBlock")?.simplifies).toBeFalse();
+    expect(mutatorMap.get("string-duplicateBlock")?.simplifies).toBeFalse();
+    expect(mutatorMap.get("string-jumble")?.simplifies).toBeFalse();
+    expect(mutatorMap.get("string-caseTransform")?.simplifies).toBeFalse();
+    expect(
+      mutatorMap.get("string-insertBoundaryToken")?.simplifies
+    ).toBeFalse();
+
+    for (const name of [
+      "string-reverse",
+      "string-reverseSlice",
+      "string-deleteBlock",
+      "string-truncateToMin",
+      "string-swapChars",
+      "string-rotate",
+      "string-replaceBlock",
+      "string-insertBlock",
+      "string-duplicateBlock",
+      "string-jumble",
+      "string-caseTransform",
+      "string-insertBoundaryToken",
+    ]) {
+      const candidateInput = structuredClone(input);
+      const targetMutators = ArgDefMutator.getMutators(
+        [spec],
+        candidateInput,
+        seedrandom("stringMutatorsTest")
+      );
+      const target = targetMutators.find((m) => m.name === name);
+      expect(target).toBeDefined();
+      if (target) {
+        target.fn();
+        expect(validator.validate(candidateInput)).toBeTrue();
+      }
+    }
+  });
+
   it("Bytes mutators: generates and executes valid byte mutations for single- and multi-byte inputs", () => {
     const spec = makeArgDef(
       dummyModule,
