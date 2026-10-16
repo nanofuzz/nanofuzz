@@ -472,7 +472,7 @@ def normal_fn(n: int) -> int:
       fs.writeFileSync(pyPath, pyCode);
 
       const prevMaxMem = Config.get("nanofuzz.fuzzer.maxRunnerMemory", 8192);
-      Config.override("nanofuzz.fuzzer.maxRunnerMemory", 400);
+      Config.override("nanofuzz.fuzzer.maxRunnerMemory", 1024);
 
       try {
         const srcCode = `
@@ -489,7 +489,7 @@ def normal_fn(n: int) -> int:
         const fnDef = program.functionsExported["leak_memory"];
         const env = createFuzzEnv(fnDef);
 
-        // Memory limit configured via Config.override above (400 MB)
+        // Memory limit configured via Config.override above (1024 MB)
         const runner = new PythonRunner(pyPath, "leak_memory", env);
         await runner.onRunStart();
 
