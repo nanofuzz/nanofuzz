@@ -2352,19 +2352,7 @@ const BIGINT_BOUNDARIES: bigint[] = [
   18446744073709551616n,
 ];
 
-const ARRAY_BOUNDARIES: number[] = [
-  0,
-  1,
-  2,
-  4,
-  8,
-  15,
-  16,
-  32,
-  64,
-  128,
-  256,
-];
+const ARRAY_BOUNDARIES: number[] = [0, 1, 2, 4, 8, 15, 16, 32, 64, 128, 256];
 
 const NUMBER_BOUNDARIES: number[] = [
   0,

@@ -1726,7 +1726,9 @@ export class PythonProgram extends AbstractProgram {
    */
   protected _parseAlphabet(
     node: Parser.Node | undefined
-  ): { strCharset?: string; strRegex?: string } | undefined {
+  ):
+    | { strCharset?: string; strRegex?: string; isFromRegex?: boolean }
+    | undefined {
     if (!node) return undefined;
     const resolved = this._resolveReference(node);
     if (!resolved) return undefined;
@@ -1847,7 +1849,7 @@ export class PythonProgram extends AbstractProgram {
           this._getKwdArg(resolved, "regex", 0)
         );
         if (typeof parsedRegex === "string") {
-          return { strRegex: parsedRegex };
+          return { strRegex: parsedRegex, isFromRegex: true };
         }
       }
     }
@@ -2268,10 +2270,20 @@ export class PythonProgram extends AbstractProgram {
         if (parsedAlphabet?.strCharset !== undefined) {
           options.strCharset = parsedAlphabet.strCharset;
         }
-        if (parsedAlphabet?.strRegex !== undefined) {
+        // Assign regex only for actual regex strategies or when no character
+        // set could be materialized.
+        if (
+          parsedAlphabet?.isFromRegex &&
+          parsedAlphabet?.strRegex !== undefined
+        ) {
+          options.strRegex = parsedAlphabet.strRegex;
+        } else if (
+          parsedAlphabet?.strRegex !== undefined &&
+          parsedAlphabet?.strCharset === undefined
+        ) {
           options.strRegex = parsedAlphabet.strRegex;
         } else if (parsedAlphabet === undefined) {
-          // Default st.text() has alphabet=st.characters(), covering Unicode via strRegex
+          // Default st.text() has alphabet=st.characters()
           options.strRegex = "\\A(?:.)*\\Z";
         }
 
