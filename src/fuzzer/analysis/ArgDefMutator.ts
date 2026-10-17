@@ -271,6 +271,67 @@ export class ArgDefMutator {
         ]);
       }
 
+      // Resize directly to boundary lengths
+      const maxLen = options.dimLength[level - 1].max;
+      const boundarySet = new Set<number>(ARRAY_BOUNDARIES);
+      boundarySet.add(minLen);
+      boundarySet.add(minLen + 1);
+      if (Number.isFinite(maxLen)) {
+        if (maxLen > 0) boundarySet.add(maxLen - 1);
+        boundarySet.add(maxLen);
+      }
+      const validBoundaries = Array.from(boundarySet).filter(
+        (b) => b >= minLen && b <= maxLen && b !== a.length
+      );
+      if (validBoundaries.length > 0) {
+        const targetLen =
+          validBoundaries[Math.floor(prng() * validBoundaries.length)];
+        if (targetLen < a.length) {
+          addMutations([
+            {
+              name: "array-resizeBoundary",
+              value: a.slice(0, targetLen),
+              path: [...path],
+              simplifies: true,
+            },
+          ]);
+        } else if (level === spec.getDim()) {
+          let newArr = [...a];
+          let expansionValid = true;
+          if (level === 1 && options.dimsUnique) {
+            const seen = new Set(a.map((elem) => JSONN.packString(elem)));
+            let attempts = 0;
+            const needed = targetLen - a.length;
+            while (newArr.length < targetLen && attempts++ < needed * 25) {
+              const candidate = ArgDefGenerator.gen(spec, prng, false);
+              const packed = JSONN.packString(candidate);
+              if (!seen.has(packed)) {
+                seen.add(packed);
+                newArr.push(candidate);
+              }
+            }
+            if (newArr.length !== targetLen) {
+              expansionValid = false;
+            }
+          } else {
+            for (let k = a.length; k < targetLen; k++) {
+              newArr.push(ArgDefGenerator.gen(spec, prng, false));
+            }
+          }
+
+          if (expansionValid) {
+            addMutations([
+              {
+                name: "array-resizeBoundary",
+                value: newArr,
+                path: [...path],
+                simplifies: false,
+              },
+            ]);
+          }
+        }
+      }
+
       // Add elements if the dimension is not yet full
       if (options.dimLength[level - 1].max > a.length) {
         // Append new non-array element on the terminal dimension
@@ -2289,6 +2350,20 @@ const BIGINT_BOUNDARIES: bigint[] = [
   -9223372036854775809n,
   18446744073709551615n,
   18446744073709551616n,
+];
+
+const ARRAY_BOUNDARIES: number[] = [
+  0,
+  1,
+  2,
+  4,
+  8,
+  15,
+  16,
+  32,
+  64,
+  128,
+  256,
 ];
 
 const NUMBER_BOUNDARIES: number[] = [

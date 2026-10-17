@@ -1260,6 +1260,77 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
     }
   });
 
+  it("Array mutator: array-resizeBoundary resizes to boundaries and sets simplifies appropriately", () => {
+    const spec = makeArgDef(
+      dummyModule,
+      "arrArg",
+      0,
+      ArgTag.NUMBER,
+      {
+        ...argOptions,
+        dimLength: [{ min: 0, max: 20 }],
+        dimsUnique: true,
+      },
+      1,
+      false
+    );
+    const validator = new ArgDefValidator([spec]);
+
+    // Test truncation to boundary (simplifies: true)
+    const longInput = [
+      {
+        tag: "ArgValueTypeWrapped" as const,
+        value: Array.from({ length: 18 }, (_, i) => i + 1),
+      },
+    ];
+    let foundTruncation = false;
+    for (let seed = 0; seed < 50; seed++) {
+      const candidateInput = structuredClone(longInput);
+      const muts = ArgDefMutator.getMutators(
+        [spec],
+        candidateInput,
+        seedrandom(`resize-trunc-${seed}`)
+      );
+      const boundaryMut = muts.find((m) => m.name === "array-resizeBoundary");
+      if (boundaryMut && boundaryMut.simplifies) {
+        boundaryMut.fn();
+        expect(validator.validate(candidateInput)).toBeTrue();
+        const mutatedLen = (candidateInput[0].value as number[]).length;
+        expect(mutatedLen).toBeLessThan(18);
+        foundTruncation = true;
+        break;
+      }
+    }
+    expect(foundTruncation).toBeTrue();
+
+    // Test expansion to boundary (simplifies: false)
+    const shortInput = [
+      {
+        tag: "ArgValueTypeWrapped" as const,
+        value: [1, 2, 3],
+      },
+    ];
+    let foundExpansion = false;
+    for (let seed = 0; seed < 50; seed++) {
+      const candidateInput = structuredClone(shortInput);
+      const muts = ArgDefMutator.getMutators(
+        [spec],
+        candidateInput,
+        seedrandom(`resize-exp-${seed}`)
+      );
+      const boundaryMut = muts.find((m) => m.name === "array-resizeBoundary");
+      if (boundaryMut && !boundaryMut.simplifies) {
+        boundaryMut.fn();
+        expect(validator.validate(candidateInput)).toBeTrue();
+        const mutatedLen = (candidateInput[0].value as number[]).length;
+        expect(mutatedLen).toBeGreaterThan(3);
+        foundExpansion = true;
+        break;
+      }
+    }
+    expect(foundExpansion).toBeTrue();
+  });
+
   it("String mutators: reverse, reverseSlice, blocks, and tokens generate valid mutations and preserve Unicode code points", () => {
     const spec = makeArgDef(
       dummyModule,
