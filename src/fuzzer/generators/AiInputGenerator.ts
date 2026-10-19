@@ -334,6 +334,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
             uncoveredInfo,
             targetAttempts: this._targetAttempts,
             prng: this._prng,
+            targetFn: this._fn,
           });
         }
 

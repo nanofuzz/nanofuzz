@@ -330,4 +330,203 @@ export function uncalledHelper(x: number): number {
     );
     expect(promptText).toContain("function scanToken(input: string): boolean");
   });
+
+  it("filters out uncalled sibling functions in the target file while retaining called sibling helpers", () => {
+    const multiFnFile = path.join(tmpDir, "Suite.ts");
+    fs.writeFileSync(
+      multiFnFile,
+      `export function helperOne(x: string): boolean {
+  return x.length > 0;
+}
+
+export function testTarget(input: string): boolean {
+  return helperOne(input);
+}
+
+export function uncalledSiblingTest(val: number): boolean {
+  return val > 10;
+}
+`
+    );
+
+    const covStats: CodeCoverageMeasureStats = {
+      counters: {
+        statementsTotal: 10,
+        statementsCovered: 5,
+        branchesTotal: 0,
+        branchesCovered: 0,
+        functionsTotal: 3,
+        functionsCovered: 1,
+      },
+      files: [
+        {
+          path: multiFnFile,
+          counters: {
+            statementsTotal: 6,
+            statementsCovered: 2,
+            branchesTotal: 0,
+            branchesCovered: 0,
+            functionsTotal: 3,
+            functionsCovered: 1,
+          },
+          // @ts-expect-error stub for test
+          fileMap: {},
+        },
+      ],
+    };
+
+    const uncoveredInfo = {
+      uncoveredLinesByFile: {
+        [multiFnFile]: [2, 6, 10],
+      },
+      partiallyCoveredLinesByFile: {},
+    };
+
+    const targetFn = FunctionDef.fromFunctionRef({
+      module: multiFnFile,
+      name: "testTarget",
+      src: `export function testTarget(input: string): boolean {\n  return helperOne(input);\n}`,
+      lang: "typescript",
+      startOffset: 50,
+      endOffset: 120,
+      isExported: true,
+      isVoid: false,
+      args: [],
+    });
+
+    const candidates = CoverageFrontierSampler.getCandidates({
+      covStats,
+      uncoveredInfo,
+      targetAttempts: {},
+      targetFn,
+    });
+
+    const candidateNames = candidates.map((c) => c.functionName);
+    expect(candidateNames).toContain("testTarget");
+    expect(candidateNames).toContain("helperOne");
+    expect(candidateNames).not.toContain("uncalledSiblingTest");
+  });
+
+  it("detects frontier using partial statement coverage when branch coverage is missing", () => {
+    const testFile = path.join(tmpDir, "BranchlessIstanbul.ts");
+    fs.writeFileSync(
+      testFile,
+      `export function processItem(x: number): number {
+  if (x > 0) {
+    return x * 2;
+  }
+  return 0;
+}
+`
+    );
+
+    const covStats: CodeCoverageMeasureStats = {
+      counters: {
+        statementsTotal: 4,
+        statementsCovered: 2,
+        branchesTotal: 0,
+        branchesCovered: 0,
+        functionsTotal: 1,
+        functionsCovered: 1,
+      },
+      files: [
+        {
+          path: testFile,
+          counters: {
+            statementsTotal: 4,
+            statementsCovered: 2,
+            branchesTotal: 0,
+            branchesCovered: 0,
+            functionsTotal: 1,
+            functionsCovered: 1,
+          },
+          // @ts-expect-error test stub with statement hits on line 2, missing line 3
+          fileMap: {
+            s: { "0": 1, "1": 0, "2": 0 },
+            statementMap: {
+              "0": { start: { line: 2, column: 2 }, end: { line: 2, column: 14 } },
+              "1": { start: { line: 3, column: 4 }, end: { line: 3, column: 18 } },
+              "2": { start: { line: 5, column: 2 }, end: { line: 5, column: 11 } },
+            },
+          },
+        },
+      ],
+    };
+
+    // No branch coverage available (empty partial lines, as with broken Istanbul branch coverage)
+    const uncoveredInfo = {
+      uncoveredLinesByFile: {
+        [testFile]: [3, 5],
+      },
+      partiallyCoveredLinesByFile: {},
+    };
+
+    const candidates = CoverageFrontierSampler.getCandidates({
+      covStats,
+      uncoveredInfo,
+      targetAttempts: {},
+    });
+
+    expect(candidates.length).toBe(1);
+    expect(candidates[0].functionName).toBe("processItem");
+    expect(candidates[0].isFrontier).toBe(true);
+    expect(candidates[0].baseWeight).toBe(100);
+    expect(candidates[0].uncoveredLines).toEqual([3, 5]);
+  });
+
+  it("invalidates cache when file timestamp changes or clearCache is called", () => {
+    const dynamicFile = path.join(tmpDir, "Dynamic.ts");
+    fs.writeFileSync(
+      dynamicFile,
+      `export function v1Function(): void {}
+`
+    );
+
+    const covStats: CodeCoverageMeasureStats = {
+      counters: {
+        statementsTotal: 1,
+        statementsCovered: 0,
+        branchesTotal: 0,
+        branchesCovered: 0,
+        functionsTotal: 1,
+        functionsCovered: 0,
+      },
+      files: [],
+    };
+    const uncoveredInfo = {
+      uncoveredLinesByFile: { [dynamicFile]: [1] },
+      partiallyCoveredLinesByFile: {},
+    };
+
+    const initial = CoverageFrontierSampler.getCandidates({
+      covStats,
+      uncoveredInfo,
+      targetAttempts: {},
+    });
+    expect(initial.map((c) => c.functionName)).toEqual(["v1Function"]);
+
+    // Update file with new function
+    fs.writeFileSync(
+      dynamicFile,
+      `export function v2Function(): void {}
+`
+    );
+
+    // Because mtime changed, getCandidates automatically detects change and re-parses
+    const updated = CoverageFrontierSampler.getCandidates({
+      covStats,
+      uncoveredInfo,
+      targetAttempts: {},
+    });
+    expect(updated.map((c) => c.functionName)).toEqual(["v2Function"]);
+
+    // clearCache explicitly purges cache
+    CoverageFrontierSampler.clearCache();
+    const afterClear = CoverageFrontierSampler.getCandidates({
+      covStats,
+      uncoveredInfo,
+      targetAttempts: {},
+    });
+    expect(afterClear.map((c) => c.functionName)).toEqual(["v2Function"]);
+  });
 });
