@@ -459,6 +459,65 @@ describe("fuzzer: general & parameterized engine tests", () => {
         expect<unknown>(results.results[0].input[1].value).toBe(99);
       });
 
+      it("injected pinned tests are not interrupted by cancellation", async () => {
+        const options = {
+          ...intOptions,
+          maxTests: 10,
+          seed: "injected-cancel-seed",
+        };
+
+        const injected = [
+          {
+            input: [
+              {
+                name: "a",
+                offset: 0,
+                value: 42,
+                origin: { type: "user" as const },
+              },
+              {
+                name: "b",
+                offset: 1,
+                value: 99,
+                origin: { type: "user" as const },
+              },
+            ],
+            output: [],
+            pinned: true,
+          },
+          {
+            input: [
+              {
+                name: "a",
+                offset: 0,
+                value: 10,
+                origin: { type: "user" as const },
+              },
+              {
+                name: "b",
+                offset: 1,
+                value: 20,
+                origin: { type: "user" as const },
+              },
+            ],
+            output: [],
+            pinned: true,
+          },
+        ];
+
+        const results = await FuzzerFactory(
+          "nanofuzz-study/examples/1.ts",
+          "minValue",
+          options,
+          { engine }
+        ).test(injected, { gen: true }, undefined, () => true);
+
+        expect(results.stats.counters.inputsInjected).toBe(2);
+        expect(results.stats.counters.inputsGenerated).toBe(0);
+        expect(results.results.length).toBe(2);
+        expect(results.stopReason).toBe(FuzzStopReason.PAUSE);
+      });
+
       it("test execution with status updates", async () => {
         const options = {
           ...intOptions,

@@ -295,7 +295,7 @@ export class FuzzerV2 {
     injectTests: FuzzPinnedTest[] = [],
     mode: FuzzMode = { gen: true },
     observer?: FuzzStatusObserver,
-    cancelFn?: () => boolean,
+    cancelFn: () => boolean = () => false,
     onResultFn?: FuzzResultCallback
   ): Promise<FuzzTestResults> {
     const state = this.state;
@@ -365,7 +365,7 @@ export class FuzzerV2 {
           this._compositeInputGenerator.nextable() !== false,
           stillInjecting,
           injectTests.length,
-          Boolean(cancelFn && cancelFn()),
+          cancelFn(),
           this._fuzzerFocus.mode,
           Boolean(mode.gen),
           {
@@ -388,6 +388,8 @@ export class FuzzerV2 {
 
     try {
       while (true) {
+        stillInjecting =
+          this._stats.currentRun.counters.inputsInjected < injectTests.length;
         this._state = "running";
         checkPeriodicUpdate();
 
@@ -396,7 +398,7 @@ export class FuzzerV2 {
           this._compositeInputGenerator.nextable() !== false,
           stillInjecting,
           injectTests.length,
-          Boolean(cancelFn && cancelFn()),
+          cancelFn(),
           this._fuzzerFocus.mode,
           Boolean(mode.gen),
           {
@@ -494,7 +496,7 @@ export class FuzzerV2 {
           this._compositeInputGenerator.nextable() !== false,
           stillInjecting,
           injectTests.length,
-          Boolean(cancelFn && cancelFn()),
+          cancelFn(),
           this._fuzzerFocus.mode,
           Boolean(mode.gen),
           {
@@ -513,7 +515,6 @@ export class FuzzerV2 {
           genTime,
           this._compositeInputGenerator,
           () => {
-            if (!cancelFn) return undefined;
             return () => !stillInjecting && cancelFn();
           },
           initMeasTime
@@ -543,6 +544,9 @@ export class FuzzerV2 {
         }
       }
     } catch (e: unknown) {
+      if (cancelFn()) {
+        return await this._finalizeRun(FuzzStopReason.PAUSE, update, cancelFn); // <--- Finalize clean results on cancel instead of throwing
+      }
       if (this._state === "running") {
         this._state = "crashed";
       }
@@ -780,7 +784,7 @@ export class FuzzerV2 {
     candidate: TransformedInputAndSource,
     pct: number,
     update: FuzzStatusUpdater,
-    cancelFn?: () => boolean,
+    cancelFn: () => boolean = () => false,
     stillInjecting: boolean = false
   ): void {
     update({
@@ -791,7 +795,7 @@ export class FuzzerV2 {
       stats: this._stats!.currentRun,
       pct,
       stillInjecting,
-      isCancelled: Boolean(cancelFn && cancelFn()),
+      isCancelled: cancelFn(),
     });
   } // fn: _notify
 
@@ -807,7 +811,7 @@ export class FuzzerV2 {
   protected async _finalizeRun(
     stopReason: FuzzStopReason,
     update: FuzzStatusUpdater,
-    cancelFn?: () => boolean
+    cancelFn: () => boolean = () => false
   ): Promise<FuzzTestResults> {
     const results = this._stats!.finalize(stopReason);
 
@@ -825,7 +829,7 @@ export class FuzzerV2 {
 
     update({
       type: "testing-complete",
-      cancelled: Boolean(cancelFn && cancelFn()),
+      cancelled: cancelFn(),
       pct: 100,
     });
 
