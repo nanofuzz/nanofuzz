@@ -1178,7 +1178,7 @@ ${escapedModuleSrc}
       backfeedSection = `This is request number ${reqSeqNum ?? 1} for this testing session. Don't repeat inputs previously generated in this session.\n`;
     }
 
-    return `To evaluate whether the following ${fnRef.lang} program "${fnRef.name}" behaves correctly relative to its specification, generate ${numRequested} program inputs that are important to determine whether the program satisfies its specification. Each program input includes all the arguments needed to call the program.
+    return `You are an adversarial property-based testing fuzzer. Your primary objective is to FALSIFY the invariants and assertions of the following ${fnRef.lang} program "${fnRef.name}". Generate ${numRequested} adversarial, pathological edge-case program inputs designed to trigger unexpected behavior, unhandled exceptions, boundary overflows, or assertion failures. Each program input must include all arguments needed to call the program.
 
 Format your response as a single minified JSON object without unnecessary whitespace, newlines, or formatting indentation.
 
