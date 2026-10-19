@@ -429,7 +429,7 @@ export class Tester {
     injectTests: FuzzPinnedTest[] = [],
     mode: FuzzMode = { gen: true },
     observer?: FuzzStatusObserver,
-    cancelFn?: () => boolean,
+    cancelFn: () => boolean = () => false,
     onResultFn?: FuzzResultCallback
   ): Promise<FuzzTestResults> {
     let result: FuzzTestResults | undefined;
@@ -440,6 +440,10 @@ export class Tester {
       }
       return result;
     } catch (e: unknown) {
+      if (cancelFn()) {
+        this._results.stopReason = FuzzStopReason.PAUSE;
+        return this._results;
+      }
       if (this._state === "running") {
         this._state = "crashed";
       }
@@ -461,7 +465,7 @@ export class Tester {
     injectTests: FuzzPinnedTest[] = [],
     mode: FuzzMode = { gen: true },
     observer?: FuzzStatusObserver,
-    cancelFn?: () => boolean,
+    cancelFn: () => boolean = () => false,
     onResultFn?: FuzzResultCallback
   ): AsyncGenerator<
     FuzzTestResults | undefined,
@@ -677,7 +681,7 @@ export class Tester {
           this._compositeInputGenerator.nextable() !== false,
           stillInjecting,
           injectTests.length,
-          !!cancelFn && cancelFn(),
+          cancelFn(),
           runStats,
           !!mode.gen,
           this._fuzzerFocus.mode
@@ -697,6 +701,7 @@ export class Tester {
     try {
       // Main test loop
       while (true) {
+        stillInjecting = runStats.counters.inputsInjected < injectTests.length;
         this._state = "running";
         checkPeriodicUpdate();
         runStats.counters.inputsGenerated =
@@ -712,7 +717,7 @@ export class Tester {
           this._compositeInputGenerator.nextable() !== false,
           stillInjecting,
           injectTests.length,
-          !!cancelFn && cancelFn(),
+          cancelFn(),
           runStats,
           !!mode.gen,
           this._fuzzerFocus.mode
@@ -791,7 +796,7 @@ export class Tester {
 
           update({
             type: "testing-complete",
-            cancelled: Boolean(cancelFn && cancelFn()),
+            cancelled: cancelFn(),
             pct: 100,
           });
 
@@ -847,6 +852,10 @@ export class Tester {
           runStats.timers.startGenTime = startGenTime;
         }
 
+        const getEffectiveCancelFn = (): (() => boolean) => {
+          return () => !stillInjecting && cancelFn();
+        };
+
         if (this._compositeInputGenerator.nextable() === "soon") {
           const remainingTimeout =
             this._options.suiteTimeout > 0 && runStats.timers.startGenTime > 0
@@ -895,11 +904,6 @@ export class Tester {
             runStats.timers.startGenTime > 0
             ? Math.max(0, this._options.suiteTimeout - timeSinceGenStart)
             : Infinity;
-        };
-
-        const getEffectiveCancelFn = (): (() => boolean) | undefined => {
-          if (!cancelFn) return undefined;
-          return () => !stillInjecting && cancelFn();
         };
 
         if (transformRunner) {
