@@ -875,7 +875,7 @@ function getBaseTypeHint(arg: ArgDef): TypeHint {
 
     case ArgTag.BIGINT:
     case ArgTag.NUMBER:
-      return "number";
+      return arg.getOptions().numInteger ? "int" : "float";
     case ArgTag.DICTIONARY: {
       const children = arg.getChildren();
       const keyHint = children[0] ? getTypeHint(children[0]) : "default";

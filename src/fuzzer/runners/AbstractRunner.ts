@@ -246,6 +246,8 @@ export type TypeHint =
   | "uuid"
   | "bytes"
   | "number"
+  | "float"
+  | "int"
   | "default"
   | "prng"
   | { kind: "prng"; seed?: string }
