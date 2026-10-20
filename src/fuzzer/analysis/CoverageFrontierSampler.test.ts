@@ -6,9 +6,16 @@ import {
   CoverageFrontierSampler,
   formatFrontierContext,
 } from "./CoverageFrontierSampler";
-import { CodeCoverageMeasureStats } from "../measures/CoverageMeasure";
+import {
+  CodeCoverageMeasureStats,
+  CoverageMeasure,
+  CoverageMeasurement,
+} from "../measures/CoverageMeasure";
+import { createCoverageMap } from "istanbul-lib-coverage";
 import { FunctionDef } from "./FunctionDef";
+import { InputAndSource } from "../Types";
 import { prompt } from "../generators/AiInputGenerator";
+import { Leaderboard } from "../generators/Leaderboard";
 
 describe("CoverageFrontierSampler", () => {
   let tmpDir: string;
@@ -109,9 +116,8 @@ export function uncalledHelper(x: number): number {
     expect(scanCandidate?.isFrontier).toBe(true);
     expect(scanCandidate?.baseWeight).toBe(100);
 
-    expect(helperCandidate).toBeDefined();
-    expect(helperCandidate?.isFrontier).toBe(false);
-    expect(helperCandidate?.baseWeight).toBe(30); // 1-hop uncalled in reached module
+    // Option 3A: Functions with zero hits are not sampled
+    expect(helperCandidate).toBeUndefined();
   });
 
   it("includes the target module and PUT among candidates when it has uncovered or partial lines", () => {
@@ -269,7 +275,11 @@ export function uncalledHelper(x: number): number {
       filePath: depFile,
       displayPath: "src/Tokenizer.ts",
       functionName: "scanToken",
+      startLine: 1,
+      endLine: 10,
       uncoveredLines: [4, 5],
+      partialLines: [],
+      reachingInputs: [],
       codeSnippet: "function scanToken() { return true; }",
       isSliced: false,
     };
@@ -308,7 +318,11 @@ export function uncalledHelper(x: number): number {
       filePath: depFile,
       displayPath: "src/Tokenizer.ts",
       functionName: "scanToken",
+      startLine: 1,
+      endLine: 10,
       uncoveredLines: [4, 5],
+      partialLines: [],
+      reachingInputs: [],
       codeSnippet:
         "function scanToken(input: string): boolean { return false; }",
       isSliced: false,
@@ -367,10 +381,34 @@ export function uncalledSiblingTest(val: number): boolean {
             branchesTotal: 0,
             branchesCovered: 0,
             functionsTotal: 3,
-            functionsCovered: 1,
+            functionsCovered: 2,
           },
           // @ts-expect-error stub for test
-          fileMap: {},
+          fileMap: {
+            s: { "0": 1, "1": 0, "2": 1, "3": 0, "4": 0 },
+            statementMap: {
+              "0": {
+                start: { line: 1, column: 0 },
+                end: { line: 1, column: 20 },
+              },
+              "1": {
+                start: { line: 2, column: 2 },
+                end: { line: 2, column: 23 },
+              },
+              "2": {
+                start: { line: 5, column: 0 },
+                end: { line: 5, column: 20 },
+              },
+              "3": {
+                start: { line: 6, column: 2 },
+                end: { line: 6, column: 26 },
+              },
+              "4": {
+                start: { line: 10, column: 2 },
+                end: { line: 10, column: 18 },
+              },
+            },
+          },
         },
       ],
     };
@@ -444,9 +482,18 @@ export function uncalledSiblingTest(val: number): boolean {
           fileMap: {
             s: { "0": 1, "1": 0, "2": 0 },
             statementMap: {
-              "0": { start: { line: 2, column: 2 }, end: { line: 2, column: 14 } },
-              "1": { start: { line: 3, column: 4 }, end: { line: 3, column: 18 } },
-              "2": { start: { line: 5, column: 2 }, end: { line: 5, column: 11 } },
+              "0": {
+                start: { line: 2, column: 2 },
+                end: { line: 2, column: 14 },
+              },
+              "1": {
+                start: { line: 3, column: 4 },
+                end: { line: 3, column: 18 },
+              },
+              "2": {
+                start: { line: 5, column: 2 },
+                end: { line: 5, column: 11 },
+              },
             },
           },
         },
@@ -498,10 +545,23 @@ export function uncalledSiblingTest(val: number): boolean {
       partiallyCoveredLinesByFile: {},
     };
 
+    const targetFnV1 = FunctionDef.fromFunctionRef({
+      module: dynamicFile,
+      name: "v1Function",
+      src: "export function v1Function(): void {}",
+      lang: "typescript",
+      startOffset: 0,
+      endOffset: 35,
+      isExported: true,
+      isVoid: true,
+      args: [],
+    });
+
     const initial = CoverageFrontierSampler.getCandidates({
       covStats,
       uncoveredInfo,
       targetAttempts: {},
+      targetFn: targetFnV1,
     });
     expect(initial.map((c) => c.functionName)).toEqual(["v1Function"]);
 
@@ -512,11 +572,24 @@ export function uncalledSiblingTest(val: number): boolean {
 `
     );
 
+    const targetFnV2 = FunctionDef.fromFunctionRef({
+      module: dynamicFile,
+      name: "v2Function",
+      src: "export function v2Function(): void {}",
+      lang: "typescript",
+      startOffset: 0,
+      endOffset: 35,
+      isExported: true,
+      isVoid: true,
+      args: [],
+    });
+
     // Because mtime changed, getCandidates automatically detects change and re-parses
     const updated = CoverageFrontierSampler.getCandidates({
       covStats,
       uncoveredInfo,
       targetAttempts: {},
+      targetFn: targetFnV2,
     });
     expect(updated.map((c) => c.functionName)).toEqual(["v2Function"]);
 
@@ -526,7 +599,138 @@ export function uncalledSiblingTest(val: number): boolean {
       covStats,
       uncoveredInfo,
       targetAttempts: {},
+      targetFn: targetFnV2,
     });
     expect(afterClear.map((c) => c.functionName)).toEqual(["v2Function"]);
   });
+
+  it("attaches reaching inputs from the leaderboard to the sampled frontier target", () => {
+    const fnDef = FunctionDef.fromFunctionRef({
+      module: targetFile,
+      name: "parseExpression",
+      src: "export function parseExpression(input: string): boolean { return scanToken(input); }",
+      lang: "typescript",
+      startOffset: 0,
+      endOffset: 80,
+      isExported: true,
+      isVoid: false,
+      args: [],
+    });
+
+    const covStats: CodeCoverageMeasureStats = {
+      counters: {
+        statementsTotal: 10,
+        statementsCovered: 5,
+        branchesTotal: 4,
+        branchesCovered: 2,
+        functionsTotal: 2,
+        functionsCovered: 1,
+      },
+      files: [
+        {
+          path: depFile,
+          counters: {
+            statementsTotal: 6,
+            statementsCovered: 3,
+            branchesTotal: 4,
+            branchesCovered: 1,
+            functionsTotal: 2,
+            functionsCovered: 1,
+          },
+          // @ts-expect-error test stub
+          fileMap: {
+            s: { "0": 1, "1": 0 },
+            statementMap: {
+              "0": {
+                start: { line: 2, column: 2 },
+                end: { line: 2, column: 20 },
+              },
+              "1": {
+                start: { line: 3, column: 2 },
+                end: { line: 3, column: 20 },
+              },
+            },
+          },
+        },
+      ],
+    };
+
+    const uncoveredInfo = {
+      uncoveredLinesByFile: {
+        [depFile]: [4, 5],
+      },
+      partiallyCoveredLinesByFile: {
+        [depFile]: [2],
+      },
+    };
+
+    const leaderboard = new Leaderboard<InputAndSource>();
+    const leaderInput: InputAndSource = {
+      tick: 42,
+      value: [{ tag: "ArgValueTypeWrapped", value: "+" }],
+      source: { type: "unknown" as const },
+    };
+    leaderboard.postScore(leaderInput, 10.0);
+
+    const covMeasure = new MockReachingCoverageMeasure(depFile);
+
+    const sampled = CoverageFrontierSampler.sample({
+      covStats,
+      uncoveredInfo,
+      targetAttempts: {},
+      targetFn: fnDef,
+      leaderboard,
+      covMeasure,
+    });
+
+    expect(sampled).toBeDefined();
+    expect(sampled?.reachingInputs).toBeDefined();
+    expect(sampled?.reachingInputs?.length).toBeGreaterThan(0);
+    expect(sampled?.reachingInputs?.[0]).toContain("+");
+
+    const formatted = formatFrontierContext(sampled!, "typescript");
+    expect(formatted).toContain("Prior test input(s) that reached this code:");
+    expect(formatted).toContain("+");
+  });
 });
+
+class MockReachingCoverageMeasure extends CoverageMeasure {
+  private readonly _filePath: string;
+
+  public constructor(filePath: string) {
+    super();
+    this._filePath = filePath;
+  }
+
+  public override hasCoverage(tick: number): boolean {
+    return tick === 42;
+  } // fn: hasCoverage
+
+  public override getCoverage(tick: number): CoverageMeasurement {
+    return {
+      type: "measure",
+      name: "CoverageMeasure",
+      coverageMeasure: {
+        current: createCoverageMap({
+          [this._filePath]: {
+            path: this._filePath,
+            statementMap: {
+              "0": {
+                start: { line: 2, column: 0 },
+                end: { line: 2, column: 20 },
+              },
+            },
+            s: { "0": 1 },
+            fnMap: {},
+            f: {},
+            branchMap: {},
+            b: {},
+          },
+        }),
+        accum: createCoverageMap({}),
+        accumDelta: 1,
+        globalDelta: 1,
+      },
+    };
+  } // fn: getCoverage
+} // class: MockReachingCoverageMeasure

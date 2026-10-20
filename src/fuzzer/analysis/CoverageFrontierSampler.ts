@@ -4,11 +4,15 @@ import * as ProgramFactory from "./ProgramFactory";
 import { normalizePathForKey } from "../Util";
 import {
   CodeCoverageMeasureStats,
+  CoverageMeasure,
   UncoveredCoverageInfo,
   formatLineRanges,
 } from "../measures/CoverageMeasure";
 import { FunctionDef } from "./FunctionDef";
-import { ProgramLanguage } from "./Types";
+import { FunctionRef, ProgramLanguage } from "./Types";
+import { Leaderboard } from "../generators/Leaderboard";
+import { InputAndSource } from "../Types";
+import * as ValueMapper from "../mappers/ValueMapper";
 import * as ParserAdapter from "../adapters/ParserAdapter";
 
 /**
@@ -45,12 +49,26 @@ export class CoverageFrontierSampler {
     const currentAttempts = options.targetAttempts[selected.targetId] ?? 0;
     options.targetAttempts[selected.targetId] = currentAttempts + 1;
 
+    const reachingInputs: string[] =
+      options.leaderboard && options.covMeasure && options.targetFn
+        ? findReachingInputs(
+            selected,
+            options.leaderboard,
+            options.covMeasure,
+            options.targetFn
+          )
+        : [];
+
     const maxChars =
       options.maxSnippetChars ?? CoverageFrontierSampler.DEFAULT_MAX_CHARS;
+    const targetLines =
+      selected.partialLines.length > 0
+        ? selected.partialLines
+        : selected.uncoveredLines;
     const { codeSnippet, isSliced } = prepareCodeSnippet(
       selected.src,
       selected.startLine,
-      selected.uncoveredLines,
+      targetLines,
       maxChars
     );
 
@@ -63,7 +81,11 @@ export class CoverageFrontierSampler {
       filePath: selected.filePath,
       displayPath,
       functionName: selected.functionName,
+      startLine: selected.startLine,
+      endLine: selected.endLine,
       uncoveredLines: selected.uncoveredLines,
+      partialLines: selected.partialLines,
+      reachingInputs,
       codeSnippet,
       isSliced,
     };
@@ -94,6 +116,13 @@ export class CoverageFrontierSampler {
     ]);
 
     for (const fileKey of candidateFiles) {
+      const normalizedPath = fileKey.replace(/\\/g, "/");
+      if (
+        TEST_FRAMEWORK_PATH_PARTS.some((part) => normalizedPath.includes(part))
+      ) {
+        continue;
+      }
+
       const stat = fs.existsSync(fileKey) ? fs.statSync(fileKey) : undefined;
       if (!stat) {
         continue;
@@ -172,13 +201,16 @@ export class CoverageFrontierSampler {
           const isTargetFn = isTargetModule && fn.name === targetFnName;
           const isCalledSibling = reachableSiblings?.has(fn.name) ?? false;
 
-          // Filter uncalled sibling functions in target module unless they are on active frontier
-          if (
-            isTargetModule &&
-            !isTargetFn &&
-            !isCalledSibling &&
-            !isFrontier
-          ) {
+          // Option 3A: Require at least 1 execution hit. Functions with 0 hits cannot be sampled.
+          const hasExecutionHits =
+            isFrontier || fnCoveredCount > 0 || isTargetFn;
+
+          if (!hasExecutionHits) {
+            continue;
+          }
+
+          // Filter uncalled sibling functions in target module
+          if (isTargetModule && !isTargetFn && !isCalledSibling) {
             continue;
           }
 
@@ -206,21 +238,21 @@ export class CoverageFrontierSampler {
             filePath: fileKey,
             functionName: fn.name,
             startLine: fn.startLine,
+            endLine: fn.endLine,
             isFrontier,
             baseWeight,
             weight,
             attempts,
-            uncoveredLines: isFrontier
-              ? fnPartial.length > 0
-                ? fnPartial
-                : fnUncovered
-              : fnUncovered,
+            uncoveredLines: fnUncovered,
+            partialLines: fnPartial,
             src: fn.src,
           });
         }
 
-        // If no functions were matched (e.g. top-level statements), fallback to file-level candidate
-        if (functionsFoundForFile === 0 && !isTargetModule) {
+        // If no functions were matched (e.g. top-level statements), fallback to file-level candidate if it has execution hits
+        const hasTopHits =
+          partialLines.length > 0 || coveredLinesInFile.size > 0;
+        if (functionsFoundForFile === 0 && !isTargetModule && hasTopHits) {
           const targetId = `${normKey}:__top__`;
           const isFrontier = partialLines.length > 0;
           const baseWeight = isFrontier ? 50 : fileExecuted ? 20 : 5;
@@ -236,11 +268,13 @@ export class CoverageFrontierSampler {
             filePath: fileKey,
             functionName: undefined,
             startLine: 1,
+            endLine: cached.src.split("\n").length,
             isFrontier,
             baseWeight,
             weight,
             attempts,
-            uncoveredLines: isFrontier ? partialLines : uncoveredLines,
+            uncoveredLines: partialLines.length === 0 ? uncoveredLines : [],
+            partialLines,
             src: cached.src,
           });
         }
@@ -274,9 +308,26 @@ export function formatFrontierContext(
   const fnLabel = target.functionName
     ? ` (function \`${target.functionName}\`)`
     : "";
-  const linesLabel =
-    target.uncoveredLines.length > 0
-      ? ` with uncovered line(s) ${formatLineRanges(target.uncoveredLines)}`
+  let linesLabel = "";
+  if (target.partialLines.length > 0 && target.uncoveredLines.length > 0) {
+    linesLabel = ` at partially covered branch line(s) ${formatLineRanges(
+      target.partialLines
+    )} (uncovered line(s): ${formatLineRanges(target.uncoveredLines)})`;
+  } else if (target.partialLines.length > 0) {
+    linesLabel = ` at partially covered branch line(s) ${formatLineRanges(
+      target.partialLines
+    )}`;
+  } else if (target.uncoveredLines.length > 0) {
+    linesLabel = ` with uncovered line(s) ${formatLineRanges(
+      target.uncoveredLines
+    )}`;
+  }
+
+  const reachingSection =
+    target.reachingInputs.length > 0
+      ? `\nPrior test input(s) that reached this code:\n` +
+        target.reachingInputs.map((inp) => ` - \`${inp}\``).join("\n") +
+        "\n"
       : "";
 
   return [
@@ -284,7 +335,10 @@ export function formatFrontierContext(
     `\`\`\`${lang}`,
     target.codeSnippet.trim(),
     `\`\`\``,
-  ].join("\n");
+    reachingSection,
+  ]
+    .filter(Boolean)
+    .join("\n");
 } // fn: formatFrontierContext()
 
 // -------------------------------------------------------------------------- //
@@ -489,6 +543,29 @@ function getReachableSiblingNames(
 } // fn: getReachableSiblingNames()
 
 /**
+ * Computes the first line of the function body, skipping the declaration signature.
+ *
+ * @param src Function source code
+ * @param startLine 1-based start line of the function
+ * @returns 1-based start line of the function body
+ */
+function getBodyStartLine(src: string, startLine: number): number {
+  const lines = src.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i].trim();
+    if (
+      l.endsWith(":") ||
+      l.endsWith("{") ||
+      l.includes("):") ||
+      l.includes(") ->")
+    ) {
+      return startLine + i + 1;
+    }
+  }
+  return startLine + 1;
+} // fn: getBodyStartLine
+
+/**
  * Analyzes a source file and extracts its functions, line offsets, and callee graph.
  *
  * @param fileKey Path of the file to analyze
@@ -501,18 +578,24 @@ function analyzeFile(fileKey: string, mtimeMs: number): CachedFileInfo {
   const lineOffsets = computeLineOffsets(fileSrc);
   const functions: CachedFunctionInfo[] = [];
 
-  for (const fn of Object.values(program.functions)) {
-    const startOffset = fn.getStartOffset();
-    const endOffset = fn.getEndOffset();
-    const startLine = findLineNumber(startOffset, lineOffsets);
-    const endLine = findLineNumber(endOffset, lineOffsets);
-    const src = fn.getSrc();
-    const callees = extractCalleeNames(src, program.lang);
+  const allFunctionRefs: FunctionRef[] = [
+    ...Object.values(program.functions).map((fn) => fn.getRef()),
+    ...Object.values(program.functionsNotSupported)
+      .map((entry) => entry.function)
+      .filter((fnRef): fnRef is FunctionRef => fnRef !== undefined),
+  ];
+
+  for (const fn of allFunctionRefs) {
+    const startLine = findLineNumber(fn.startOffset, lineOffsets);
+    const endLine = findLineNumber(fn.endOffset, lineOffsets);
+    const bodyStartLine = getBodyStartLine(fn.src, startLine);
+    const callees = extractCalleeNames(fn.src, program.lang);
     functions.push({
-      name: fn.getName(),
+      name: fn.name,
       startLine,
+      bodyStartLine,
       endLine,
-      src,
+      src: fn.src,
       callees,
     });
   }
@@ -523,6 +606,75 @@ function analyzeFile(fileKey: string, mtimeMs: number): CachedFileInfo {
     functions,
   };
 } // fn: analyzeFile()
+
+/**
+ * Finds test inputs from the leaderboard that reached the specified candidate function.
+ *
+ * @param candidate Selected candidate target
+ * @param leaderboard Active leaderboard of interesting inputs
+ * @param covMeasure Active coverage measure
+ * @param targetFn The function under test
+ * @returns Array of formatted input representations that executed code in the target
+ */
+function findReachingInputs(
+  candidate: FrontierCandidate,
+  leaderboard: Leaderboard<InputAndSource>,
+  covMeasure: CoverageMeasure,
+  targetFn: FunctionDef
+): string[] {
+  const reaching: string[] = [];
+  const seen = new Set<string>();
+  const leaders = leaderboard.getLeaders().sort((a, b) => b.score - a.score);
+  const targetNormPath = normalizePathForKey(candidate.filePath);
+
+  for (const item of leaders) {
+    const tick = item.leader.tick;
+    if (tick === undefined || !covMeasure.hasCoverage(tick)) {
+      continue;
+    }
+
+    try {
+      const meas = covMeasure.getCoverage(tick);
+      const currentCov = meas?.coverageMeasure?.current;
+      if (!currentCov) continue;
+
+      const matchingFile = currentCov
+        .files()
+        .find((f) => normalizePathForKey(f) === targetNormPath);
+
+      if (matchingFile) {
+        const fileCov = currentCov.fileCoverageFor(matchingFile);
+        if (fileCov?.s && fileCov?.statementMap) {
+          const hitInTarget = Object.entries(fileCov.s).some(([key, hits]) => {
+            if (hits <= 0) return false;
+            const stmt = fileCov.statementMap[key];
+            if (!stmt) return false;
+            const line = stmt.start.line;
+            return line >= candidate.startLine && line <= candidate.endLine;
+          });
+
+          if (hitInTarget) {
+            const repr = ValueMapper.toLang(
+              targetFn.getLang(),
+              item.leader.value.map((v) => v.value)
+            );
+            if (!seen.has(repr)) {
+              seen.add(repr);
+              reaching.push(repr);
+              if (reaching.length >= 2) {
+                break;
+              }
+            }
+          }
+        }
+      }
+    } catch {
+      // Ignore individual lookup errors
+    }
+  }
+
+  return reaching;
+} // fn: findReachingInputs()
 
 // -------------------------------------------------------------------------- //
 // Type Definitions
@@ -536,11 +688,13 @@ export type FrontierCandidate = {
   filePath: string;
   functionName?: string;
   startLine: number;
+  endLine: number;
   isFrontier: boolean;
   baseWeight: number;
   weight: number;
   attempts: number;
   uncoveredLines: number[];
+  partialLines: number[];
   src: string;
 };
 
@@ -552,7 +706,11 @@ export type SampledFrontierTarget = {
   filePath: string;
   displayPath: string;
   functionName?: string;
+  startLine: number;
+  endLine: number;
   uncoveredLines: number[];
+  partialLines: number[];
+  reachingInputs: string[];
   codeSnippet: string;
   isSliced: boolean;
 };
@@ -565,6 +723,8 @@ export type FrontierSampleOptions = {
   uncoveredInfo: UncoveredCoverageInfo;
   targetAttempts: Record<string, number>;
   targetFn?: FunctionDef;
+  leaderboard?: Leaderboard<InputAndSource>;
+  covMeasure?: CoverageMeasure;
   prng?: () => number;
   maxSnippetChars?: number;
 };
@@ -572,6 +732,7 @@ export type FrontierSampleOptions = {
 type CachedFunctionInfo = {
   name: string;
   startLine: number;
+  bodyStartLine: number;
   endLine: number;
   src: string;
   callees: Set<string>;
@@ -582,3 +743,15 @@ type CachedFileInfo = {
   src: string;
   functions: CachedFunctionInfo[];
 };
+
+const TEST_FRAMEWORK_PATH_PARTS = [
+  "site-packages/hypothesis",
+  "site-packages/pytest",
+  "site-packages/_pytest",
+  "site-packages/mock",
+  "site-packages/unittest2",
+  "nanofuzz_runtime",
+  "_nanofuzz_python",
+  "@nanofuzz/runtime",
+  "packages/runtime",
+];
