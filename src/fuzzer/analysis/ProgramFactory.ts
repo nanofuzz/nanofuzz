@@ -1,6 +1,7 @@
 import { AbstractProgram } from "./AbstractProgram";
 import { ArgOptions, ProgramLanguage } from "./Types";
 import * as fs from "fs";
+import * as path from "path";
 import { TypescriptProgram } from "./typescript/TypescriptProgram";
 import { PythonProgram } from "./python/PythonProgram";
 
@@ -20,7 +21,7 @@ export function fromFile(
   parent?: AbstractProgram
 ): AbstractProgram {
   if (filename !== "") {
-    filename = require.resolve(filename);
+    filename = resolvePath(filename);
   }
   const getSource = () => fs.readFileSync(filename).toString();
   return factory(filename, getSource, lang, options, parent);
@@ -64,7 +65,7 @@ export function fromFileAndSource(
   parent?: AbstractProgram
 ): AbstractProgram {
   if (filename !== "") {
-    filename = require.resolve(filename);
+    filename = resolvePath(filename);
   }
   return factory(filename, getSource, lang, options, parent);
 } // fn: fromFileAndSource
@@ -100,3 +101,17 @@ function factory(
     return new TypescriptProgram(getSource, filename, options, parent);
   }
 } // fn: factory
+
+/**
+ * Resolves a file path using CommonJS/TS resolution first, falling back to path.resolve.
+ *
+ * @param filename Path of the source file to resolve
+ * @returns Resolved absolute path
+ */
+function resolvePath(filename: string): string {
+  try {
+    return require.resolve(filename);
+  } catch {
+    return path.resolve(filename);
+  }
+} // fn: resolvePath

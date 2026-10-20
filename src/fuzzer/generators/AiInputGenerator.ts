@@ -334,6 +334,9 @@ export class AiInputGenerator extends AbstractInputGenerator {
             uncoveredInfo,
             targetAttempts: this._targetAttempts,
             prng: this._prng,
+            targetFn: this._fn,
+            leaderboard: this._leaderboard,
+            covMeasure: this._covMeasure,
           });
         }
 
@@ -1066,6 +1069,13 @@ ${escapedModuleSrc}
     if (backfeed) {
       const interestingInputs: string[] = [];
       const interestingSet = new Set<string>();
+
+      // Exclude inputs already displayed in the frontier target context
+      if (frontierTarget?.reachingInputs) {
+        for (const reaching of frontierTarget.reachingInputs) {
+          interestingSet.add(reaching);
+        }
+      }
 
       if (leaderboard) {
         const leaders = leaderboard

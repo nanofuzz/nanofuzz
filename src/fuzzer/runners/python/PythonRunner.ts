@@ -777,6 +777,13 @@ function findPythonLibDir(dir: string): string | null {
   return null;
 } // fn: findPythonLibDir
 
+const TEST_FRAMEWORK_PACKAGES = new Set([
+  "hypothesis",
+  "nanofuzz_runtime",
+  "nanofuzz",
+  "_nanofuzz_python",
+]);
+
 /**
  * Extracts top-level 3rd-party package names directly imported by the program
  * using `program.imports`.
@@ -788,6 +795,7 @@ function extractDirectPackages(
 
   for (const [key, imp] of Object.entries(imports)) {
     const pPath = imp.programPath;
+    let isTestFramework = false;
     if (pPath) {
       const normalized = pPath.replace(/\\/g, "/");
       const parts = normalized.split("/");
@@ -797,19 +805,30 @@ function extractDirectPackages(
           ? parts.indexOf("site-packages")
           : parts.indexOf("dist-packages");
         if (idx + 1 < parts.length) {
-          packages.add(parts[idx + 1]);
+          const pkg = parts[idx + 1];
+          if (TEST_FRAMEWORK_PACKAGES.has(pkg.toLowerCase())) {
+            isTestFramework = true;
+          } else {
+            packages.add(pkg);
+          }
         }
       }
     }
 
-    const pkgName = key.replace(/^\*:/, "").split(".")[0];
-    if (pkgName && !pkgName.startsWith(".")) {
-      packages.add(pkgName);
+    if (!isTestFramework) {
+      const pkgName = key.replace(/^\*:/, "").split(".")[0];
+      if (
+        pkgName &&
+        !pkgName.startsWith(".") &&
+        !TEST_FRAMEWORK_PACKAGES.has(pkgName.toLowerCase())
+      ) {
+        packages.add(pkgName);
+      }
     }
   }
 
   return Array.from(packages);
-}
+} // fn: extractDirectPackages
 
 /**
  * Checks if the argument is a UUID string

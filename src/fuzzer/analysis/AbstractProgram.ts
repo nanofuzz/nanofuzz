@@ -349,7 +349,7 @@ export abstract class AbstractProgram {
    */
   public get functionsNotSupported(): Record<
     IdentifierName,
-    { reason: string; node?: string; argument?: string }
+    { reason: string; node?: string; argument?: string; function?: FunctionRef }
   > {
     return structuredClone(this._functions.unsupported);
   } // fn: get functionsNotSupported()
