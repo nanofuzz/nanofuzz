@@ -733,6 +733,22 @@ def transform_arg(val: Any, hint: Any) -> Any:
             return val.encode("latin1")
         return val
 
+    if hint == "float":
+        if isinstance(val, (int, float, str, bytes, bytearray)):
+            try:
+                return float(val)
+            except (ValueError, TypeError):
+                return val
+        return val
+
+    if hint == "int":
+        if isinstance(val, (int, float, str, bytes, bytearray)):
+            try:
+                return int(val)
+            except (ValueError, TypeError):
+                return val
+        return val
+
     if hint == "number":
         if isinstance(val, str):
             try:

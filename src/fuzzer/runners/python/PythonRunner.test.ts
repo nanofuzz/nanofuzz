@@ -10,6 +10,7 @@ import { FunctionDef } from "../../analysis/FunctionDef";
 import { CoverageMeasure } from "../../measures/CoverageMeasure";
 import { normalizePathForKey } from "../../Util";
 import { ArgDef } from "../../analysis/ArgDef";
+import { ArgTag } from "../../analysis/Types";
 import * as ProgramFactory from "../../analysis/ProgramFactory";
 import * as Parser from "../../adapters/ParserAdapter";
 import * as Config from "../../../Config";
@@ -349,6 +350,102 @@ def process_floats(nan_val: float, inf_val: float):
           fail("Expected object with nan and inf properties");
         }
       }
+    } finally {
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // Ignore residual file lock cleanup errors on Windows
+      }
+    }
+  });
+
+  it("converts generated 0 to an int in Python if numInteger and float otherwise", async () => {
+    const tmpDir = getTmpDir("nanofuzz-runner-zero-");
+    const pyPath = path.join(tmpDir, "zero_test.py");
+    const pyCode = `
+def check_zero_types(int_val: int, float_val: float) -> dict:
+    return {
+        "int_type": type(int_val).__name__,
+        "float_type": type(float_val).__name__,
+        "int_is_int": type(int_val) is int,
+        "int_is_float": type(int_val) is float,
+        "float_is_int": type(float_val) is int,
+        "float_is_float": type(float_val) is float,
+    }
+`;
+    fs.writeFileSync(pyPath, pyCode);
+
+    try {
+      const program = ProgramFactory.fromSource(() => pyCode, "python", pyPath);
+      const fnDef = program.functionsExported["check_zero_types"];
+      const env = createFuzzEnv(fnDef);
+
+      const args = fnDef.getArgDefs();
+      expect(args[0].getType()).toBe(ArgTag.NUMBER);
+      expect(args[0].getOptions().numInteger).toBe(true);
+      expect(args[1].getType()).toBe(ArgTag.NUMBER);
+      expect(args[1].getOptions().numInteger).toBe(false);
+
+      const runner = new PythonRunner(pyPath, "check_zero_types", env);
+      await runner.onRunStart();
+
+      // Passing generated 0 for both arguments:
+      // When numInteger is true -> int in Python (0)
+      // When numInteger is false (otherwise) -> float in Python (0.0)
+      const res = await runner.run([0, 0], 10000);
+
+      expect(res.result.tag).toBe("value");
+      if (res.result.tag === "value") {
+        expect(res.result.value).toEqual({
+          int_type: "int",
+          float_type: "float",
+          int_is_int: true,
+          int_is_float: false,
+          float_is_int: false,
+          float_is_float: true,
+        });
+      }
+
+      // Toggling numInteger on NaNofuzz ArgDef options: first arg becomes float, second becomes int
+      args[0].setOptions({ numInteger: false });
+      args[1].setOptions({ numInteger: true });
+
+      const resToggled = await runner.run([0, 0], 10000);
+      expect(resToggled.result.tag).toBe("value");
+      if (resToggled.result.tag === "value") {
+        expect(resToggled.result.value).toEqual({
+          int_type: "float",
+          float_type: "int",
+          int_is_int: false,
+          int_is_float: true,
+          float_is_int: true,
+          float_is_float: false,
+        });
+      }
+
+      // When both have numInteger: false, both become float in Python
+      args[0].setOptions({ numInteger: false });
+      args[1].setOptions({ numInteger: false });
+
+      const resBothFloat = await runner.run([0, 0], 10000);
+      expect(resBothFloat.result.tag).toBe("value");
+      if (resBothFloat.result.tag === "value") {
+        expect(resBothFloat.result.value).toEqual({
+          int_type: "float",
+          float_type: "float",
+          int_is_int: false,
+          int_is_float: true,
+          float_is_int: false,
+          float_is_float: true,
+        });
+      }
+
+      await runner.onRunEnd();
     } finally {
       try {
         fs.rmSync(tmpDir, {
