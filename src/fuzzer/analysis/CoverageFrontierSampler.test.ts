@@ -706,7 +706,7 @@ class MockReachingCoverageMeasure extends CoverageMeasure {
     return tick === 42;
   } // fn: hasCoverage
 
-  public override getCoverage(tick: number): CoverageMeasurement {
+  public override getCoverage(_tick: number): CoverageMeasurement {
     return {
       type: "measure",
       name: "CoverageMeasure",
