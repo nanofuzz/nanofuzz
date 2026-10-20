@@ -3071,6 +3071,19 @@ export class PythonProgram extends AbstractProgram {
         unsupported[name] = {
           reason: msg,
           node: JSONN.stringify(defNode?.node.toString()),
+          function: defNode
+            ? {
+                module: this._filename,
+                name,
+                src: defNode.node.text,
+                lang: PythonProgram.lang,
+                startOffset: defNode.node.startIndex,
+                endOffset: defNode.node.endIndex,
+                isExported: true,
+                isVoid: false,
+                args: [],
+              }
+            : undefined,
         };
       }
     }
@@ -3101,6 +3114,19 @@ export class PythonProgram extends AbstractProgram {
         unsupported[name] = {
           reason: msg,
           node: JSONN.stringify(defNode?.node.toString()),
+          function: defNode
+            ? {
+                module: this._filename,
+                name,
+                src: defNode.node.text,
+                lang: PythonProgram.lang,
+                startOffset: defNode.node.startIndex,
+                endOffset: defNode.node.endIndex,
+                isExported: true,
+                isVoid: false,
+                args: [],
+              }
+            : undefined,
         };
       }
     }

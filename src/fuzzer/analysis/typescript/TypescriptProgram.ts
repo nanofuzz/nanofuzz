@@ -1149,9 +1149,21 @@ export class TypescriptProgram extends AbstractProgram {
           }
         } catch (e: unknown) {
           const msg = getErrorMessageOrJson(e);
+          const fnRef: FunctionRef = {
+            module: this._filename,
+            name,
+            src: path.toString(),
+            lang: TypescriptProgram.lang,
+            startOffset: path.node.start ?? 0,
+            endOffset: path.node.end ?? 0,
+            isExported: true,
+            isVoid: false,
+            args: [],
+          };
           unsupported[name] = {
             reason: msg,
             node: JSONN.stringify(path.node),
+            function: fnRef,
           };
         }
       }, // enter
