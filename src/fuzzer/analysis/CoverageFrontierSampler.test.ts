@@ -565,12 +565,14 @@ export function uncalledSiblingTest(val: number): boolean {
     });
     expect(initial.map((c) => c.functionName)).toEqual(["v1Function"]);
 
-    // Update file with new function
+    // Update file with new function and advance mtime to simulate an edit occurring later
     fs.writeFileSync(
       dynamicFile,
       `export function v2Function(): void {}
 `
     );
+    const mtime = fs.statSync(dynamicFile).mtimeMs;
+    fs.utimesSync(dynamicFile, new Date(mtime + 2000), new Date(mtime + 2000));
 
     const targetFnV2 = FunctionDef.fromFunctionRef({
       module: dynamicFile,
