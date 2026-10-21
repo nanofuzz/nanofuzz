@@ -89,6 +89,7 @@ export class FuzzerV3 {
   protected _injectedInFlight = 0;
 
   // Cooperative Shrink State
+  protected _interruptedQueue: TransformedInputAndSource[] = [];
   protected _fuzzerFocus: FuzzerFocus = deepFreeze({ mode: "gen" });
   protected _failingResultToShrink?: FuzzTestResult;
   protected _shrinkStartTime = 0;
@@ -461,6 +462,7 @@ export class FuzzerV3 {
 
         // If we finished fetching injected inputs but some are still running, wait for them to finish before starting generation
         if (
+          this._interruptedQueue.length === 0 &&
           this._stage1InjectedCount >= injectCount &&
           this._injectedInFlight > 0
         ) {
@@ -548,6 +550,10 @@ export class FuzzerV3 {
         );
 
         if (!executedSlot) {
+          this._stats.recordInterrupted(slot.candidate);
+          if (slot.candidate) {
+            this._interruptedQueue.push(slot.candidate);
+          }
           if (slot.injected) {
             this._injectedInFlight = Math.max(0, this._injectedInFlight - 1);
           }
@@ -675,57 +681,66 @@ export class FuzzerV3 {
       this._stats.markGenStarted(startGenTime);
     }
 
-    // Handle async generator wait (e.g. LLM inputs)
-    if (this._compositeInputGenerator.nextable() === "soon") {
-      const remainingTimeout =
-        this._options.suiteTimeout > 0 && this._stats.startGenTime > 0
-          ? Math.max(
-              0,
-              this._options.suiteTimeout -
-                (performance.now() - this._stats.startGenTime)
-            )
-          : undefined;
-      const waitTimer = setTimeout(() => {
-        update({
-          type: "waiting-for-generator",
-          pendingGenerators:
-            this._compositeInputGenerator.getPendingGeneratorNames(),
-          stats: this._stats.currentRun,
-          pct: typeof stopCondition === "number" ? stopCondition : 0,
-        });
-      }, 200);
+    let candidate: TransformedInputAndSource;
+    let genTime = 0;
+
+    if (this._interruptedQueue.length > 0) {
+      candidate = this._interruptedQueue.shift()!;
+      this._stats.decrementInterrupted();
+    } else {
+      // Handle async generator wait (e.g. LLM inputs)
+      if (this._compositeInputGenerator.nextable() === "soon") {
+        const remainingTimeout =
+          this._options.suiteTimeout > 0 && this._stats.startGenTime > 0
+            ? Math.max(
+                0,
+                this._options.suiteTimeout -
+                  (performance.now() - this._stats.startGenTime)
+              )
+            : undefined;
+        const waitTimer = setTimeout(() => {
+          update({
+            type: "waiting-for-generator",
+            pendingGenerators:
+              this._compositeInputGenerator.getPendingGeneratorNames(),
+            stats: this._stats.currentRun,
+            pct: typeof stopCondition === "number" ? stopCondition : 0,
+          });
+        }, 200);
+        try {
+          await this._compositeInputGenerator.waitForNextInput(
+            remainingTimeout
+          );
+        } catch (e: unknown) {
+          this._state = "crashed";
+          this._stats.results.stopReason = FuzzStopReason.CRASH;
+          throw e;
+        } finally {
+          clearTimeout(waitTimer);
+        }
+      }
+
+      if (
+        this._compositeInputGenerator.nextable() !== "now" &&
+        this._compositeInputGenerator.nextable() !== "now!" &&
+        !stillInjecting
+      ) {
+        return undefined;
+      }
+
+      // Fetch candidate input
       try {
-        await this._compositeInputGenerator.waitForNextInput(remainingTimeout);
+        candidate = await this._compositeInputGenerator.nextTransformed();
       } catch (e: unknown) {
+        if (e instanceof GeneratorExhaustedError) {
+          return undefined;
+        }
         this._state = "crashed";
         this._stats.results.stopReason = FuzzStopReason.CRASH;
         throw e;
-      } finally {
-        clearTimeout(waitTimer);
       }
+      genTime = performance.now() - startGenTime;
     }
-
-    if (
-      this._compositeInputGenerator.nextable() !== "now" &&
-      this._compositeInputGenerator.nextable() !== "now!" &&
-      !stillInjecting
-    ) {
-      return undefined;
-    }
-
-    // Fetch candidate input
-    let candidate: TransformedInputAndSource;
-    try {
-      candidate = await this._compositeInputGenerator.nextTransformed();
-    } catch (e: unknown) {
-      if (e instanceof GeneratorExhaustedError) {
-        return undefined;
-      }
-      this._state = "crashed";
-      this._stats.results.stopReason = FuzzStopReason.CRASH;
-      throw e;
-    }
-    const genTime = performance.now() - startGenTime;
 
     if (candidate.injected) {
       this._stage1InjectedCount++;

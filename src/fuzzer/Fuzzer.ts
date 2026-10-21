@@ -74,6 +74,7 @@ export class Tester {
 
   protected _results: FuzzTestResults; // test results
 
+  protected _interruptedQueue: TransformedInputAndSource[] = [];
   protected _fuzzerFocus: FuzzerFocus = deepFreeze({ mode: "gen" });
   protected _failingResultToShrink?: FuzzTestResult;
   protected _shrinkStartTime = 0;
@@ -257,6 +258,7 @@ export class Tester {
           passedTests: 0, // updated later
           erroredTests: 0, // updated later
           inputsSkipped: 0, // updated later
+          inputsInterrupted: 0, // updated later
           failedTests: 0, // updated later
         },
         outcomes: {
@@ -530,6 +532,7 @@ export class Tester {
         failedTests: 0, // number of failed tests encountered so far
         passedTests: 0, // number of passed tests encountered so far
         inputsSkipped: 0, // number of skipped tests so far
+        inputsInterrupted: 0, // number of in-flight tests interrupted so far
       },
       outcomes: {
         total: 0,
@@ -747,6 +750,8 @@ export class Tester {
             runStats.counters.passedTests;
           this._results.stats.counters.inputsSkipped +=
             runStats.counters.inputsSkipped;
+          this._results.stats.counters.inputsInterrupted +=
+            runStats.counters.inputsInterrupted;
           this._results.stats.counters.failedTests +=
             runStats.counters.failedTests;
 
@@ -856,43 +861,45 @@ export class Tester {
           return () => !stillInjecting && cancelFn();
         };
 
-        if (this._compositeInputGenerator.nextable() === "soon") {
-          const remainingTimeout =
-            this._options.suiteTimeout > 0 && runStats.timers.startGenTime > 0
-              ? Math.max(
-                  0,
-                  this._options.suiteTimeout -
-                    (performance.now() - runStats.timers.startGenTime)
-                )
-              : undefined;
-          const waitTimer = setTimeout(() => {
-            update({
-              type: "waiting-for-generator",
-              pendingGenerators:
-                this._compositeInputGenerator.getPendingGeneratorNames(),
-              stats: runStats,
-              pct: typeof stopCondition === "number" ? stopCondition : 0,
-            });
-          }, 200);
-          try {
-            await this._compositeInputGenerator.waitForNextInput(
-              remainingTimeout
-            );
-          } catch (e: unknown) {
-            this._state = "crashed";
-            this._results.stopReason = FuzzStopReason.CRASH;
-            throw e;
-          } finally {
-            clearTimeout(waitTimer);
+        if (this._interruptedQueue.length === 0) {
+          if (this._compositeInputGenerator.nextable() === "soon") {
+            const remainingTimeout =
+              this._options.suiteTimeout > 0 && runStats.timers.startGenTime > 0
+                ? Math.max(
+                    0,
+                    this._options.suiteTimeout -
+                      (performance.now() - runStats.timers.startGenTime)
+                  )
+                : undefined;
+            const waitTimer = setTimeout(() => {
+              update({
+                type: "waiting-for-generator",
+                pendingGenerators:
+                  this._compositeInputGenerator.getPendingGeneratorNames(),
+                stats: runStats,
+                pct: typeof stopCondition === "number" ? stopCondition : 0,
+              });
+            }, 200);
+            try {
+              await this._compositeInputGenerator.waitForNextInput(
+                remainingTimeout
+              );
+            } catch (e: unknown) {
+              this._state = "crashed";
+              this._results.stopReason = FuzzStopReason.CRASH;
+              throw e;
+            } finally {
+              clearTimeout(waitTimer);
+            }
           }
-        }
 
-        if (
-          this._compositeInputGenerator.nextable() !== "now" &&
-          this._compositeInputGenerator.nextable() !== "now!" &&
-          !stillInjecting
-        ) {
-          continue;
+          if (
+            this._compositeInputGenerator.nextable() !== "now" &&
+            this._compositeInputGenerator.nextable() !== "now!" &&
+            !stillInjecting
+          ) {
+            continue;
+          }
         }
 
         const getRemainingSuiteTime = (): number => {
@@ -906,7 +913,14 @@ export class Tester {
             : Infinity;
         };
 
-        if (transformRunner) {
+        if (this._interruptedQueue.length > 0) {
+          result.inputGenerated = this._interruptedQueue.shift()!;
+          if (runStats.counters.inputsInterrupted > 0) {
+            runStats.counters.inputsInterrupted--;
+          } else if (this._results.stats.counters.inputsInterrupted > 0) {
+            this._results.stats.counters.inputsInterrupted--;
+          }
+        } else if (transformRunner) {
           let transformedInput: TransformedInputAndSource;
           try {
             transformedInput =
@@ -1042,6 +1056,8 @@ export class Tester {
             );
           } catch (e: unknown) {
             if (isError(e) && e.message === "runnerInterrupted") {
+              runStats.counters.inputsInterrupted++;
+              this._interruptedQueue.push(result.inputGenerated);
               continue;
             }
 
@@ -1145,6 +1161,8 @@ export class Tester {
                 );
               } catch (e: unknown) {
                 if (isError(e) && e.message === "runnerInterrupted") {
+                  runStats.counters.inputsInterrupted++;
+                  this._interruptedQueue.push(result.inputGenerated);
                   continue;
                 }
                 throw e;

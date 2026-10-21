@@ -8,6 +8,7 @@ import {
   FuzzTestingMessage,
   FuzzTestResult,
   FuzzTestResults,
+  FuzzStopReason,
   FuzzWaitingForGeneratorMessage,
 } from "../fuzzer/Types";
 
@@ -31,13 +32,24 @@ export function formatRunSummary(
     });
   }
 
-  lines.push(
-    ` - Executed ${outcomes.total} and skipped ${
-      counters.inputsSkipped
-    } tests in ${stats.timers.total.toFixed(0)} ms this run. Stopped for reason: ${
-      results.stopReason
-    }.`
-  );
+  const stopReason =
+    results.stopReason === FuzzStopReason.PAUSE
+      ? "interrupted"
+      : results.stopReason;
+
+  if (counters.inputsInterrupted) {
+    lines.push(
+      ` - Executed ${outcomes.total}, skipped ${
+        counters.inputsSkipped
+      }, interrupted ${counters.inputsInterrupted} in-flight tests in ${stats.timers.total.toFixed(0)} ms this run. Stopped for reason: ${stopReason}.`
+    );
+  } else {
+    lines.push(
+      ` - Executed ${outcomes.total} and skipped ${
+        counters.inputsSkipped
+      } tests in ${stats.timers.total.toFixed(0)} ms this run. Stopped for reason: ${stopReason}.`
+    );
+  }
   lines.push(
     ` - Injected ${counters.inputsInjected} and generated ${
       counters.inputsGenerated

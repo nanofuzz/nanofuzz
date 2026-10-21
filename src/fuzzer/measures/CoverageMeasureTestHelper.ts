@@ -154,6 +154,7 @@ export function resultsStub(): FuzzTestResults {
         erroredTests: 0,
         passedTests: 0,
         inputsSkipped: 0,
+        inputsInterrupted: 0,
         failedTests: 0,
       },
       outcomes: {
