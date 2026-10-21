@@ -160,6 +160,60 @@ describe("cli:", () => {
     );
   });
 
+  it("accepts <file>::<fn> combined target argument format", async () => {
+    const outputFile = path.join(tmpDir, "combined_target_output.json5");
+    const target =
+      "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts::testCoverageOneFile";
+
+    const res = await runCli([
+      target,
+      "--output-file",
+      outputFile,
+      "--max-tests",
+      "2",
+      "--seed",
+      "cli_seed_combined_target",
+    ]);
+
+    expect(res.status).toBe(0);
+    expect(fs.existsSync(outputFile)).toBeTrue();
+    expect(res.stdout).toContain(
+      "Target: src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts::testCoverageOneFile"
+    );
+    expect(res.stdout).toContain("Inputs: Random, Mutation");
+    expect(res.stdout).toContain("Online: 1 worker, v2 engine, mab scheduler");
+
+    const outputData = JSON5.parse<FuzzTestResults>(
+      fs.readFileSync(outputFile, "utf8")
+    );
+    expect(outputData.stats.outcomes.total).toBeGreaterThan(0);
+  });
+
+  it("returns exit code 4 when missing function argument or using invalid :: syntax", async () => {
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+
+    // Only filename provided, no function and no ::
+    const res1 = await runCli([targetFile]);
+    expect(res1.status).toBe(4);
+    expect(res1.stderr).toContain(
+      "Error: missing required arguments <filename> <function>"
+    );
+
+    // Filename with trailing :: but no function name
+    const res2 = await runCli([`${targetFile}::`]);
+    expect(res2.status).toBe(4);
+    expect(res2.stderr).toContain(
+      "Error: missing required arguments <filename> <function>"
+    );
+
+    // Leading :: with no filename
+    const res3 = await runCli(["::testCoverageOneFile"]);
+    expect(res3.status).toBe(4);
+    expect(res3.stderr).toContain(
+      "Error: missing required arguments <filename> <function>"
+    );
+  });
+
   it("--output-file: check matching parameters for TypeScript", async () => {
     const outputFile = path.join(tmpDir, "ts_output.json5");
     const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
@@ -416,8 +470,10 @@ describe("cli:", () => {
     expect(res.status).toBe(0);
     expect(fs.existsSync(outputFile)).toBeTrue();
     expect(res.stdout).toContain(
-      "Online: 3 workers, v3 engine, mab scheduler."
+      "Target: src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts::testCoverageOneFile"
     );
+    expect(res.stdout).toContain("Inputs: Random, Mutation");
+    expect(res.stdout).toContain("Online: 3 workers, v3 engine, mab scheduler");
 
     const outputData = JSON5.parse<FuzzTestResults>(
       fs.readFileSync(outputFile, "utf8")
@@ -448,9 +504,7 @@ describe("cli:", () => {
     ]);
 
     expect(res1.status).toBe(0);
-    expect(res1.stdout).toContain(
-      "Online: 1 worker, v2 engine, mab scheduler."
-    );
+    expect(res1.stdout).toContain("Online: 1 worker, v2 engine, mab scheduler");
 
     // 2 workers -> v3 engine
     const res2 = await runCli([
@@ -470,7 +524,7 @@ describe("cli:", () => {
 
     expect(res2.status).toBe(0);
     expect(res2.stdout).toContain(
-      "Online: 2 workers, v3 engine, mab scheduler."
+      "Online: 2 workers, v3 engine, mab scheduler"
     );
   });
 
@@ -636,11 +690,12 @@ describe("cli:", () => {
 
     expect(res.status).toBe(0);
     expect(res.stdout).toContain(
-      "Online: 1 worker, v2 engine, mab scheduler, qwen2.5-coder:7b."
+      "Inputs: Random, Mutation, AI (qwen2.5-coder:7b)"
     );
+    expect(res.stdout).toContain("Online: 1 worker, v2 engine, mab scheduler");
   });
 
-  it("omits model name on target ready line when --no-ai-input-generator is passed", async () => {
+  it("omits AI from inputs line when --no-ai-input-generator is passed", async () => {
     const outputFile = path.join(tmpDir, "model_ready_no_ai_output.json5");
     const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
     const targetFn = "testCoverageOneFile";
@@ -662,8 +717,91 @@ describe("cli:", () => {
     ]);
 
     expect(res.status).toBe(0);
-    expect(res.stdout).toContain("Online: 1 worker, v2 engine, mab scheduler.");
+    expect(res.stdout).toContain("Inputs: Random, Mutation");
+    expect(res.stdout).toContain("Online: 1 worker, v2 engine, mab scheduler");
     expect(res.stdout).not.toContain("qwen2.5-coder:7b");
+    expect(res.stdout).not.toContain("AI");
+  });
+
+  it("reflects disabled input generators in inputs line", async () => {
+    const outputFile = path.join(tmpDir, "disabled_generators_online.json5");
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testCoverageOneFile";
+
+    // Disable random generator -> Mutation
+    const res1 = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--no-random-input-generator",
+      "--max-tests",
+      "1",
+      "--seed",
+      "cli_seed_no_rnd_online",
+    ]);
+    expect(res1.status).toBe(0);
+    expect(res1.stdout).toContain("Inputs: Mutation");
+    expect(res1.stdout).toContain("Online: 1 worker, v2 engine, mab scheduler");
+
+    // Disable mutation generator -> Random
+    const res2 = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--no-mutation-input-generator",
+      "--max-tests",
+      "1",
+      "--seed",
+      "cli_seed_no_mut_online",
+    ]);
+    expect(res2.status).toBe(0);
+    expect(res2.stdout).toContain("Inputs: Random");
+    expect(res2.stdout).toContain("Online: 1 worker, v2 engine, mab scheduler");
+  });
+
+  it("includes user generator in inputs line when user generator exists and is enabled", async () => {
+    const outputFile = path.join(tmpDir, "user_generator_online.json5");
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "targetUserGen";
+
+    // When user generator exists and is enabled -> User (targetUserGenGenerator)
+    const res1 = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--max-tests",
+      "1",
+      "--seed",
+      "cli_seed_user_gen_online",
+    ]);
+    expect(res1.status).toBe(0);
+    expect(res1.stdout).toContain(
+      "Target: src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts::targetUserGen"
+    );
+    expect(res1.stdout).toContain(
+      "Inputs: Random, Mutation, User (targetUserGenGenerator)"
+    );
+    expect(res1.stdout).toContain("Online: 1 worker, v2 engine, mab scheduler");
+
+    // When user generator exists but is disabled -> Random, Mutation
+    const res2 = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--no-user-input-generator",
+      "--max-tests",
+      "1",
+      "--seed",
+      "cli_seed_no_user_gen_online",
+    ]);
+    expect(res2.status).toBe(0);
+    expect(res2.stdout).toContain("Inputs: Random, Mutation");
+    expect(res2.stdout).not.toContain("User (");
+    expect(res2.stdout).toContain("Online: 1 worker, v2 engine, mab scheduler");
   });
 
   it("captures and suppresses NodeLLM console spam during CommandLine runs", async () => {
@@ -697,7 +835,9 @@ describe("cli:", () => {
     expect(res.stdout).not.toContain("[NodeLLM]");
     expect(res.stderr).not.toContain("[NodeLLM]");
     expect(res.stdout).toContain("NaNofuzz v");
-    expect(res.stdout).toContain("Target: testCoverageOneFile");
+    expect(res.stdout).toContain(
+      "Target: src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts::testCoverageOneFile"
+    );
 
     const captured = getCapturedConsoleLogs();
     expect(captured.length).toBeGreaterThanOrEqual(2);
@@ -745,7 +885,9 @@ describe("cli:", () => {
 
     // CommandLine's own outputs MUST be in stdout
     expect(res.stdout).toContain("NaNofuzz v");
-    expect(res.stdout).toContain("Target: testCoverageOneFile");
+    expect(res.stdout).toContain(
+      "Target: src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts::testCoverageOneFile"
+    );
     expect(res.stdout).toContain("Online:");
 
     // Non-CommandLine outputs MUST be redirected to stderr
