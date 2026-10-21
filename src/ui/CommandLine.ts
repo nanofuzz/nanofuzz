@@ -841,20 +841,39 @@ export async function runCliInProcess(
       const workerWord =
         workersCount === 1 ? "1 worker" : `${workersCount} workers`;
 
-      const isAiGenEnabled = options["aiInputGenerator"] !== false;
-      const isModelConfigured = LlmAdapter.isConfigured();
-      const modelConfig = LlmAdapter.getConfig();
-      const modelName =
-        modelConfig.modelName ||
-        (modelConfig.provider === "copilot" ? "copilot" : "");
-      const modelWord =
-        isAiGenEnabled && isModelConfigured && modelName
-          ? `, ${modelName}`
-          : "";
+      const relPath = path.relative(process.cwd(), filename);
+      const displayPath = (
+        relPath && relPath.length < filename.length ? relPath : filename
+      ).replace(/\\/g, "/");
 
-      isolator.log(`Target: ${fnname} of ${filename}`);
+      const activeGenerators: string[] = [];
+      if (fuzzer.env.options.generators.RandomInputGenerator?.enabled) {
+        activeGenerators.push("Random");
+      }
+      if (fuzzer.env.options.generators.MutationInputGenerator?.enabled) {
+        activeGenerators.push("Mutation");
+      }
+      if (
+        fuzzer.env.options.generators.AiInputGenerator?.enabled &&
+        LlmAdapter.isConfigured()
+      ) {
+        const modelConfig = LlmAdapter.getConfig();
+        const modelName =
+          modelConfig.modelName ||
+          (modelConfig.provider === "copilot" ? "copilot" : "");
+        activeGenerators.push(modelName ? `AI (${modelName})` : "AI");
+      }
+      if (
+        fuzzer.env.options.generators.UserInputGenerator?.enabled &&
+        fuzzer.env.userGenerators.length > 0
+      ) {
+        activeGenerators.push(`User (${fuzzer.env.userGenerators[0].name})`);
+      }
+
+      isolator.log(`Target: ${displayPath}::${fnname}`);
+      isolator.log(`Inputs: ${activeGenerators.join(", ")}`);
       isolator.log(
-        `Online: ${workerWord}, ${engine} engine, ${scheduler} scheduler${modelWord}.`
+        `Online: ${workerWord}, ${engine} engine, ${scheduler} scheduler`
       );
 
       const results = await fuzzer
