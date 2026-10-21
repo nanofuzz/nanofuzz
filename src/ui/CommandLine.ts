@@ -67,8 +67,8 @@ function createProgram(): Commander.Command {
   program
     .name("nanofuzz")
     .version(`NaNofuzz ${nanofuzzVersion}`)
-    .argument(`<filename>`, `Python or TypeScript module to test`)
-    .argument(`<function>`, `Function to test`)
+    .argument(`<filename>`, `Module to test (or <file>::<fn>)`)
+    .argument(`[function]`, `Function to test`)
 
     // -------------------------- Fuzzer Run Parameters -------------------------- //
 
@@ -332,13 +332,28 @@ export async function runCliInProcess(
 
     isolator.info(`NaNofuzz v${nanofuzzVersion}`);
 
-    if (program.args.length < 2) {
+    let filenameIn: string;
+    let fnname: string;
+
+    if (program.args.length >= 1 && program.args[0].includes("::")) {
+      const delimIdx = program.args[0].indexOf("::");
+      filenameIn = program.args[0].slice(0, delimIdx);
+      fnname = program.args[0].slice(delimIdx + 2);
+      if (!filenameIn || !fnname) {
+        isolator.error(
+          "Error: missing required arguments <filename> <function>"
+        );
+        return ERROR_USAGE;
+      }
+    } else if (program.args.length >= 2) {
+      filenameIn = program.args[0];
+      fnname = program.args[1];
+    } else {
       isolator.error("Error: missing required arguments <filename> <function>");
       return ERROR_USAGE;
     }
 
     // Resolve the filename
-    const filenameIn: string = program.args[0];
     let filename: string;
     try {
       filename = require.resolve(filenameIn);
@@ -351,7 +366,6 @@ export async function runCliInProcess(
       }
     }
 
-    const fnname = program.args[1];
     const options = program.opts();
 
     // Resolve the output file

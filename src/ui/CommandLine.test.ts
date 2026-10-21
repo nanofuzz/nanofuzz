@@ -160,6 +160,60 @@ describe("cli:", () => {
     );
   });
 
+  it("accepts <file>::<fn> combined target argument format", async () => {
+    const outputFile = path.join(tmpDir, "combined_target_output.json5");
+    const target =
+      "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts::testCoverageOneFile";
+
+    const res = await runCli([
+      target,
+      "--output-file",
+      outputFile,
+      "--max-tests",
+      "2",
+      "--seed",
+      "cli_seed_combined_target",
+    ]);
+
+    expect(res.status).toBe(0);
+    expect(fs.existsSync(outputFile)).toBeTrue();
+    expect(res.stdout).toContain(
+      "Target: src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts::testCoverageOneFile"
+    );
+    expect(res.stdout).toContain("Inputs: Random, Mutation");
+    expect(res.stdout).toContain("Online: 1 worker, v2 engine, mab scheduler");
+
+    const outputData = JSON5.parse<FuzzTestResults>(
+      fs.readFileSync(outputFile, "utf8")
+    );
+    expect(outputData.stats.outcomes.total).toBeGreaterThan(0);
+  });
+
+  it("returns exit code 4 when missing function argument or using invalid :: syntax", async () => {
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+
+    // Only filename provided, no function and no ::
+    const res1 = await runCli([targetFile]);
+    expect(res1.status).toBe(4);
+    expect(res1.stderr).toContain(
+      "Error: missing required arguments <filename> <function>"
+    );
+
+    // Filename with trailing :: but no function name
+    const res2 = await runCli([`${targetFile}::`]);
+    expect(res2.status).toBe(4);
+    expect(res2.stderr).toContain(
+      "Error: missing required arguments <filename> <function>"
+    );
+
+    // Leading :: with no filename
+    const res3 = await runCli(["::testCoverageOneFile"]);
+    expect(res3.status).toBe(4);
+    expect(res3.stderr).toContain(
+      "Error: missing required arguments <filename> <function>"
+    );
+  });
+
   it("--output-file: check matching parameters for TypeScript", async () => {
     const outputFile = path.join(tmpDir, "ts_output.json5");
     const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
