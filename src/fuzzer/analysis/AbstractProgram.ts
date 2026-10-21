@@ -12,7 +12,9 @@ import {
   TypeAnnotationOptions,
   TypeAnnotationOptionDefaults,
 } from "./Types";
-import { getErrorMessageOrJson } from "../Util";
+import { getErrorMessageOrJson, normalizePathForKey } from "../Util";
+import * as ProgramFactory from "./ProgramFactory";
+import * as fs from "node:fs";
 
 /**
  * The AbstractProgram class represents a program definition in a source
@@ -57,6 +59,7 @@ export abstract class AbstractProgram {
     >;
   } = { supported: {}, unsupported: {} }; // Functions defined
   protected _functionCache: Record<IdentifierName, FunctionDef> = {}; // Cached FunctionDef objects
+  protected _calleeCache: Record<IdentifierName, Set<string>> = {}; // Cached callee sets
   protected _exports: {
     functions: Record<IdentifierName, FunctionRef>;
     types: Record<IdentifierName, TypeRef>;
@@ -213,6 +216,8 @@ export abstract class AbstractProgram {
 
   protected abstract _findFunctions(): typeof this._functions;
 
+  protected abstract _findCallees(fnName: string): Set<string>;
+
   protected abstract _findDefaultTypeExport(): TypeRef | undefined;
 
   public abstract resolveTypeRef(t: TypeRef): TypeRef;
@@ -315,7 +320,8 @@ export abstract class AbstractProgram {
       if (!(key in this._functionCache)) {
         this._functionCache[key] = FunctionDef.fromFunctionRef(
           value,
-          this._options
+          this._options,
+          () => this.getCallees(key)
         );
       }
       ret[key] = this._functionCache[key];
@@ -334,7 +340,8 @@ export abstract class AbstractProgram {
       if (!(key in this._functionCache)) {
         this._functionCache[key] = FunctionDef.fromFunctionRef(
           value,
-          this._options
+          this._options,
+          () => this.getCallees(key)
         );
       }
       ret[key] = this._functionCache[key];
@@ -380,6 +387,112 @@ export abstract class AbstractProgram {
   public get defaultExport(): TypeRef | undefined {
     return structuredClone(this._exports.default);
   } // fn: get defaultExport()
+
+  /**
+   * Returns the set of callee identifiers called by the given function.
+   *
+   * @param fnName Name of the function to inspect
+   * @returns Set of callee names
+   */
+  public getCallees(fnName: string): Set<string> {
+    if (this._calleeCache[fnName]) {
+      return new Set(this._calleeCache[fnName]);
+    }
+    const callees = this._findCallees(fnName);
+    this._calleeCache[fnName] = callees;
+    return new Set(callees);
+  } // fn: getCallees()
+
+  /**
+   * Computes all functions transitively reachable from entryFnName across this module
+   * and any imported modules.
+   *
+   * @param entryFnName Name of the entry function in this module
+   * @returns Set of reachable function identifiers in the format `${normalizedFilePath}:${functionName}`
+   */
+  public getReachableFunctions(entryFnName: string): Set<string> {
+    const reachable = new Set<string>();
+    const queue: { program: AbstractProgram; fnName: string }[] = [
+      { program: this, fnName: entryFnName },
+    ];
+
+    while (queue.length > 0) {
+      const { program, fnName } = queue.shift()!;
+      const normPath = normalizePathForKey(program.filename);
+      const key = `${normPath}:${fnName}`;
+      if (reachable.has(key)) {
+        continue;
+      }
+      reachable.add(key);
+
+      const callees = program.getCallees(fnName);
+      if (callees.size === 0) {
+        continue;
+      }
+
+      for (const callee of callees) {
+        // In-module sibling functions
+        if (
+          callee in program._functions.supported ||
+          callee in program._functions.unsupported
+        ) {
+          queue.push({ program, fnName: callee });
+        }
+
+        // Direct named or aliased imports
+        const directImport = program._imports.identifiers[callee];
+        if (
+          directImport &&
+          directImport.programPath &&
+          fs.existsSync(directImport.programPath) &&
+          (directImport.programPath.endsWith(".ts") ||
+            directImport.programPath.endsWith(".py"))
+        ) {
+          const importedName =
+            directImport.imported === "*" ? callee : directImport.imported;
+          const childProg =
+            program.find(directImport.programPath) ??
+            ProgramFactory.fromFile(
+              directImport.programPath,
+              undefined,
+              program._options,
+              program._root
+            );
+          if (childProg) {
+            queue.push({ program: childProg, fnName: importedName });
+          }
+        }
+
+        // Namespace / wildcard imports (import * as ns from "...")
+        for (const imp of Object.values(program._imports.identifiers)) {
+          if (
+            imp.imported === "*" &&
+            imp.programPath &&
+            fs.existsSync(imp.programPath) &&
+            (imp.programPath.endsWith(".ts") || imp.programPath.endsWith(".py"))
+          ) {
+            const childProg =
+              program.find(imp.programPath) ??
+              ProgramFactory.fromFile(
+                imp.programPath,
+                undefined,
+                program._options,
+                program._root
+              );
+            if (
+              childProg &&
+              (callee in childProg._functions.supported ||
+                callee in childProg._functions.unsupported)
+            ) {
+              queue.push({ program: childProg, fnName: callee });
+            }
+          }
+        }
+      }
+    }
+
+    return reachable;
+  } // fn: getReachableFunctions()
 
   /**
    * Returns a string that works as the type annotation for the argument.

@@ -16,15 +16,22 @@ import { FunctionDef } from "./FunctionDef";
 import { InputAndSource } from "../Types";
 import { prompt } from "../generators/AiInputGenerator";
 import { Leaderboard } from "../generators/Leaderboard";
+import { normalizePathForKey } from "../Util";
+import * as ProgramFactory from "./ProgramFactory";
+import * as ParserAdapter from "../adapters/ParserAdapter";
 
 describe("CoverageFrontierSampler", () => {
   let tmpDir: string;
   let targetFile: string;
   let depFile: string;
 
+  beforeAll(async () => {
+    await ParserAdapter.init();
+  });
+
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "nanofuzz-frontier-sampler-test-")
+    tmpDir = fs.realpathSync(
+      fs.mkdtempSync(path.join(os.tmpdir(), "nanofuzz-frontier-sampler-test-"))
     );
     targetFile = path.join(tmpDir, "Parser.ts");
     depFile = path.join(tmpDir, "Tokenizer.ts");
@@ -693,6 +700,146 @@ export function uncalledSiblingTest(val: number): boolean {
     const formatted = formatFrontierContext(sampled!, "typescript");
     expect(formatted).toContain("Prior test input(s) that reached this code:");
     expect(formatted).toContain("+");
+  });
+
+  it("multi-file reachability: AbstractProgram traverses imports and getCandidates prunes unreachable functions across files", () => {
+    const fnDef = FunctionDef.fromFunctionRef({
+      module: targetFile,
+      name: "parseExpression",
+      src: `import { scanToken } from "./Tokenizer";
+export function parseExpression(input: string): boolean {
+  return scanToken(input);
+}`,
+      lang: "typescript",
+      startOffset: 0,
+      endOffset: 120,
+      isExported: true,
+      isVoid: false,
+      args: [],
+    });
+
+    const targetProgram = ProgramFactory.fromFile(targetFile);
+    const reachable = targetProgram.getReachableFunctions("parseExpression");
+
+    // parseExpression reaches scanToken in depFile, but not uncalledHelper
+    expect(
+      reachable.has(`${normalizePathForKey(targetFile)}:parseExpression`)
+    ).toBe(true);
+    expect(reachable.has(`${normalizePathForKey(depFile)}:scanToken`)).toBe(
+      true
+    );
+    expect(
+      reachable.has(`${normalizePathForKey(depFile)}:uncalledHelper`)
+    ).toBe(false);
+
+    const unrelatedFile = path.join(tmpDir, "Unrelated.ts");
+    fs.writeFileSync(
+      unrelatedFile,
+      `export function unrelatedFunction(): boolean { return false; }`
+    );
+
+    const covStats: CodeCoverageMeasureStats = {
+      counters: {
+        statementsTotal: 10,
+        statementsCovered: 5,
+        branchesTotal: 4,
+        branchesCovered: 2,
+        functionsTotal: 4,
+        functionsCovered: 2,
+      },
+      files: [
+        {
+          path: depFile,
+          counters: {
+            statementsTotal: 6,
+            statementsCovered: 3,
+            branchesTotal: 4,
+            branchesCovered: 1,
+            functionsTotal: 2,
+            functionsCovered: 1,
+          },
+          // @ts-expect-error stub for test
+          fileMap: {
+            s: { "0": 1, "1": 1 },
+            statementMap: {
+              "0": {
+                start: { line: 2, column: 0 },
+                end: { line: 2, column: 20 },
+              },
+              "1": {
+                start: { line: 3, column: 2 },
+                end: { line: 3, column: 15 },
+              },
+            },
+          },
+        },
+        {
+          path: unrelatedFile,
+          counters: {
+            statementsTotal: 2,
+            statementsCovered: 1,
+            branchesTotal: 0,
+            branchesCovered: 0,
+            functionsTotal: 1,
+            functionsCovered: 1,
+          },
+          // @ts-expect-error stub for test
+          fileMap: {
+            s: { "0": 1 },
+            statementMap: {
+              "0": {
+                start: { line: 1, column: 0 },
+                end: { line: 1, column: 20 },
+              },
+            },
+          },
+        },
+      ],
+    };
+
+    const uncoveredInfo = {
+      uncoveredLinesByFile: {
+        [depFile]: [4, 5, 10, 11],
+        [unrelatedFile]: [1],
+      },
+      partiallyCoveredLinesByFile: {
+        [depFile]: [2],
+        [unrelatedFile]: [1],
+      },
+    };
+
+    const candidates = CoverageFrontierSampler.getCandidates({
+      covStats,
+      uncoveredInfo,
+      targetAttempts: {},
+      targetFn: fnDef,
+    });
+
+    const candidateNames = candidates.map((c) => c.functionName);
+    expect(candidateNames).toContain("scanToken");
+    expect(candidateNames).not.toContain("uncalledHelper");
+    expect(candidateNames).not.toContain("unrelatedFunction");
+
+    // Verify Option A: tsPgm.functions["myFunction"].getCallees()
+    expect(
+      targetProgram.functions["parseExpression"].getCallees().has("scanToken")
+    ).toBe(true);
+
+    // Verify Option A on Python: pyPgm.functions["myFunction"].getCallees()
+    const pyFile = path.join(tmpDir, "calculator.py");
+    fs.writeFileSync(
+      pyFile,
+      `def add_one(x: int) -> int:
+    return x + 1
+
+def compute(x: int) -> int:
+    res = add_one(x)
+    return res
+`
+    );
+    const pyProg = ProgramFactory.fromFile(pyFile);
+    expect(pyProg.functions["compute"].getCallees().has("add_one")).toBe(true);
+    expect(pyProg.functions["add_one"].getCallees().size).toBe(0);
   });
 });
 
