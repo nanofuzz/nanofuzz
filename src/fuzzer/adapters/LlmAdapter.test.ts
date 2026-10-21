@@ -5,6 +5,8 @@ import {
   DEFAULT_REQUEST_TIMEOUT,
 } from "./LlmAdapter";
 import * as nodellm from "@node-llm/core";
+import * as zod from "zod/v4";
+import vscode from "vscode";
 import {
   Agent,
   Dispatcher,
@@ -400,5 +402,55 @@ describe("src/fuzzer/adapters/LlmAdapter:", () => {
       adapter.query("generate inputs", undefined, { retries: 0 })
     ).toBeRejectedWithError(/Request timeout after 60000ms/);
     expect(askCount).toBe(1);
+  });
+
+  it("query: enables structured output mode via tools and toolMode with vscode lm", async () => {
+    Config.override("nanofuzz.ai.provider", "copilot");
+    Config.override("nanofuzz.ai.model", "gemini-3.7-flash");
+    Config.override("nanofuzz.ai.vendor", "google");
+
+    const schema = zod.strictObject({
+      programInputs: zod.array(
+        zod.strictObject({
+          expr: zod.string(),
+        })
+      ),
+    });
+
+    let capturedOptions: vscode.LanguageModelChatRequestOptions | undefined;
+    const models = await vscode.lm.selectChatModels({
+      family: "gemini-3.7-flash",
+    });
+    expect(models.length).toBeGreaterThan(0);
+    const model = models[0];
+
+    spyOn(model, "sendRequest").and.callFake(async (_messages, options) => {
+      capturedOptions = options;
+      return {
+        text: (async function* () {})(),
+        stream: (async function* () {
+          yield new vscode.LanguageModelToolCallPart(
+            "call-1",
+            "programInputs",
+            { programInputs: [{ expr: "1 + 1" }] }
+          );
+        })(),
+      };
+    });
+
+    const adapter = new LlmAdapter();
+    const result = await adapter.query("generate inputs", schema);
+
+    expect(capturedOptions).toBeDefined();
+    expect(capturedOptions?.tools?.length).toBe(1);
+    expect(capturedOptions?.tools?.[0].name).toBe("programInputs");
+    expect(capturedOptions?.tools?.[0].inputSchema).toBeDefined();
+    expect(capturedOptions?.toolMode).toBe(
+      vscode.LanguageModelChatToolMode.Required
+    );
+    expect(capturedOptions?.modelOptions?._enableThinking).toBe(false);
+    expect(result.text).toBe(
+      JSON.stringify({ programInputs: [{ expr: "1 + 1" }] })
+    );
   });
 });

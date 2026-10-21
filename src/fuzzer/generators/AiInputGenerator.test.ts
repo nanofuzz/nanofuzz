@@ -812,6 +812,50 @@ describe("src/fuzzer/generators/AiInputGenerator: ", () => {
     }
   });
 
+  it("getDiagnostics: model output invalid format", () => {
+    class TestableAiInputGenerator extends AiInputGenerator.AiInputGenerator {
+      public setStatsCallInvalid(): void {
+        this._stats.calls.sent = 1;
+        this._stats.calls.valid = 0;
+        this._stats.calls.invalid = 1;
+        this._stats.calls.failed = 0;
+      }
+    }
+
+    const fnDef = FunctionDef.fromFunctionRef({
+      module: "test.ts",
+      name: "testFn",
+      src: "function testFn(x: number) {}",
+      lang: "typescript",
+      startOffset: 0,
+      endOffset: 30,
+      isExported: true,
+      isVoid: true,
+      args: [],
+    });
+
+    const gen = new TestableAiInputGenerator(
+      fnDef,
+      "seed",
+      new Map(),
+      "function testFn(x: number) {}"
+    );
+
+    gen.setStatsCallInvalid();
+    Config.override("nanofuzz.ai.provider", "copilot");
+    Config.override("nanofuzz.ai.model", "gemini-3.7-flash");
+
+    try {
+      const diagnostics = gen.getDiagnostics();
+      expect(diagnostics.length).toBe(1);
+      expect(diagnostics[0]).toBe(
+        "The model responded, but 1 of its responses was not well-formed."
+      );
+    } finally {
+      Config.clearOverrides();
+    }
+  });
+
   it("nextable: 'now' when queue is non-empty", () => {
     class TestableAiInputGenerator extends AiInputGenerator.AiInputGenerator {
       public populateInputQueue(): void {
