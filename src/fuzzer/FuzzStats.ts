@@ -206,6 +206,18 @@ export class FuzzStats {
   } // fn: recordInterrupted
 
   /**
+   * Decrements the interrupted inputs counter when an interrupted input is withdrawn
+   * from the replay queue to be re-executed.
+   */
+  public decrementInterrupted(): void {
+    if (this._currentRun.counters.inputsInterrupted > 0) {
+      this._currentRun.counters.inputsInterrupted--;
+    } else if (this._results.stats.counters.inputsInterrupted > 0) {
+      this._results.stats.counters.inputsInterrupted--;
+    }
+  } // fn: decrementInterrupted
+
+  /**
    * Checks whether testing should stop based on suite timeout, max tests,
    * max failures, max duplicates, user cancellation, or input exhaustion.
    *

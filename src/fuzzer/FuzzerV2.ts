@@ -432,7 +432,7 @@ export class FuzzerV2 {
 
         if (this._interruptedQueue.length > 0) {
           candidate = this._interruptedQueue.shift()!;
-          candidate.injected = true;
+          this._stats.decrementInterrupted();
         } else {
           // Handle async generator wait (e.g. LLM inputs)
           if (this._compositeInputGenerator.nextable() === "soon") {

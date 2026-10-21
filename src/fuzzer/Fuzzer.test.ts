@@ -818,9 +818,9 @@ describe("fuzzer: general & parameterized engine tests", () => {
           const interruptedCount = run1.stats.counters.inputsInterrupted;
           const run2 = await tester.test([], { gen: true });
           expect(tester.state).toBe("paused");
-          expect(run2.stats.counters.inputsInjected).toBeGreaterThanOrEqual(
-            interruptedCount
-          );
+          expect(run2.stopReason).toBe(FuzzStopReason.MAXTESTS);
+          expect(run2.stats.counters.inputsInterrupted).toBe(0);
+          expect(run2.stats.outcomes.total).toBe(interruptedCount + 5);
         } finally {
           try {
             fs.rmSync(tmpdir, {

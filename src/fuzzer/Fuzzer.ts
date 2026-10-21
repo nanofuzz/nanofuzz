@@ -915,7 +915,11 @@ export class Tester {
 
         if (this._interruptedQueue.length > 0) {
           result.inputGenerated = this._interruptedQueue.shift()!;
-          result.inputGenerated.injected = true;
+          if (runStats.counters.inputsInterrupted > 0) {
+            runStats.counters.inputsInterrupted--;
+          } else if (this._results.stats.counters.inputsInterrupted > 0) {
+            this._results.stats.counters.inputsInterrupted--;
+          }
         } else if (transformRunner) {
           let transformedInput: TransformedInputAndSource;
           try {

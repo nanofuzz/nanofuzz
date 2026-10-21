@@ -2625,7 +2625,11 @@ export class FuzzPanel {
                       this._results.stats.counters.inputsInterrupted === 1
                         ? " was"
                         : "s were"
-                    } in-flight when testing was interrupted and ${
+                    } in-flight when ${
+                      this._results.stopReason === fuzzer.FuzzStopReason.PAUSE
+                        ? "testing was interrupted"
+                        : "testing ended"
+                    } and ${
                       this._results.stats.counters.inputsInterrupted === 1
                         ? "is"
                         : "are"
