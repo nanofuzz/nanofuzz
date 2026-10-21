@@ -2619,6 +2619,18 @@ export class FuzzPanel {
                       ? `, including ${this._results.stats.counters.inputsSkipped} skipped input${this._results.stats.counters.inputsSkipped === 1 ? "" : "s"}`
                       : ``) + `, which you can view in the other tabs.`
                   : `.`
+              }${
+                this._results.stats.counters.inputsInterrupted
+                  ? ` A further ${this._results.stats.counters.inputsInterrupted} input${
+                      this._results.stats.counters.inputsInterrupted === 1
+                        ? " was"
+                        : "s were"
+                    } in-flight when testing was interrupted and ${
+                      this._results.stats.counters.inputsInterrupted === 1
+                        ? "is"
+                        : "are"
+                    } not shown in the results.`
+                  : ``
               }
             </p>
 
