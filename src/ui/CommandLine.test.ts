@@ -804,6 +804,95 @@ describe("cli:", () => {
     expect(res2.stdout).toContain("Online: 1 worker, v2 engine, mab scheduler");
   });
 
+  it("formats inputs line with Inject first and User (<fn>) when inputs are injected", async () => {
+    const outputFile = path.join(tmpDir, "inject_generator_online.json5");
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetWithUserGen = "targetUserGen";
+    const targetNoUserGen = "testCoverageOneFile";
+
+    const origLoad = FuzzConfigStore.loadForFunction;
+    spyOn(FuzzConfigStore, "loadForFunction").and.callFake(
+      (file: string, fn: string) => {
+        const cfg = origLoad(file, fn);
+        if (fn === targetWithUserGen) {
+          cfg.tests = {
+            pin1: {
+              input: [
+                { name: "n", offset: 0, value: 1, origin: { type: "user" } },
+                {
+                  name: "s",
+                  offset: 1,
+                  value: "hello",
+                  origin: { type: "user" },
+                },
+              ],
+              output: [],
+              pinned: true,
+            },
+          };
+        } else if (fn === targetNoUserGen) {
+          cfg.tests = {
+            pin1: {
+              input: [
+                { name: "n", offset: 0, value: 1, origin: { type: "user" } },
+              ],
+              output: [],
+              pinned: true,
+            },
+          };
+        }
+        return cfg;
+      }
+    );
+
+    // Both injected tests and user generator are active -> Inject as first token, User (<fn>)
+    const res1 = await runCli([
+      targetFile,
+      targetWithUserGen,
+      "--output-file",
+      outputFile,
+      "--max-tests",
+      "1",
+      "--seed",
+      "cli_seed_inject_with_user_gen",
+    ]);
+    expect(res1.status).toBe(0);
+    expect(res1.stdout).toContain(
+      "Inputs: Inject, Random, Mutation, User (targetUserGenGenerator)"
+    );
+
+    // Injected tests active but user generator disabled via CLI -> Inject first, no User (<fn>)
+    const res2 = await runCli([
+      targetFile,
+      targetWithUserGen,
+      "--output-file",
+      outputFile,
+      "--no-user-input-generator",
+      "--max-tests",
+      "1",
+      "--seed",
+      "cli_seed_inject_disabled_user_gen",
+    ]);
+    expect(res2.status).toBe(0);
+    expect(res2.stdout).toContain("Inputs: Inject, Random, Mutation");
+    expect(res2.stdout).not.toContain("User (");
+
+    // Injected tests active on a function without user generator -> Inject first
+    const res3 = await runCli([
+      targetFile,
+      targetNoUserGen,
+      "--output-file",
+      outputFile,
+      "--max-tests",
+      "1",
+      "--seed",
+      "cli_seed_inject_no_user_gen",
+    ]);
+    expect(res3.status).toBe(0);
+    expect(res3.stdout).toContain("Inputs: Inject, Random, Mutation");
+    expect(res3.stdout).not.toContain("User (");
+  });
+
   it("captures and suppresses NodeLLM console spam during CommandLine runs", async () => {
     clearCapturedConsoleLogs();
     const outputFile = path.join(tmpDir, "nodellm_spam_suppression.json5");
