@@ -378,19 +378,66 @@ export class LlmAdapter {
               vscode.LanguageModelChatMessage.User(promptArr.join("\n")),
             ];
 
+            const requestOptions: CopilotChatRequestOptions = {
+              modelOptions: {
+                _enableThinking: false,
+              },
+              configuration: {
+                reasoningEffort: "low",
+              },
+            };
+            if (schema) {
+              const rawSchema = zod.toJSONSchema(schema);
+              const jsonSchemaObj = isRecord(rawSchema)
+                ? cleanJsonSchema(rawSchema)
+                : {};
+              requestOptions.tools = [
+                {
+                  name: "programInputs",
+                  description:
+                    "Output generated test inputs adhering to the schema.",
+                  inputSchema: jsonSchemaObj,
+                },
+              ];
+              requestOptions.toolMode =
+                vscode.LanguageModelChatToolMode.Required;
+            }
+
             const response = await Promise.race([
               model.sendRequest(
                 messages,
-                {},
+                requestOptions,
                 new vscode.CancellationTokenSource().token
               ),
               abandonPromise,
             ]);
-            for await (const chunk of response.text) {
-              if (LlmAdapter._abandoned) {
-                throw new LlmAbandonedError();
+            if (response.stream) {
+              for await (const part of response.stream) {
+                if (LlmAdapter._abandoned) {
+                  throw new LlmAbandonedError();
+                }
+                if (part instanceof vscode.LanguageModelToolCallPart) {
+                  text =
+                    typeof part.input === "string"
+                      ? part.input
+                      : JSON.stringify(part.input);
+                } else if (part instanceof vscode.LanguageModelTextPart) {
+                  text += part.value;
+                } else if (isRecord(part)) {
+                  const partValue = part.value;
+                  if (typeof partValue === "string") {
+                    text += partValue;
+                  }
+                }
               }
-              text += chunk;
+            }
+            if (!text && response.text) {
+              for await (const chunk of response.text) {
+                if (LlmAdapter._abandoned) {
+                  throw new LlmAbandonedError();
+                }
+                text += chunk;
+              }
             }
 
             if (LlmAdapter.isDebugConfigured()) {
@@ -743,3 +790,11 @@ export function isAbandonedError(err: unknown): boolean {
   }
   return false;
 } // fn: isAbandonedError
+
+/**
+ * Extended request options for Copilot Language Model requests
+ */
+interface CopilotChatRequestOptions
+  extends vscode.LanguageModelChatRequestOptions {
+  configuration?: { reasoningEffort?: string };
+}

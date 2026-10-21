@@ -143,6 +143,10 @@ export class AiInputGenerator extends AbstractInputGenerator {
           );
         } else if (this._stats.calls.valid > 0) {
           diagnostics.push(`The model did not produce any valid inputs.`);
+        } else if (this._stats.calls.invalid > 0) {
+          diagnostics.push(
+            `The model responded, but ${this._stats.calls.invalid} of its responses ${this._stats.calls.invalid === 1 ? "was" : "were"} not well-formed.`
+          );
         } else if (
           this._stats.calls.failed === 0 &&
           this._stats.calls.valid === 0
