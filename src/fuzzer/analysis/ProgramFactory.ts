@@ -4,6 +4,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { TypescriptProgram } from "./typescript/TypescriptProgram";
 import { PythonProgram } from "./python/PythonProgram";
+import { RustProgram } from "./rust/RustProgram";
 
 /**
  * Returns an AbstractProgram object for the given filename.
@@ -97,6 +98,8 @@ function factory(
 
   if (PythonProgram.understands({ filename, lang })) {
     return new PythonProgram(getSource, filename, options, parent);
+  } else if (RustProgram.understands({ filename, lang })) {
+    return new RustProgram(getSource, filename, options, parent);
   } else {
     return new TypescriptProgram(getSource, filename, options, parent);
   }

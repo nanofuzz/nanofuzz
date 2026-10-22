@@ -3,7 +3,7 @@ import type { FuzzOptions } from "../Types";
 /**
  * Languages that NaNofuzz can analyze
  */
-export type ProgramLanguage = "typescript" | "python" | "*";
+export type ProgramLanguage = "typescript" | "python" | "rust" | "*";
 
 /**
  * Represents a single import declaration within a TypeScript program
