@@ -789,6 +789,7 @@ export function x(
             erroredTests: 0,
             passedTests: 1,
             inputsSkipped: 0,
+            inputsInterrupted: 0,
             failedTests: 0,
           },
           outcomes: {
@@ -1172,6 +1173,7 @@ export function x(): number {
             erroredTests: 0,
             passedTests: 1,
             inputsSkipped: 0,
+            inputsInterrupted: 0,
             failedTests: 0,
           },
           outcomes: {

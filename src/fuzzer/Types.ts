@@ -551,6 +551,7 @@ export type FuzzTestStats = {
     erroredTests: number; // number of tests with internal errors
     passedTests: number; // number of passed tests
     inputsSkipped: number; // number of skipped tests
+    inputsInterrupted: number; // number of in-flight tests interrupted before completion
     failedTests: number; // number of failed tests
   };
   outcomes: FuzzOutcomeStats;
@@ -602,6 +603,7 @@ export type CurrentRunStats = {
     failedTests: number; // number of failed tests so far
     passedTests: number; // number of passed tests so far
     inputsSkipped: number; // number of skipped tests so far
+    inputsInterrupted: number; // number of in-flight tests interrupted so far
   };
   outcomes: FuzzOutcomeStats;
   timers: {

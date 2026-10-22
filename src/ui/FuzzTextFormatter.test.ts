@@ -5,10 +5,51 @@ import {
   formatInstrumentingStatus,
   formatTestingCompleteStatus,
   formatRunStatsSummary,
+  formatRunSummary,
   formatExceptionAndStack,
   normalizeDisplayPath,
 } from "./FuzzTextFormatter";
-import { CurrentRunStats } from "../fuzzer/Types";
+import {
+  CurrentRunStats,
+  FuzzStopReason,
+  FuzzTestResults,
+} from "../fuzzer/Types";
+import { FuzzStats } from "../fuzzer/FuzzStats";
+import { FunctionDef } from "../fuzzer/analysis/FunctionDef";
+import { FunctionRef } from "../fuzzer/analysis/Types";
+import { FuzzConfigStore } from "../fuzzer/FuzzConfigStore";
+
+function createMockResults(stopReason: FuzzStopReason): FuzzTestResults {
+  const fnRef: FunctionRef = {
+    module: "test.ts",
+    name: "myFn",
+    src: "",
+    lang: "typescript",
+    startOffset: 0,
+    endOffset: 0,
+    isExported: true,
+    isVoid: false,
+    args: [],
+  };
+  const fnDef = FunctionDef.fromFunctionRef(fnRef);
+  const stats = new FuzzStats(
+    FuzzConfigStore.getDefaultFuzzOptions(),
+    fnDef,
+    [],
+    [],
+    [],
+    {
+      engine: "v1",
+      workers: 1,
+      outputResults: "all",
+      precompile: false,
+    }
+  );
+  const results = stats.results;
+  results.stopReason = stopReason;
+  results.stats.timers.total = 1240;
+  return results;
+} // fn: createMockResults
 
 describe("ui/FuzzTextFormatter", () => {
   const emptyStats: CurrentRunStats = {
@@ -21,6 +62,7 @@ describe("ui/FuzzTextFormatter", () => {
       failedTests: 1,
       passedTests: 9,
       inputsSkipped: 1,
+      inputsInterrupted: 0,
     },
     outcomes: {
       total: 10,
@@ -53,6 +95,34 @@ describe("ui/FuzzTextFormatter", () => {
     expect(summary).toContain("Passed: 9");
     expect(summary).toContain("Failed: 1");
     expect(summary).toContain("Skipped: 1");
+  });
+
+  it("formatRunSummary formats interrupted in-flight count and translates pause to interrupted", () => {
+    const mockResults = createMockResults(FuzzStopReason.PAUSE);
+    mockResults.stats.counters.inputsGenerated = 90;
+    mockResults.stats.counters.passedTests = 85;
+    mockResults.stats.counters.inputsSkipped = 5;
+    mockResults.stats.counters.inputsInterrupted = 3;
+    mockResults.stats.outcomes.total = 85;
+
+    const summary = formatRunSummary(mockResults);
+    expect(summary).toContain(
+      " - Executed 85, skipped 5, interrupted 3 in-flight tests in 1240 ms this run. Stopped for reason: interrupted."
+    );
+  });
+
+  it("formatRunSummary formats non-interrupted runs without interrupted count", () => {
+    const mockResults = createMockResults(FuzzStopReason.MAXTESTS);
+    mockResults.stats.counters.inputsGenerated = 10;
+    mockResults.stats.counters.passedTests = 9;
+    mockResults.stats.counters.inputsSkipped = 1;
+    mockResults.stats.counters.inputsInterrupted = 0;
+    mockResults.stats.outcomes.total = 9;
+
+    const summary = formatRunSummary(mockResults);
+    expect(summary).toContain(
+      " - Executed 9 and skipped 1 tests in 1240 ms this run. Stopped for reason: maxTests."
+    );
   });
 
   it("formatTestingStatus formats input execution message", () => {

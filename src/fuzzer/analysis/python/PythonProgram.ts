@@ -3618,4 +3618,46 @@ export class PythonProgram extends AbstractProgram {
         throw new Error(`Internal error: unresolved types cannot be annotated`);
     }
   } // fn: getBaseType()
+
+  /**
+   * Lazily finds callee identifiers called within a Python function body.
+   * Invoked on-demand only when callees are requested, avoiding any overhead
+   * during the editor typing loop.
+   *
+   * @param fnName Name of function to inspect
+   * @returns Set of callee names
+   */
+  protected _findCallees(fnName: string): Set<string> {
+    const callees = new Set<string>();
+    const unsupp = this._functions.unsupported[fnName];
+    const unsuppFn =
+      unsupp && "function" in unsupp ? unsupp.function : undefined;
+    const fnRef = this._functions.supported[fnName] ?? unsuppFn;
+    if (!fnRef || !fnRef.src) return callees;
+
+    const tree = Parser.parse("python", fnRef.src);
+    if (!tree) {
+      throw new Error(
+        `Tree-sitter failed to parse Python function "${fnName}" in module "${this._filename}"`
+      );
+    }
+    const query = Parser.query(
+      "python",
+      `
+[
+  (call function: (identifier) @callee.name)
+  (call function: (attribute attribute: (identifier) @callee.name))
+]
+`
+    );
+    const matches = query.matches(tree.rootNode);
+    for (const match of matches) {
+      const cap = match.captures.find((c) => c.name === "callee.name");
+      if (cap) {
+        callees.add(cap.node.text);
+      }
+    }
+
+    return callees;
+  } // fn: _findCallees()
 } // class: PythonProgram

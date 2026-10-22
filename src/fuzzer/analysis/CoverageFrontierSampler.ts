@@ -9,11 +9,10 @@ import {
   formatLineRanges,
 } from "../measures/CoverageMeasure";
 import { FunctionDef } from "./FunctionDef";
-import { FunctionRef, ProgramLanguage } from "./Types";
+import { FunctionRef } from "./Types";
 import { Leaderboard } from "../generators/Leaderboard";
 import { InputAndSource } from "../Types";
 import * as ValueMapper from "../mappers/ValueMapper";
-import * as ParserAdapter from "../adapters/ParserAdapter";
 
 /**
  * Probabilistically samples code targets from the execution frontier
@@ -76,6 +75,72 @@ export class CoverageFrontierSampler {
       ? path.relative(process.cwd(), selected.filePath) || selected.filePath
       : selected.filePath;
 
+    let callChain: CallChainFrame[] | undefined;
+    if (options.targetFn && selected.functionName) {
+      const selectedNorm = normalizePathForKey(selected.filePath);
+      const targetNorm = normalizePathForKey(options.targetFn.getModule());
+      const selectedKey = `${selectedNorm}:${selected.functionName}`;
+      const entryKey = `${targetNorm}:${options.targetFn.getName()}`;
+
+      if (selectedKey !== entryKey) {
+        const targetProg = ProgramFactory.fromFile(
+          options.targetFn.getModule()
+        );
+        const callPath = targetProg.getCallPath(
+          options.targetFn.getName(),
+          selectedKey
+        );
+        if (callPath && callPath.length > 1) {
+          const callerFrames = callPath.slice(0, -1);
+          callChain = [];
+          for (let i = 0; i < callerFrames.length; i++) {
+            const frame = callerFrames[i];
+            const nextFrameInPath = callPath[i + 1] ?? {
+              functionName: selected.functionName,
+            };
+
+            const fnRef =
+              frame.program.functions[frame.functionName]?.getRef() ??
+              frame.program.functionsExported[frame.functionName]?.getRef() ??
+              frame.program.functionsNotSupported[frame.functionName]?.function;
+
+            if (fnRef && fnRef.src) {
+              const lineOffsets = computeLineOffsets(frame.program.src);
+              const callerStartLine = findLineNumber(
+                fnRef.startOffset,
+                lineOffsets
+              );
+              const callSiteLine = findCallSiteLine(
+                fnRef.src,
+                callerStartLine,
+                nextFrameInPath.functionName
+              );
+              const { codeSnippet: callerSnippet, isSliced: callerSliced } =
+                prepareCodeSnippet(
+                  fnRef.src,
+                  callerStartLine,
+                  [callSiteLine],
+                  1000
+                );
+
+              const frameDisplayPath = path.isAbsolute(frame.filePath)
+                ? path.relative(process.cwd(), frame.filePath) || frame.filePath
+                : frame.filePath;
+
+              callChain.push({
+                filePath: frame.filePath,
+                displayPath: frameDisplayPath,
+                functionName: frame.functionName,
+                callSite: nextFrameInPath.functionName,
+                codeSnippet: callerSnippet,
+                isSliced: callerSliced,
+              });
+            }
+          }
+        }
+      }
+    }
+
     return {
       targetId: selected.targetId,
       filePath: selected.filePath,
@@ -88,6 +153,7 @@ export class CoverageFrontierSampler {
       reachingInputs,
       codeSnippet,
       isSliced,
+      callChain,
     };
   } // fn: sample
 
@@ -101,6 +167,14 @@ export class CoverageFrontierSampler {
     options: FrontierSampleOptions
   ): FrontierCandidate[] {
     const candidates: FrontierCandidate[] = [];
+
+    let reachableFunctionKeys: Set<string> | undefined;
+    if (options.targetFn) {
+      const targetProg = ProgramFactory.fromFile(options.targetFn.getModule());
+      reachableFunctionKeys = targetProg.getReachableFunctions(
+        options.targetFn.getName()
+      );
+    }
 
     const fileExecutionMap = new Map<string, boolean>();
     if (options.covStats.files) {
@@ -141,145 +215,146 @@ export class CoverageFrontierSampler {
 
       const normKey = normalizePathForKey(fileKey);
 
-      try {
-        let cached = CoverageFrontierSampler._fileCache.get(normKey);
-        if (!cached || cached.mtimeMs !== stat.mtimeMs) {
-          cached = analyzeFile(fileKey, stat.mtimeMs);
-          CoverageFrontierSampler._fileCache.set(normKey, cached);
-        }
+      let cached = CoverageFrontierSampler._fileCache.get(normKey);
+      if (!cached || cached.mtimeMs !== stat.mtimeMs) {
+        cached = analyzeFile(fileKey, stat.mtimeMs);
+        CoverageFrontierSampler._fileCache.set(normKey, cached);
+      }
 
-        const fileStats = options.covStats.files?.find(
-          (f) => normalizePathForKey(f.path) === normKey
-        );
-        const coveredLinesInFile = new Set<number>();
-        if (fileStats?.fileMap?.s && fileStats?.fileMap?.statementMap) {
-          for (const [key, hits] of Object.entries(fileStats.fileMap.s)) {
-            if (hits > 0 && fileStats.fileMap.statementMap[key]) {
-              coveredLinesInFile.add(
-                fileStats.fileMap.statementMap[key].start.line
-              );
-            }
+      const fileStats = options.covStats.files?.find(
+        (f) => normalizePathForKey(f.path) === normKey
+      );
+      const coveredLinesInFile = new Set<number>();
+      if (fileStats?.fileMap?.s && fileStats?.fileMap?.statementMap) {
+        for (const [key, hits] of Object.entries(fileStats.fileMap.s)) {
+          if (hits > 0 && fileStats.fileMap.statementMap[key]) {
+            coveredLinesInFile.add(
+              fileStats.fileMap.statementMap[key].start.line
+            );
           }
         }
+      }
 
-        const isTargetModule =
-          options.targetFn !== undefined &&
-          normKey === normalizePathForKey(options.targetFn.getModule());
-        const targetFnName = options.targetFn?.getName();
+      const isTargetModule =
+        options.targetFn !== undefined &&
+        normKey === normalizePathForKey(options.targetFn.getModule());
+      const targetFnName = options.targetFn?.getName();
 
-        const reachableSiblings =
-          isTargetModule && targetFnName
-            ? getReachableSiblingNames(targetFnName, cached.functions)
+      let functionsFoundForFile = 0;
+
+      for (const fn of cached.functions) {
+        const fnUncovered = uncoveredLines.filter(
+          (l) => l >= fn.startLine && l <= fn.endLine
+        );
+        const fnPartial = partialLines.filter(
+          (l) => l >= fn.startLine && l <= fn.endLine
+        );
+
+        if (fnUncovered.length === 0 && fnPartial.length === 0) {
+          continue;
+        }
+
+        const fnCoveredCount =
+          coveredLinesInFile.size > 0
+            ? Array.from(coveredLinesInFile).filter(
+                (l) => l >= fn.startLine && l <= fn.endLine
+              ).length
+            : 0;
+
+        // Active frontier if partial branch exists OR entered with partial statement hits (handles broken Istanbul branch coverage)
+        const isFrontier =
+          fnPartial.length > 0 ||
+          (fnCoveredCount > 0 && fnUncovered.length > 0);
+
+        const isTargetFn = isTargetModule && fn.name === targetFnName;
+        const fnKey = `${normKey}:${fn.name}`;
+        const isReachable =
+          reachableFunctionKeys !== undefined
+            ? reachableFunctionKeys.has(fnKey)
             : undefined;
 
-        let functionsFoundForFile = 0;
-
-        for (const fn of cached.functions) {
-          const fnUncovered = uncoveredLines.filter(
-            (l) => l >= fn.startLine && l <= fn.endLine
-          );
-          const fnPartial = partialLines.filter(
-            (l) => l >= fn.startLine && l <= fn.endLine
-          );
-
-          if (fnUncovered.length === 0 && fnPartial.length === 0) {
-            continue;
-          }
-
-          const fnCoveredCount =
-            coveredLinesInFile.size > 0
-              ? Array.from(coveredLinesInFile).filter(
-                  (l) => l >= fn.startLine && l <= fn.endLine
-                ).length
-              : 0;
-
-          // Active frontier if partial branch exists OR entered with partial statement hits (handles broken Istanbul branch coverage)
-          const isFrontier =
-            fnPartial.length > 0 ||
-            (fnCoveredCount > 0 && fnUncovered.length > 0);
-
-          const isTargetFn = isTargetModule && fn.name === targetFnName;
-          const isCalledSibling = reachableSiblings?.has(fn.name) ?? false;
-
-          // Option 3A: Require at least 1 execution hit. Functions with 0 hits cannot be sampled.
-          const hasExecutionHits =
-            isFrontier || fnCoveredCount > 0 || isTargetFn;
-
-          if (!hasExecutionHits) {
-            continue;
-          }
-
-          // Filter uncalled sibling functions in target module
-          if (isTargetModule && !isTargetFn && !isCalledSibling) {
-            continue;
-          }
-
-          functionsFoundForFile++;
-
-          let baseWeight = 10;
-          if (isFrontier) {
-            baseWeight = 100;
-          } else if (isTargetFn || isCalledSibling) {
-            baseWeight = 50;
-          } else if (fileExecuted) {
-            baseWeight = 30;
-          }
-
-          const targetId = `${normKey}:${fn.name}`;
-          const attempts = options.targetAttempts[targetId] ?? 0;
-          const weight = Math.max(
-            0.01,
-            baseWeight *
-              Math.pow(CoverageFrontierSampler.DECAY_FACTOR, attempts)
-          );
-
-          candidates.push({
-            targetId,
-            filePath: fileKey,
-            functionName: fn.name,
-            startLine: fn.startLine,
-            endLine: fn.endLine,
-            isFrontier,
-            baseWeight,
-            weight,
-            attempts,
-            uncoveredLines: fnUncovered,
-            partialLines: fnPartial,
-            src: fn.src,
-          });
+        // If targetFn is specified, discard functions that are not reachable from targetFn
+        if (isReachable === false) {
+          continue;
         }
 
-        // If no functions were matched (e.g. top-level statements), fallback to file-level candidate if it has execution hits
-        const hasTopHits =
-          partialLines.length > 0 || coveredLinesInFile.size > 0;
-        if (functionsFoundForFile === 0 && !isTargetModule && hasTopHits) {
-          const targetId = `${normKey}:__top__`;
-          const isFrontier = partialLines.length > 0;
-          const baseWeight = isFrontier ? 50 : fileExecuted ? 20 : 5;
-          const attempts = options.targetAttempts[targetId] ?? 0;
-          const weight = Math.max(
-            0.01,
-            baseWeight *
-              Math.pow(CoverageFrontierSampler.DECAY_FACTOR, attempts)
-          );
+        // Option 3A: Require at least 1 execution hit. Functions with 0 hits cannot be sampled.
+        const hasExecutionHits = isFrontier || fnCoveredCount > 0 || isTargetFn;
 
-          candidates.push({
-            targetId,
-            filePath: fileKey,
-            functionName: undefined,
-            startLine: 1,
-            endLine: cached.src.split("\n").length,
-            isFrontier,
-            baseWeight,
-            weight,
-            attempts,
-            uncoveredLines: partialLines.length === 0 ? uncoveredLines : [],
-            partialLines,
-            src: cached.src,
-          });
+        if (!hasExecutionHits) {
+          continue;
         }
-      } catch {
-        continue;
+
+        functionsFoundForFile++;
+
+        let baseWeight = 10;
+        if (isFrontier) {
+          baseWeight = 100;
+        } else if (isTargetFn || isReachable === true) {
+          baseWeight = 50;
+        } else if (fileExecuted) {
+          baseWeight = 30;
+        }
+
+        const targetId = `${normKey}:${fn.name}`;
+        const attempts = options.targetAttempts[targetId] ?? 0;
+        const weight = Math.max(
+          0.01,
+          baseWeight * Math.pow(CoverageFrontierSampler.DECAY_FACTOR, attempts)
+        );
+
+        candidates.push({
+          targetId,
+          filePath: fileKey,
+          functionName: fn.name,
+          startLine: fn.startLine,
+          endLine: fn.endLine,
+          isFrontier,
+          baseWeight,
+          weight,
+          attempts,
+          uncoveredLines: fnUncovered,
+          partialLines: fnPartial,
+          src: fn.src,
+        });
+      }
+
+      // If no functions were matched (e.g. top-level statements), fallback to file-level candidate if it has execution hits
+      const fileHasReachableFunction =
+        reachableFunctionKeys === undefined ||
+        Array.from(reachableFunctionKeys).some((k) =>
+          k.startsWith(`${normKey}:`)
+        );
+      const hasTopHits = partialLines.length > 0 || coveredLinesInFile.size > 0;
+      if (
+        functionsFoundForFile === 0 &&
+        !isTargetModule &&
+        hasTopHits &&
+        fileHasReachableFunction
+      ) {
+        const targetId = `${normKey}:__top__`;
+        const isFrontier = partialLines.length > 0;
+        const baseWeight = isFrontier ? 50 : fileExecuted ? 20 : 5;
+        const attempts = options.targetAttempts[targetId] ?? 0;
+        const weight = Math.max(
+          0.01,
+          baseWeight * Math.pow(CoverageFrontierSampler.DECAY_FACTOR, attempts)
+        );
+
+        candidates.push({
+          targetId,
+          filePath: fileKey,
+          functionName: undefined,
+          startLine: 1,
+          endLine: cached.src.split("\n").length,
+          isFrontier,
+          baseWeight,
+          weight,
+          attempts,
+          uncoveredLines: partialLines.length === 0 ? uncoveredLines : [],
+          partialLines,
+          src: cached.src,
+        });
       }
     }
 
@@ -305,6 +380,20 @@ export function formatFrontierContext(
   target: SampledFrontierTarget,
   lang: string
 ): string {
+  const parts: string[] = [];
+
+  if (target.callChain && target.callChain.length > 0) {
+    parts.push("Call chain to targeted code:");
+    for (const frame of target.callChain) {
+      parts.push(
+        `Caller from \`${frame.displayPath}\` (function \`${frame.functionName}\`):`
+      );
+      parts.push(`\`\`\`${lang}`);
+      parts.push(frame.codeSnippet.trim());
+      parts.push("```\n");
+    }
+  }
+
   const fnLabel = target.functionName
     ? ` (function \`${target.functionName}\`)`
     : "";
@@ -330,15 +419,17 @@ export function formatFrontierContext(
         "\n"
       : "";
 
-  return [
-    `Targeted code from \`${target.displayPath}\`${fnLabel}${linesLabel}:`,
-    `\`\`\`${lang}`,
-    target.codeSnippet.trim(),
-    `\`\`\``,
-    reachingSection,
-  ]
-    .filter(Boolean)
-    .join("\n");
+  parts.push(
+    `Targeted code from \`${target.displayPath}\`${fnLabel}${linesLabel}:`
+  );
+  parts.push(`\`\`\`${lang}`);
+  parts.push(target.codeSnippet.trim());
+  parts.push("```");
+  if (reachingSection) {
+    parts.push(reachingSection.trim());
+  }
+
+  return parts.filter(Boolean).join("\n");
 } // fn: formatFrontierContext()
 
 // -------------------------------------------------------------------------- //
@@ -456,93 +547,6 @@ function findLineNumber(offset: number, lineOffsets: number[]): number {
 } // fn: findLineNumber()
 
 /**
- * Extracts callee function and method identifiers invoked within a function body.
- *
- * @param src Function source code
- * @param lang Optional programming language for AST parsing
- * @returns Set of callee identifier names
- */
-function extractCalleeNames(src: string, lang?: ProgramLanguage): Set<string> {
-  const callees = new Set<string>();
-  if (!src) return callees;
-
-  if (lang) {
-    try {
-      const tree = ParserAdapter.parse(lang, src);
-      if (tree) {
-        const stack = [tree.rootNode];
-        while (stack.length > 0) {
-          const node = stack.pop()!;
-          if (node.type === "call" || node.type === "call_expression") {
-            const fnNode = node.childForFieldName("function");
-            if (fnNode) {
-              if (fnNode.type === "identifier") {
-                callees.add(fnNode.text);
-              } else if (
-                fnNode.type === "member_expression" ||
-                fnNode.type === "attribute"
-              ) {
-                const prop =
-                  fnNode.childForFieldName("property") ??
-                  fnNode.childForFieldName("attribute");
-                if (prop) {
-                  callees.add(prop.text);
-                }
-              }
-            }
-          }
-          for (let i = 0; i < node.namedChildCount; i++) {
-            const child = node.namedChild(i);
-            if (child) stack.push(child);
-          }
-        }
-        return callees;
-      }
-    } catch {
-      // Fall through to regex if parser is not initialized or fails
-    }
-  }
-
-  const callRegex =
-    /(?:^|[^\w$])(?:(?:this|self)\.)?([a-zA-Z_$][a-zA-Z0-9_$]*)\s*\(/g;
-  let match: RegExpExecArray | null;
-  while ((match = callRegex.exec(src)) !== null) {
-    callees.add(match[1]);
-  }
-  return callees;
-} // fn: extractCalleeNames()
-
-/**
- * Computes all sibling functions in the module reachable from the target function via in-module calls.
- *
- * @param targetFnName Name of the entry target function
- * @param functions List of cached functions declared in the file
- * @returns Set of function names transitively reachable from targetFnName
- */
-function getReachableSiblingNames(
-  targetFnName: string,
-  functions: CachedFunctionInfo[]
-): Set<string> {
-  const reachable = new Set<string>();
-  const fnMap = new Map(functions.map((f) => [f.name, f]));
-  const queue = [targetFnName];
-
-  while (queue.length > 0) {
-    const currentName = queue.shift()!;
-    const fn = fnMap.get(currentName);
-    if (!fn) continue;
-
-    for (const callee of fn.callees) {
-      if (!reachable.has(callee) && fnMap.has(callee)) {
-        reachable.add(callee);
-        queue.push(callee);
-      }
-    }
-  }
-  return reachable;
-} // fn: getReachableSiblingNames()
-
-/**
  * Computes the first line of the function body, skipping the declaration signature.
  *
  * @param src Function source code
@@ -564,6 +568,23 @@ function getBodyStartLine(src: string, startLine: number): number {
   }
   return startLine + 1;
 } // fn: getBodyStartLine
+
+/**
+ * Locates the 1-based line number of a call to calleeName within caller source code.
+ */
+function findCallSiteLine(
+  src: string,
+  startLine: number,
+  calleeName: string
+): number {
+  const lines = src.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].includes(calleeName)) {
+      return startLine + i;
+    }
+  }
+  return startLine;
+} // fn: findCallSiteLine()
 
 /**
  * Analyzes a source file and extracts its functions, line offsets, and callee graph.
@@ -589,7 +610,7 @@ function analyzeFile(fileKey: string, mtimeMs: number): CachedFileInfo {
     const startLine = findLineNumber(fn.startOffset, lineOffsets);
     const endLine = findLineNumber(fn.endOffset, lineOffsets);
     const bodyStartLine = getBodyStartLine(fn.src, startLine);
-    const callees = extractCalleeNames(fn.src, program.lang);
+    const callees = program.getCallees(fn.name);
     functions.push({
       name: fn.name,
       startLine,
@@ -633,43 +654,39 @@ function findReachingInputs(
       continue;
     }
 
-    try {
-      const meas = covMeasure.getCoverage(tick);
-      const currentCov = meas?.coverageMeasure?.current;
-      if (!currentCov) continue;
+    const meas = covMeasure.getCoverage(tick);
+    const currentCov = meas?.coverageMeasure?.current;
+    if (!currentCov) continue;
 
-      const matchingFile = currentCov
-        .files()
-        .find((f) => normalizePathForKey(f) === targetNormPath);
+    const matchingFile = currentCov
+      .files()
+      .find((f) => normalizePathForKey(f) === targetNormPath);
 
-      if (matchingFile) {
-        const fileCov = currentCov.fileCoverageFor(matchingFile);
-        if (fileCov?.s && fileCov?.statementMap) {
-          const hitInTarget = Object.entries(fileCov.s).some(([key, hits]) => {
-            if (hits <= 0) return false;
-            const stmt = fileCov.statementMap[key];
-            if (!stmt) return false;
-            const line = stmt.start.line;
-            return line >= candidate.startLine && line <= candidate.endLine;
-          });
+    if (matchingFile) {
+      const fileCov = currentCov.fileCoverageFor(matchingFile);
+      if (fileCov?.s && fileCov?.statementMap) {
+        const hitInTarget = Object.entries(fileCov.s).some(([key, hits]) => {
+          if (hits <= 0) return false;
+          const stmt = fileCov.statementMap[key];
+          if (!stmt) return false;
+          const line = stmt.start.line;
+          return line >= candidate.startLine && line <= candidate.endLine;
+        });
 
-          if (hitInTarget) {
-            const repr = ValueMapper.toLang(
-              targetFn.getLang(),
-              item.leader.value.map((v) => v.value)
-            );
-            if (!seen.has(repr)) {
-              seen.add(repr);
-              reaching.push(repr);
-              if (reaching.length >= 2) {
-                break;
-              }
+        if (hitInTarget) {
+          const repr = ValueMapper.toLang(
+            targetFn.getLang(),
+            item.leader.value.map((v) => v.value)
+          );
+          if (!seen.has(repr)) {
+            seen.add(repr);
+            reaching.push(repr);
+            if (reaching.length >= 2) {
+              break;
             }
           }
         }
       }
-    } catch {
-      // Ignore individual lookup errors
     }
   }
 
@@ -699,6 +716,18 @@ export type FrontierCandidate = {
 };
 
 /**
+ * A call frame within a call-chain skeleton leading to a sampled target.
+ */
+export type CallChainFrame = {
+  filePath: string;
+  displayPath: string;
+  functionName: string;
+  callSite?: string;
+  codeSnippet: string;
+  isSliced: boolean;
+};
+
+/**
  * Probabilistically sampled target with formatted code context.
  */
 export type SampledFrontierTarget = {
@@ -713,6 +742,7 @@ export type SampledFrontierTarget = {
   reachingInputs: string[];
   codeSnippet: string;
   isSliced: boolean;
+  callChain?: CallChainFrame[];
 };
 
 /**

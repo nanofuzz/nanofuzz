@@ -769,6 +769,71 @@ describe("fuzzer: general & parameterized engine tests", () => {
         expect(run2.results.length).toBe(run1Total + 10);
       });
 
+      it("tracks inputsInterrupted on cancellation and re-injects them upon resume", async () => {
+        const tmpdir = fs.mkdtempSync(
+          path.join(os.tmpdir(), `nanofuzz-interrupt-parity-${engine}-`)
+        );
+        const tsFile = path.join(tmpdir, "delayTarget.ts");
+        fs.writeFileSync(
+          tsFile,
+          `
+          export function delayFn(x: number): number {
+            const start = Date.now();
+            while (Date.now() - start < 120) {}
+            return x;
+          }
+          `
+        );
+
+        const options = {
+          ...intOptions,
+          maxTests: 5,
+          seed: "interrupt-seed",
+        };
+
+        try {
+          const tester = FuzzerFactory(tsFile, "delayFn", options, { engine });
+          let cancel = false;
+
+          const run1 = await tester.test(
+            [],
+            { gen: true },
+            {
+              update: (payload) => {
+                if (payload.type === "testing") {
+                  cancel = true;
+                }
+              },
+              granularity: "result",
+            },
+            () => cancel
+          );
+
+          expect(tester.state).toBe("paused");
+          expect(run1.stopReason).toBe(FuzzStopReason.PAUSE);
+          expect(run1.stats.counters.inputsInterrupted).toBeGreaterThanOrEqual(
+            1
+          );
+
+          const interruptedCount = run1.stats.counters.inputsInterrupted;
+          const run2 = await tester.test([], { gen: true });
+          expect(tester.state).toBe("paused");
+          expect(run2.stopReason).toBe(FuzzStopReason.MAXTESTS);
+          expect(run2.stats.counters.inputsInterrupted).toBe(0);
+          expect(run2.stats.outcomes.total).toBe(interruptedCount + 5);
+        } finally {
+          try {
+            fs.rmSync(tmpdir, {
+              recursive: true,
+              force: true,
+              maxRetries: 10,
+            });
+          } catch {
+            // Ignore cleanup failure
+          }
+        }
+      });
+
       it("resuming after maxFailures uses per-run failure counts", async () => {
         const tmpdir = fs.mkdtempSync(
           path.join(os.tmpdir(), `nanofuzz-fail-parity-${engine}-`)
