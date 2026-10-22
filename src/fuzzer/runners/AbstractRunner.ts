@@ -217,7 +217,7 @@ export type RunnerResult = {
         message: string;
         stack?: string;
         source?: "put" | "host"; // if the error originated within the put
-        coverageData?: Record<string, number[]>; // lines executed by this call
+        coverageData?: Record<string, number[]>;
         coverageArcs?: Record<string, Arc[]>; // arcs taken by this call
         staticCoverage?: PythonCoverageMapData;
         validators?: Record<string, ValidatorResult>;
@@ -225,7 +225,7 @@ export type RunnerResult = {
     | {
         tag: "skip";
         message: string;
-        coverageData?: Record<string, number[]>; // lines executed by this call
+        coverageData?: Record<string, number[]>;
         coverageArcs?: Record<string, Arc[]>; // arcs taken by this call
         staticCoverage?: PythonCoverageMapData;
         validators?: Record<string, ValidatorResult>;
@@ -233,7 +233,7 @@ export type RunnerResult = {
     | {
         tag: "value";
         value: unknown;
-        coverageData?: Record<string, number[]>; // lines executed by this call
+        coverageData?: Record<string, number[]>;
         coverageArcs?: Record<string, Arc[]>; // arcs taken by this call
         staticCoverage?: PythonCoverageMapData;
         validators?: Record<string, ValidatorResult>;

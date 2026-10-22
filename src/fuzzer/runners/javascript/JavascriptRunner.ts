@@ -72,7 +72,7 @@ export class JavascriptRunner extends AbstractRunner {
 
     if (targetPath) {
       const compiler = CompilerFactory.fromSourcefile(targetPath);
-      if (compiler) {
+      if (compiler instanceof CompilerFactory.TypescriptCompiler) {
         const compiledJs = compiler.getJsFilename(targetPath);
         if (fs.existsSync(compiledJs)) {
           targetPath = compiledJs;

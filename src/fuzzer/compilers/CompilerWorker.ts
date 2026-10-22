@@ -15,7 +15,7 @@ import * as CompilerFactory from "./CompilerFactory";
 import { Instrumenter } from "./Instrumenter";
 import { MeasureFactory } from "../measures/MeasureFactory";
 import { isError } from "../Util";
-import { TypescriptCompilerError } from "../Types";
+import { CompilerError } from "./Types";
 
 console.debug("CompilerWorker started");
 
@@ -69,7 +69,7 @@ function processMessage(message: CompilerMessageToWorker): void {
           id: message.id,
         };
         if (isError(e)) {
-          if (e instanceof TypescriptCompilerError) {
+          if (e instanceof CompilerError) {
             reply = {
               ...reply,
               ...e.details,

@@ -3705,6 +3705,14 @@ tree-sitter-python@^0.25.0:
     node-addon-api "^8.5.0"
     node-gyp-build "^4.8.4"
 
+tree-sitter-rust@^0.23.2:
+  version "0.23.3"
+  resolved "https://registry.yarnpkg.com/tree-sitter-rust/-/tree-sitter-rust-0.23.3.tgz#0ecd49788ba673dd01033204968cf1b1ecc429ab"
+  integrity sha512-uLdZJ1K26EuJTBMJlz1ltTlg7nJyAYThfouXgigf5ixKOasOL5wNrRCpuWTsl6rDcKlZK9UX+annFLqP/kchwQ==
+  dependencies:
+    node-addon-api "^8.2.2"
+    node-gyp-build "^4.8.4"
+
 tree-sitter-typescript@^0.23.2:
   version "0.23.2"
   resolved "https://registry.yarnpkg.com/tree-sitter-typescript/-/tree-sitter-typescript-0.23.2.tgz#70bc615a2f664a8e9c87c533382beca587f28ab3"

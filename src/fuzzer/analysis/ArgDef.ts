@@ -176,6 +176,8 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
           : undefined;
     } else if (ref.type.options?.numIntervals) {
       intervals = ref.type.options?.numIntervals;
+    } else if (ref.type.options?.bigintIntervals) {
+      intervals = ref.type.options?.bigintIntervals;
     }
 
     // A source language may provide additional constraints for an otherwise

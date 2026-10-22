@@ -182,10 +182,11 @@ Our repo uses [semantic versioning][] and maintains the same version number for 
 
 - Make sure all PRs for the upcoming release are merged. Switch to `main` and check `git status` to make sure it's clean and up-to-date.
 - Create a new version branch (`git checkout -b "vX.Y.Z"`)
-- Increment the version number in `package.json`, `./packages/runtime/typescript/package.json`, and `./packages/runtime/python/pyproject.toml`. Ensure the versions match in all three files.
+- Increment the version number in `package.json`, `./packages/runtime/typescript/package.json`, `./packages/runtime/python/pyproject.toml`, and `./packages/runtime/rust/Cargo.toml`. Ensure the versions match in all four files.
 - Build and run NaNofuzz tests (`yarn build` and `yarn test`)
 - Build the npm runtime package (`cd packages/runtime/typescript`, `yarn build`, `cd ../..`)
 - Build the pip runtime package (`cd ../../../packages/runtime/python`, `python -m build`)
+- Test the cargo runtime crate (`cd ../../../packages/runtime/rust`, `cargo test`, `cd ../../..`)
 - Stage commit and push to the remote branch (`git add .`, `git commit -m "chore: update version to vX.Y.Z"`, and `git push`)
 - Open a new PR with title `chore: update version to vX.Y.Z` and merge after CI passes.
 - Create a new GitHub tag and [GitHub release][] in the format `vX.Y.Z`.
@@ -193,8 +194,9 @@ Our repo uses [semantic versioning][] and maintains the same version number for 
 - If needed, publish the runtime packages.
   - to npm: `cd packages/runtime/typescript`, `npm publish --access public`, `cd ../../..`)
   - to pip: `cd packages/runtime/python`, `python -m twine upload dist/*`, `cd ../../..`)
+  - to crates.io: `cd packages/runtime/rust`, `cargo publish`, `cd ../../..`)
 - Clone the [NaNofuzz playground](https://github.com/nanofuzz/nanofuzz-examples)
-  - If needed, upgrade the runtime packages: `yarn update @nanofuzz/runtime@X.Y.Z` and `pip install "nanofuzz-runtime==X.Y.Z"`
+  - If needed, upgrade the runtime packages: `yarn update @nanofuzz/runtime@X.Y.Z`, `pip install "nanofuzz-runtime==X.Y.Z"`, and update `nanofuzz-runtime = "X.Y.Z"` in `Cargo.toml`
   - Ensure the version of the NaNofuzz extension loaded is the new one
   - Stage, commit, and push the updated `package.json` and `yarn.lock`
   - Make sure all the examples still work. (Note: running the examples will generate a lot of `.json` files you probably don't want to commit)

@@ -4,6 +4,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { TypescriptProgram } from "./typescript/TypescriptProgram";
 import { PythonProgram } from "./python/PythonProgram";
+import { RustProgram } from "./rust/RustProgram";
 
 /**
  * Returns an AbstractProgram object for the given filename.
@@ -95,12 +96,37 @@ function factory(
     }
   }
 
-  if (PythonProgram.understands({ filename, lang })) {
-    return new PythonProgram(getSource, filename, options, parent);
-  } else {
-    return new TypescriptProgram(getSource, filename, options, parent);
+  const detectedLang = getLanguage({ filename, lang });
+  switch (detectedLang) {
+    case "python":
+      return new PythonProgram(getSource, filename, options, parent);
+    case "rust":
+      return new RustProgram(getSource, filename, options, parent);
+    case "typescript":
+    case "*":
+    default:
+      return new TypescriptProgram(getSource, filename, options, parent);
   }
 } // fn: factory
+
+/**
+ * Determines the programming language of a source file based on its filename or language hint.
+ *
+ * @param details Object containing filename and/or optional language hint
+ * @returns Detected ProgramLanguage ("typescript" | "python" | "rust")
+ */
+export function getLanguage(details: {
+  filename?: string;
+  lang?: ProgramLanguage;
+}): ProgramLanguage {
+  if (PythonProgram.understands(details)) {
+    return "python";
+  }
+  if (RustProgram.understands(details)) {
+    return "rust";
+  }
+  return "typescript";
+} // fn: getLanguage
 
 /**
  * Resolves a file path using CommonJS/TS resolution first, falling back to path.resolve.

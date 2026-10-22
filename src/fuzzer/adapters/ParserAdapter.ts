@@ -11,7 +11,11 @@ import { ProgramLanguage } from "../analysis/Types";
 
 // internal variables
 const grammars: Record<string, GrammarData> = {};
-const grammarsToLoad = ["tree-sitter-typescript", "tree-sitter-python"];
+const grammarsToLoad = [
+  "tree-sitter-typescript",
+  "tree-sitter-python",
+  "tree-sitter-rust",
+];
 let loaded: "no" | "pending" | "yes" = "no";
 let initPromise: Promise<void> | undefined; // init only once
 

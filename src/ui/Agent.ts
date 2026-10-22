@@ -120,7 +120,7 @@ export function resolveFilePath(filePath: string): string {
 /**
  * Discovers and lists all fuzzable exported functions in a source file (sync and async).
  *
- * @param filePath Path to the target source file (TypeScript or Python)
+ * @param filePath Path to the target source file (TypeScript, Python, or Rust)
  * @returns TargetListResult containing exported functions and their signatures
  */
 export async function listTargets(filePath: string): Promise<TargetListResult> {
@@ -350,9 +350,7 @@ export async function runFuzz(
     const isCancelled = cancelFn?.() ?? false;
 
     const status: AgentFuzzStatus = isCancelled ? "cancelled" : "error";
-    const language: ProgramLanguage = resolvedPath.endsWith(".py")
-      ? "python"
-      : "typescript";
+    const language = ProgramFactory.getLanguage({ filename: resolvedPath });
     const toolName = getToolName();
 
     const resultBase: Omit<AgentFuzzResult, "summaryText"> = {
@@ -658,7 +656,7 @@ export function mapToAgentCounterexample(
 } // fn: mapToAgentCounterexample
 
 /**
- * Synthesizes an executable test suite / reproducer using NaNofuzz test adapters (Jest or Pytest).
+ * Synthesizes an executable test suite / reproducer using NaNofuzz test adapters (Jest, Pytest, or cargo test).
  */
 export function synthesizeReproducer(
   filePath: string,
@@ -879,7 +877,7 @@ export async function shrinkCoveringResults(
 } // fn: shrinkCoveringResults
 
 /**
- * Synthesizes an executable test suite (Jest or Pytest) from branch-covering inputs and counterexamples.
+ * Synthesizes an executable test suite (Jest, Pytest, or cargo test) from branch-covering inputs and counterexamples.
  */
 export async function synthesizeTestSuite(
   filePath: string,
@@ -1099,7 +1097,7 @@ export function buildSummaryMarkdown(
     }
 
     if (result.reproducerCode) {
-      const lang = result.language === "python" ? "python" : "typescript";
+      const lang = result.language;
       parts.push(
         `\n**Executable Reproducer Test Case**:`,
         `\`\`\`${lang}`,
@@ -1143,6 +1141,9 @@ export function buildSummaryMarkdown(
       partsList.push(
         `- 🎲 **Random Generator**: **${g.randomInputs}** input(s)`
       );
+    }
+    if (g.userInputs && g.userInputs > 0) {
+      partsList.push(`- 👤 **User Generator**: **${g.userInputs}** input(s)`);
     }
     if (partsList.length > 0) {
       parts.push(`\n**Generator Breakdown**:`, ...partsList);
@@ -1207,7 +1208,7 @@ export function buildSummaryMarkdown(
   }
 
   if (result.testSuiteCode) {
-    const lang = result.language === "python" ? "python" : "typescript";
+    const lang = result.language;
     const header = result.testSuiteFilePath
       ? `\n**Synthesized Branch-Covering Test Suite** (written to \`${result.testSuiteFilePath}\`):`
       : `\n**Synthesized Branch-Covering Test Suite**:`;
@@ -1281,6 +1282,7 @@ export async function formatFuzzResult(
       genStats?.MutationInputGenerator?.counters?.inputsGenerated ?? 0,
     aiInputs: genStats?.AiInputGenerator?.counters?.inputsGenerated ?? 0,
     aiQueriesSent: genStats?.AiInputGenerator?.gen?.calls?.sent ?? 0,
+    userInputs: genStats?.UserInputGenerator?.counters?.inputsGenerated ?? 0,
   };
 
   const diagnostics: string[] = [];
@@ -1353,15 +1355,22 @@ export function formatFunctionSignature(
   const args = fnDef.getArgDefs();
   const isAsync = fnDef.isAsync();
   const argParts = args.map((arg) => {
-    const opt = arg.isOptional() ? "?" : "";
+    const opt =
+      arg.isOptional() && lang !== "rust" && lang !== "python" ? "?" : "";
     const typeStr = formatArgDefType(arg);
     return `${arg.getName()}${opt}: ${typeStr}`;
   });
 
-  const returnType = fnDef.getReturnType()?.name;
+  const returnType =
+    fnDef.getReturnType()?.name ?? fnDef.getReturnType()?.typeRefName;
   if (lang === "python") {
     const retStr = returnType ? ` -> ${returnType}` : "";
     const prefix = isAsync ? "async def" : "def";
+    return `${prefix} ${name}(${argParts.join(", ")})${retStr}`;
+  }
+  if (lang === "rust") {
+    const retStr = returnType && returnType !== "()" ? ` -> ${returnType}` : "";
+    const prefix = isAsync ? "pub async fn" : "pub fn";
     return `${prefix} ${name}(${argParts.join(", ")})${retStr}`;
   }
   const retStr = returnType
@@ -1500,6 +1509,7 @@ export type AgentGeneratorSummary = {
   mutationInputs: number;
   aiInputs: number;
   aiQueriesSent: number;
+  userInputs?: number;
 };
 
 /**

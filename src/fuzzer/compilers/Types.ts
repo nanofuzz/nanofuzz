@@ -1,4 +1,48 @@
-import { TypescriptCompilerErrorDetails } from "../Types";
+/**
+ * Base exception class for compiler errors.
+ */
+export class CompilerError<
+  T extends CompilerErrorDetails = CompilerErrorDetails,
+> extends Error {
+  public details: T;
+  constructor(message: string, details: T) {
+    super(message);
+    this.name = "CompilerError";
+    this.details = details;
+  }
+}
+
+/**
+ * Exception class for TypeScript compiler errors.
+ */
+export class TypescriptCompilerError extends CompilerError<TypescriptCompilerErrorDetails> {
+  constructor(message: string, details: TypescriptCompilerErrorDetails) {
+    if (!details.cli && details.tscCli) details.cli = details.tscCli;
+    if (!details.configFilename && details.tscConfigFilename) {
+      details.configFilename = details.tscConfigFilename;
+    }
+    super(message, details);
+    this.name = "TypescriptCompilerError";
+  }
+}
+
+/**
+ * Exception class for Rust compiler errors.
+ */
+export class RustCompilerError extends CompilerError<RustCompilerErrorDetails> {
+  constructor(message: string, details: RustCompilerErrorDetails) {
+    if (!details.cli && details.commandCli) details.cli = details.commandCli;
+    if (!details.configFilename && details.cargoTomlPath) {
+      details.configFilename = details.cargoTomlPath;
+    }
+    super(message, details);
+    this.name = "RustCompilerError";
+  }
+}
+
+// ============================================================================
+// Types
+// ============================================================================
 
 export type CompilerStaleness =
   | false
@@ -6,6 +50,52 @@ export type CompilerStaleness =
   | "sourcechanged"
   | "compilerchanged"
   | "configchanged";
+
+/**
+ * Common compiler error details
+ */
+export type CompilerErrorDetails = {
+  inputFile: string;
+  outputFile?: string;
+  output?: string[];
+  configFilename?: string;
+  cli?: string;
+};
+
+/**
+ * TypeScript compiler error details
+ */
+export type TypescriptCompilerErrorDetails = CompilerErrorDetails & {
+  outputFile: string;
+  tscConfigFilename?: string;
+  tscCli?: string;
+};
+
+/**
+ * Diagnostic source span reported by the Rust compiler
+ */
+export type RustCompilerDiagnosticSpan = {
+  file: string;
+  lineStart: number;
+  lineEnd: number;
+  colStart: number;
+  colEnd: number;
+};
+
+/**
+ * Rust compiler error details
+ */
+export type RustCompilerErrorDetails = CompilerErrorDetails & {
+  cargoTomlPath?: string;
+  commandCli?: string;
+  diagnostics?: Array<{
+    message: string;
+    level: string;
+    code?: string;
+    span?: RustCompilerDiagnosticSpan;
+    rendered?: string;
+  }>;
+};
 
 /**
  * Messages from the Compiler to its worker
@@ -27,7 +117,4 @@ export type CompilerMessageToWorker =
 export type CompilerMessageFromWorker = {
   command: "prepare.result";
   id: number;
-} & (
-  | { success: true }
-  | ({ success: false } & Partial<TypescriptCompilerErrorDetails>)
-);
+} & ({ success: true } | ({ success: false } & Partial<CompilerErrorDetails>));

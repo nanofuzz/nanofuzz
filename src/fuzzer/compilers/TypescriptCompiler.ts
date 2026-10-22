@@ -16,16 +16,13 @@ import { Worker } from "worker_threads";
 import path from "node:path";
 import os from "node:os";
 import * as JSONN from "../../Jsonn";
-import {
-  FuzzStatusUpdater,
-  TypescriptCompilerError,
-  VmGlobals,
-} from "../Types";
+import { FuzzStatusUpdater, VmGlobals } from "../Types";
 import { findInAncestor } from "../Util";
 import {
   CompilerStaleness,
   CompilerMessageToWorker,
   CompilerMessageFromWorker,
+  TypescriptCompilerError,
 } from "./Types";
 
 // Global list of compilations by entrypoint module

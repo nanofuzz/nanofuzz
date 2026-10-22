@@ -457,24 +457,6 @@ export type FuzzStatusObserver = {
  */
 export type FuzzResultCallback = (result: FuzzTestResult) => void;
 
-/**
- * Exception class for TypeScript compiler errors
- */
-export type TypescriptCompilerErrorDetails = {
-  inputFile: string;
-  outputFile: string;
-  output?: string[];
-  tscConfigFilename?: string;
-  tscCli: string;
-};
-export class TypescriptCompilerError extends Error {
-  public details: TypescriptCompilerErrorDetails;
-  constructor(message: string, details: TypescriptCompilerErrorDetails) {
-    super(message);
-    this.details = details;
-  }
-}
-
 export { GeneratorExhaustedError } from "./generators/Types";
 
 /**

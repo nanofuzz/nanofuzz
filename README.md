@@ -1,10 +1,10 @@
 # NaNofuzz
 
-NaNofuzz is a fast and easy-to-use Automatic Test sUite Generator (ATUG) for TypeScript and Python that combines human insight, heuristics, and property checking to help you quickly reach working code nirvana. NaNofuzz is intended to be used during testing and development and is available in the [the VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=penrose.nanofuzz).
+NaNofuzz is a fast and easy-to-use Automatic Test sUite Generator (ATUG) for TypeScript, Python, and Rust that combines human insight, heuristics, and property checking to help you quickly reach working code nirvana. NaNofuzz is intended to be used during testing and development and is available in the [the VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=penrose.nanofuzz).
 
 <img width="1329" height="750" alt="image" src="https://github.com/user-attachments/assets/33a5fcda-19ac-459c-a50a-20cc0d8502c1" />
 
-NaNofuzz proposes an initial set of test examples with a single button click. You can refine these examples by manually annotating their correctness and/or by writing property validator functions that evaluate correctness at scale. NaNofuzz coherently organizes and prioritizes all test results on a single screen so that you can see at a glance what you are actually testing---as well as what may be missing. 
+NaNofuzz proposes an initial set of tests with a single button click. Refine these tests with correctness annotations and/or by writing property validators that evaluate correctness at scale. NaNofuzz coherently organizes test results on a single screen so that you can see at a glance what you are actually testing---and what you may be missing.
 
 ## Tutorial and Playground
 
@@ -20,6 +20,8 @@ To use NaNofuzz in your own projects:
       - **yarn**: `yarn add @nanofuzz/runtime -D`
     - Python v3.13+ projects:
       - **pip**: `pip install nanofuzz-runtime`
+    - Rust projects:
+      - **cargo**: `cargo add nanofuzz-runtime`
 - **Step 2**: Add the NaNofuzz extension to your repo's `./.vscode/settings.json` recommendations:
     ```
     {
@@ -29,11 +31,12 @@ To use NaNofuzz in your own projects:
     }
     ```
 
-To export a NaNofuzz test to CI, click the pin button beside an example. NaNofuzz exports pinned tests to Jest/Jasmine or pytest format, depending on the target language.
+To export a NaNofuzz test to CI, click the pin button beside an example. NaNofuzz exports pinned tests to Jest/Jasmine, pytest, or cargo test format, depending on the target language.
 
 ## What's new in v0.4
 
 - **Python**: Test Python functions and export the saved tests to `pytest` for use in CI.
+- **Rust**: (experimental) Test Rust functions and export the saved tests to `cargo test` for use in CI.
 - **Custom input generators**: Programatically generate, modify, or skip inputs before they are dispatched for test execution.
 - **More types**: Tuples, Unions, `Map`s, `Set`s, unique Arrays/`List`s, dictionaries, regex strings, `null`s, binary data like `Uint8Array`/`bytes`, and select Typescript utility types, like `Record<K,V>`, `Required<T>` and `Partial<T>`.
 - **Unexported functions**: NaNofuzz will test them, too! 
@@ -57,14 +60,14 @@ NaNofuzz supports functions with any mixture of the following parameter types:
 NaNofuzz automatically generates a test suite in these formats for use in CI:
  - **TypeScript**: Jest/Jasmine
  - **Python**: pytest
+ - **Rust**: cargo test
 
 The following are not yet supported:
  - Generating inputs of deconstructed, `enum`, generic, intersection, some utility (e.g., TypeScript `Omit<T1,T2>`) types, implicit `any`, `unknown`, and function types as well `NaN` and `Infinity`
  - Testing class and object methods (write a test harness for these)
  - Compiling to module formats other than CommonJS (related to [VS Code issue 130367](https://github.com/microsoft/vscode/issues/130367))
  - Stateful, flaky, or non-deterministic tests
- - Sandboxing external side-effects of the program under test, mocks, or stubs 
- - Custom generators and input filters
+ - Sandboxing external side-effects of the program under test, mocks, or stubs
 
 If the `NaNofuzz...` button does not appear above the function you want to test, that usually means one of its inputs is comprised of types that are not yet supported. For unsupported functions or class methods, write a test harness function that accepts NaNofuzz' supported inputs and calls the function you want to test.
 

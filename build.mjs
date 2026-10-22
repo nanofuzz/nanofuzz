@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as esbuild from "esbuild";
 import copyfiles from "copyfiles";
 import * as rimraf from "rimraf";
@@ -33,6 +34,13 @@ copyfiles(
   () => console.log("copied .py oracle")
 );
 
+// Copy Rust assets
+copyfiles(
+  ["./src/fuzzer/runners/rust/RustRunnerHost.template.rs", "./build/extension"],
+  true,
+  () => console.log("copied .rs runner template")
+);
+
 // Copy Python runtime package (nanofuzz_runtime)
 const pyRuntimeSrc = path.resolve(
   "./packages/runtime/python/src/nanofuzz_runtime"
@@ -59,6 +67,39 @@ if (fs.existsSync(tsRuntimeDir)) {
   fs.mkdirSync(path.dirname(destTsRuntime), { recursive: true });
   fs.cpSync(tsRuntimeDir, destTsRuntime, { recursive: true });
   console.log("copied @nanofuzz/runtime");
+}
+
+// Build and copy Rust runtime crate (nanofuzz-runtime)
+const rustRuntimeDir = path.resolve("./packages/runtime/rust");
+if (fs.existsSync(rustRuntimeDir)) {
+  const rustTargetDeps = path.join(rustRuntimeDir, "target", "debug", "deps");
+  const hasRlib =
+    fs.existsSync(rustTargetDeps) &&
+    fs
+      .readdirSync(rustTargetDeps)
+      .some((f) => f.startsWith("libnanofuzz_runtime") && f.endsWith(".rlib"));
+
+  if (!hasRlib) {
+    const cargoBin = resolveCargo();
+    if (cargoBin) {
+      ChildProcess.execFileSync(cargoBin, ["build"], {
+        cwd: rustRuntimeDir,
+        stdio: "inherit",
+      });
+    } else {
+      console.warn(
+        "WARNING: Cargo not found. Rust runtime crate was not prebuilt (see ./CONTRIBUTING.md)"
+      );
+    }
+  }
+
+  const destRustRuntime = path.resolve("./build/extension/nanofuzz-runtime");
+  fs.mkdirSync(destRustRuntime, { recursive: true });
+  fs.cpSync(rustRuntimeDir, destRustRuntime, {
+    recursive: true,
+    filter: (src) => !src.includes(`${path.sep}target`),
+  });
+  console.log("copied nanofuzz-runtime");
 }
 
 // Copy Python imports
@@ -129,6 +170,7 @@ await esbuild.build({
     "tree-sitter-python",
     "tree-sitter-typescript",
     "tree-sitter-javascript",
+    "tree-sitter-rust",
     "web-tree-sitter",
   ],
   define: {
@@ -174,6 +216,7 @@ await esbuild.build({
     "tree-sitter-python",
     "tree-sitter-typescript",
     "tree-sitter-javascript",
+    "tree-sitter-rust",
     "web-tree-sitter",
   ],
   plugins: [
@@ -247,6 +290,7 @@ await esbuild.build({
     "tree-sitter-python",
     "tree-sitter-typescript",
     "tree-sitter-javascript",
+    "tree-sitter-rust",
     "web-tree-sitter",
   ],
   define: {
@@ -354,3 +398,36 @@ else:
     return undefined;
   }
 }
+
+/**
+ * Resolves the cargo executable location.
+ *
+ * @returns Path to the cargo executable or undefined if not found
+ */
+function resolveCargo() {
+  const cargoBinName = process.platform === "win32" ? "cargo.exe" : "cargo";
+  const candidates = [];
+  if (process.env.CARGO_HOME) {
+    candidates.push(path.join(process.env.CARGO_HOME, "bin", cargoBinName));
+  }
+  const home = os.homedir();
+  if (home) {
+    candidates.push(path.join(home, ".cargo", "bin", cargoBinName));
+  }
+  candidates.push(cargoBinName);
+
+  for (const candidate of candidates) {
+    try {
+      const res = ChildProcess.spawnSync(candidate, ["--version"], {
+        encoding: "utf8",
+        stdio: "pipe",
+      });
+      if (res.status === 0) {
+        return candidate;
+      }
+    } catch {
+      // not found or not executable
+    }
+  }
+  return undefined;
+} // fn: resolveCargo

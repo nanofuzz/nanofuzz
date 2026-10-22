@@ -58,6 +58,23 @@ describe("src/fuzzer/synthesis/TransformerSynthesizer", () => {
     );
   });
 
+  it("synthesizes Rust transformer with typed parameters and return tuple", () => {
+    const src = `pub fn add(a: i32, b: f64) -> i32 { a + (b as i32) }`;
+    const program = ProgramFactory.fromSource(() => src, "rust");
+    const fnDef = program.functionsExported["add"];
+    expect(fnDef).toBeDefined();
+
+    const result = synthesizeTransformer(fnDef, "rust");
+    expect(result.name).toBe("addTransformer");
+    expect(result.imports.length).toBe(1);
+    expect(result.imports[0].stmt).toContain("use nanofuzz_runtime::{assume,");
+    expect(result.skeleton).toContain(
+      "pub fn addTransformer(a: i32, b: f64) -> (i32, f64) {"
+    );
+    expect(result.skeleton).toContain("(a, b)");
+    expect(result.fullTemplate).toContain("use nanofuzz_runtime::{assume,");
+  });
+
   it("disambiguates transformer name when existing names conflict", () => {
     const program = ProgramFactory.fromFile(tsFixture);
     const fnDef = program.functions["testStandardVoidReturnUndefined"];

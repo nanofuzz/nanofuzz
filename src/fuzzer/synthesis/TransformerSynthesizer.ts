@@ -1,5 +1,6 @@
 import { FunctionDef } from "../analysis/FunctionDef";
 import { PythonProgram } from "../analysis/python/PythonProgram";
+import { RustProgram } from "../analysis/rust/RustProgram";
 import { ProgramLanguage } from "../analysis/Types";
 import { FuzzerCodeSnippet } from "./Types";
 import { getNextAvailableFnNumber } from "./Util";
@@ -66,6 +67,49 @@ export function synthesizeTransformer(
     ];
 
     const skeleton = `\n\ndef ${transformerName}(${pyParams}) -> ${pyTupleType}:\n  # Use assume(condition) or raise UnsatisfiedAssumption("msg") to filter out-of-domain inputs\n  # Otherwise, return the transformed inputs\n  return ${pyReturnTuple}\n`;
+    const importData = imports.map((i) => i.stmt).join("");
+    const fullTemplate = `${importData}${skeleton.trimStart()}`;
+
+    return {
+      name: transformerName,
+      skeleton,
+      imports,
+      fullTemplate,
+    };
+  } else if (targetLang === "rust") {
+    const rustParams = inArgs
+      .map(
+        (a) =>
+          `${a.getName()}: ${RustProgram.getTypeAnnotation(a, {
+            useTypeRefs: true,
+          })}`
+      )
+      .join(", ");
+    const rustTupleType =
+      inArgs.length === 0
+        ? "()"
+        : inArgs.length === 1
+          ? `(${RustProgram.getTypeAnnotation(inArgs[0], { useTypeRefs: true })},)`
+          : `(${inArgs
+              .map((a) =>
+                RustProgram.getTypeAnnotation(a, { useTypeRefs: true })
+              )
+              .join(", ")})`;
+    const rustReturnTuple =
+      inArgs.length === 0
+        ? "()"
+        : inArgs.length === 1
+          ? `(${argDestructuring},)`
+          : `(${argDestructuring})`;
+
+    const imports = [
+      {
+        name: "assume",
+        stmt: `use nanofuzz_runtime::{assume, UnsatisfiedAssumption};\n`,
+      },
+    ];
+
+    const skeleton = `\n\npub fn ${transformerName}(${rustParams}) -> ${rustTupleType} {\n  // Use assume!(condition, "msg") or panic with UnsatisfiedAssumption to filter out-of-domain inputs\n  // Otherwise, return the transformed inputs\n  ${rustReturnTuple}\n}`;
     const importData = imports.map((i) => i.stmt).join("");
     const fullTemplate = `${importData}${skeleton.trimStart()}`;
 

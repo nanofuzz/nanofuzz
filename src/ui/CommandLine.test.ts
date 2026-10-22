@@ -21,7 +21,8 @@ import {
 } from "./CommandLine";
 
 async function runCli(
-  args: string[]
+  args: string[],
+  cliOptions?: { progressBar?: boolean }
 ): Promise<{ status: number; stdout: string; stderr: string }> {
   let stdout = "";
   let stderr = "";
@@ -92,6 +93,16 @@ async function runCli(
       !effectiveArgs.includes("-V")
     ) {
       effectiveArgs.push("--workers", "1");
+    }
+    if (
+      !effectiveArgs.includes("--no-progress-bar") &&
+      !effectiveArgs.includes("--help") &&
+      !effectiveArgs.includes("-h") &&
+      !effectiveArgs.includes("--version") &&
+      !effectiveArgs.includes("-V") &&
+      !cliOptions?.progressBar
+    ) {
+      effectiveArgs.push("--no-progress-bar");
     }
     const status = await runCliInProcess(effectiveArgs);
     return { status, stdout, stderr };
@@ -309,6 +320,49 @@ describe("cli:", () => {
     // Verify test results were produced
     expect(pyOutputData.stats.outcomes.total).toBeGreaterThan(0);
     expect(pyOutputData.stats.outcomes.total).toBeLessThanOrEqual(maxTests);
+  });
+
+  it("--output-file: check matching parameter set for Rust", async () => {
+    const outputFile = path.join(tmpDir, "rs_output.json5");
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.rs";
+    const targetFn = "greeting";
+    const seed = "rs_cli_seed_789";
+    const maxTests = 2;
+    const maxRuntime = 10000;
+
+    const res = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--max-tests",
+      maxTests.toString(),
+      "--max-runtime",
+      maxRuntime.toString(),
+      "--seed",
+      seed,
+    ]);
+
+    expect(res.status).toBe(0);
+    expect(fs.existsSync(outputFile)).toBeTrue();
+
+    const rsOutputData = JSON5.parse<FuzzTestResults>(
+      fs.readFileSync(outputFile, "utf8")
+    );
+
+    // Verify output matches target function
+    const fnMeta = getFnNameAndModule(rsOutputData.env.function);
+    expect(fnMeta.name).toBe(targetFn);
+    expect(fnMeta.module).toBe(path.resolve(targetFile));
+
+    // Verify parameter set in output options matches CLI flags
+    expect(rsOutputData.env.options.maxTests).toBe(maxTests);
+    expect(rsOutputData.env.options.suiteTimeout).toBe(maxRuntime);
+    expect(rsOutputData.env.options.seed).toBe(seed);
+
+    // Verify test results were produced
+    expect(rsOutputData.stats.outcomes.total).toBeGreaterThan(0);
+    expect(rsOutputData.stats.outcomes.total).toBeLessThanOrEqual(maxTests);
   });
 
   it("--output-file: writes packed binary output for .msgpack extension", async () => {
@@ -1261,14 +1315,17 @@ describe("cli:", () => {
         configurable: true,
         writable: true,
       });
-      const res = await runCli([
-        targetFile,
-        targetFn,
-        "--max-tests",
-        "5",
-        "--seed",
-        "cli_seed_bar_runtime",
-      ]);
+      const res = await runCli(
+        [
+          targetFile,
+          targetFn,
+          "--max-tests",
+          "5",
+          "--seed",
+          "cli_seed_bar_runtime",
+        ],
+        { progressBar: true }
+      );
 
       expect(res.status).toBe(0);
       expect(res.stderr).toMatch(/Testing \[.*\] \d+%/);
