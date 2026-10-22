@@ -61,6 +61,18 @@ if (fs.existsSync(tsRuntimeDir)) {
   console.log("copied @nanofuzz/runtime");
 }
 
+// Copy Rust runtime crate (nanofuzz-runtime)
+const rustRuntimeDir = path.resolve("./packages/runtime/rust");
+if (fs.existsSync(rustRuntimeDir)) {
+  const destRustRuntime = path.resolve("./build/extension/nanofuzz-runtime");
+  fs.mkdirSync(destRustRuntime, { recursive: true });
+  fs.cpSync(rustRuntimeDir, destRustRuntime, {
+    recursive: true,
+    filter: (src) => !src.includes(`${path.sep}target`),
+  });
+  console.log("copied nanofuzz-runtime");
+}
+
 // Copy Python imports
 let interpreter = "python";
 if (!fs.existsSync(path.resolve(path.join(".", ".venv")))) {

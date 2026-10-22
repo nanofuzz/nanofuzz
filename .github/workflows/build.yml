@@ -37,6 +37,8 @@ jobs:
         with:
           node-version: 22
           cache: yarn
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
 
       # Visual Studio Code Extension
       - name: NaNofuzz vscode extension
@@ -63,3 +65,9 @@ jobs:
           python -m build
           pytest
           twine check dist/*
+
+      # cargo runtime crate
+      - name: NaNofuzz runtime (rust)
+        working-directory: packages/runtime/rust
+        run: |
+          cargo test
