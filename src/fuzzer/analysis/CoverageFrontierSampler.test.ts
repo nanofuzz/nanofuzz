@@ -957,6 +957,51 @@ export function parseExpression(input: string): boolean {
     );
     expect(formatted).toContain("function scanToken(input: string): boolean");
   });
+
+  it("Option 2A: handles circular and recursive call graphs without infinite loops", () => {
+    const cycleFile = path.join(tmpDir, "Cycle.ts");
+    fs.writeFileSync(
+      cycleFile,
+      `export function fnA(x: number): number {
+  if (x <= 0) return 0;
+  return fnB(x - 1);
+}
+
+export function fnB(x: number): number {
+  if (x === 42) {
+    return targetLeaf(x);
+  }
+  return fnA(x - 1); // Mutual recursion back to fnA
+}
+
+export function targetLeaf(x: number): number {
+  return x * 2;
+}
+`
+    );
+
+    const prog = ProgramFactory.fromFile(cycleFile);
+
+    // 1. getReachableFunctions terminates with all mutually recursive and leaf functions
+    const reachable = prog.getReachableFunctions("fnA");
+    const norm = normalizePathForKey(cycleFile);
+    expect(reachable.has(`${norm}:fnA`)).toBe(true);
+    expect(reachable.has(`${norm}:fnB`)).toBe(true);
+    expect(reachable.has(`${norm}:targetLeaf`)).toBe(true);
+
+    // 2. getCallPath finds the shortest path without repeating cycles
+    const callPath = prog.getCallPath("fnA", `${norm}:targetLeaf`);
+    expect(callPath).toBeDefined();
+    // Shortest path: fnA -> fnB -> targetLeaf (length 3)
+    expect(callPath?.length).toBe(3);
+    expect(callPath?.[0].functionName).toBe("fnA");
+    expect(callPath?.[1].functionName).toBe("fnB");
+    expect(callPath?.[2].functionName).toBe("targetLeaf");
+
+    // 3. getCallPath terminates when target is unreachable
+    const noPath = prog.getCallPath("fnA", `${norm}:nonExistent`);
+    expect(noPath).toBeUndefined();
+  });
 });
 
 class MockReachingCoverageMeasure extends CoverageMeasure {
