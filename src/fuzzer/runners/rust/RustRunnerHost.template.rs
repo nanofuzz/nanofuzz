@@ -8,10 +8,12 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
     unused_imports,
     unused_variables,
     unused_assignments,
+    unused_mut,
     non_snake_case
 )]
 mod target {
     include!("/* __NANOFUZZ_TARGET_PATH__ */");
+    /* __NANOFUZZ_SHIM__ */
 }
 
 #[derive(Deserialize, Debug)]
