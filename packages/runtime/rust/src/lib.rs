@@ -173,78 +173,121 @@ pub mod coverage {
     }
 
     thread_local! {
-        static HIT_STMTS: RefCell<Vec<u32>> = const { RefCell::new(Vec::new()) };
-        static HIT_FNS: RefCell<Vec<u32>> = const { RefCell::new(Vec::new()) };
-        static HIT_BRANCHES: RefCell<Vec<(u32, u32)>> = const { RefCell::new(Vec::new()) };
+        static HIT_STMTS: RefCell<Vec<(u32, u32)>> = const { RefCell::new(Vec::new()) };
+        static HIT_FNS: RefCell<Vec<(u32, u32)>> = const { RefCell::new(Vec::new()) };
+        static HIT_BRANCHES: RefCell<Vec<(u32, u32, u32)>> = const { RefCell::new(Vec::new()) };
     }
 
-    /// Records execution of statement with index `id`.
+    /// Records execution of statement with index `id` in file `file_id`.
     #[inline(always)]
-    pub fn hit_stmt(id: u32) {
-        HIT_STMTS.with(|s| s.borrow_mut().push(id));
+    pub fn hit_stmt(file_id: u32, id: u32) {
+        HIT_STMTS.with(|s| s.borrow_mut().push((file_id, id)));
     }
 
-    /// Records execution of function with index `id`.
+    /// Records execution of function with index `id` in file `file_id`.
     #[inline(always)]
-    pub fn hit_fn(id: u32) {
-        HIT_FNS.with(|f| f.borrow_mut().push(id));
+    pub fn hit_fn(file_id: u32, id: u32) {
+        HIT_FNS.with(|f| f.borrow_mut().push((file_id, id)));
     }
 
-    /// Records execution of branch with index `branch_id` and arm `arm_id`.
+    /// Records execution of branch with index `branch_id` and arm `arm_id` in file `file_id`.
     #[inline(always)]
-    pub fn hit_branch(branch_id: u32, arm_id: u32) {
-        HIT_BRANCHES.with(|b| b.borrow_mut().push((branch_id, arm_id)));
+    pub fn hit_branch(file_id: u32, branch_id: u32, arm_id: u32) {
+        HIT_BRANCHES.with(|b| b.borrow_mut().push((file_id, branch_id, arm_id)));
     }
 
-    /// Resets all recorded coverage hits.
+    /// Resets all recorded coverage hits across all files.
     pub fn reset() {
         HIT_STMTS.with(|s| s.borrow_mut().clear());
         HIT_FNS.with(|f| f.borrow_mut().clear());
         HIT_BRANCHES.with(|b| b.borrow_mut().clear());
     }
 
-    /// Takes the recorded coverage hits and returns them as an Istanbul-compatible structure.
-    pub fn take_hits(file_path: &str, branch_arms: &[(u32, usize)]) -> FileCoverage {
-        let stmts = HIT_STMTS.with(|s| {
-            let mut v = s.borrow_mut();
-            let mut res = HashMap::new();
-            for id in v.drain(..) {
-                *res.entry(id.to_string()).or_insert(0) += 1;
-            }
-            res
-        });
+    /// Branch arms metadata: (branch_id, arm_count).
+    pub type BranchArmSpec = (u32, usize);
 
-        let fns = HIT_FNS.with(|f| {
-            let mut v = f.borrow_mut();
-            let mut res = HashMap::new();
-            for id in v.drain(..) {
-                *res.entry(id.to_string()).or_insert(0) += 1;
-            }
-            res
-        });
+    /// File specification in coverage manifest: (file_id, file_path, branch_arms).
+    pub type FileCoverageSpec<'a> = (u32, &'a str, &'a [BranchArmSpec]);
 
-        let branches = HIT_BRANCHES.with(|b| {
-            let mut v = b.borrow_mut();
-            let mut res: HashMap<String, Vec<u32>> = HashMap::new();
-            for (branch_id, arm_count) in branch_arms {
-                res.insert(branch_id.to_string(), vec![0; *arm_count]);
+    /// Takes the recorded coverage hits for multiple files described by `manifest`.
+    /// Each element in `manifest` is `(file_id, file_path, branch_arms)`.
+    pub fn take_multi_hits(manifest: &[FileCoverageSpec]) -> HashMap<String, FileCoverage> {
+        let stmts = HIT_STMTS.with(|s| s.take());
+        let fns = HIT_FNS.with(|f| f.take());
+        let branches = HIT_BRANCHES.with(|b| b.take());
+
+        let mut stmts_by_file: HashMap<u32, HashMap<String, u32>> = HashMap::new();
+        for (fid, sid) in stmts {
+            *stmts_by_file
+                .entry(fid)
+                .or_default()
+                .entry(sid.to_string())
+                .or_insert(0) += 1;
+        }
+
+        let mut fns_by_file: HashMap<u32, HashMap<String, u32>> = HashMap::new();
+        for (fid, fnid) in fns {
+            *fns_by_file
+                .entry(fid)
+                .or_default()
+                .entry(fnid.to_string())
+                .or_insert(0) += 1;
+        }
+
+        let mut branches_by_file: HashMap<u32, Vec<(u32, u32)>> = HashMap::new();
+        for (fid, bid, arm) in branches {
+            branches_by_file.entry(fid).or_default().push((bid, arm));
+        }
+
+        let mut result = HashMap::new();
+        for &(fid, path, branch_arms) in manifest {
+            let s = stmts_by_file.remove(&fid).unwrap_or_default();
+            let f = fns_by_file.remove(&fid).unwrap_or_default();
+
+            let mut b: HashMap<String, Vec<u32>> = HashMap::new();
+            for (bid, arm_count) in branch_arms {
+                b.insert(bid.to_string(), vec![0; *arm_count]);
             }
-            for (branch_id, arm_id) in v.drain(..) {
-                let key = branch_id.to_string();
-                if let Some(arms) = res.get_mut(&key) {
-                    if let Some(count) = arms.get_mut(arm_id as usize) {
-                        *count += 1;
+            if let Some(hits) = branches_by_file.remove(&fid) {
+                for (bid, arm) in hits {
+                    let key = bid.to_string();
+                    if let Some(arms) = b.get_mut(&key) {
+                        if let Some(slot) = arms.get_mut(arm as usize) {
+                            *slot += 1;
+                        }
                     }
                 }
             }
-            res
-        });
 
-        FileCoverage {
-            path: file_path.to_string(),
-            s: stmts,
-            f: fns,
-            b: branches,
+            result.insert(
+                path.to_string(),
+                FileCoverage {
+                    path: path.to_string(),
+                    s,
+                    f,
+                    b,
+                },
+            );
         }
+
+        result
+    }
+
+    /// Takes the recorded coverage hits for a specific file_id.
+    pub fn take_file_hits(
+        file_id: u32,
+        file_path: &str,
+        branch_arms: &[(u32, usize)],
+    ) -> FileCoverage {
+        let mut map = take_multi_hits(&[(file_id, file_path, branch_arms)]);
+        map.remove(file_path).unwrap_or_else(|| FileCoverage {
+            path: file_path.to_string(),
+            ..Default::default()
+        })
+    }
+
+    /// Takes the recorded coverage hits for a single file (file_id 0) and returns an Istanbul-compatible FileCoverage.
+    pub fn take_hits(file_path: &str, branch_arms: &[(u32, usize)]) -> FileCoverage {
+        take_file_hits(0, file_path, branch_arms)
     }
 }

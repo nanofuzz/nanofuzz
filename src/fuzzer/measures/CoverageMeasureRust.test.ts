@@ -83,7 +83,7 @@ describe("fuzzer/measures/CoverageMeasure: Rust", () => {
     const branch = staticCov.branchMap["0"];
     expect(branch.locations.length).toBe(2);
     expect(instrumentedSrc).toContain(
-      "else { nanofuzz_runtime::coverage::hit_branch(0, 1); }"
+      "else { nanofuzz_runtime::coverage::hit_branch(0, 0, 1); }"
     );
   });
 
@@ -103,6 +103,34 @@ describe("fuzzer/measures/CoverageMeasure: Rust", () => {
     expect(Object.keys(staticCov.branchMap).length).toBe(1);
     expect(staticCov.branchMap["0"].locations.length).toBe(3);
     expect(branchArms[0]).toEqual([0, 3]);
+  });
+
+  it("instruments source with a specified fileId for multi-file coverage", () => {
+    const src = `pub fn helper(x: i32) -> i32 {
+    if x > 0 {
+        x + 1
+    } else {
+        x - 1
+    }
+}
+`;
+    const { instrumentedSrc } = instrumentRustSource(
+      src,
+      "/test/helper.rs",
+      42
+    );
+    expect(instrumentedSrc).toContain(
+      "nanofuzz_runtime::coverage::hit_fn(42, 0);"
+    );
+    expect(instrumentedSrc).toContain(
+      "nanofuzz_runtime::coverage::hit_stmt(42,"
+    );
+    expect(instrumentedSrc).toContain(
+      "nanofuzz_runtime::coverage::hit_branch(42, 0, 0);"
+    );
+    expect(instrumentedSrc).toContain(
+      "nanofuzz_runtime::coverage::hit_branch(42, 0, 1);"
+    );
   });
 
   it("tracks dynamic line, function, and branch coverage during RustRunner execution", async () => {

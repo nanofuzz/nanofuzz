@@ -12,7 +12,7 @@ import { findInAncestor } from "../../Util";
 import * as Parser from "../../adapters/ParserAdapter";
 import * as ProgramFactory from "../../analysis/ProgramFactory";
 
-const HARNESS_TEMPLATE_VER = "RustHarness-0.4.4";
+const HARNESS_TEMPLATE_VER = "RustHarness-0.4.5";
 
 /**
  * Builds and returns the compiled Rust harness binary for testing a target function.
@@ -342,11 +342,13 @@ ${validatorBlocks.join("\n")}
  *
  * @param src Target Rust source code
  * @param targetFile Absolute path of the target file
+ * @param fileId Optional file identifier for multi-file coverage attribution (default: 0)
  * @returns Object with instrumented source code, static coverage, and branch arms
  */
 export function instrumentRustSource(
   src: string,
-  targetFile: string = ""
+  targetFile: string = "",
+  fileId: number = 0
 ): {
   instrumentedSrc: string;
   staticCov: FileCoverageData;
@@ -416,7 +418,7 @@ export function instrumentRustSource(
 
     insertions.push({
       pos: bodyNode.startIndex + 1,
-      text: ` nanofuzz_runtime::coverage::hit_fn(${currentFIdx}); `,
+      text: ` nanofuzz_runtime::coverage::hit_fn(${fileId}, ${currentFIdx}); `,
     });
 
     for (let i = 0; i < bodyNode.childCount; i++) {
@@ -444,7 +446,7 @@ export function instrumentRustSource(
       s[currentSIdx] = 0;
       insertions.push({
         pos: child.startIndex,
-        text: `nanofuzz_runtime::coverage::hit_stmt(${currentSIdx}); `,
+        text: `nanofuzz_runtime::coverage::hit_stmt(${fileId}, ${currentSIdx}); `,
       });
     }
   }
@@ -521,19 +523,19 @@ export function instrumentRustSource(
 
     insertions.push({
       pos: thenBlock.startIndex + 1,
-      text: ` nanofuzz_runtime::coverage::hit_branch(${currentBIdx}, 0); `,
+      text: ` nanofuzz_runtime::coverage::hit_branch(${fileId}, ${currentBIdx}, 0); `,
     });
 
     if (elseNode) {
       if (elseNode.type === "block") {
         insertions.push({
           pos: elseNode.startIndex + 1,
-          text: ` nanofuzz_runtime::coverage::hit_branch(${currentBIdx}, 1); `,
+          text: ` nanofuzz_runtime::coverage::hit_branch(${fileId}, ${currentBIdx}, 1); `,
         });
       } else if (elseNode.type === "if_expression") {
         insertions.push({
           pos: elseNode.startIndex,
-          text: `{ nanofuzz_runtime::coverage::hit_branch(${currentBIdx}, 1); `,
+          text: `{ nanofuzz_runtime::coverage::hit_branch(${fileId}, ${currentBIdx}, 1); `,
         });
         insertions.push({
           pos: elseNode.endIndex,
@@ -543,7 +545,7 @@ export function instrumentRustSource(
     } else {
       insertions.push({
         pos: thenBlock.endIndex,
-        text: ` else { nanofuzz_runtime::coverage::hit_branch(${currentBIdx}, 1); } `,
+        text: ` else { nanofuzz_runtime::coverage::hit_branch(${fileId}, ${currentBIdx}, 1); } `,
       });
     }
   }
@@ -626,12 +628,12 @@ export function instrumentRustSource(
         if (valNode.type === "block") {
           insertions.push({
             pos: valNode.startIndex + 1,
-            text: ` nanofuzz_runtime::coverage::hit_branch(${currentBIdx}, ${j}); `,
+            text: ` nanofuzz_runtime::coverage::hit_branch(${fileId}, ${currentBIdx}, ${j}); `,
           });
         } else {
           insertions.push({
             pos: valNode.startIndex,
-            text: `{ nanofuzz_runtime::coverage::hit_branch(${currentBIdx}, ${j}); `,
+            text: `{ nanofuzz_runtime::coverage::hit_branch(${fileId}, ${currentBIdx}, ${j}); `,
           });
           insertions.push({
             pos: valNode.endIndex,
