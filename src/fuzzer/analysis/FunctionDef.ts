@@ -20,6 +20,8 @@ export class FunctionDef {
   private _options: ArgOptions;
   private _ref: FunctionRef;
   private _cmt: string | undefined; // docstring comment for function
+  private _calleeProvider: () => Set<string>;
+  private _callees?: Set<string>;
 
   /**
    * Constructs a new FunctionDef instance using a FunctionRef object.
@@ -27,11 +29,17 @@ export class FunctionDef {
    *
    * @param ref The function reference to be analyzed
    * @param options Options for the function analysis (optional)
+   * @param calleeProvider Lazy callback provider for callees
    */
-  private constructor(ref: FunctionRef, options?: ArgOptions) {
+  private constructor(
+    ref: FunctionRef,
+    options?: ArgOptions,
+    calleeProvider: () => Set<string> = () => new Set()
+  ) {
     this._options = options ?? ArgDef.getDefaultOptions();
     this._ref = ref;
     this._cmt = ref.cmt;
+    this._calleeProvider = calleeProvider;
 
     if (!ref.args) {
       throw new Error(`FunctionRef.args is undefined: ${JSON.stringify(ref)}`);
@@ -49,13 +57,15 @@ export class FunctionDef {
    *
    * @param ref FunctionRef object
    * @param options Optional set of options
+   * @param calleeProvider Optional lazy callback provider for callees
    * @returns new FunctionDef instance
    */
   public static fromFunctionRef(
     ref: FunctionRef,
-    options?: ArgOptions
+    options?: ArgOptions,
+    calleeProvider: () => Set<string> = () => new Set()
   ): FunctionDef {
-    return new FunctionDef(ref, options);
+    return new FunctionDef(ref, options, calleeProvider);
   } // fn: fromFunctionRef()
 
   /**
@@ -305,4 +315,19 @@ export class FunctionDef {
     }
     return ret;
   } // fn: getArgDefsFlat()
+
+  /**
+   * Returns the set of callee function and method identifiers called by this
+   * function's body. We do this lazily because the AbstractProgram instances
+   * run inside the editor loop as the user is typing, so we defer computation
+   * of calles until sometime later... outside the editor loop.
+   *
+   * @returns Set of callee names
+   */
+  public getCallees(): Set<string> {
+    if (!this._callees) {
+      this._callees = this._calleeProvider();
+    }
+    return new Set(this._callees);
+  } // fn: getCallees()
 } // class: FunctionDef
