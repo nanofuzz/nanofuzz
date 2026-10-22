@@ -278,7 +278,7 @@ export class CoverageFrontierSampler {
           continue;
         }
 
-        // Option 3A: Require at least 1 execution hit. Functions with 0 hits cannot be sampled.
+        // Require at least 1 execution hit. Functions with 0 hits cannot be sampled.
         const hasExecutionHits = isFrontier || fnCoveredCount > 0 || isTargetFn;
 
         if (!hasExecutionHits) {
