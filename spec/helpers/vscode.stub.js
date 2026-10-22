@@ -1,3 +1,5 @@
+const path = require("path");
+
 module.exports = {
   isShim: true,
   workspace: {
@@ -35,6 +37,72 @@ module.exports = {
     onDidCloseTerminal: {},
     onDidChangeActiveTerminal: {},
     onDidOpenTerminal: {},
+    visibleTextEditors: [],
+    showInformationMessage: () => Promise.resolve(),
+    showErrorMessage: () => Promise.resolve(),
+    showWarningMessage: () => Promise.resolve(),
+    registerWebviewPanelSerializer: () => ({ dispose: () => {} }),
+    createWebviewPanel: (viewType, title, showOptions, options) => {
+      let isDisposed = false;
+      const panel = {
+        viewType,
+        title,
+        options: options || {},
+        visible: true,
+        active: true,
+        iconPath: undefined,
+        webview: {
+          options: options || {},
+          cspSource: "'self'",
+          html: "",
+          asWebviewUri: (uri) => {
+            const p = uri.fsPath || uri.path || String(uri);
+            const rel = path.relative(process.cwd(), p).replace(/\\/g, "/");
+            return "/" + (rel.startsWith("/") ? rel.slice(1) : rel);
+          },
+          onDidReceiveMessage: (callback) => {
+            panel._messageListener = callback;
+            return { dispose: () => {} };
+          },
+          postMessage: async (message) => {
+            if (panel._onPostMessage) {
+              panel._onPostMessage(message);
+            }
+            return true;
+          },
+        },
+        onDidDispose: (callback) => {
+          panel._disposeListener = callback;
+          return { dispose: () => {} };
+        },
+        onDidChangeViewState: (callback) => {
+          panel._viewStateListener = callback;
+          return { dispose: () => {} };
+        },
+        reveal: () => {
+          panel.visible = true;
+          panel.active = true;
+        },
+        dispose: () => {
+          if (!isDisposed) {
+            isDisposed = true;
+            panel.visible = false;
+            panel.active = false;
+            if (panel._disposeListener) {
+              panel._disposeListener();
+            }
+          }
+        },
+      };
+      return panel;
+    },
+  },
+  ViewColumn: {
+    Active: -1,
+    Beside: -2,
+    One: 1,
+    Two: 2,
+    Three: 3,
   },
   commands: {
     executeCommand: () => null,
@@ -55,9 +123,21 @@ module.exports = {
     }
   },
   Uri: {
-    file: (k) => {
+    file: (k) => ({
+      fsPath: k,
+      path: k,
+      toString: () => k,
+    }),
+    joinPath: (base, ...segments) => {
+      const basePath =
+        base.fsPath ||
+        base.path ||
+        (typeof base.toString === "function" ? base.toString() : String(base));
+      const p = path.join(basePath, ...segments);
       return {
-        fsPath: k,
+        fsPath: p,
+        path: p,
+        toString: () => p,
       };
     },
   },
