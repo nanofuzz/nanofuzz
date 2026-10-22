@@ -156,3 +156,95 @@ macro_rules! assume {
         $crate::assume($cond, Some(&format!($($arg)+)))
     };
 }
+
+/// In-process coverage tracking module used by NaNofuzz runner host.
+pub mod coverage {
+    use serde::{Deserialize, Serialize};
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+
+    /// File coverage data matching Istanbul's FileCoverageData schema.
+    #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+    pub struct FileCoverage {
+        pub path: String,
+        pub s: HashMap<String, u32>,
+        pub f: HashMap<String, u32>,
+        pub b: HashMap<String, Vec<u32>>,
+    }
+
+    thread_local! {
+        static HIT_STMTS: RefCell<Vec<u32>> = const { RefCell::new(Vec::new()) };
+        static HIT_FNS: RefCell<Vec<u32>> = const { RefCell::new(Vec::new()) };
+        static HIT_BRANCHES: RefCell<Vec<(u32, u32)>> = const { RefCell::new(Vec::new()) };
+    }
+
+    /// Records execution of statement with index `id`.
+    #[inline(always)]
+    pub fn hit_stmt(id: u32) {
+        HIT_STMTS.with(|s| s.borrow_mut().push(id));
+    }
+
+    /// Records execution of function with index `id`.
+    #[inline(always)]
+    pub fn hit_fn(id: u32) {
+        HIT_FNS.with(|f| f.borrow_mut().push(id));
+    }
+
+    /// Records execution of branch with index `branch_id` and arm `arm_id`.
+    #[inline(always)]
+    pub fn hit_branch(branch_id: u32, arm_id: u32) {
+        HIT_BRANCHES.with(|b| b.borrow_mut().push((branch_id, arm_id)));
+    }
+
+    /// Resets all recorded coverage hits.
+    pub fn reset() {
+        HIT_STMTS.with(|s| s.borrow_mut().clear());
+        HIT_FNS.with(|f| f.borrow_mut().clear());
+        HIT_BRANCHES.with(|b| b.borrow_mut().clear());
+    }
+
+    /// Takes the recorded coverage hits and returns them as an Istanbul-compatible structure.
+    pub fn take_hits(file_path: &str, branch_arms: &[(u32, usize)]) -> FileCoverage {
+        let stmts = HIT_STMTS.with(|s| {
+            let mut v = s.borrow_mut();
+            let mut res = HashMap::new();
+            for id in v.drain(..) {
+                *res.entry(id.to_string()).or_insert(0) += 1;
+            }
+            res
+        });
+
+        let fns = HIT_FNS.with(|f| {
+            let mut v = f.borrow_mut();
+            let mut res = HashMap::new();
+            for id in v.drain(..) {
+                *res.entry(id.to_string()).or_insert(0) += 1;
+            }
+            res
+        });
+
+        let branches = HIT_BRANCHES.with(|b| {
+            let mut v = b.borrow_mut();
+            let mut res: HashMap<String, Vec<u32>> = HashMap::new();
+            for (branch_id, arm_count) in branch_arms {
+                res.insert(branch_id.to_string(), vec![0; *arm_count]);
+            }
+            for (branch_id, arm_id) in v.drain(..) {
+                let key = branch_id.to_string();
+                if let Some(arms) = res.get_mut(&key) {
+                    if let Some(count) = arms.get_mut(arm_id as usize) {
+                        *count += 1;
+                    }
+                }
+            }
+            res
+        });
+
+        FileCoverage {
+            path: file_path.to_string(),
+            s: stmts,
+            f: fns,
+            b: branches,
+        }
+    }
+}

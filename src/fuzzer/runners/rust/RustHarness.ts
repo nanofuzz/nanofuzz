@@ -3,13 +3,15 @@ import path from "node:path";
 import os from "node:os";
 import crypto from "node:crypto";
 import * as ChildProcess from "node:child_process";
+import { FileCoverageData } from "istanbul-lib-coverage";
 import { RustCompiler } from "../../compilers/rust/RustCompiler";
 import { RustCompilerError } from "../../compilers/Types";
 import { RustProgram } from "../../analysis/rust/RustProgram";
 import { FuzzEnv } from "../../Types";
 import { findInAncestor } from "../../Util";
+import * as Parser from "../../adapters/ParserAdapter";
 
-const HARNESS_TEMPLATE_VER = "RustHarness-0.4.0";
+const HARNESS_TEMPLATE_VER = "RustHarness-0.4.3";
 
 /**
  * Builds and returns the compiled Rust harness binary for testing a target function.
@@ -18,15 +20,21 @@ const HARNESS_TEMPLATE_VER = "RustHarness-0.4.0";
  * @param fnName Name of the function to test
  * @param env FuzzEnv containing function definitions and validators
  * @param tmpDir Base temporary directory for compilation outputs
- * @returns Path to the compiled harness executable
+ * @returns Path to the compiled harness executable, directory, and Istanbul static coverage
  */
 export function buildRustHarness(
   targetFile: string,
   fnName: string,
   env?: FuzzEnv,
   tmpDir?: string
-): { binaryPath: string; harnessDir: string } {
-  const normTarget = path.resolve(targetFile);
+): {
+  binaryPath: string;
+  harnessDir: string;
+  staticCov: FileCoverageData;
+} {
+  const normTarget = fs.existsSync(targetFile)
+    ? fs.realpathSync(path.resolve(targetFile))
+    : path.resolve(targetFile);
   if (!fs.existsSync(normTarget)) {
     throw new Error(`Target file does not exist: ${normTarget}`);
   }
@@ -52,15 +60,24 @@ export function buildRustHarness(
     process.platform === "win32" ? "nanofuzz_harness.exe" : "nanofuzz_harness";
   const binaryPath = path.join(harnessDir, "target", "debug", binName);
 
+  const targetSrc = fs.readFileSync(normTarget, "utf8");
+  const { instrumentedSrc, staticCov, branchArms } = instrumentRustSource(
+    targetSrc,
+    normTarget
+  );
+
   // Return cached binary if it already exists and is up-to-date relative to source
   if (
     fs.existsSync(binaryPath) &&
     fs.statSync(binaryPath).mtimeMs >= targetMtime
   ) {
-    return { binaryPath, harnessDir };
+    return { binaryPath, harnessDir, staticCov };
   }
 
   fs.mkdirSync(path.join(harnessDir, "src"), { recursive: true });
+
+  const instTargetPath = path.join(harnessDir, "src", "target_instrumented.rs");
+  fs.writeFileSync(instTargetPath, instrumentedSrc, "utf8");
 
   // Locate the nanofuzz-runtime crate
   const runtimeCratePath = findRuntimeCrate();
@@ -95,7 +112,14 @@ ${extraDependencies}
   );
 
   // Generate main.rs
-  const mainRsContent = generateHarnessSource(normTarget, fnName, env);
+  const mainRsContent = generateHarnessSource(
+    normTarget,
+    fnName,
+    env,
+    staticCov,
+    branchArms,
+    instTargetPath
+  );
   fs.writeFileSync(
     path.join(harnessDir, "src", "main.rs"),
     mainRsContent,
@@ -145,7 +169,7 @@ ${extraDependencies}
     });
   }
 
-  return { binaryPath, harnessDir };
+  return { binaryPath, harnessDir, staticCov };
 } // fn: buildRustHarness
 
 /**
@@ -154,7 +178,10 @@ ${extraDependencies}
 function generateHarnessSource(
   targetFile: string,
   fnName: string,
-  env?: FuzzEnv
+  env?: FuzzEnv,
+  staticCov?: FileCoverageData,
+  branchArms?: Array<[number, number]>,
+  instTargetPath?: string
 ): string {
   const normPath = targetFile.replace(/\\/g, "/");
   const fnDef = env?.function;
@@ -179,6 +206,7 @@ function generateHarnessSource(
                     source: "put",
                     seq: input.seq,
                     validators: None,
+                    coverage_data: None,
                 };
                 write_msg(&serde_json::to_vec(&resp).unwrap())?;
                 continue;
@@ -236,12 +264,369 @@ ${validatorBlocks.join("\n")}
       : `                let validators_res = None;`;
 
   const template = getHarnessTemplate();
+  const staticCovMap = {
+    [normPath]: staticCov ?? {
+      path: normPath,
+      statementMap: {},
+      fnMap: {},
+      branchMap: {},
+      s: {},
+      f: {},
+      b: {},
+    },
+  };
+  const staticCovPayload = JSON.stringify(staticCovMap);
+  const branchArmsPayload = (branchArms ?? [])
+    .map(([bId, arms]) => `(${bId}, ${arms})`)
+    .join(", ");
+
   return template
-    .replace("/* __NANOFUZZ_TARGET_PATH__ */", normPath)
-    .replace("/* __NANOFUZZ_ARG_CONVERSIONS__ */", argConversions.join("\n\n"))
-    .replace("/* __NANOFUZZ_FN_CALL__ */", fnCallExpr)
-    .replace("/* __NANOFUZZ_VALIDATORS__ */", validatorExecution);
+    .replaceAll(
+      "/* __NANOFUZZ_TARGET_PATH__ */",
+      (instTargetPath ?? targetFile).replace(/\\/g, "/")
+    )
+    .replaceAll("/* __NANOFUZZ_REAL_PATH__ */", normPath)
+    .replaceAll("/* __NANOFUZZ_BRANCH_ARMS__ */", branchArmsPayload)
+    .replaceAll("/* __NANOFUZZ_STATIC_COV_JSON__ */", staticCovPayload)
+    .replaceAll(
+      "/* __NANOFUZZ_ARG_CONVERSIONS__ */",
+      argConversions.join("\n\n")
+    )
+    .replaceAll("/* __NANOFUZZ_FN_CALL__ */", fnCallExpr)
+    .replaceAll("/* __NANOFUZZ_VALIDATORS__ */", validatorExecution);
 } // fn: generateHarnessSource
+
+/**
+ * Instruments Rust source code by inserting statement, function, and branch hit probes,
+ * while extracting the Istanbul-compatible static coverage metadata.
+ *
+ * @param src Target Rust source code
+ * @param targetFile Absolute path of the target file
+ * @returns Object with instrumented source code, static coverage, and branch arms
+ */
+export function instrumentRustSource(
+  src: string,
+  targetFile: string = ""
+): {
+  instrumentedSrc: string;
+  staticCov: FileCoverageData;
+  branchArms: Array<[number, number]>;
+} {
+  const tree = Parser.parse("rust", src);
+  if (!tree) {
+    throw new Error("Parser failed to parse Rust source for instrumentation");
+  }
+
+  const statementMap: FileCoverageData["statementMap"] = {};
+  const fnMap: FileCoverageData["fnMap"] = {};
+  const branchMap: FileCoverageData["branchMap"] = {};
+  const s: FileCoverageData["s"] = {};
+  const f: FileCoverageData["f"] = {};
+  const b: FileCoverageData["b"] = {};
+  const branchArms: Array<[number, number]> = [];
+  const insertions: Array<{ pos: number; text: string }> = [];
+
+  let sIdx = 0;
+  let fIdx = 0;
+  let bIdx = 0;
+
+  // 1. Function items
+  const fnQuery = Parser.query(
+    "rust",
+    `
+(function_item
+  name: (identifier) @fn.name
+  body: (block) @fn.body) @fn.item
+`
+  );
+  const fnMatches = fnQuery.matches(tree.rootNode);
+
+  for (const m of fnMatches) {
+    const itemNode = m.captures.find((c) => c.name === "fn.item")?.node;
+    const nameNode = m.captures.find((c) => c.name === "fn.name")?.node;
+    const bodyNode = m.captures.find((c) => c.name === "fn.body")?.node;
+    if (!itemNode || !nameNode || !bodyNode) continue;
+
+    const currentFIdx = String(fIdx++);
+    fnMap[currentFIdx] = {
+      name: nameNode.text,
+      decl: {
+        start: {
+          line: itemNode.startPosition.row + 1,
+          column: itemNode.startPosition.column,
+        },
+        end: {
+          line: itemNode.startPosition.row + 1,
+          column: itemNode.startPosition.column + itemNode.text.length,
+        },
+      },
+      loc: {
+        start: {
+          line: bodyNode.startPosition.row + 1,
+          column: bodyNode.startPosition.column,
+        },
+        end: {
+          line: bodyNode.endPosition.row + 1,
+          column: bodyNode.endPosition.column,
+        },
+      },
+      line: itemNode.startPosition.row + 1,
+    };
+    f[currentFIdx] = 0;
+
+    insertions.push({
+      pos: bodyNode.startIndex + 1,
+      text: ` nanofuzz_runtime::coverage::hit_fn(${currentFIdx}); `,
+    });
+
+    for (let i = 0; i < bodyNode.childCount; i++) {
+      const child = bodyNode.child(i);
+      if (!child) continue;
+      if (
+        child.type === "{" ||
+        child.type === "}" ||
+        child.type === "line_comment" ||
+        child.type === "block_comment"
+      ) {
+        continue;
+      }
+      const currentSIdx = String(sIdx++);
+      statementMap[currentSIdx] = {
+        start: {
+          line: child.startPosition.row + 1,
+          column: child.startPosition.column,
+        },
+        end: {
+          line: child.endPosition.row + 1,
+          column: child.endPosition.column,
+        },
+      };
+      s[currentSIdx] = 0;
+      insertions.push({
+        pos: child.startIndex,
+        text: `nanofuzz_runtime::coverage::hit_stmt(${currentSIdx}); `,
+      });
+    }
+  }
+
+  // 2. If branches
+  const ifQuery = Parser.query(
+    "rust",
+    `
+(if_expression
+  consequence: (block) @if.then
+  alternative: (else_clause (_)? @if.else)? ) @if.item
+`
+  );
+  const ifMatches = ifQuery.matches(tree.rootNode);
+  for (const m of ifMatches) {
+    const itemNode = m.captures.find((c) => c.name === "if.item")?.node;
+    const thenBlock = m.captures.find((c) => c.name === "if.then")?.node;
+    const elseNode = m.captures.find((c) => c.name === "if.else")?.node;
+    if (!itemNode || !thenBlock) continue;
+
+    const currentBIdx = String(bIdx++);
+    branchArms.push([Number(currentBIdx), 2]);
+
+    const locations = [
+      {
+        start: {
+          line: thenBlock.startPosition.row + 1,
+          column: thenBlock.startPosition.column,
+        },
+        end: {
+          line: thenBlock.endPosition.row + 1,
+          column: thenBlock.endPosition.column,
+        },
+      },
+      elseNode
+        ? {
+            start: {
+              line: elseNode.startPosition.row + 1,
+              column: elseNode.startPosition.column,
+            },
+            end: {
+              line: elseNode.endPosition.row + 1,
+              column: elseNode.endPosition.column,
+            },
+          }
+        : {
+            start: {
+              line: itemNode.startPosition.row + 1,
+              column: itemNode.startPosition.column,
+            },
+            end: {
+              line: itemNode.endPosition.row + 1,
+              column: itemNode.endPosition.column,
+            },
+          },
+    ];
+
+    branchMap[currentBIdx] = {
+      loc: {
+        start: {
+          line: itemNode.startPosition.row + 1,
+          column: itemNode.startPosition.column,
+        },
+        end: {
+          line: itemNode.endPosition.row + 1,
+          column: itemNode.endPosition.column,
+        },
+      },
+      type: "if",
+      locations,
+      line: itemNode.startPosition.row + 1,
+    };
+    b[currentBIdx] = [0, 0];
+
+    insertions.push({
+      pos: thenBlock.startIndex + 1,
+      text: ` nanofuzz_runtime::coverage::hit_branch(${currentBIdx}, 0); `,
+    });
+
+    if (elseNode) {
+      if (elseNode.type === "block") {
+        insertions.push({
+          pos: elseNode.startIndex + 1,
+          text: ` nanofuzz_runtime::coverage::hit_branch(${currentBIdx}, 1); `,
+        });
+      } else if (elseNode.type === "if_expression") {
+        insertions.push({
+          pos: elseNode.startIndex,
+          text: `{ nanofuzz_runtime::coverage::hit_branch(${currentBIdx}, 1); `,
+        });
+        insertions.push({
+          pos: elseNode.endIndex,
+          text: ` }`,
+        });
+      }
+    } else {
+      insertions.push({
+        pos: thenBlock.endIndex,
+        text: ` else { nanofuzz_runtime::coverage::hit_branch(${currentBIdx}, 1); } `,
+      });
+    }
+  }
+
+  // 3. Match branches
+  const matchQuery = Parser.query(
+    "rust",
+    `
+(match_expression
+  body: (match_block
+    (match_arm) @match.arm)) @match.item
+`
+  );
+  const matchMatches = matchQuery.matches(tree.rootNode);
+  const matchGroups = new Map<
+    number,
+    { itemNode: Parser.SyntaxNode; arms: Parser.SyntaxNode[] }
+  >();
+  for (const m of matchMatches) {
+    const itemNode = m.captures.find((c) => c.name === "match.item")?.node;
+    const armNode = m.captures.find((c) => c.name === "match.arm")?.node;
+    if (!itemNode || !armNode) continue;
+    const line = itemNode.startPosition.row + 1;
+    if (!matchGroups.has(line)) {
+      matchGroups.set(line, { itemNode, arms: [] });
+    }
+    matchGroups.get(line)!.arms.push(armNode);
+  }
+
+  for (const { itemNode, arms } of matchGroups.values()) {
+    const currentBIdx = String(bIdx++);
+    branchArms.push([Number(currentBIdx), arms.length]);
+
+    const locations = arms.map((arm) => ({
+      start: {
+        line: arm.startPosition.row + 1,
+        column: arm.startPosition.column,
+      },
+      end: {
+        line: arm.endPosition.row + 1,
+        column: arm.endPosition.column,
+      },
+    }));
+
+    branchMap[currentBIdx] = {
+      loc: {
+        start: {
+          line: itemNode.startPosition.row + 1,
+          column: itemNode.startPosition.column,
+        },
+        end: {
+          line: itemNode.endPosition.row + 1,
+          column: itemNode.endPosition.column,
+        },
+      },
+      type: "match",
+      locations,
+      line: itemNode.startPosition.row + 1,
+    };
+    b[currentBIdx] = arms.map(() => 0);
+
+    for (let j = 0; j < arms.length; j++) {
+      const arm = arms[j];
+      let valNode: Parser.SyntaxNode | null = null;
+      let seenArrow = false;
+      for (let i = 0; i < arm.childCount; i++) {
+        const c = arm.child(i);
+        if (!c) continue;
+        if (c.type === "=>") {
+          seenArrow = true;
+          continue;
+        }
+        if (seenArrow && c.type !== "," && c.type !== "line_comment") {
+          valNode = c;
+          break;
+        }
+      }
+
+      if (valNode) {
+        if (valNode.type === "block") {
+          insertions.push({
+            pos: valNode.startIndex + 1,
+            text: ` nanofuzz_runtime::coverage::hit_branch(${currentBIdx}, ${j}); `,
+          });
+        } else {
+          insertions.push({
+            pos: valNode.startIndex,
+            text: `{ nanofuzz_runtime::coverage::hit_branch(${currentBIdx}, ${j}); `,
+          });
+          insertions.push({
+            pos: valNode.endIndex,
+            text: ` }`,
+          });
+        }
+      }
+    }
+  }
+
+  insertions.sort((a, b) => b.pos - a.pos);
+  let instrumentedSrc = src;
+  for (const ins of insertions) {
+    instrumentedSrc =
+      instrumentedSrc.slice(0, ins.pos) +
+      ins.text +
+      instrumentedSrc.slice(ins.pos);
+  }
+
+  const staticCov: FileCoverageData = {
+    path: targetFile,
+    statementMap,
+    fnMap,
+    branchMap,
+    s,
+    f,
+    b,
+  };
+
+  return {
+    instrumentedSrc,
+    staticCov,
+    branchArms,
+  };
+} // fn: instrumentRustSource
 
 /**
  * Loads the Rust runner host template source.

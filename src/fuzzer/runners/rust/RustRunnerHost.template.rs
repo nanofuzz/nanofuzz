@@ -3,7 +3,13 @@ use std::collections::HashMap;
 use std::io::{self, Read, Write};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
-#[allow(dead_code, unused_imports, unused_variables, non_snake_case)]
+#[allow(
+    dead_code,
+    unused_imports,
+    unused_variables,
+    unused_assignments,
+    non_snake_case
+)]
 mod target {
     include!("/* __NANOFUZZ_TARGET_PATH__ */");
 }
@@ -37,6 +43,8 @@ enum RunnerResultPayload {
         seq: i64,
         #[serde(skip_serializing_if = "Option::is_none")]
         validators: Option<HashMap<String, ValidatorResult>>,
+        #[serde(rename = "coverageData", skip_serializing_if = "Option::is_none")]
+        coverage_data: Option<HashMap<String, nanofuzz_runtime::coverage::FileCoverage>>,
     },
     #[serde(rename = "error")]
     Error {
@@ -46,9 +54,16 @@ enum RunnerResultPayload {
         seq: i64,
         #[serde(skip_serializing_if = "Option::is_none")]
         validators: Option<HashMap<String, ValidatorResult>>,
+        #[serde(rename = "coverageData", skip_serializing_if = "Option::is_none")]
+        coverage_data: Option<HashMap<String, nanofuzz_runtime::coverage::FileCoverage>>,
     },
     #[serde(rename = "skip")]
-    Skip { message: String, seq: i64 },
+    Skip {
+        message: String,
+        seq: i64,
+        #[serde(rename = "coverageData", skip_serializing_if = "Option::is_none")]
+        coverage_data: Option<HashMap<String, nanofuzz_runtime::coverage::FileCoverage>>,
+    },
 }
 
 fn write_msg(msg: &[u8]) -> io::Result<()> {
@@ -58,6 +73,9 @@ fn write_msg(msg: &[u8]) -> io::Result<()> {
     s.flush()
 }
 
+const TARGET_PATH: &str = r#"/* __NANOFUZZ_REAL_PATH__ */"#;
+const BRANCH_ARMS: &[(u32, usize)] = &[/* __NANOFUZZ_BRANCH_ARMS__ */];
+
 fn main() -> io::Result<()> {
     // Suppress default panic printing to stderr so intentional fuzzer panics do not clutter output
     std::panic::set_hook(Box::new(|_| {}));
@@ -65,8 +83,9 @@ fn main() -> io::Result<()> {
     // Send READY handshake message
     write_msg(&serde_json::to_vec("READY").unwrap())?;
 
-    // Send initial coverage placeholder
-    write_msg(&serde_json::to_vec(&serde_json::json!({})).unwrap())?;
+    // Send initial static coverage metadata
+    const STATIC_COV_JSON: &str = r#"/* __NANOFUZZ_STATIC_COV_JSON__ */"#;
+    write_msg(STATIC_COV_JSON.as_bytes())?;
 
     let mut stdin = io::stdin().lock();
     loop {
@@ -87,11 +106,14 @@ fn main() -> io::Result<()> {
                     source: "put",
                     seq: -1,
                     validators: None,
+                    coverage_data: None,
                 };
                 write_msg(&serde_json::to_vec(&resp).unwrap())?;
                 continue;
             }
         };
+
+        nanofuzz_runtime::coverage::reset();
 
         /* __NANOFUZZ_ARG_CONVERSIONS__ */
 
@@ -100,6 +122,9 @@ fn main() -> io::Result<()> {
             json_val
         }));
 
+        let cov = nanofuzz_runtime::coverage::take_hits(TARGET_PATH, BRANCH_ARMS);
+        let cov_data = Some(HashMap::from([(TARGET_PATH.to_string(), cov)]));
+
         let response = match call_res {
             Ok(json_val) => {
                 /* __NANOFUZZ_VALIDATORS__ */
@@ -107,6 +132,7 @@ fn main() -> io::Result<()> {
                     value: json_val,
                     seq: input.seq,
                     validators: validators_res,
+                    coverage_data: cov_data,
                 }
             }
             Err(panic_err) => {
@@ -116,6 +142,7 @@ fn main() -> io::Result<()> {
                     RunnerResultPayload::Skip {
                         message: assump.message.clone(),
                         seq: input.seq,
+                        coverage_data: cov_data,
                     }
                 } else {
                     let msg = panic_err
@@ -133,6 +160,7 @@ fn main() -> io::Result<()> {
                         source: "put",
                         seq: input.seq,
                         validators: None,
+                        coverage_data: cov_data,
                     }
                 }
             }
