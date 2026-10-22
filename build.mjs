@@ -14,13 +14,12 @@ const version = JSON.stringify(pkg.version);
 // Clear the build folder
 fs.rmSync("./build", { recursive: true, force: true });
 
-// Copy static assets
-copyfiles(["./src/ui/*.css", "./build/ui"], true /* flat */, () =>
-  console.log("copied css assets")
-);
-copyfiles(["./src/ui/*.svg", "./build/ui"], true /* flat */, () =>
-  console.log("copied svg assets")
-);
+// Copy static assets synchronously
+fs.mkdirSync("./build/ui", { recursive: true });
+fs.copyFileSync("./src/ui/FuzzPanelView.css", "./build/ui/FuzzPanelView.css");
+console.log("copied css assets");
+fs.copyFileSync("./src/ui/icon.svg", "./build/ui/icon.svg");
+console.log("copied svg assets");
 
 // Copy Python assets
 copyfiles(
