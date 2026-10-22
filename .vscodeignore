@@ -6,6 +6,7 @@
 !node_modules/@vscode/codicons/
 !node_modules/web-tree-sitter/
 !node_modules/tree-sitter-python/
+!node_modules/tree-sitter-rust/
 !node_modules/tree-sitter-typescript/
 !node_modules/typescript/
 !package.json
