@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import path from "node:path";
+import os from "node:os";
 import * as ProgramFactory from "../ProgramFactory";
 import { ArgTag } from "../Types";
 import { RustProgram } from "./RustProgram";
@@ -225,5 +228,39 @@ pub fn caller() -> i32 {
     expect(callees.has("helper_a")).toBeTrue();
     expect(callees.has("helper_b")).toBeTrue();
     expect(callees.has("non_existent")).toBeFalse();
+  });
+
+  it("recursively discovers local modules and handles #[path = '...'] attributes", () => {
+    const tmp = fs.mkdtempSync(
+      path.join(fs.realpathSync(os.tmpdir()), "nanofuzz-mod-test-")
+    );
+    try {
+      const rootRs = path.join(tmp, "root.rs");
+      const helperRs = path.join(tmp, "helper.rs");
+      const subDir = path.join(tmp, "helper");
+      fs.mkdirSync(subDir, { recursive: true });
+      const subRs = path.join(subDir, "sub.rs");
+      const customRs = path.join(tmp, "my_custom.rs");
+
+      fs.writeFileSync(
+        rootRs,
+        `mod helper;
+#[path = "my_custom.rs"]
+mod custom;
+pub fn entry() {}
+`
+      );
+      fs.writeFileSync(helperRs, `pub mod sub;\npub fn h() {}\n`);
+      fs.writeFileSync(subRs, `pub fn s() {}\n`);
+      fs.writeFileSync(customRs, `pub fn c() {}\n`);
+
+      const discovered = RustProgram.findLocalModules(rootRs);
+      expect(discovered.length).toBe(3);
+      expect(discovered).toContain(fs.realpathSync(helperRs));
+      expect(discovered).toContain(fs.realpathSync(subRs));
+      expect(discovered).toContain(fs.realpathSync(customRs));
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });

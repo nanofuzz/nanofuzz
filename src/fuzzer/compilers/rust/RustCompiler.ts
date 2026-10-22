@@ -13,6 +13,7 @@ import {
   RustCompilerErrorDetails,
   RustCompilerDiagnosticSpan,
 } from "../Types";
+import { RustProgram } from "../../analysis/rust/RustProgram";
 
 /**
  * A Rust compiler wrapper for cargo and rustc.
@@ -114,6 +115,17 @@ export class RustCompiler {
         } catch {
           // ignore directory read errors
         }
+      }
+    } else {
+      try {
+        const localModules = RustProgram.findLocalModules(this._moduleFile);
+        for (const modFile of localModules) {
+          if (!deps.includes(modFile) && fs.existsSync(modFile)) {
+            deps.push(modFile);
+          }
+        }
+      } catch {
+        // ignore module discovery errors
       }
     }
     return deps;

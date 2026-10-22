@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import path from "node:path";
 import { AbstractProgram } from "../AbstractProgram";
 import {
   FunctionRef,
@@ -772,6 +773,21 @@ export class RustProgram extends AbstractProgram {
       }
     }
   } // fn: _getTypeRefFromAstNode
+
+  /**
+   * Recursively discovers local module files referenced by `mod <name>;` declarations
+   * starting from the given Rust source file.
+   *
+   * @param sourceFile Root source file to start traversal from
+   * @param visited Set of already visited file paths
+   * @returns Array of absolute file paths to discovered local module files
+   */
+  public static findLocalModules(
+    sourceFile: string,
+    visited: Set<string> = new Set()
+  ): string[] {
+    return findLocalModules(sourceFile, visited);
+  } // fn: findLocalModules
 } // class: RustProgram
 
 // ============================================================================
@@ -974,3 +990,95 @@ function isRustPrimitiveOrBuiltin(name: string): boolean {
   ]);
   return builtins.has(name);
 } // fn: isRustPrimitiveOrBuiltin
+
+/**
+ * Finds local Rust modules referenced in a source file, considering both standard module paths and custom paths specified with #[path = "..."].
+ *
+ * @param sourceFile The path to the Rust source file to analyze for local modules.
+ * @param visited A set of already visited files to avoid circular dependencies.
+ * @returns An array of file paths corresponding to local modules found in the source file.
+ */
+function findLocalModules(
+  sourceFile: string,
+  visited: Set<string> = new Set()
+): string[] {
+  const norm = fs.existsSync(sourceFile)
+    ? fs.realpathSync(sourceFile)
+    : path.resolve(sourceFile);
+  if (visited.has(norm) || !fs.existsSync(norm)) {
+    return [];
+  }
+  visited.add(norm);
+
+  const results: string[] = [];
+  const src = fs.readFileSync(norm, "utf8");
+  const tree = Parser.parse("rust", src);
+  if (!tree) return results;
+
+  const modQuery = Parser.query(
+    "rust",
+    `
+(mod_item
+  name: (identifier) @mod.name
+  ";") @mod.decl
+`
+  );
+  const matches = modQuery.matches(tree.rootNode);
+  const dir = path.dirname(norm);
+
+  for (const match of matches) {
+    const nameNode = match.captures.find((c) => c.name === "mod.name")?.node;
+    const declNode = match.captures.find((c) => c.name === "mod.decl")?.node;
+    if (!nameNode || !declNode) continue;
+    const modName = nameNode.text;
+
+    // Check for #[path = "..."] on attributes preceding the mod declaration
+    let customPath: string | undefined;
+    let prev = declNode.previousNamedSibling;
+    while (prev && prev.type === "attribute_item") {
+      const attrText = prev.text;
+      const pathMatch = attrText.match(/path\s*=\s*"([^"]+)"/);
+      if (pathMatch) {
+        customPath = pathMatch[1];
+        break;
+      }
+      prev = prev.previousNamedSibling;
+    }
+
+    let candidatePath: string | undefined;
+    if (customPath) {
+      const resolved = path.resolve(dir, customPath);
+      if (fs.existsSync(resolved)) candidatePath = resolved;
+    } else {
+      const fileStem = path.basename(norm, ".rs");
+      const candidates = [
+        path.join(dir, `${modName}.rs`),
+        path.join(dir, modName, "mod.rs"),
+      ];
+      if (fileStem !== "lib" && fileStem !== "main" && fileStem !== "mod") {
+        candidates.unshift(
+          path.join(dir, fileStem, `${modName}.rs`),
+          path.join(dir, fileStem, modName, "mod.rs")
+        );
+      }
+      for (const cand of candidates) {
+        if (fs.existsSync(cand)) {
+          candidatePath = cand;
+          break;
+        }
+      }
+    }
+
+    if (candidatePath) {
+      const realCandidate = fs.existsSync(candidatePath)
+        ? fs.realpathSync(candidatePath)
+        : path.resolve(candidatePath);
+      if (!visited.has(realCandidate)) {
+        results.push(realCandidate);
+        results.push(...findLocalModules(realCandidate, visited));
+      }
+    }
+  }
+
+  return results;
+} // fn: findLocalModules

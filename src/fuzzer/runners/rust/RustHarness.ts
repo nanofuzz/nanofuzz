@@ -12,7 +12,7 @@ import { findInAncestor } from "../../Util";
 import * as Parser from "../../adapters/ParserAdapter";
 import * as ProgramFactory from "../../analysis/ProgramFactory";
 
-const HARNESS_TEMPLATE_VER = "RustHarness-0.4.5";
+const HARNESS_TEMPLATE_VER = "RustHarness-0.4.6";
 
 /**
  * Builds and returns the compiled Rust harness binary for testing a target function.
@@ -32,6 +32,7 @@ export function buildRustHarness(
   binaryPath: string;
   harnessDir: string;
   staticCov: FileCoverageData;
+  staticCovMap: Record<string, FileCoverageData>;
 } {
   const normTarget = fs.existsSync(targetFile)
     ? fs.realpathSync(path.resolve(targetFile))
@@ -44,14 +45,47 @@ export function buildRustHarness(
     tmpDir ?? path.join(fs.realpathSync(os.tmpdir()), "nanofuzz", "rust");
   fs.mkdirSync(baseTmp, { recursive: true });
 
-  const targetMtime = fs.statSync(normTarget).mtimeMs;
+  // Discover local module files for multi-file coverage in project scope
+  const userCargoToml = findInAncestor(path.dirname(normTarget), "Cargo.toml");
+  let baseDir = path.dirname(normTarget);
+  const localModules = RustProgram.findLocalModules(normTarget);
+
+  if (userCargoToml) {
+    const crateSrcDir = path.join(path.dirname(userCargoToml), "src");
+    if (fs.existsSync(crateSrcDir) && normTarget.startsWith(crateSrcDir)) {
+      baseDir = crateSrcDir;
+      try {
+        const allSrcFiles = fs.readdirSync(crateSrcDir, { recursive: true });
+        for (const f of allSrcFiles) {
+          if (typeof f === "string" && f.endsWith(".rs")) {
+            const full = fs.realpathSync(path.join(crateSrcDir, f));
+            if (full !== normTarget && !localModules.includes(full)) {
+              localModules.push(full);
+            }
+          }
+        }
+      } catch {
+        // ignore directory read errors
+      }
+    }
+  }
+
+  const allProjectFiles = [normTarget, ...localModules];
+  let maxMtime = 0;
+  for (const pf of allProjectFiles) {
+    if (fs.existsSync(pf)) {
+      const m = fs.statSync(pf).mtimeMs;
+      if (m > maxMtime) maxMtime = m;
+    }
+  }
+
   const validators = env?.validators.map((v) => v.name) ?? [];
 
-  // Compute a deterministic cache key
+  // Compute a deterministic cache key including all project files
   const cacheHash = crypto
     .createHash("md5")
     .update(
-      `${normTarget}:${fnName}:${validators.sort().join(",")}:${HARNESS_TEMPLATE_VER}`
+      `${allProjectFiles.sort().join(",")}:${fnName}:${validators.sort().join(",")}:${HARNESS_TEMPLATE_VER}`
     )
     .digest("hex")
     .substring(0, 16);
@@ -61,24 +95,80 @@ export function buildRustHarness(
     process.platform === "win32" ? "nanofuzz_harness.exe" : "nanofuzz_harness";
   const binaryPath = path.join(harnessDir, "target", "debug", binName);
 
+  // Instrument target file (fileId = 0)
   const targetSrc = fs.readFileSync(normTarget, "utf8");
-  const { instrumentedSrc, staticCov, branchArms } = instrumentRustSource(
-    targetSrc,
-    normTarget
-  );
+  const targetCov = instrumentRustSource(targetSrc, normTarget, 0);
 
-  // Return cached binary if it already exists and is up-to-date relative to source
+  const staticCovMap: Record<string, FileCoverageData> = {
+    [normTarget.replace(/\\/g, "/")]: targetCov.staticCov,
+  };
+  const manifestEntries: CoverageManifestEntry[] = [
+    {
+      fileId: 0,
+      filePath: normTarget,
+      branchArms: targetCov.branchArms,
+    },
+  ];
+
+  // Instrument all local module files (fileId = 1, 2, ...)
+  const instrumentedModules: Array<{
+    instLocalPath: string;
+    instrumentedSrc: string;
+  }> = [];
+
+  for (let i = 0; i < localModules.length; i++) {
+    const localFile = localModules[i];
+    const fileId = i + 1;
+    const localSrc = fs.readFileSync(localFile, "utf8");
+    const localCov = instrumentRustSource(localSrc, localFile, fileId);
+    staticCovMap[localFile.replace(/\\/g, "/")] = localCov.staticCov;
+    manifestEntries.push({
+      fileId,
+      filePath: localFile,
+      branchArms: localCov.branchArms,
+    });
+
+    const rel = path.relative(baseDir, localFile);
+    const safeRel = rel.startsWith("..") ? path.basename(localFile) : rel;
+    const instLocalPath = path.join(harnessDir, "src", safeRel);
+    instrumentedModules.push({
+      instLocalPath,
+      instrumentedSrc: localCov.instrumentedSrc,
+    });
+  }
+
+  // Return cached binary if it already exists and is up-to-date relative to all project files
   if (
     fs.existsSync(binaryPath) &&
-    fs.statSync(binaryPath).mtimeMs >= targetMtime
+    fs.statSync(binaryPath).mtimeMs >= maxMtime
   ) {
-    return { binaryPath, harnessDir, staticCov };
+    return {
+      binaryPath,
+      harnessDir,
+      staticCov: targetCov.staticCov,
+      staticCovMap,
+    };
   }
 
   fs.mkdirSync(path.join(harnessDir, "src"), { recursive: true });
 
-  const instTargetPath = path.join(harnessDir, "src", "target_instrumented.rs");
-  fs.writeFileSync(instTargetPath, instrumentedSrc, "utf8");
+  const targetRel = path.relative(baseDir, normTarget);
+  const targetRelDir = path.dirname(targetRel);
+  const safeTargetRelDir = targetRel.startsWith("..") ? "" : targetRelDir;
+  const instTargetPath = path.join(
+    harnessDir,
+    "src",
+    safeTargetRelDir,
+    "target_instrumented.rs"
+  );
+  fs.mkdirSync(path.dirname(instTargetPath), { recursive: true });
+  fs.writeFileSync(instTargetPath, targetCov.instrumentedSrc, "utf8");
+
+  // Write instrumented local module files
+  for (const mod of instrumentedModules) {
+    fs.mkdirSync(path.dirname(mod.instLocalPath), { recursive: true });
+    fs.writeFileSync(mod.instLocalPath, mod.instrumentedSrc, "utf8");
+  }
 
   // Locate the nanofuzz-runtime crate
   const runtimeCratePath = findRuntimeCrate();
@@ -89,7 +179,6 @@ export function buildRustHarness(
   }
 
   // Check for ancestor Cargo.toml to extract user dependencies
-  const userCargoToml = findInAncestor(path.dirname(normTarget), "Cargo.toml");
   const extraDependencies = userCargoToml
     ? extractCargoDependencies(userCargoToml)
     : "";
@@ -117,8 +206,8 @@ ${extraDependencies}
     normTarget,
     fnName,
     env,
-    staticCov,
-    branchArms,
+    staticCovMap,
+    manifestEntries,
     instTargetPath
   );
   fs.writeFileSync(
@@ -170,7 +259,12 @@ ${extraDependencies}
     });
   }
 
-  return { binaryPath, harnessDir, staticCov };
+  return {
+    binaryPath,
+    harnessDir,
+    staticCov: targetCov.staticCov,
+    staticCovMap,
+  };
 } // fn: buildRustHarness
 
 /**
@@ -180,8 +274,8 @@ function generateHarnessSource(
   targetFile: string,
   fnName: string,
   env?: FuzzEnv,
-  staticCov?: FileCoverageData,
-  branchArms?: Array<[number, number]>,
+  staticCovMap?: Record<string, FileCoverageData>,
+  manifestEntries?: CoverageManifestEntry[],
   instTargetPath?: string
 ): string {
   const normPath = targetFile.replace(/\\/g, "/");
@@ -304,29 +398,22 @@ ${validatorBlocks.join("\n")}
       : `                let validators_res = None;`;
 
   const template = getHarnessTemplate();
-  const staticCovMap = {
-    [normPath]: staticCov ?? {
-      path: normPath,
-      statementMap: {},
-      fnMap: {},
-      branchMap: {},
-      s: {},
-      f: {},
-      b: {},
-    },
-  };
-  const staticCovPayload = JSON.stringify(staticCovMap);
-  const branchArmsPayload = (branchArms ?? [])
-    .map(([bId, arms]) => `(${bId}, ${arms})`)
-    .join(", ");
+  const staticCovPayload = JSON.stringify(staticCovMap ?? {});
+  const manifestPayload = (
+    manifestEntries ?? [{ fileId: 0, filePath: normPath, branchArms: [] }]
+  )
+    .map(
+      (m) =>
+        `(${m.fileId}, r#"${m.filePath.replace(/\\/g, "/")}"#, &[${m.branchArms.map(([bId, arms]) => `(${bId}, ${arms})`).join(", ")}])`
+    )
+    .join(",\n    ");
 
   return template
     .replaceAll(
       "/* __NANOFUZZ_TARGET_PATH__ */",
       (instTargetPath ?? targetFile).replace(/\\/g, "/")
     )
-    .replaceAll("/* __NANOFUZZ_REAL_PATH__ */", normPath)
-    .replaceAll("/* __NANOFUZZ_BRANCH_ARMS__ */", branchArmsPayload)
+    .replaceAll("/* __NANOFUZZ_COVERAGE_MANIFEST__ */", manifestPayload)
     .replaceAll("/* __NANOFUZZ_STATIC_COV_JSON__ */", staticCovPayload)
     .replaceAll(
       "/* __NANOFUZZ_ARG_CONVERSIONS__ */",
@@ -791,3 +878,9 @@ function extractCargoDependencies(cargoTomlPath: string): string {
     return "";
   }
 } // fn: extractCargoDependencies
+
+type CoverageManifestEntry = {
+  fileId: number;
+  filePath: string;
+  branchArms: Array<[number, number]>;
+};

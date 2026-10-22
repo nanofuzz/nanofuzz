@@ -273,6 +273,158 @@ describe("fuzzer/measures/CoverageMeasure: Rust", () => {
 
     await runner.onRunEnd();
   });
+
+  it("tracks multi-file coverage across local modules in project scope", async () => {
+    const entryPath = path.join(tempDir, "entry.rs");
+    const helperPath = path.join(tempDir, "math_helper.rs");
+
+    fs.writeFileSync(
+      helperPath,
+      `pub fn helper_op(y: i32) -> i32 {
+    if y > 10 {
+        y * 2
+    } else {
+        y + 1
+    }
+}
+`
+    );
+
+    fs.writeFileSync(
+      entryPath,
+      `mod math_helper;
+
+pub fn calculate(x: i32) -> i32 {
+    if x > 0 {
+        math_helper::helper_op(x)
+    } else {
+        0
+    }
+}
+`
+    );
+
+    const program = ProgramFactory.fromFile(entryPath, "rust");
+    const fnDef = program.functionsExported["calculate"];
+    const env = createTestEnv(fnDef);
+
+    const runner = new RustRunner(entryPath, "calculate", env);
+    await runner.onRunStart();
+
+    // Verify both files are registered in coverageInfo
+    expect(runner.coverageInfo).toBeDefined();
+    const covInfo = runner.coverageInfo!;
+    const registeredFiles = Object.keys(covInfo);
+    expect(registeredFiles.some((f) => f.includes("entry.rs"))).toBeTrue();
+    expect(
+      registeredFiles.some((f) => f.includes("math_helper.rs"))
+    ).toBeTrue();
+
+    const measure = new CoverageMeasure();
+    measure.onRunStart([runner], env);
+
+    // Run with x = 15 (hits x > 0 in entry.rs, and y > 10 in math_helper.rs)
+    measure.onBeforeNextTestExecution();
+    const res = await runner.run([15], 5000);
+    expect(res.result.tag).toBe("value");
+    if (res.result.tag === "value") {
+      expect(res.result.value).toBe(30);
+    }
+
+    const measurement = measure.measure(
+      {
+        tick: 0,
+        value: [{ tag: "ArgValueTypeWrapped", value: [15] }],
+        source: { type: "generator", generator: "RandomInputGenerator" },
+      },
+      createDummyResult()
+    );
+
+    const summary = measurement.coverageMeasure.current.getCoverageSummary();
+    expect(summary.functions.covered).toBe(2);
+    expect(summary.statements.covered).toBeGreaterThanOrEqual(2);
+
+    // Finalize run and verify multi-file coverage in CodeCoverageMeasureStats
+    const dummyGenStats = {
+      counters: { inputsGenerated: 1, dupesGenerated: 0, dupeTicks: [] },
+      timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
+    };
+    const resultsStub: FuzzTestResults = {
+      toolVersion: "0.0.0",
+      env,
+      stopReason: FuzzStopReason.MAXTESTS,
+      interesting: { inputs: [] },
+      results: [],
+      stats: {
+        counters: {
+          testingRuns: 1,
+          inputsGenerated: 1,
+          dupesGenerated: 0,
+          inputsInjected: 0,
+          erroredTests: 0,
+          passedTests: 1,
+          inputsSkipped: 0,
+          inputsInterrupted: 0,
+          failedTests: 0,
+        },
+        timers: {
+          total: 10,
+          compile: 0,
+          instrument: 0,
+          put: 10,
+          val: 0,
+          gen: 0,
+          transform: 0,
+          measure: 0,
+        },
+        outcomes: {
+          total: 1,
+          oracles: {
+            heuristic: { pass: 1, fail: 0, unknown: 0 },
+            human: { fail: 0, unknown: 0, pass: 0 },
+            property: { fail: 0, unknown: 0, pass: 0 },
+          },
+          exceptions: 0,
+          timeouts: 0,
+          categories: {
+            ok: 1,
+            badValue: 0,
+            timeout: 0,
+            exception: 0,
+            skip: 0,
+            disagree: 0,
+            failure: 0,
+          },
+        },
+        generators: {
+          RandomInputGenerator: dummyGenStats,
+          MutationInputGenerator: dummyGenStats,
+          AiInputGenerator: dummyGenStats,
+          UserInputGenerator: dummyGenStats,
+        },
+        measures: {},
+      },
+    };
+
+    measure.onRunEnd(resultsStub);
+    const finalStats = await resultsStub.stats.measures.CodeCoverageMeasure!();
+    expect(finalStats.files.length).toBe(2);
+
+    const entryStats = finalStats.files.find((f) =>
+      f.path.includes("entry.rs")
+    );
+    const helperStats = finalStats.files.find((f) =>
+      f.path.includes("math_helper.rs")
+    );
+    expect(entryStats).toBeDefined();
+    expect(helperStats).toBeDefined();
+
+    expect(entryStats!.counters.functionsCovered).toBe(1);
+    expect(helperStats!.counters.functionsCovered).toBe(1);
+    expect(helperStats!.counters.branchesCovered).toBe(1);
+
+    await runner.onRunEnd();
+  });
 });
 
 // ============================================================================

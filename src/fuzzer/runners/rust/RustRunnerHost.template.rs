@@ -91,8 +91,9 @@ fn block_on<F: std::future::Future>(f: F) -> F::Output {
     }
 }
 
-const TARGET_PATH: &str = r#"/* __NANOFUZZ_REAL_PATH__ */"#;
-const BRANCH_ARMS: &[(u32, usize)] = &[/* __NANOFUZZ_BRANCH_ARMS__ */];
+const MANIFEST: &[nanofuzz_runtime::coverage::FileCoverageSpec] = &[
+    /* __NANOFUZZ_COVERAGE_MANIFEST__ */
+];
 
 fn main() -> io::Result<()> {
     // Suppress default panic printing to stderr so intentional fuzzer panics do not clutter output
@@ -143,8 +144,7 @@ fn main() -> io::Result<()> {
         let response = match call_res {
             Ok(json_val) => {
                 /* __NANOFUZZ_VALIDATORS__ */
-                let cov = nanofuzz_runtime::coverage::take_hits(TARGET_PATH, BRANCH_ARMS);
-                let cov_data = Some(HashMap::from([(TARGET_PATH.to_string(), cov)]));
+                let cov_data = Some(nanofuzz_runtime::coverage::take_multi_hits(MANIFEST));
                 RunnerResultPayload::Value {
                     value: json_val,
                     seq: input.seq,
@@ -153,8 +153,7 @@ fn main() -> io::Result<()> {
                 }
             }
             Err(panic_err) => {
-                let cov = nanofuzz_runtime::coverage::take_hits(TARGET_PATH, BRANCH_ARMS);
-                let cov_data = Some(HashMap::from([(TARGET_PATH.to_string(), cov)]));
+                let cov_data = Some(nanofuzz_runtime::coverage::take_multi_hits(MANIFEST));
                 if let Some(assump) =
                     panic_err.downcast_ref::<nanofuzz_runtime::UnsatisfiedAssumption>()
                 {

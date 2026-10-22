@@ -57,23 +57,23 @@ export class RustRunner extends AbstractRunner {
       this._coverageEnabled =
         this._env.options.measures.CoverageMeasure.enabled;
     }
-    const { binaryPath, harnessDir, staticCov } = buildRustHarness(
-      this._filename,
-      this._fn,
-      this._env
-    );
+    const { binaryPath, harnessDir, staticCov, staticCovMap } =
+      buildRustHarness(this._filename, this._fn, this._env);
     this._harnessBinary = binaryPath;
     this._harnessDir = harnessDir;
     const realFile = fs.existsSync(this._filename)
       ? fs.realpathSync(this._filename)
       : this._filename;
-    const normKey = normalizePathForKey(realFile);
-    this._coverageInfo = { [realFile]: staticCov };
-    if (normKey !== realFile) {
-      this._coverageInfo[normKey] = staticCov;
+    const allStaticCov = staticCovMap ?? { [realFile]: staticCov };
+    this._coverageInfo = { ...allStaticCov };
+    for (const [fPath, sCov] of Object.entries(allStaticCov)) {
+      const normKey = normalizePathForKey(fPath);
+      if (normKey !== fPath) {
+        this._coverageInfo[normKey] = sCov;
+      }
     }
     this._staticCoverage = structuredClone(this._coverageInfo);
-    this._pgmFiles = [realFile];
+    this._pgmFiles = Object.keys(allStaticCov);
 
     await this._getHost();
   } // fn: onRunStart
@@ -224,23 +224,23 @@ export class RustRunner extends AbstractRunner {
     }
 
     if (!this._harnessBinary) {
-      const { binaryPath, harnessDir, staticCov } = buildRustHarness(
-        this._filename,
-        this._fn,
-        this._env
-      );
+      const { binaryPath, harnessDir, staticCov, staticCovMap } =
+        buildRustHarness(this._filename, this._fn, this._env);
       this._harnessBinary = binaryPath;
       this._harnessDir = harnessDir;
       const realFile = fs.existsSync(this._filename)
         ? fs.realpathSync(this._filename)
         : this._filename;
-      const normKey = normalizePathForKey(realFile);
-      this._coverageInfo = { [realFile]: staticCov };
-      if (normKey !== realFile) {
-        this._coverageInfo[normKey] = staticCov;
+      const allStaticCov = staticCovMap ?? { [realFile]: staticCov };
+      this._coverageInfo = { ...allStaticCov };
+      for (const [fPath, sCov] of Object.entries(allStaticCov)) {
+        const normKey = normalizePathForKey(fPath);
+        if (normKey !== fPath) {
+          this._coverageInfo[normKey] = sCov;
+        }
       }
       this._staticCoverage = structuredClone(this._coverageInfo);
-      this._pgmFiles = [realFile];
+      this._pgmFiles = Object.keys(allStaticCov);
     }
 
     const host = new RustHost(this._harnessBinary, [], this._harnessDir);
