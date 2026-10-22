@@ -92,16 +92,10 @@ export class CoverageFrontierSampler {
         );
         if (callPath && callPath.length > 1) {
           const callerFrames = callPath.slice(0, -1);
-          // Cap at most 2 caller frames (entry function and immediate caller if chain is deep)
-          const framesToRender =
-            callerFrames.length <= 2
-              ? callerFrames
-              : [callerFrames[0], callerFrames[callerFrames.length - 1]];
-
           callChain = [];
-          for (let i = 0; i < framesToRender.length; i++) {
-            const frame = framesToRender[i];
-            const nextFrameInPath = callPath[callPath.indexOf(frame) + 1] ?? {
+          for (let i = 0; i < callerFrames.length; i++) {
+            const frame = callerFrames[i];
+            const nextFrameInPath = callPath[i + 1] ?? {
               functionName: selected.functionName,
             };
 
