@@ -841,6 +841,122 @@ def compute(x: int) -> int:
     expect(pyProg.functions["compute"].getCallees().has("add_one")).toBe(true);
     expect(pyProg.functions["add_one"].getCallees().size).toBe(0);
   });
+
+  it("Option 2A: getCallPath resolves call chains and sample() attaches CallChainFrame skeleton", () => {
+    const fnDef = FunctionDef.fromFunctionRef({
+      module: targetFile,
+      name: "parseExpression",
+      src: `import { scanToken } from "./Tokenizer";
+export function parseExpression(input: string): boolean {
+  return scanToken(input);
+}`,
+      lang: "typescript",
+      startOffset: 0,
+      endOffset: 120,
+      isExported: true,
+      isVoid: false,
+      args: [],
+    });
+
+    const targetProgram = ProgramFactory.fromFile(targetFile);
+
+    // 1. Direct getCallPath tests on AbstractProgram
+    const selfPath = targetProgram.getCallPath(
+      "parseExpression",
+      `${normalizePathForKey(targetFile)}:parseExpression`
+    );
+    expect(selfPath).toBeDefined();
+    expect(selfPath?.length).toBe(1);
+
+    const calleePath = targetProgram.getCallPath(
+      "parseExpression",
+      `${normalizePathForKey(depFile)}:scanToken`
+    );
+    expect(calleePath).toBeDefined();
+    expect(calleePath?.length).toBe(2);
+    expect(calleePath?.[0].functionName).toBe("parseExpression");
+    expect(calleePath?.[1].functionName).toBe("scanToken");
+
+    const unreachablePath = targetProgram.getCallPath(
+      "parseExpression",
+      `${normalizePathForKey(depFile)}:uncalledHelper`
+    );
+    expect(unreachablePath).toBeUndefined();
+
+    // 2. sample() constructs callChain skeleton when target is a callee
+    const covStats: CodeCoverageMeasureStats = {
+      counters: {
+        statementsTotal: 10,
+        statementsCovered: 5,
+        branchesTotal: 4,
+        branchesCovered: 2,
+        functionsTotal: 2,
+        functionsCovered: 2,
+      },
+      files: [
+        {
+          path: depFile,
+          counters: {
+            statementsTotal: 6,
+            statementsCovered: 3,
+            branchesTotal: 4,
+            branchesCovered: 1,
+            functionsTotal: 2,
+            functionsCovered: 1,
+          },
+          // @ts-expect-error stub for test
+          fileMap: {
+            s: { "0": 1, "1": 1 },
+            statementMap: {
+              "0": {
+                start: { line: 2, column: 0 },
+                end: { line: 2, column: 20 },
+              },
+            },
+          },
+        },
+      ],
+    };
+
+    const uncoveredInfo = {
+      uncoveredLinesByFile: {
+        [depFile]: [4, 5],
+      },
+      partiallyCoveredLinesByFile: {
+        [depFile]: [2],
+      },
+    };
+
+    const sampled = CoverageFrontierSampler.sample({
+      covStats,
+      uncoveredInfo,
+      targetAttempts: {},
+      targetFn: fnDef,
+      prng: () => 0.5,
+    });
+
+    expect(sampled).toBeDefined();
+    expect(sampled?.functionName).toBe("scanToken");
+    expect(sampled?.callChain).toBeDefined();
+    expect(sampled?.callChain?.length).toBe(1);
+
+    const callerFrame = sampled?.callChain?.[0];
+    expect(callerFrame?.functionName).toBe("parseExpression");
+    expect(callerFrame?.callSite).toBe("scanToken");
+    expect(callerFrame?.codeSnippet).toContain("scanToken(input)");
+
+    // 3. formatFrontierContext renders the Call-Chain Skeleton
+    const formatted = formatFrontierContext(sampled!, "typescript");
+    expect(formatted).toContain("Call chain to targeted code:");
+    expect(formatted).toContain(
+      `Caller from \`${callerFrame?.displayPath}\` (function \`parseExpression\`):`
+    );
+    expect(formatted).toContain("return scanToken(input);");
+    expect(formatted).toContain(
+      `Targeted code from \`${sampled?.displayPath}\` (function \`scanToken\`)`
+    );
+    expect(formatted).toContain("function scanToken(input: string): boolean");
+  });
 });
 
 class MockReachingCoverageMeasure extends CoverageMeasure {

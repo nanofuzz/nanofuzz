@@ -75,6 +75,78 @@ export class CoverageFrontierSampler {
       ? path.relative(process.cwd(), selected.filePath) || selected.filePath
       : selected.filePath;
 
+    let callChain: CallChainFrame[] | undefined;
+    if (options.targetFn && selected.functionName) {
+      const selectedNorm = normalizePathForKey(selected.filePath);
+      const targetNorm = normalizePathForKey(options.targetFn.getModule());
+      const selectedKey = `${selectedNorm}:${selected.functionName}`;
+      const entryKey = `${targetNorm}:${options.targetFn.getName()}`;
+
+      if (selectedKey !== entryKey) {
+        const targetProg = ProgramFactory.fromFile(
+          options.targetFn.getModule()
+        );
+        const callPath = targetProg.getCallPath(
+          options.targetFn.getName(),
+          selectedKey
+        );
+        if (callPath && callPath.length > 1) {
+          const callerFrames = callPath.slice(0, -1);
+          // Cap at most 2 caller frames (entry function and immediate caller if chain is deep)
+          const framesToRender =
+            callerFrames.length <= 2
+              ? callerFrames
+              : [callerFrames[0], callerFrames[callerFrames.length - 1]];
+
+          callChain = [];
+          for (let i = 0; i < framesToRender.length; i++) {
+            const frame = framesToRender[i];
+            const nextFrameInPath = callPath[callPath.indexOf(frame) + 1] ?? {
+              functionName: selected.functionName,
+            };
+
+            const fnRef =
+              frame.program.functions[frame.functionName]?.getRef() ??
+              frame.program.functionsExported[frame.functionName]?.getRef() ??
+              frame.program.functionsNotSupported[frame.functionName]?.function;
+
+            if (fnRef && fnRef.src) {
+              const lineOffsets = computeLineOffsets(frame.program.src);
+              const callerStartLine = findLineNumber(
+                fnRef.startOffset,
+                lineOffsets
+              );
+              const callSiteLine = findCallSiteLine(
+                fnRef.src,
+                callerStartLine,
+                nextFrameInPath.functionName
+              );
+              const { codeSnippet: callerSnippet, isSliced: callerSliced } =
+                prepareCodeSnippet(
+                  fnRef.src,
+                  callerStartLine,
+                  [callSiteLine],
+                  1000
+                );
+
+              const frameDisplayPath = path.isAbsolute(frame.filePath)
+                ? path.relative(process.cwd(), frame.filePath) || frame.filePath
+                : frame.filePath;
+
+              callChain.push({
+                filePath: frame.filePath,
+                displayPath: frameDisplayPath,
+                functionName: frame.functionName,
+                callSite: nextFrameInPath.functionName,
+                codeSnippet: callerSnippet,
+                isSliced: callerSliced,
+              });
+            }
+          }
+        }
+      }
+    }
+
     return {
       targetId: selected.targetId,
       filePath: selected.filePath,
@@ -87,6 +159,7 @@ export class CoverageFrontierSampler {
       reachingInputs,
       codeSnippet,
       isSliced,
+      callChain,
     };
   } // fn: sample
 
@@ -313,6 +386,20 @@ export function formatFrontierContext(
   target: SampledFrontierTarget,
   lang: string
 ): string {
+  const parts: string[] = [];
+
+  if (target.callChain && target.callChain.length > 0) {
+    parts.push("Call chain to targeted code:");
+    for (const frame of target.callChain) {
+      parts.push(
+        `Caller from \`${frame.displayPath}\` (function \`${frame.functionName}\`):`
+      );
+      parts.push(`\`\`\`${lang}`);
+      parts.push(frame.codeSnippet.trim());
+      parts.push("```\n");
+    }
+  }
+
   const fnLabel = target.functionName
     ? ` (function \`${target.functionName}\`)`
     : "";
@@ -338,15 +425,17 @@ export function formatFrontierContext(
         "\n"
       : "";
 
-  return [
-    `Targeted code from \`${target.displayPath}\`${fnLabel}${linesLabel}:`,
-    `\`\`\`${lang}`,
-    target.codeSnippet.trim(),
-    `\`\`\``,
-    reachingSection,
-  ]
-    .filter(Boolean)
-    .join("\n");
+  parts.push(
+    `Targeted code from \`${target.displayPath}\`${fnLabel}${linesLabel}:`
+  );
+  parts.push(`\`\`\`${lang}`);
+  parts.push(target.codeSnippet.trim());
+  parts.push("```");
+  if (reachingSection) {
+    parts.push(reachingSection.trim());
+  }
+
+  return parts.filter(Boolean).join("\n");
 } // fn: formatFrontierContext()
 
 // -------------------------------------------------------------------------- //
@@ -487,6 +576,23 @@ function getBodyStartLine(src: string, startLine: number): number {
 } // fn: getBodyStartLine
 
 /**
+ * Locates the 1-based line number of a call to calleeName within caller source code.
+ */
+function findCallSiteLine(
+  src: string,
+  startLine: number,
+  calleeName: string
+): number {
+  const lines = src.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].includes(calleeName)) {
+      return startLine + i;
+    }
+  }
+  return startLine;
+} // fn: findCallSiteLine()
+
+/**
  * Analyzes a source file and extracts its functions, line offsets, and callee graph.
  *
  * @param fileKey Path of the file to analyze
@@ -616,6 +722,18 @@ export type FrontierCandidate = {
 };
 
 /**
+ * A call frame within a call-chain skeleton leading to a sampled target.
+ */
+export type CallChainFrame = {
+  filePath: string;
+  displayPath: string;
+  functionName: string;
+  callSite?: string;
+  codeSnippet: string;
+  isSliced: boolean;
+};
+
+/**
  * Probabilistically sampled target with formatted code context.
  */
 export type SampledFrontierTarget = {
@@ -630,6 +748,7 @@ export type SampledFrontierTarget = {
   reachingInputs: string[];
   codeSnippet: string;
   isSliced: boolean;
+  callChain?: CallChainFrame[];
 };
 
 /**

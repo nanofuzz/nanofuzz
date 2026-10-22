@@ -495,6 +495,167 @@ export abstract class AbstractProgram {
   } // fn: getReachableFunctions()
 
   /**
+   * Computes the shortest sequence of function calls from entryFnName to targetKey.
+   *
+   * @param entryFnName Name of the entry function in this module
+   * @param targetKey Target key in the format `${normalizedFilePath}:${functionName}`
+   * @returns Array of call frames from entry function to target, or undefined if no path exists
+   */
+  public getCallPath(
+    entryFnName: string,
+    targetKey: string
+  ):
+    | { filePath: string; functionName: string; program: AbstractProgram }[]
+    | undefined {
+    const normStartPath = normalizePathForKey(this.filename);
+    const startKey = `${normStartPath}:${entryFnName}`;
+    if (startKey === targetKey) {
+      return [
+        { filePath: this.filename, functionName: entryFnName, program: this },
+      ];
+    }
+
+    const visited = new Set<string>([startKey]);
+    const queue: {
+      program: AbstractProgram;
+      fnName: string;
+      path: {
+        filePath: string;
+        functionName: string;
+        program: AbstractProgram;
+      }[];
+    }[] = [
+      {
+        program: this,
+        fnName: entryFnName,
+        path: [
+          { filePath: this.filename, functionName: entryFnName, program: this },
+        ],
+      },
+    ];
+
+    while (queue.length > 0) {
+      const { program, fnName, path: currentPath } = queue.shift()!;
+      const normPath = normalizePathForKey(program.filename);
+      const callees = program.getCallees(fnName);
+      if (callees.size === 0) {
+        continue;
+      }
+
+      for (const callee of callees) {
+        // 1. In-module sibling functions
+        if (
+          callee in program._functions.supported ||
+          callee in program._functions.unsupported
+        ) {
+          const nextKey = `${normPath}:${callee}`;
+          if (!visited.has(nextKey)) {
+            visited.add(nextKey);
+            const nextFrame = {
+              filePath: program.filename,
+              functionName: callee,
+              program,
+            };
+            const nextPath = [...currentPath, nextFrame];
+            if (nextKey === targetKey) {
+              return nextPath;
+            }
+            queue.push({ program, fnName: callee, path: nextPath });
+          }
+        }
+
+        // Direct named or aliased imports
+        const directImport = program._imports.identifiers[callee];
+        if (
+          directImport &&
+          directImport.programPath &&
+          fs.existsSync(directImport.programPath) &&
+          (directImport.programPath.endsWith(".ts") ||
+            directImport.programPath.endsWith(".py"))
+        ) {
+          const importedName =
+            directImport.imported === "*" ? callee : directImport.imported;
+          const childProg =
+            program.find(directImport.programPath) ??
+            ProgramFactory.fromFile(
+              directImport.programPath,
+              undefined,
+              program._options,
+              program._root
+            );
+          if (childProg) {
+            const childNorm = normalizePathForKey(childProg.filename);
+            const nextKey = `${childNorm}:${importedName}`;
+            if (!visited.has(nextKey)) {
+              visited.add(nextKey);
+              const nextFrame = {
+                filePath: childProg.filename,
+                functionName: importedName,
+                program: childProg,
+              };
+              const nextPath = [...currentPath, nextFrame];
+              if (nextKey === targetKey) {
+                return nextPath;
+              }
+              queue.push({
+                program: childProg,
+                fnName: importedName,
+                path: nextPath,
+              });
+            }
+          }
+        }
+
+        // Namespace / wildcard imports (import * as ns from "...")
+        for (const imp of Object.values(program._imports.identifiers)) {
+          if (
+            imp.imported === "*" &&
+            imp.programPath &&
+            fs.existsSync(imp.programPath) &&
+            (imp.programPath.endsWith(".ts") || imp.programPath.endsWith(".py"))
+          ) {
+            const childProg =
+              program.find(imp.programPath) ??
+              ProgramFactory.fromFile(
+                imp.programPath,
+                undefined,
+                program._options,
+                program._root
+              );
+            if (
+              childProg &&
+              (callee in childProg._functions.supported ||
+                callee in childProg._functions.unsupported)
+            ) {
+              const childNorm = normalizePathForKey(childProg.filename);
+              const nextKey = `${childNorm}:${callee}`;
+              if (!visited.has(nextKey)) {
+                visited.add(nextKey);
+                const nextFrame = {
+                  filePath: childProg.filename,
+                  functionName: callee,
+                  program: childProg,
+                };
+                const nextPath = [...currentPath, nextFrame];
+                if (nextKey === targetKey) {
+                  return nextPath;
+                }
+                queue.push({
+                  program: childProg,
+                  fnName: callee,
+                  path: nextPath,
+                });
+              }
+            }
+          }
+        }
+      }
+    }
+
+    return undefined;
+  } // fn: getCallPath()
+
+  /**
    * Returns a string that works as the type annotation for the argument.
    *
    * @param `arg` ArgDef to describe
