@@ -267,6 +267,14 @@ pub fn add_heuristic(a: i32, b: i32) -> i32 {
     a + b
 }
 
+pub fn divide(a: f64, b: f64) -> f64 {
+    a / b
+}
+
+pub fn sqrt(a: f64) -> f64 {
+    a.sqrt()
+}
+
 pub fn reset_all() {
 }
 `
@@ -328,6 +336,66 @@ pub fn reset_all() {
                   offset: 0,
                   isException: true,
                   value: undefined,
+                  origin: { type: "user" },
+                },
+              ],
+            },
+          },
+          isVoid: false,
+        },
+        divide: {
+          options: makeOptions({ useHuman: true }),
+          validators: [],
+          tests: {
+            "0": {
+              input: [
+                {
+                  name: "a",
+                  offset: 0,
+                  value: 6.0,
+                  origin: { type: "user" },
+                },
+                {
+                  name: "b",
+                  offset: 1,
+                  value: 2.0,
+                  origin: { type: "user" },
+                },
+              ],
+              output: [],
+              pinned: true,
+              expectedOutput: [
+                {
+                  name: "out",
+                  offset: 0,
+                  value: 3,
+                  origin: { type: "user" },
+                },
+              ],
+            },
+          },
+          isVoid: false,
+        },
+        sqrt: {
+          options: makeOptions({ useHuman: true }),
+          validators: [],
+          tests: {
+            "0": {
+              input: [
+                {
+                  name: "a",
+                  offset: 0,
+                  value: -1.0,
+                  origin: { type: "user" },
+                },
+              ],
+              output: [],
+              pinned: true,
+              expectedOutput: [
+                {
+                  name: "out",
+                  offset: 0,
+                  value: NaN,
                   origin: { type: "user" },
                 },
               ],
@@ -405,6 +473,9 @@ pub fn reset_all() {
     const testPath = adapter.filename;
     fs.writeFileSync(testPath, testCode);
 
+    expect(testCode).toContain("assert_eq!(actual, 3.0f64);");
+    expect(testCode).toContain("assert!(actual.is_nan());");
+
     // Run cargo test in the temp crate
     const res = spawnSync(
       "cargo",
@@ -424,6 +495,6 @@ pub fn reset_all() {
     expect(res.status)
       .withContext(`stdout: ${res.stdout}\nstderr: ${res.stderr}`)
       .toBe(0);
-    expect(res.stdout).toContain("5 passed");
+    expect(res.stdout).toContain("7 passed");
   });
 });

@@ -67,12 +67,14 @@ export class CargoTestAdapter extends AbstractTestAdapter {
       const thisFn = this._testSet.functions[fn];
 
       let argDefs: ArgDef[] = [];
+      let returnArg: ArgDef | undefined;
       let isAsync = thisFn.isAsync === true;
       try {
         const pgm = ProgramFactory.fromFile(this._module, "rust");
         if (fn in pgm.functions) {
           const fnObj = pgm.functions[fn];
           argDefs = fnObj.getArgDefs();
+          returnArg = fnObj.getReturnArg();
           if (fnObj.isAsync()) {
             isAsync = true;
           }
@@ -125,10 +127,23 @@ export class CargoTestAdapter extends AbstractTestAdapter {
               `}`,
               ``
             );
+          } else if (
+            typeof expectedOutput[0].value === "number" &&
+            Number.isNaN(expectedOutput[0].value)
+          ) {
+            rustData.push(
+              `#[test]`,
+              `fn test_${fn}_${i}_expect() {`,
+              `    let actual = ${callStr};`,
+              `    assert!(actual.is_nan());`,
+              `}`,
+              ``
+            );
           } else {
             const expectedStr = ValueMapper.toLang(
               "rust",
-              expectedOutput[0].value
+              expectedOutput[0].value,
+              returnArg
             );
             rustData.push(
               `#[test]`,
