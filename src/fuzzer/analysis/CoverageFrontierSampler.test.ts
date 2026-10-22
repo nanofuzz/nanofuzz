@@ -122,8 +122,6 @@ export function uncalledHelper(x: number): number {
     expect(scanCandidate).toBeDefined();
     expect(scanCandidate?.isFrontier).toBe(true);
     expect(scanCandidate?.baseWeight).toBe(100);
-
-    // Option 3A: Functions with zero hits are not sampled
     expect(helperCandidate).toBeUndefined();
   });
 
@@ -820,12 +818,12 @@ export function parseExpression(input: string): boolean {
     expect(candidateNames).not.toContain("uncalledHelper");
     expect(candidateNames).not.toContain("unrelatedFunction");
 
-    // Verify Option A: tsPgm.functions["myFunction"].getCallees()
+    // Verify tsPgm.functions["myFunction"].getCallees()
     expect(
       targetProgram.functions["parseExpression"].getCallees().has("scanToken")
     ).toBe(true);
 
-    // Verify Option A on Python: pyPgm.functions["myFunction"].getCallees()
+    // Verify pyPgm.functions["myFunction"].getCallees()
     const pyFile = path.join(tmpDir, "calculator.py");
     fs.writeFileSync(
       pyFile,
@@ -842,7 +840,7 @@ def compute(x: int) -> int:
     expect(pyProg.functions["add_one"].getCallees().size).toBe(0);
   });
 
-  it("Option 2A: getCallPath resolves call chains and sample() attaches CallChainFrame skeleton", () => {
+  it("getCallPath resolves call chains and sample() attaches CallChainFrame skeleton", () => {
     const fnDef = FunctionDef.fromFunctionRef({
       module: targetFile,
       name: "parseExpression",
@@ -956,6 +954,51 @@ export function parseExpression(input: string): boolean {
       `Targeted code from \`${sampled?.displayPath}\` (function \`scanToken\`)`
     );
     expect(formatted).toContain("function scanToken(input: string): boolean");
+  });
+
+  it("handles circular and recursive call graphs without infinite loops", () => {
+    const cycleFile = path.join(tmpDir, "Cycle.ts");
+    fs.writeFileSync(
+      cycleFile,
+      `export function fnA(x: number): number {
+  if (x <= 0) return 0;
+  return fnB(x - 1);
+}
+
+export function fnB(x: number): number {
+  if (x === 42) {
+    return targetLeaf(x);
+  }
+  return fnA(x - 1); // Mutual recursion back to fnA
+}
+
+export function targetLeaf(x: number): number {
+  return x * 2;
+}
+`
+    );
+
+    const prog = ProgramFactory.fromFile(cycleFile);
+
+    // 1. getReachableFunctions terminates with all mutually recursive and leaf functions
+    const reachable = prog.getReachableFunctions("fnA");
+    const norm = normalizePathForKey(cycleFile);
+    expect(reachable.has(`${norm}:fnA`)).toBe(true);
+    expect(reachable.has(`${norm}:fnB`)).toBe(true);
+    expect(reachable.has(`${norm}:targetLeaf`)).toBe(true);
+
+    // 2. getCallPath finds the shortest path without repeating cycles
+    const callPath = prog.getCallPath("fnA", `${norm}:targetLeaf`);
+    expect(callPath).toBeDefined();
+    // Shortest path: fnA -> fnB -> targetLeaf (length 3)
+    expect(callPath?.length).toBe(3);
+    expect(callPath?.[0].functionName).toBe("fnA");
+    expect(callPath?.[1].functionName).toBe("fnB");
+    expect(callPath?.[2].functionName).toBe("targetLeaf");
+
+    // 3. getCallPath terminates when target is unreachable
+    const noPath = prog.getCallPath("fnA", `${norm}:nonExistent`);
+    expect(noPath).toBeUndefined();
   });
 });
 
