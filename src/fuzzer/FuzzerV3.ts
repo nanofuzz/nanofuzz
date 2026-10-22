@@ -871,15 +871,16 @@ export class FuzzerV3 {
     }
 
     const instrumentTime = performance.now();
-    const targetMod = this._lastCompiler
-      ? Instrumenter.prepareInstrumentedTree(
-          mod,
-          this._lastCompiler.getCompiledDependencies(),
-          this._measures,
-          this._lastCompiler.options.tmpDir,
-          update
-        )
-      : mod;
+    const targetMod =
+      this._lastCompiler instanceof CompilerFactory.TypescriptCompiler
+        ? Instrumenter.prepareInstrumentedTree(
+            mod,
+            this._lastCompiler.getCompiledDependencies(),
+            this._measures,
+            this._lastCompiler.options.tmpDir,
+            update
+          )
+        : mod;
     if (this._stats) {
       this._stats.results.stats.timers.instrument =
         performance.now() - instrumentTime;

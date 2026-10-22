@@ -38,6 +38,7 @@ import { CodeCoverageMeasureStats } from "../fuzzer/measures/CoverageMeasure";
 import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
 import { AbstractProgram } from "../fuzzer/analysis/AbstractProgram";
 import * as CompilerFactory from "../fuzzer/compilers/CompilerFactory";
+import { CompilerError, RustCompilerError } from "../fuzzer/compilers/Types";
 import { synthesizeValidator } from "../fuzzer/synthesis/ValidatorSynthesizer";
 import { synthesizeTransformer } from "../fuzzer/synthesis/TransformerSynthesizer";
 import { synthesizeUserGenerator } from "../fuzzer/synthesis/UserGeneratorSynthesizer";
@@ -393,15 +394,19 @@ export class FuzzPanel {
       this._errorStack = error.stack ? htmlEscape(error.stack) : undefined;
 
       // Compiler-specific detailed messages
-      if (error instanceof fuzzer.TypescriptCompilerError) {
+      if (error instanceof CompilerError) {
         this._errorMessage += `<p style="margin-bottom:0.25em;"><strong>Source file</strong></p><small><pre style="margin-top:0;">${htmlEscape(error.details.inputFile)}</pre></small>`;
         if (error.details.output && error.details.output.length) {
-          this._errorMessage += `<p style="margin-bottom:0.25em;"><strong>Compiler output</strong></p><small><pre style="margin-top:0;">${error.details.output.map((e) => htmlEscape(e)).join("")}</pre></small>`;
+          this._errorMessage += `<p style="margin-bottom:0.25em;"><strong>Compiler output</strong></p><small><pre style="margin-top:0;">${error.details.output.map((e: string) => htmlEscape(e)).join("")}</pre></small>`;
         }
-        if (error.details.tscConfigFilename) {
-          this._errorMessage += `<p style="margin-bottom:0.25em;"><strong>tscconfig.json</strong></p><small><pre style="margin-top:0;">${error.details.tscConfigFilename}</pre></small>`;
+        if (error.details.configFilename) {
+          const configLabel =
+            error instanceof RustCompilerError ? "Cargo.toml" : "tsconfig.json";
+          this._errorMessage += `<p style="margin-bottom:0.25em;"><strong>${configLabel}</strong></p><small><pre style="margin-top:0;">${htmlEscape(error.details.configFilename)}</pre></small>`;
         }
-        this._errorMessage += `<p style="margin-bottom:0.25em;"><strong>Command line</strong></p><small><pre style="margin-top:0;">${htmlEscape(error.details.tscCli)}</pre></small>`;
+        if (error.details.cli) {
+          this._errorMessage += `<p style="margin-bottom:0.25em;"><strong>Command line</strong></p><small><pre style="margin-top:0;">${htmlEscape(error.details.cli)}</pre></small>`;
+        }
       }
     } else {
       this._errorMessage = "Unknown error";

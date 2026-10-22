@@ -579,15 +579,16 @@ export class Tester {
     // Note: Python is currently instrumented in PythonRunnerHost
     // Assumes: put, transformers, & validators are in the same module
     const instrumentTime = performance.now(); // start time: instrument
-    const targetMod = this._lastCompiler
-      ? Instrumenter.prepareInstrumentedTree(
-          mod,
-          this._lastCompiler.getCompiledDependencies(),
-          this._measures,
-          this._lastCompiler.options.tmpDir,
-          update
-        )
-      : mod;
+    const targetMod =
+      this._lastCompiler instanceof CompilerFactory.TypescriptCompiler
+        ? Instrumenter.prepareInstrumentedTree(
+            mod,
+            this._lastCompiler.getCompiledDependencies(),
+            this._measures,
+            this._lastCompiler.options.tmpDir,
+            update
+          )
+        : mod;
     this._results.stats.timers.instrument = performance.now() - instrumentTime;
 
     // Build a test runner for executing tests
