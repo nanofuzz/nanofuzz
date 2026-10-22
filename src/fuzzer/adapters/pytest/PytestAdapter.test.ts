@@ -47,6 +47,7 @@ const generators: FuzzOptions["generators"] = {
   RandomInputGenerator: { enabled: true },
   MutationInputGenerator: { enabled: false },
   AiInputGenerator: { enabled: false },
+  UserInputGenerator: { enabled: false },
 };
 
 const makeOptions = (overrides: Partial<FuzzOptions> = {}): FuzzOptions => ({
@@ -489,7 +490,9 @@ def asyncPropValidator(result):
           encoding: "utf8",
         }
       );
-      expect(res.status).toBe(0);
+      expect(res.status)
+        .withContext(`stdout: ${res.stdout}\nstderr: ${res.stderr}`)
+        .toBe(0);
       expect(res.stdout).toContain("4 passed");
     } finally {
       try {

@@ -1,8 +1,9 @@
 import {
   AbstractRunner,
   Arc,
-  CoverageInfo,
+  PythonCoverageMapData,
   RunnerInput,
+  RunnerOverrides,
   RunnerResult,
   TypeHint,
 } from "../AbstractRunner";
@@ -27,16 +28,18 @@ import * as ChildProcess from "node:child_process";
  */
 export class PythonRunner extends AbstractRunner {
   protected _filename: string;
-  protected _timeout: number;
   protected _runDepth = 0;
   protected _fn: string;
   protected _env: FuzzEnv | undefined;
   protected _host: PythonHost | undefined = undefined;
   protected _seq = 0;
-  protected _coverageInfo?: FullCoverage = undefined;
+  protected _coverageInfo?: PythonCoverageMapData = undefined;
+  protected _staticCoverage?: PythonCoverageMapData = undefined;
+  protected _lastRunCoverage?: PythonCoverageMapData = undefined;
   protected _pgmFiles: string[] = [];
   protected _coverageEnabled = true;
   protected _coverageCallback?: (covData: unknown) => void;
+  protected _overrides: RunnerOverrides;
   protected _pythonEnv: PythonEnv | undefined;
   protected static _envs: Map<string, { env: PythonEnv; expiresAt: number }> =
     new Map();
@@ -55,19 +58,19 @@ export class PythonRunner extends AbstractRunner {
    * @param `filename` path and filename of Python program module
    * @param `fn` exported Python function within `module` to call
    * @param `env` optional fuzzer environment
-   * @param `timeout` optional timeout for each run
+   * @param `overrides` optional runner configuration overrides
    */
   constructor(
     filename: string,
     fn: string,
     env?: FuzzEnv,
-    timeout: number = 0
+    overrides: RunnerOverrides = {}
   ) {
     super(fn);
     this._filename = filename;
     this._fn = fn;
     this._env = env;
-    this._timeout = timeout;
+    this._overrides = overrides;
   } // fn: constructor
 
   /**
@@ -78,6 +81,7 @@ export class PythonRunner extends AbstractRunner {
   public async onRunStart(): Promise<void> {
     await super.onRunStart();
     this._killHost();
+    this._staticCoverage = undefined;
     if (this._env?.options?.measures?.CoverageMeasure?.enabled !== undefined) {
       this._coverageEnabled =
         this._env.options.measures.CoverageMeasure.enabled;
@@ -91,11 +95,13 @@ export class PythonRunner extends AbstractRunner {
    *
    * @param `inputs` inputs to function
    * @param `timeout` stop and fail after `timeout` ms
+   * @param `validators` optional list of validator function names to execute in-host
    * @returns Runner result
    */
   public async run(
     inputs: unknown[],
-    timeout: number | undefined = 0
+    timeout: number | undefined = 0,
+    validators: string[] = []
   ): Promise<RunnerResult> {
     const thisSeq = this._seq++;
     if (this._runDepth++ > 0) {
@@ -117,6 +123,7 @@ export class PythonRunner extends AbstractRunner {
         seq: thisSeq,
         typeHints,
         timeout: timeout ?? 0,
+        validators: validators.length > 0 ? validators : undefined,
         collect: {
           coverageData: this._coverageEnabled ? true : undefined,
           debugData: debugEnabled ? true : undefined,
@@ -128,7 +135,9 @@ export class PythonRunner extends AbstractRunner {
         Buffer.from(encoded.buffer, encoded.byteOffset, encoded.byteLength)
       );
 
-      const hostTimeout = timeout && timeout > 0 ? timeout + 500 : Infinity;
+      const numFunctions = 1 + (validators?.length ?? 0);
+      const hostTimeout =
+        timeout && timeout > 0 ? timeout * numFunctions + 500 : Infinity;
       const rawResBuf = await host.getResponseBuffer(hostTimeout);
       const result: RunnerResult = {
         result: JSONN.unpack<RunnerResult["result"]>(rawResBuf),
@@ -144,6 +153,7 @@ export class PythonRunner extends AbstractRunner {
       // Refresh the dynamic coverage with what this call executed.
       if (!this._coverageEnabled) {
         this._coverageInfo = undefined;
+        this._lastRunCoverage = undefined;
       } else {
         if (
           result.result.staticCoverage &&
@@ -165,6 +175,7 @@ export class PythonRunner extends AbstractRunner {
             delete this._coverageInfo[filename].lines;
             delete this._coverageInfo[filename].arcs;
           }
+          const lastRunCoverage: PythonCoverageMapData = {};
           for (const key of Object.keys(coverageData)) {
             const idx = Number(key);
             const filename =
@@ -188,7 +199,20 @@ export class PythonRunner extends AbstractRunner {
             if (isArcArray(arcsVal)) {
               this._coverageInfo[filename].arcs = arcsVal;
             }
+
+            lastRunCoverage[filename] = {
+              ...this._coverageInfo[filename],
+              lines: this._coverageInfo[filename].lines
+                ? [...this._coverageInfo[filename].lines]
+                : undefined,
+              arcs: this._coverageInfo[filename].arcs
+                ? [...this._coverageInfo[filename].arcs]
+                : undefined,
+            };
           }
+          this._lastRunCoverage = lastRunCoverage;
+        } else {
+          this._lastRunCoverage = undefined;
         }
         this._coverageCallback?.(this._coverageInfo);
       }
@@ -199,9 +223,12 @@ export class PythonRunner extends AbstractRunner {
       if (!isError(e)) {
         throw e;
       }
-      if (this._coverageInfo) {
+      if (this._staticCoverage) {
+        this._coverageInfo = structuredClone(this._staticCoverage);
+      } else {
         this._coverageInfo = undefined;
       }
+      this._lastRunCoverage = undefined;
       if (e.name === PutTimeoutName) {
         return { result: { tag: "timeout", seq: thisSeq }, env: {} };
       } else {
@@ -233,11 +260,25 @@ export class PythonRunner extends AbstractRunner {
   } // fn: onRunEnd
 
   /**
+   * Returns the module/target filename associated with this runner
+   */
+  public override get filename(): string {
+    return this._filename;
+  } // get: filename
+
+  /**
    * Returns the current coverage information, if any
    */
-  public override get coverageInfo(): FullCoverage | undefined {
+  public override get coverageInfo(): PythonCoverageMapData | undefined {
     return this._coverageInfo;
   } // fn: coverageInfo
+
+  /**
+   * Returns the single most recent execution's coverage information.
+   */
+  public override get lastRunCoverage(): PythonCoverageMapData | undefined {
+    return this._lastRunCoverage ?? this._coverageInfo;
+  } // get: lastRunCoverage
 
   /**
    * Registers a callback to be invoked with coverage data
@@ -330,7 +371,7 @@ export class PythonRunner extends AbstractRunner {
       pyPaths.push(
         ...pythonEnv.env.PYTHONPATH.split(
           process.platform === "win32" ? ";" : ":"
-        )
+        ).map((p) => (p ? path.resolve(p) : p))
       );
     }
 
@@ -609,6 +650,11 @@ export class PythonRunner extends AbstractRunner {
     );
 
     const scopeConfig = parseCoverageScope(coverageScopeRaw);
+    const isRespawn = this._staticCoverage !== undefined;
+    const collectStaticCoverage =
+      this._coverageEnabled &&
+      this._overrides.acceptsStaticCoverage === true &&
+      scopeConfig.collectStaticCoverage;
 
     let directPkgs: string[] = [];
     if (
@@ -633,7 +679,7 @@ export class PythonRunner extends AbstractRunner {
       this._fn,
       scopeConfig.target,
       JSON.stringify(directPkgs),
-      String(scopeConfig.collectStaticCoverage),
+      isRespawn ? "respawn" : String(collectStaticCoverage),
     ];
 
     const host = new PythonHost(
@@ -644,7 +690,7 @@ export class PythonRunner extends AbstractRunner {
 
     const hostStartupTimeout = Config.get<number>(
       "nanofuzz.fuzzer.hostStartupTimeout",
-      10000
+      20000
     );
 
     // a longer timeout tolerance for the host to pre-warm the coverage
@@ -657,16 +703,27 @@ export class PythonRunner extends AbstractRunner {
       // dynamic `lines`/`arcs` are filled in by each `run`.
       const rawCovBuf = await host.getResponseBuffer(hostStartupTimeout);
       const rawCov = JSONN.unpack<unknown>(rawCovBuf);
-      const extracted = extractStartupCoverage(rawCov);
-      if (extracted) {
-        this._coverageInfo = extracted.covInfo;
-        this._pgmFiles = extracted.files;
-      } else if (isFullCoverage(rawCov)) {
-        this._coverageInfo = rawCov;
-        this._pgmFiles = Object.keys(rawCov);
+      if (!isRespawn) {
+        const extracted = extractStartupCoverage(rawCov);
+        if (extracted) {
+          this._coverageInfo = extracted.covInfo;
+          this._pgmFiles = extracted.files;
+        } else if (isPythonCoverageMapData(rawCov)) {
+          this._coverageInfo = rawCov;
+          this._pgmFiles = Object.keys(rawCov);
+        } else {
+          this._coverageInfo = {};
+          this._pgmFiles = [];
+        }
+        this._staticCoverage = structuredClone(this._coverageInfo);
       } else {
-        this._coverageInfo = {};
-        this._pgmFiles = [];
+        const extracted = extractStartupCoverage(rawCov);
+        if (extracted?.files && extracted.files.length > 0) {
+          this._pgmFiles = extracted.files;
+        }
+        if (this._staticCoverage) {
+          this._coverageInfo = structuredClone(this._staticCoverage);
+        }
       }
       return host;
     } else {
@@ -680,7 +737,7 @@ export class PythonRunner extends AbstractRunner {
    */
   public killHost(): void {
     this._killHost();
-  }
+  } // fn: killHost
 
   /**
    * Kill the current Python host
@@ -720,6 +777,13 @@ function findPythonLibDir(dir: string): string | null {
   return null;
 } // fn: findPythonLibDir
 
+const TEST_FRAMEWORK_PACKAGES = new Set([
+  "hypothesis",
+  "nanofuzz_runtime",
+  "nanofuzz",
+  "_nanofuzz_python",
+]);
+
 /**
  * Extracts top-level 3rd-party package names directly imported by the program
  * using `program.imports`.
@@ -731,6 +795,7 @@ function extractDirectPackages(
 
   for (const [key, imp] of Object.entries(imports)) {
     const pPath = imp.programPath;
+    let isTestFramework = false;
     if (pPath) {
       const normalized = pPath.replace(/\\/g, "/");
       const parts = normalized.split("/");
@@ -740,19 +805,30 @@ function extractDirectPackages(
           ? parts.indexOf("site-packages")
           : parts.indexOf("dist-packages");
         if (idx + 1 < parts.length) {
-          packages.add(parts[idx + 1]);
+          const pkg = parts[idx + 1];
+          if (TEST_FRAMEWORK_PACKAGES.has(pkg.toLowerCase())) {
+            isTestFramework = true;
+          } else {
+            packages.add(pkg);
+          }
         }
       }
     }
 
-    const pkgName = key.replace(/^\*:/, "").split(".")[0];
-    if (pkgName && !pkgName.startsWith(".")) {
-      packages.add(pkgName);
+    if (!isTestFramework) {
+      const pkgName = key.replace(/^\*:/, "").split(".")[0];
+      if (
+        pkgName &&
+        !pkgName.startsWith(".") &&
+        !TEST_FRAMEWORK_PACKAGES.has(pkgName.toLowerCase())
+      ) {
+        packages.add(pkgName);
+      }
     }
   }
 
   return Array.from(packages);
-}
+} // fn: extractDirectPackages
 
 /**
  * Checks if the argument is a UUID string
@@ -818,7 +894,7 @@ function getBaseTypeHint(arg: ArgDef): TypeHint {
 
     case ArgTag.BIGINT:
     case ArgTag.NUMBER:
-      return "number";
+      return arg.getOptions().numInteger ? "int" : "float";
     case ArgTag.DICTIONARY: {
       const children = arg.getChildren();
       const keyHint = children[0] ? getTypeHint(children[0]) : "default";
@@ -848,11 +924,6 @@ function getTypeHint(arg: ArgDef): TypeHint {
   }
   return hint;
 } // fn: getTypeHint
-
-/**
- * Coverage for the entire program under test.
- */
-export type FullCoverage = Record<string, CoverageInfo>;
 
 /**
  * A branch point: a line with more than one possible exit.
@@ -896,7 +967,7 @@ function isArcArray(val: unknown): val is Arc[] {
 
 function extractStartupCoverage(val: unknown):
   | {
-      covInfo: FullCoverage;
+      covInfo: PythonCoverageMapData;
       files: string[];
     }
   | undefined {
@@ -909,14 +980,16 @@ function extractStartupCoverage(val: unknown):
     Array.isArray(val.files)
   ) {
     const files = val.files.filter((f): f is string => typeof f === "string");
-    if (isFullCoverage(val.covInfo)) {
+    if (isPythonCoverageMapData(val.covInfo)) {
       return { covInfo: val.covInfo, files };
     }
   }
   return undefined;
-}
+} // fn: extractStartupCoverage
 
-export function isFullCoverage(val: unknown): val is FullCoverage {
+export function isPythonCoverageMapData(
+  val: unknown
+): val is PythonCoverageMapData {
   if (!isRecord(val)) return false;
   const values = Object.values(val);
   if (values.length === 0) return true;
@@ -928,7 +1001,16 @@ export function isFullCoverage(val: unknown): val is FullCoverage {
       "branches" in item &&
       Array.isArray(item.executable)
   );
-}
+} // fn: isPythonCoverageMapData
 
-export { Arc, CoverageInfo } from "../AbstractRunner";
+export const isFullCoverage = isPythonCoverageMapData;
+
+export {
+  Arc,
+  PythonFileCoverageData,
+  CoverageInfo,
+  PythonCoverageMapData,
+  FullCoverage,
+  RunnerCoverage,
+} from "../AbstractRunner";
 export type { PythonEnv } from "./PythonHost";

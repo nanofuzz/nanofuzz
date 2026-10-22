@@ -5,6 +5,9 @@ import { Leaderboard } from "./Leaderboard";
 import { MutationInputGenerator } from "./MutationInputGenerator";
 import { RandomInputGenerator } from "./RandomInputGenerator";
 import { AiInputGenerator } from "./AiInputGenerator";
+import { UserInputGenerator } from "./UserInputGenerator";
+import { AbstractMeasure } from "../measures/AbstractMeasure";
+import { CoverageMeasure } from "../measures/CoverageMeasure";
 import {
   FuzzOptions,
   FuzzTestStats,
@@ -24,6 +27,7 @@ import {
  * @param `allInputs` running list of dupe-checked inputs
  * @param `moduleSrc` enclosing module source code
  * @param `getFuzzerFocus` focus getter function
+ * @param `measures` active measurement components
  * @returns array of concrete input generators
  */
 export function InputGeneratorFactory(
@@ -34,8 +38,12 @@ export function InputGeneratorFactory(
   genStats: FuzzTestStats["generators"],
   allInputs: Map<string, unknown>,
   moduleSrc: string,
-  getFuzzerFocus?: GetFuzzerFocusFn
+  getFuzzerFocus?: GetFuzzerFocusFn,
+  measures?: AbstractMeasure[]
 ): AbstractInputGenerator[] {
+  const covMeasure = measures?.find(
+    (m): m is CoverageMeasure => m.name === "CoverageMeasure"
+  );
   return [
     new HumanInputGenerator(fn.getArgDefs(), rngSeed),
     new RandomInputGenerator(fn.getArgDefs(), rngSeed),
@@ -46,6 +54,14 @@ export function InputGeneratorFactory(
       getFuzzerFocus,
       genStats?.MutationInputGenerator
     ),
-    new AiInputGenerator(fn, rngSeed, allInputs, moduleSrc),
+    new AiInputGenerator(
+      fn,
+      rngSeed,
+      allInputs,
+      moduleSrc,
+      covMeasure,
+      leaderboard
+    ),
+    new UserInputGenerator(fn, rngSeed),
   ];
 } // fn: InputGeneratorFactory

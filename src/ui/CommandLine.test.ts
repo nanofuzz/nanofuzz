@@ -5,8 +5,20 @@ import JSON5 from "json5";
 import * as JSONN from "../Jsonn";
 import * as Config from "../Config";
 import { FuzzStopReason, FuzzTestResults } from "../fuzzer/Types";
-import { CodeCoverageMeasureStats } from "../fuzzer/measures/AbstractCoverageMeasure";
-import { runCliInProcess } from "./CommandLine";
+import { CodeCoverageMeasureStats } from "../fuzzer/measures/CoverageMeasure";
+import { FuzzConfigStore } from "../fuzzer/FuzzConfigStore";
+import {
+  clearCapturedConsoleLogs,
+  getCapturedConsoleLogs,
+} from "./ConsoleIsolator";
+import {
+  formatDuration,
+  formatRate,
+  formatThroughput,
+  formatTestCounts,
+  formatTestResults,
+  runCliInProcess,
+} from "./CommandLine";
 
 async function runCli(
   args: string[]
@@ -70,7 +82,18 @@ async function runCli(
 
   try {
     Config.clearOverrides();
-    const status = await runCliInProcess(args);
+    const effectiveArgs = [...args];
+    if (
+      !effectiveArgs.includes("--workers") &&
+      !effectiveArgs.includes("-w") &&
+      !effectiveArgs.includes("--help") &&
+      !effectiveArgs.includes("-h") &&
+      !effectiveArgs.includes("--version") &&
+      !effectiveArgs.includes("-V")
+    ) {
+      effectiveArgs.push("--workers", "1");
+    }
+    const status = await runCliInProcess(effectiveArgs);
     return { status, stdout, stderr };
   } finally {
     process.stdout.write = origStdoutWrite;
@@ -109,10 +132,86 @@ describe("cli:", () => {
     const helpRes = await runCli(["--help"]);
     expect(helpRes.status).toBe(0);
     expect(helpRes.stdout).toContain("Usage: nanofuzz");
+    expect(helpRes.stdout).toContain("--no-progress-bar");
 
     const versionRes = await runCli(["--version"]);
     expect(versionRes.status).toBe(0);
     expect(versionRes.stdout).toContain("NaNofuzz");
+  });
+
+  it("returns exit code 4 with reason when target function is unsupported", async () => {
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.py";
+    const res = await runCli([targetFile, "py_user_genGenerator"]);
+
+    expect(res.status).toBe(4);
+    expect(res.stderr).toContain("Error: Function 'py_user_genGenerator' in ");
+    expect(res.stderr).toContain("is not supported.");
+    expect(res.stderr).toContain("Argument: prng");
+    expect(res.stderr).toContain("Reason:");
+  });
+
+  it("returns exit code 4 when target function is not found", async () => {
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const res = await runCli([targetFile, "nonExistentFunction"]);
+
+    expect(res.status).toBe(4);
+    expect(res.stderr).toContain(
+      "Error: Function 'nonExistentFunction' not found in "
+    );
+  });
+
+  it("accepts <file>::<fn> combined target argument format", async () => {
+    const outputFile = path.join(tmpDir, "combined_target_output.json5");
+    const target =
+      "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts::testCoverageOneFile";
+
+    const res = await runCli([
+      target,
+      "--output-file",
+      outputFile,
+      "--max-tests",
+      "2",
+      "--seed",
+      "cli_seed_combined_target",
+    ]);
+
+    expect(res.status).toBe(0);
+    expect(fs.existsSync(outputFile)).toBeTrue();
+    expect(res.stdout).toContain(
+      "Target: src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts::testCoverageOneFile"
+    );
+    expect(res.stdout).toContain("Inputs: Random, Mutation");
+    expect(res.stdout).toContain("Online: 1 worker, v2 engine, mab scheduler");
+
+    const outputData = JSON5.parse<FuzzTestResults>(
+      fs.readFileSync(outputFile, "utf8")
+    );
+    expect(outputData.stats.outcomes.total).toBeGreaterThan(0);
+  });
+
+  it("returns exit code 4 when missing function argument or using invalid :: syntax", async () => {
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+
+    // Only filename provided, no function and no ::
+    const res1 = await runCli([targetFile]);
+    expect(res1.status).toBe(4);
+    expect(res1.stderr).toContain(
+      "Error: missing required arguments <filename> <function>"
+    );
+
+    // Filename with trailing :: but no function name
+    const res2 = await runCli([`${targetFile}::`]);
+    expect(res2.status).toBe(4);
+    expect(res2.stderr).toContain(
+      "Error: missing required arguments <filename> <function>"
+    );
+
+    // Leading :: with no filename
+    const res3 = await runCli(["::testCoverageOneFile"]);
+    expect(res3.status).toBe(4);
+    expect(res3.stderr).toContain(
+      "Error: missing required arguments <filename> <function>"
+    );
   });
 
   it("--output-file: check matching parameters for TypeScript", async () => {
@@ -130,6 +229,8 @@ describe("cli:", () => {
       targetFn,
       "--output-file",
       outputFile,
+      "--workers",
+      "auto",
       "--max-tests",
       maxTests.toString(),
       "--max-runtime",
@@ -160,6 +261,7 @@ describe("cli:", () => {
     expect(outputData.env.options.maxDupeInputs).toBe(maxDupeInputs);
     expect(outputData.env.options.fnTimeout).toBe(fnTimeout);
     expect(outputData.env.options.seed).toBe(seed);
+    expect(outputData.env.executionOptions.workers).toBe("auto");
 
     // Verify test results were produced
     expect(outputData.stats.outcomes.total).toBeGreaterThan(0);
@@ -347,6 +449,85 @@ describe("cli:", () => {
     ).toBeFalse();
   });
 
+  it("--workers flag accepts numeric values or 'auto'", async () => {
+    const outputFile = path.join(tmpDir, "workers_output.json5");
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testCoverageOneFile";
+
+    const res = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--workers",
+      "3",
+      "--max-tests",
+      "2",
+      "--seed",
+      "cli_seed_workers",
+    ]);
+
+    expect(res.status).toBe(0);
+    expect(fs.existsSync(outputFile)).toBeTrue();
+    expect(res.stdout).toContain(
+      "Target: src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts::testCoverageOneFile"
+    );
+    expect(res.stdout).toContain("Inputs: Random, Mutation");
+    expect(res.stdout).toContain("Online: 3 workers, v3 engine, mab scheduler");
+
+    const outputData = JSON5.parse<FuzzTestResults>(
+      fs.readFileSync(outputFile, "utf8")
+    );
+
+    expect(outputData.env.executionOptions.workers).toBe(3);
+  });
+
+  it("--engine auto selects v2 for 1 worker and v3 for multiple workers", async () => {
+    const outputFile = path.join(tmpDir, "engine_auto_output.json5");
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testCoverageOneFile";
+
+    // 1 worker -> v2 engine
+    const res1 = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--engine",
+      "auto",
+      "--workers",
+      "1",
+      "--max-tests",
+      "2",
+      "--seed",
+      "cli_seed_engine_auto_1",
+    ]);
+
+    expect(res1.status).toBe(0);
+    expect(res1.stdout).toContain("Online: 1 worker, v2 engine, mab scheduler");
+
+    // 2 workers -> v3 engine
+    const res2 = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--engine",
+      "auto",
+      "--workers",
+      "2",
+      "--max-tests",
+      "2",
+      "--seed",
+      "cli_seed_engine_auto_2",
+    ]);
+
+    expect(res2.status).toBe(0);
+    expect(res2.stdout).toContain(
+      "Online: 2 workers, v3 engine, mab scheduler"
+    );
+  });
+
   it("--no-shrink and --max-shrink-time flags", async () => {
     const outputFile = path.join(tmpDir, "no_shrink_output.json5");
     const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
@@ -371,6 +552,28 @@ describe("cli:", () => {
     expect(Config.get("nanofuzz.fuzzer.maxShrinkTime", 2000)).toBe(5000);
   });
 
+  it("--max-runner-memory flag overrides nanofuzz.fuzzer.maxRunnerMemory", async () => {
+    const outputFile = path.join(tmpDir, "runner_mem_output.json5");
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testCoverageOneFile";
+
+    const res = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--max-runner-memory",
+      "4096",
+      "--max-tests",
+      "1",
+      "--seed",
+      "cli_seed_runner_mem",
+    ]);
+
+    expect(res.status).toBe(0);
+    expect(Config.get("nanofuzz.fuzzer.maxRunnerMemory", 8192)).toBe(4096);
+  });
+
   it("--no-ai-input-backfeed flag overrides backfeedPriorInputs", async () => {
     const outputFile = path.join(tmpDir, "no_backfeed_output.json5");
     const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
@@ -392,6 +595,727 @@ describe("cli:", () => {
     expect(
       Config.get<boolean>("nanofuzz.ai.backfeedPriorInputs", true)
     ).toBeFalse();
+  });
+
+  it("--no-ai-coverage-guidance flag overrides coverageGuidance", async () => {
+    const outputFile = path.join(tmpDir, "no_cov_guidance_output.json5");
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testCoverageOneFile";
+
+    const res = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--no-ai-coverage-guidance",
+      "--max-tests",
+      "1",
+      "--seed",
+      "cli_seed_no_cov_guidance",
+    ]);
+
+    expect(res.status).toBe(0);
+    expect(
+      Config.get<boolean>("nanofuzz.ai.coverageGuidance", true)
+    ).toBeFalse();
+  });
+
+  it("--model-endpoint flag overrides nanofuzz.ai.endpoint", async () => {
+    const outputFile = path.join(tmpDir, "model_endpoint_output.json5");
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testCoverageOneFile";
+
+    const res = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--model-endpoint",
+      "http://test-endpoint:11434/v1",
+      "--max-tests",
+      "1",
+      "--seed",
+      "cli_seed_model_endpoint",
+    ]);
+
+    expect(res.status).toBe(0);
+    expect(Config.get<string>("nanofuzz.ai.endpoint", "")).toBe(
+      "http://test-endpoint:11434/v1"
+    );
+  });
+
+  it("--model-timeout flag overrides nanofuzz.ai.requestTimeout", async () => {
+    const outputFile = path.join(tmpDir, "model_timeout_output.json5");
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testCoverageOneFile";
+
+    const res = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--model-timeout",
+      "45000",
+      "--max-tests",
+      "1",
+      "--seed",
+      "cli_seed_model_timeout",
+    ]);
+
+    expect(res.status).toBe(0);
+    expect(Config.get<number>("nanofuzz.ai.requestTimeout", 60_000)).toBe(
+      45_000
+    );
+  });
+
+  it("shows model name on target ready line when model is configured and AI generator is enabled", async () => {
+    const outputFile = path.join(tmpDir, "model_ready_output.json5");
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testCoverageOneFile";
+
+    const res = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--model-provider",
+      "ollama",
+      "--model-name",
+      "qwen2.5-coder:7b",
+      "--max-tests",
+      "1",
+      "--seed",
+      "cli_seed_model_ready",
+    ]);
+
+    expect(res.status).toBe(0);
+    expect(res.stdout).toContain(
+      "Inputs: Random, Mutation, AI (qwen2.5-coder:7b)"
+    );
+    expect(res.stdout).toContain("Online: 1 worker, v2 engine, mab scheduler");
+  });
+
+  it("omits AI from inputs line when --no-ai-input-generator is passed", async () => {
+    const outputFile = path.join(tmpDir, "model_ready_no_ai_output.json5");
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testCoverageOneFile";
+
+    const res = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--model-provider",
+      "ollama",
+      "--model-name",
+      "qwen2.5-coder:7b",
+      "--no-ai-input-generator",
+      "--max-tests",
+      "1",
+      "--seed",
+      "cli_seed_model_ready_no_ai",
+    ]);
+
+    expect(res.status).toBe(0);
+    expect(res.stdout).toContain("Inputs: Random, Mutation");
+    expect(res.stdout).toContain("Online: 1 worker, v2 engine, mab scheduler");
+    expect(res.stdout).not.toContain("qwen2.5-coder:7b");
+    expect(res.stdout).not.toContain("AI");
+  });
+
+  it("reflects disabled input generators in inputs line", async () => {
+    const outputFile = path.join(tmpDir, "disabled_generators_online.json5");
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testCoverageOneFile";
+
+    // Disable random generator -> Mutation
+    const res1 = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--no-random-input-generator",
+      "--max-tests",
+      "1",
+      "--seed",
+      "cli_seed_no_rnd_online",
+    ]);
+    expect(res1.status).toBe(0);
+    expect(res1.stdout).toContain("Inputs: Mutation");
+    expect(res1.stdout).toContain("Online: 1 worker, v2 engine, mab scheduler");
+
+    // Disable mutation generator -> Random
+    const res2 = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--no-mutation-input-generator",
+      "--max-tests",
+      "1",
+      "--seed",
+      "cli_seed_no_mut_online",
+    ]);
+    expect(res2.status).toBe(0);
+    expect(res2.stdout).toContain("Inputs: Random");
+    expect(res2.stdout).toContain("Online: 1 worker, v2 engine, mab scheduler");
+  });
+
+  it("includes user generator in inputs line when user generator exists and is enabled", async () => {
+    const outputFile = path.join(tmpDir, "user_generator_online.json5");
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "targetUserGen";
+
+    // When user generator exists and is enabled -> User (targetUserGenGenerator)
+    const res1 = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--max-tests",
+      "1",
+      "--seed",
+      "cli_seed_user_gen_online",
+    ]);
+    expect(res1.status).toBe(0);
+    expect(res1.stdout).toContain(
+      "Target: src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts::targetUserGen"
+    );
+    expect(res1.stdout).toContain(
+      "Inputs: Random, Mutation, User (targetUserGenGenerator)"
+    );
+    expect(res1.stdout).toContain("Online: 1 worker, v2 engine, mab scheduler");
+
+    // When user generator exists but is disabled -> Random, Mutation
+    const res2 = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--no-user-input-generator",
+      "--max-tests",
+      "1",
+      "--seed",
+      "cli_seed_no_user_gen_online",
+    ]);
+    expect(res2.status).toBe(0);
+    expect(res2.stdout).toContain("Inputs: Random, Mutation");
+    expect(res2.stdout).not.toContain("User (");
+    expect(res2.stdout).toContain("Online: 1 worker, v2 engine, mab scheduler");
+  });
+
+  it("formats inputs line with Inject first and User (<fn>) when inputs are injected", async () => {
+    const outputFile = path.join(tmpDir, "inject_generator_online.json5");
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetWithUserGen = "targetUserGen";
+    const targetNoUserGen = "testCoverageOneFile";
+
+    const origLoad = FuzzConfigStore.loadForFunction;
+    spyOn(FuzzConfigStore, "loadForFunction").and.callFake(
+      (file: string, fn: string) => {
+        const cfg = origLoad(file, fn);
+        if (fn === targetWithUserGen) {
+          cfg.tests = {
+            pin1: {
+              input: [
+                { name: "n", offset: 0, value: 1, origin: { type: "user" } },
+                {
+                  name: "s",
+                  offset: 1,
+                  value: "hello",
+                  origin: { type: "user" },
+                },
+              ],
+              output: [],
+              pinned: true,
+            },
+          };
+        } else if (fn === targetNoUserGen) {
+          cfg.tests = {
+            pin1: {
+              input: [
+                { name: "n", offset: 0, value: 1, origin: { type: "user" } },
+              ],
+              output: [],
+              pinned: true,
+            },
+          };
+        }
+        return cfg;
+      }
+    );
+
+    // Both injected tests and user generator are active -> Inject as first token, User (<fn>)
+    const res1 = await runCli([
+      targetFile,
+      targetWithUserGen,
+      "--output-file",
+      outputFile,
+      "--max-tests",
+      "1",
+      "--seed",
+      "cli_seed_inject_with_user_gen",
+    ]);
+    expect(res1.status).toBe(0);
+    expect(res1.stdout).toContain(
+      "Inputs: Inject, Random, Mutation, User (targetUserGenGenerator)"
+    );
+
+    // Injected tests active but user generator disabled via CLI -> Inject first, no User (<fn>)
+    const res2 = await runCli([
+      targetFile,
+      targetWithUserGen,
+      "--output-file",
+      outputFile,
+      "--no-user-input-generator",
+      "--max-tests",
+      "1",
+      "--seed",
+      "cli_seed_inject_disabled_user_gen",
+    ]);
+    expect(res2.status).toBe(0);
+    expect(res2.stdout).toContain("Inputs: Inject, Random, Mutation");
+    expect(res2.stdout).not.toContain("User (");
+
+    // Injected tests active on a function without user generator -> Inject first
+    const res3 = await runCli([
+      targetFile,
+      targetNoUserGen,
+      "--output-file",
+      outputFile,
+      "--max-tests",
+      "1",
+      "--seed",
+      "cli_seed_inject_no_user_gen",
+    ]);
+    expect(res3.status).toBe(0);
+    expect(res3.stdout).toContain("Inputs: Inject, Random, Mutation");
+    expect(res3.stdout).not.toContain("User (");
+  });
+
+  it("captures and suppresses NodeLLM console spam during CommandLine runs", async () => {
+    clearCapturedConsoleLogs();
+    const outputFile = path.join(tmpDir, "nodellm_spam_suppression.json5");
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testCoverageOneFile";
+
+    const origLoad = FuzzConfigStore.loadForFunction;
+    spyOn(FuzzConfigStore, "loadForFunction").and.callFake((...args) => {
+      console.warn(
+        "[NodeLLM] Skipping structured output capability validation for model qwen2.5-coder:32b"
+      );
+      console.log("[NodeLLM] Informational log from backend");
+      return origLoad(...args);
+    });
+
+    const res = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--no-ai-input-generator",
+      "--max-tests",
+      "1",
+      "--seed",
+      "cli_seed_nodellm_spam",
+    ]);
+
+    expect(res.status).toBe(0);
+    expect(res.stdout).not.toContain("[NodeLLM]");
+    expect(res.stderr).not.toContain("[NodeLLM]");
+    expect(res.stdout).toContain("NaNofuzz v");
+    expect(res.stdout).toContain(
+      "Target: src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts::testCoverageOneFile"
+    );
+
+    const captured = getCapturedConsoleLogs();
+    expect(captured.length).toBeGreaterThanOrEqual(2);
+    expect(
+      captured.some((e) =>
+        e.message.includes(
+          "Skipping structured output capability validation for model qwen2.5-coder:32b"
+        )
+      )
+    ).toBeTrue();
+    expect(
+      captured.some((e) => e.message.includes("Informational log from backend"))
+    ).toBeTrue();
+  });
+
+  it("redirects non-CommandLine stdout writes to stderr so only CommandLine writes to stdout", async () => {
+    clearCapturedConsoleLogs();
+    const outputFile = path.join(tmpDir, "stdout_isolation.json5");
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testCoverageOneFile";
+
+    const origLoad = FuzzConfigStore.loadForFunction;
+    spyOn(FuzzConfigStore, "loadForFunction").and.callFake((...args) => {
+      process.stdout.write(
+        "[DirectStream] Direct stdout write from dependency\n"
+      );
+      return origLoad(...args);
+    });
+
+    const res = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--no-ai-input-generator",
+      "--max-tests",
+      "1",
+      "--seed",
+      "cli_seed_stdout_isolation",
+    ]);
+
+    expect(res.status).toBe(0);
+    // Non-CommandLine outputs MUST NOT be in stdout
+    expect(res.stdout).not.toContain("[DirectStream]");
+
+    // CommandLine's own outputs MUST be in stdout
+    expect(res.stdout).toContain("NaNofuzz v");
+    expect(res.stdout).toContain(
+      "Target: src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts::testCoverageOneFile"
+    );
+    expect(res.stdout).toContain("Online:");
+
+    // Non-CommandLine outputs MUST be redirected to stderr
+    expect(res.stderr).toContain(
+      "[DirectStream] Direct stdout write from dependency"
+    );
+  });
+
+  it("routes captured library console logs to stderr when debug is configured without polluting stdout", async () => {
+    clearCapturedConsoleLogs();
+    const outputFile = path.join(tmpDir, "nodellm_debug_ai.json5");
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testCoverageOneFile";
+
+    const origLoad = FuzzConfigStore.loadForFunction;
+    spyOn(FuzzConfigStore, "loadForFunction").and.callFake((...args) => {
+      console.warn(
+        "[NodeLLM] Skipping structured output capability validation for model qwen2.5-coder:32b"
+      );
+      console.log("[NodeLLM Debug] Querying Ollama endpoint");
+      return origLoad(...args);
+    });
+
+    const res = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--debug",
+      "ai",
+      "--no-ai-input-generator",
+      "--max-tests",
+      "1",
+      "--seed",
+      "cli_seed_nodellm_debug_ai",
+    ]);
+
+    expect(res.status).toBe(0);
+    // Stdout must never have external logs or debug output
+    expect(res.stdout).not.toContain("[NodeLLM]");
+    // Debug info and warnings are routed cleanly to stderr
+    expect(res.stderr).toContain("[NodeLLM Debug] Querying Ollama endpoint");
+    expect(res.stderr).toContain(
+      "Skipping structured output capability validation for model qwen2.5-coder:32b"
+    );
+
+    const captured = getCapturedConsoleLogs();
+    expect(
+      captured.some((e) =>
+        e.message.includes(
+          "Skipping structured output capability validation for model qwen2.5-coder:32b"
+        )
+      )
+    ).toBeTrue();
+  });
+
+  it("formatDuration: formats seconds, minutes, and hours correctly", () => {
+    expect(formatDuration(0)).toBe("0s");
+    expect(formatDuration(2)).toBe("2s");
+    expect(formatDuration(59)).toBe("59s");
+    expect(formatDuration(60)).toBe("1m00s");
+    expect(formatDuration(120)).toBe("2m00s");
+    expect(formatDuration(125)).toBe("2m05s");
+    expect(formatDuration(3600)).toBe("1h00m00s");
+    expect(formatDuration(19325)).toBe("5h22m05s");
+  });
+
+  it("formatThroughput: formats execs/s, inputs/min, and inputs/hr correctly", () => {
+    // Zero or invalid elapsed
+    expect(formatThroughput(0, 0)).toBe("0 execs/s");
+    expect(formatThroughput(5, 0)).toBe("0 execs/s");
+    expect(formatThroughput(0, 10)).toBe("0 execs/s");
+    expect(formatThroughput(0, 120)).toBe("0 inputs/min");
+    expect(formatThroughput(0, 7200)).toBe("0 inputs/hr");
+
+    // >= 1 exec/s
+    expect(formatThroughput(100, 2)).toBe("50 execs/s");
+    expect(formatThroughput(5, 5)).toBe("1 execs/s");
+    expect(formatThroughput(10, 8)).toBe("1 execs/s");
+
+    // < 1 exec/s but >= 1 input/min
+    expect(formatThroughput(50, 239)).toBe("13 inputs/min");
+    expect(formatThroughput(1, 2)).toBe("30 inputs/min");
+    expect(formatThroughput(1, 60)).toBe("1 inputs/min");
+
+    // < 1 input/min (measured in inputs/hr)
+    expect(formatThroughput(1, 120)).toBe("30 inputs/hr");
+    expect(formatThroughput(5, 900)).toBe("20 inputs/hr");
+    expect(formatThroughput(1, 3600)).toBe("1 inputs/hr");
+
+    // formatRate alias works identically
+    expect(formatRate(50, 239)).toBe("13 inputs/min");
+
+    // unit: inputs uses same minutes and fallback logic
+    expect(formatThroughput(0, 0, "inputs")).toBe("0 inputs/s");
+    expect(formatThroughput(5, 0, "inputs")).toBe("0 inputs/s");
+    expect(formatThroughput(0, 10, "inputs")).toBe("0 inputs/s");
+    expect(formatThroughput(0, 120, "inputs")).toBe("0 inputs/min");
+    expect(formatThroughput(0, 7200, "inputs")).toBe("0 inputs/hr");
+
+    expect(formatThroughput(100, 2, "inputs")).toBe("50 inputs/s");
+    expect(formatThroughput(5, 5, "inputs")).toBe("1 inputs/s");
+    expect(formatThroughput(10, 8, "inputs")).toBe("1 inputs/s");
+
+    expect(formatThroughput(50, 239, "inputs")).toBe("13 inputs/min");
+    expect(formatThroughput(1, 2, "inputs")).toBe("30 inputs/min");
+    expect(formatThroughput(1, 60, "inputs")).toBe("1 inputs/min");
+
+    expect(formatThroughput(1, 120, "inputs")).toBe("30 inputs/hr");
+    expect(formatThroughput(5, 900, "inputs")).toBe("20 inputs/hr");
+    expect(formatThroughput(1, 3600, "inputs")).toBe("1 inputs/hr");
+  });
+
+  it("formatTestResults: formats non-zero groups and omits empty/zero groups", () => {
+    expect(formatTestResults(undefined)).toBe("");
+    expect(
+      formatTestResults({
+        failedTests: 0,
+        passedTests: 0,
+        inputsSkipped: 0,
+        dupesGenerated: 0,
+        erroredTests: 0,
+      })
+    ).toBe("");
+    expect(
+      formatTestResults({
+        failedTests: 0,
+        passedTests: 959,
+        inputsSkipped: 0,
+        erroredTests: 0,
+      })
+    ).toBe("Passed: 959");
+    expect(
+      formatTestResults({
+        failedTests: 1,
+        passedTests: 959,
+        inputsSkipped: 0,
+        erroredTests: 0,
+      })
+    ).toBe("Failed: 1, Passed: 959");
+    expect(
+      formatTestResults({
+        failedTests: 1,
+        passedTests: 959,
+        inputsSkipped: 999,
+        erroredTests: 0,
+      })
+    ).toBe("Failed: 1, Passed: 959, Skipped: 999");
+    expect(
+      formatTestResults({
+        failedTests: 1,
+        passedTests: 959,
+        inputsSkipped: 999,
+        erroredTests: 2,
+      })
+    ).toBe("Failed: 1, Passed: 959, Skipped: 999, Errored: 2");
+    expect(
+      formatTestResults({
+        failedTests: 0,
+        passedTests: 787632,
+        inputsSkipped: 86080,
+        dupesGenerated: 537,
+        erroredTests: 0,
+      })
+    ).toBe("Passed: 787632, Skipped: 86080, Dupes: 537");
+    expect(
+      formatTestResults({
+        failedTests: 1,
+        passedTests: 959,
+        inputsSkipped: 999,
+        dupesGenerated: 42,
+        erroredTests: 2,
+      })
+    ).toBe("Failed: 1, Passed: 959, Skipped: 999, Dupes: 42, Errored: 2");
+    expect(
+      formatTestResults({
+        failedTests: 0,
+        passedTests: 0,
+        inputsSkipped: 0,
+        dupesGenerated: 10,
+        erroredTests: 0,
+      })
+    ).toBe("Dupes: 10");
+    expect(
+      formatTestResults({
+        failedTests: 0,
+        passedTests: 0,
+        inputsSkipped: 0,
+        erroredTests: 5,
+      })
+    ).toBe("Errored: 5");
+  });
+
+  it("formatTestCounts: formats non-zero groups and omits empty/zero groups", () => {
+    expect(formatTestCounts(undefined)).toBe("");
+    expect(
+      formatTestCounts({
+        failedTests: 0,
+        passedTests: 0,
+        inputsSkipped: 0,
+        dupesGenerated: 0,
+        erroredTests: 0,
+      })
+    ).toBe("");
+    expect(
+      formatTestCounts({
+        failedTests: 0,
+        passedTests: 959,
+        inputsSkipped: 0,
+        erroredTests: 0,
+      })
+    ).toBe(" [Pass: 959]");
+    expect(
+      formatTestCounts({
+        failedTests: 1,
+        passedTests: 959,
+        inputsSkipped: 0,
+        erroredTests: 0,
+      })
+    ).toBe(" [Fail: 1, Pass: 959]");
+    expect(
+      formatTestCounts({
+        failedTests: 0,
+        passedTests: 959,
+        inputsSkipped: 999,
+        erroredTests: 0,
+      })
+    ).toBe(" [Pass: 959, Skip: 999]");
+    expect(
+      formatTestCounts({
+        failedTests: 1,
+        passedTests: 959,
+        inputsSkipped: 999,
+        erroredTests: 2,
+      })
+    ).toBe(" [Fail: 1, Pass: 959, Skip: 999, Err: 2]");
+    expect(
+      formatTestCounts({
+        failedTests: 0,
+        passedTests: 787632,
+        inputsSkipped: 86080,
+        dupesGenerated: 537,
+        erroredTests: 0,
+      })
+    ).toBe(" [Pass: 787632, Skip: 86080, Dupe: 537]");
+    expect(
+      formatTestCounts({
+        failedTests: 1,
+        passedTests: 959,
+        inputsSkipped: 999,
+        dupesGenerated: 42,
+        erroredTests: 2,
+      })
+    ).toBe(" [Fail: 1, Pass: 959, Skip: 999, Dupe: 42, Err: 2]");
+    expect(
+      formatTestCounts({
+        failedTests: 0,
+        passedTests: 0,
+        inputsSkipped: 0,
+        dupesGenerated: 10,
+        erroredTests: 0,
+      })
+    ).toBe(" [Dupe: 10]");
+    expect(
+      formatTestCounts({
+        failedTests: 0,
+        passedTests: 0,
+        inputsSkipped: 0,
+        erroredTests: 5,
+      })
+    ).toBe(" [Err: 5]");
+  });
+
+  it("progress bar includes runtime and test counts in stderr", async () => {
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testCoverageOneFile";
+
+    const origIsTTY = process.stderr.isTTY;
+    try {
+      Object.defineProperty(process.stderr, "isTTY", {
+        value: true,
+        configurable: true,
+        writable: true,
+      });
+      const res = await runCli([
+        targetFile,
+        targetFn,
+        "--max-tests",
+        "5",
+        "--seed",
+        "cli_seed_bar_runtime",
+      ]);
+
+      expect(res.status).toBe(0);
+      expect(res.stderr).toMatch(/Testing \[.*\] \d+%/);
+      expect(res.stderr).toMatch(/@ \d+s/);
+      expect(res.stderr).toMatch(/(inputs\/s|inputs\/min)/);
+      expect(res.stderr).toMatch(/(execs\/s|inputs\/min)/);
+      expect(res.stderr).toMatch(/Results \[.*Passed:/);
+    } finally {
+      Object.defineProperty(process.stderr, "isTTY", {
+        value: origIsTTY,
+        configurable: true,
+        writable: true,
+      });
+    }
+  });
+
+  it("--no-progress-bar: disables progress bar in stderr", async () => {
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testCoverageOneFile";
+
+    const origIsTTY = process.stderr.isTTY;
+    try {
+      Object.defineProperty(process.stderr, "isTTY", {
+        value: true,
+        configurable: true,
+        writable: true,
+      });
+      const res = await runCli([
+        targetFile,
+        targetFn,
+        "--no-progress-bar",
+        "--max-tests",
+        "5",
+        "--seed",
+        "cli_seed_no_progress_bar",
+      ]);
+
+      expect(res.status).toBe(0);
+      expect(res.stderr).not.toMatch(/Testing \[.*\]/);
+      expect(res.stderr).not.toMatch(/Results \[.*Passed:/);
+    } finally {
+      Object.defineProperty(process.stderr, "isTTY", {
+        value: origIsTTY,
+        configurable: true,
+        writable: true,
+      });
+    }
   });
 
   it("--cig-* flags: composite input generator parameters", async () => {
@@ -781,7 +1705,9 @@ def ${targetFn}(n: int) -> int:
         "cli_seed_py_max_failures",
       ]);
 
-      expect(res.status).toBe(1);
+      expect(res.status)
+        .withContext(`stdout: ${res.stdout}\nstderr: ${res.stderr}`)
+        .toBe(1);
       expect(res.stdout).toContain("Stopped for reason: maxFailures.");
     } finally {
       if (fs.existsSync(pyFile)) {
@@ -842,6 +1768,26 @@ def ${targetFn}(n: int) -> int:
     );
     expect(dataFailures.results.length).toBe(0);
     expect(dataFailures.stats.outcomes.total).toBe(5);
+
+    // 2b. Mode omitted on CLI -> defaults to failures, records 0 results for passing target
+    const outFileOmitted = path.join(tmpDir, "out_results_omitted.json5");
+    const resOmitted = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outFileOmitted,
+      "--max-tests",
+      "5",
+      "--seed",
+      "cli_seed_ret_omitted",
+    ]);
+    expect(resOmitted.status).toBe(0);
+    const dataOmitted = JSON5.parse<FuzzTestResults>(
+      fs.readFileSync(outFileOmitted, "utf8")
+    );
+    expect(dataOmitted.results.length).toBe(0);
+    expect(dataOmitted.stats.outcomes.total).toBe(5);
+    expect(dataOmitted.env.executionOptions.outputResults).toBe("failures");
 
     // 3. Mode: none -> records 0 results even with failures
     const failTargetFn = "testStandardVoidReturnException";
@@ -1119,6 +2065,66 @@ export function myPut(x: number): number {
     expect(res.stdout).toContain("- Test output            : 5");
     expect(res.stdout).not.toContain("Shrunk in");
     expect(res.stdout).toContain("===============");
+  });
+
+  it("--no-config-file: don't load saved tests and options from .nano.json5", async () => {
+    const tsFile = path.join(tmpDir, "noconfig_example.ts");
+    const jsonFile = path.join(tmpDir, "noconfig_example.ts.nano.json5");
+    fs.writeFileSync(
+      tsFile,
+      `
+export function myPut(x: number): number {
+  return x;
+}
+`,
+      "utf8"
+    );
+    fs.writeFileSync(
+      jsonFile,
+      JSON.stringify({
+        version: "0.4.0",
+        functions: {
+          myPut: {
+            options: {},
+            validators: [],
+            isVoid: false,
+            tests: {
+              '{"value":[5]}': {
+                input: [
+                  { name: "x", offset: 0, value: 5, origin: { type: "user" } },
+                ],
+                output: [],
+                pinned: true,
+                expectedOutput: [
+                  {
+                    name: "0",
+                    offset: 0,
+                    value: 999,
+                    origin: { type: "user" },
+                  },
+                ],
+              },
+            },
+          },
+        },
+      }),
+      "utf8"
+    );
+
+    const res = await runCli([
+      tsFile,
+      "myPut",
+      "--no-config-file",
+      "--max-tests",
+      "5",
+      "--seed",
+      "cli_seed_noconfig",
+    ]);
+
+    expect(res.status).toBe(0);
+    expect(res.stdout).toContain("Testing finished.");
+    expect(res.stdout).toContain("Injected 0 and generated 5 inputs");
+    expect(res.stdout).not.toContain("FAILED by Example Oracle");
   });
 
   it("--max-failures 1: exception via PUT exception with shrinking", async () => {

@@ -1,14 +1,116 @@
 import { Judgment } from "./Types";
-import { Result } from "../Types";
+import { HarnessError, Result } from "../Types";
 import { isError } from "../Util";
-import { AbstractRunner } from "../runners/AbstractRunner";
+import { AbstractRunner, ValidatorResult } from "../runners/AbstractRunner";
 
 export class PropertyOracle {
   protected _propRunners: AbstractRunner[] = [];
 
-  constructor(propRunners: AbstractRunner[]) {
+  constructor(propRunners: AbstractRunner[] = []) {
     this._propRunners = [...propRunners];
   }
+
+  /**
+   * Translates in-host validator results into judgments and harness errors.
+   *
+   * @param validatorResults Map of validator function names to their execution results
+   * @param validators List of validator function references expected
+   * @param fnTimeout Configured per-function timeout in milliseconds
+   * @returns Array of judgments and any harness errors encountered
+   */
+  public static mapJudgments(
+    validatorResults: Record<string, ValidatorResult> = {},
+    validators: { name: string }[],
+    fnTimeout: number
+  ): { judgments: Judgment[]; harnessErrors: HarnessError[] } {
+    const judgments: Judgment[] = [];
+    const harnessErrors: HarnessError[] = [];
+
+    validators.forEach((vRef, i) => {
+      const fnName = vRef.name || `validator_${i}`;
+      const vOut = validatorResults[fnName];
+
+      if (!vOut) {
+        judgments.push("unknown");
+        return;
+      }
+
+      switch (vOut.tag) {
+        case "value":
+          switch (vOut.value) {
+            case true:
+            case "pass":
+              judgments.push("pass");
+              break;
+            case false:
+            case "fail":
+              judgments.push("fail");
+              break;
+            case undefined:
+            case "unknown":
+              judgments.push("unknown");
+              break;
+            default: {
+              judgments.push("unknown");
+              harnessErrors.push({
+                kind: "exception",
+                stage: "validator",
+                fnName,
+                message:
+                  'Property validator did not return: "pass" | "fail" | "unknown"',
+                display: `(${fnName} PropertyValidatorReturnValueError) Property validator did not return: "pass" | "fail" | "unknown"`,
+                stack: "<no stack>",
+              });
+              break;
+            }
+          }
+          break;
+
+        case "timeout":
+          judgments.push("unknown");
+          harnessErrors.push({
+            kind: "timeout",
+            stage: "validator",
+            fnName,
+            message: `Timeout exceeding ${fnTimeout} ms`,
+            display: `(${fnName} timeout)`,
+          });
+          break;
+
+        case "skip":
+          judgments.push("unknown");
+          harnessErrors.push({
+            kind: "exception",
+            stage: "validator",
+            fnName,
+            message:
+              vOut.message ??
+              `property validator "${fnName}" assumption unsatisfied`,
+            display: `(${fnName} UnsatisfiedAssumption) ${
+              vOut.message ?? "assumption unsatisfied"
+            }`,
+            stack: "<no stack>",
+          });
+          break;
+
+        case "error":
+          judgments.push("unknown");
+          harnessErrors.push({
+            kind: "exception",
+            stage: "validator",
+            fnName,
+            message: vOut.message ?? "Property validator error",
+            display: `(${fnName} ${vOut.name ?? "PropertyValidatorError"}) ${
+              vOut.message ?? "error"
+            }`,
+            stack: vOut.stack ?? "<no stack>",
+          });
+          break;
+      }
+    });
+
+    return { judgments, harnessErrors };
+  } // fn: mapJudgments
 
   /**
    * Judge an execution result of a program using property validators

@@ -30,10 +30,10 @@ export class ArgDefMutator {
     prng: seedrandom.prng
   ): mutatorFn[] {
     // Sanity check: ensure we have specs to cover our inputs
-    if (ArgDef.length < value.length) {
+    if (specs.length < value.length) {
       throw new Error(
         `Different number of inputs (${value.length}) relative to ArgDefs (${
-          ArgDef.length
+          specs.length
         }) for input: ${JSONN.stringify(value)}`
       );
     }
@@ -176,15 +176,100 @@ export class ArgDefMutator {
               name: "array-jumble",
               value: [...a].sort(() => 0.5 - prng()),
               path: [...path],
+              simplifies: false,
             },
             {
               name: "array-reverse",
               value: [...a].reverse(),
               path: [...path],
+              simplifies: false,
             },
           ].filter((e) => JSONN.stringify(e.value) !== JSONN.stringify(a))
         );
       } // if: array length > 1
+
+      // Swap two elements
+      if (a.length >= 2) {
+        const idx1 = Math.floor(prng() * a.length);
+        let idx2 = Math.floor(prng() * (a.length - 1));
+        if (idx2 >= idx1) idx2++;
+        if (JSONN.stringify(a[idx1]) !== JSONN.stringify(a[idx2])) {
+          const newArr = [...a];
+          newArr[idx1] = a[idx2];
+          newArr[idx2] = a[idx1];
+          addMutations([
+            {
+              name: "array-swapElements",
+              value: newArr,
+              path: [...path],
+              simplifies: false,
+            },
+          ]);
+        }
+      }
+
+      // Rotate elements cyclically
+      if (a.length >= 2) {
+        const k = 1 + Math.floor(prng() * (a.length - 1));
+        const newArr = [...a.slice(k), ...a.slice(0, k)];
+        if (JSONN.stringify(newArr) !== JSONN.stringify(a)) {
+          addMutations([
+            {
+              name: "array-rotate",
+              value: newArr,
+              path: [...path],
+              simplifies: false,
+            },
+          ]);
+        }
+      }
+
+      // Delete single element (stochastic sampling to balance proposal distribution)
+      if (a.length > options.dimLength[level - 1].min) {
+        const delIdx = Math.floor(prng() * a.length);
+        addMutations([
+          {
+            name: "array-deleteElement",
+            value: a.filter((_v, j) => delIdx !== j),
+            path: [...path],
+            simplifies: true,
+          },
+        ]);
+      }
+
+      // Delete block of elements
+      const maxDel = a.length - options.dimLength[level - 1].min;
+      if (maxDel >= 2) {
+        const delLen = Math.min(
+          maxDel,
+          2 + Math.floor(prng() * Math.min(maxDel - 1, 8))
+        );
+        const maxStart = a.length - delLen;
+        const startPos = Math.floor(prng() * (maxStart + 1));
+        const newArr = [...a.slice(0, startPos), ...a.slice(startPos + delLen)];
+        addMutations([
+          {
+            name: "array-deleteBlock",
+            value: newArr,
+            path: [...path],
+            simplifies: true,
+          },
+        ]);
+      }
+
+      // Truncate to minimum array length (simplification / escape local minima)
+      const minLen = options.dimLength[level - 1].min;
+      if (a.length > minLen + 1) {
+        const newArr = a.slice(0, minLen);
+        addMutations([
+          {
+            name: "array-truncateToMin",
+            value: newArr,
+            path: [...path],
+            simplifies: true,
+          },
+        ]);
+      }
 
       // Add elements if the dimension is not yet full
       if (options.dimLength[level - 1].max > a.length) {
@@ -201,6 +286,7 @@ export class ArgDefMutator {
                   ArgDefGenerator.gen(spec, prng, false /* w/o dimensions */),
                 ],
                 path: [...path],
+                simplifies: false,
               },
             ].filter(
               (e) =>
@@ -209,9 +295,123 @@ export class ArgDefMutator {
                 options.dimLength[level - 1].min <= e.value.length
             ) // filter
           ); // push
+
+          // Insert new element at random position (head, interior, tail)
+          let insertAttempts = 0;
+          const maxInsertAttempts = options.dimsUnique ? 20 : 1;
+          while (insertAttempts++ < maxInsertAttempts) {
+            const insertPos = Math.floor(prng() * (a.length + 1));
+            const newElem = ArgDefGenerator.gen(spec, prng, false);
+            const newArr = [
+              ...a.slice(0, insertPos),
+              newElem,
+              ...a.slice(insertPos),
+            ];
+            if (
+              JSONN.stringify(newArr) !== JSONN.stringify(a) &&
+              newArr.length <= options.dimLength[level - 1].max &&
+              newArr.length >= options.dimLength[level - 1].min
+            ) {
+              const proposal: MutationProposal = {
+                name: "array-insertElement",
+                value: newArr,
+                path: [...path],
+                simplifies: false,
+              };
+              if (preservesUniqueDimensions(proposal)) {
+                mutations.push(proposal);
+                break;
+              }
+            }
+          }
         }
         // TODO: non-terminal dimension: generate a dimensional element
       } // if: dimension is not yet full
+
+      // Duplicate block of elements
+      if (a.length >= 1 && a.length < options.dimLength[level - 1].max) {
+        const maxDup = Math.min(
+          8,
+          a.length,
+          options.dimLength[level - 1].max - a.length
+        );
+        if (maxDup >= 1) {
+          const dupLen = Math.floor(prng() * maxDup) + 1;
+          const srcPos = Math.floor(prng() * (a.length - dupLen + 1));
+          const dstPos = Math.floor(prng() * (a.length + 1));
+          const slice = a.slice(srcPos, srcPos + dupLen);
+          const newArr = [...a.slice(0, dstPos), ...slice, ...a.slice(dstPos)];
+          if (
+            JSONN.stringify(newArr) !== JSONN.stringify(a) &&
+            newArr.length <= options.dimLength[level - 1].max &&
+            newArr.length >= options.dimLength[level - 1].min
+          ) {
+            addMutations([
+              {
+                name: "array-duplicateBlock",
+                value: newArr,
+                path: [...path],
+                simplifies: false,
+              },
+            ]);
+          }
+        }
+      }
+
+      // Replace block of elements
+      if (level === spec.getDim() && a.length >= 2) {
+        let replaceAttempts = 0;
+        const maxReplaceAttempts = options.dimsUnique ? 10 : 1;
+        while (replaceAttempts++ < maxReplaceAttempts) {
+          const replaceCount = Math.min(
+            a.length,
+            2 + Math.floor(prng() * Math.min(5, a.length - 1))
+          );
+          const maxStart = a.length - replaceCount;
+          const startPos = Math.floor(prng() * (maxStart + 1));
+          const newArr = [...a];
+          for (let k = 0; k < replaceCount; k++) {
+            newArr[startPos + k] = ArgDefGenerator.gen(spec, prng, false);
+          }
+          if (JSONN.stringify(newArr) !== JSONN.stringify(a)) {
+            const proposal: MutationProposal = {
+              name: "array-replaceBlock",
+              value: newArr,
+              path: [...path],
+              simplifies: false,
+            };
+            if (preservesUniqueDimensions(proposal)) {
+              mutations.push(proposal);
+              break;
+            }
+          }
+        }
+      }
+
+      // Fill block with constant element
+      if (level === spec.getDim() && a.length >= 2) {
+        const maxFill = Math.min(8, a.length);
+        const fillLen = Math.floor(prng() * (maxFill - 1)) + 2;
+        const fillStart = Math.floor(prng() * (a.length - fillLen + 1));
+        const fillVal =
+          prng() < 0.5
+            ? a[Math.floor(prng() * a.length)]
+            : ArgDefGenerator.gen(spec, prng, false);
+        const newArr = [...a];
+        for (let k = 0; k < fillLen; k++) {
+          newArr[fillStart + k] = fillVal;
+        }
+        if (JSONN.stringify(newArr) !== JSONN.stringify(a)) {
+          addMutations([
+            {
+              name: "array-fillBlock",
+              value: newArr,
+              path: [...path],
+              simplifies: false,
+            },
+          ]);
+        }
+      }
 
       // Process each element in this level of the array
       for (const i in a) {
@@ -234,20 +434,6 @@ export class ArgDefMutator {
             otherSiblingStrings,
           });
         }
-        addMutations(
-          [
-            {
-              name: `array-deleteElement${i}`,
-              value: [...a.filter((_v, j) => index !== j)],
-              path: [...path],
-              simplifies: true,
-            },
-          ].filter(
-            (e) =>
-              options.dimLength[level - 1].max >= e.value.length &&
-              options.dimLength[level - 1].min <= e.value.length
-          )
-        );
 
         if (level === spec.getDim()) {
           const replacedArray = [...a];
@@ -258,6 +444,7 @@ export class ArgDefMutator {
                 name: `array-replaceElement${i}`,
                 value: replacedArray,
                 path: [...path],
+                simplifies: false,
               },
             ].filter(
               (e) =>
@@ -443,45 +630,308 @@ export class ArgDefMutator {
               });
             }
 
-            const rPos = Math.floor(prng() * Math.max(0, value.length - 1));
             const charSet = options.strCharset;
-            const rChar = charSet[Math.floor(prng() * (charSet.length - 1))];
+            const rChar = charSet[Math.floor(prng() * charSet.length)];
 
-            strProposals.push(
-              {
-                name: "string-deleteOneChar",
-                value: `${value.slice(0, rPos)}${value.slice(rPos + 1)}`,
+            if (value.length > 0) {
+              const rPos = Math.floor(prng() * value.length);
+              strProposals.push(
+                {
+                  name: "string-deleteOneChar",
+                  value: `${value.slice(0, rPos)}${value.slice(rPos + 1)}`,
+                  path: [...subInput.subPath],
+                  simplifies: true,
+                },
+                {
+                  name: "string-replaceOneChar",
+                  value: `${value.slice(0, rPos)}${rChar}${value.slice(
+                    rPos + 1
+                  )}`,
+                  path: [...subInput.subPath],
+                }
+              );
+            }
+
+            const insertPos = Math.floor(prng() * (value.length + 1));
+            strProposals.push({
+              name: "string-insertOneChar",
+              value: `${value.slice(0, insertPos)}${rChar}${value.slice(
+                insertPos
+              )}`,
+              path: [...subInput.subPath],
+              simplifies: false,
+            });
+
+            // Unicode code-point-aware reversal
+            const chars = Array.from(value);
+            if (chars.length >= 2) {
+              const reversed = [...chars].reverse().join("");
+              if (reversed !== value) {
+                strProposals.push({
+                  name: "string-reverse",
+                  value: reversed,
+                  path: [...subInput.subPath],
+                  simplifies: false,
+                });
+              }
+            }
+
+            // Localized slice reversal
+            if (chars.length >= 3) {
+              const maxSpan = Math.min(8, chars.length - 1);
+              let attempts = 0;
+              while (attempts++ < 5) {
+                const span = 2 + Math.floor(prng() * (maxSpan - 1));
+                const start = Math.floor(prng() * (chars.length - span + 1));
+                const reversedSub = chars.slice(start, start + span).reverse();
+                const newChars = [
+                  ...chars.slice(0, start),
+                  ...reversedSub,
+                  ...chars.slice(start + span),
+                ];
+                const candidate = newChars.join("");
+                if (candidate !== value) {
+                  strProposals.push({
+                    name: "string-reverseSlice",
+                    value: candidate,
+                    path: [...subInput.subPath],
+                    simplifies: false,
+                  });
+                  break;
+                }
+              }
+            }
+
+            // Delete block of characters
+            const maxDel = chars.length - options.strLength.min;
+            if (maxDel >= 2) {
+              const delLen = Math.min(
+                maxDel,
+                2 + Math.floor(prng() * Math.min(maxDel - 1, 8))
+              );
+              const maxStart = chars.length - delLen;
+              const startPos = Math.floor(prng() * (maxStart + 1));
+              const candidate = [
+                ...chars.slice(0, startPos),
+                ...chars.slice(startPos + delLen),
+              ].join("");
+              strProposals.push({
+                name: "string-deleteBlock",
+                value: candidate,
                 path: [...subInput.subPath],
                 simplifies: true,
-              },
-              {
-                name: "string-replaceOneChar",
-                value: `${value.slice(0, rPos)}${rChar}${value.slice(
-                  rPos + 1
-                )}`,
+              });
+            }
+
+            // Truncate to minimum string length
+            if (chars.length > options.strLength.min + 1) {
+              const candidate = chars.slice(0, options.strLength.min).join("");
+              strProposals.push({
+                name: "string-truncateToMin",
+                value: candidate,
                 path: [...subInput.subPath],
-              },
-              {
-                name: "string-insertOneChar",
-                value: `${value.slice(0, rPos)}${rChar}${value.slice(rPos)}`,
-                path: [...subInput.subPath],
+                simplifies: true,
+              });
+            }
+
+            // Swap two characters
+            if (chars.length >= 2) {
+              const idx1 = Math.floor(prng() * chars.length);
+              let idx2 = Math.floor(prng() * (chars.length - 1));
+              if (idx2 >= idx1) idx2++;
+              if (chars[idx1] !== chars[idx2]) {
+                const newChars = [...chars];
+                newChars[idx1] = chars[idx2];
+                newChars[idx2] = chars[idx1];
+                strProposals.push({
+                  name: "string-swapChars",
+                  value: newChars.join(""),
+                  path: [...subInput.subPath],
+                  simplifies: false,
+                });
               }
-            );
-            /*
-            {
-              name: "string-reverse",
-              value: value.split("").reverse().join(""),
-              path: [...subInput.subPath],
-            },
-            {
-              name: "string-jumble",
-              value: value
-                .split("")
-                .sort(() => 0.5 - prng())
-                .join(""),
-              path: [...subInput.subPath],
-            },
-            */
+            }
+
+            // Rotate characters cyclically
+            if (chars.length >= 2) {
+              const k = 1 + Math.floor(prng() * (chars.length - 1));
+              const candidate = [...chars.slice(k), ...chars.slice(0, k)].join(
+                ""
+              );
+              if (candidate !== value) {
+                strProposals.push({
+                  name: "string-rotate",
+                  value: candidate,
+                  path: [...subInput.subPath],
+                  simplifies: false,
+                });
+              }
+            }
+
+            // Replace block of characters
+            if (chars.length >= 2) {
+              const replaceCount = Math.min(
+                chars.length,
+                2 + Math.floor(prng() * Math.min(5, chars.length - 1))
+              );
+              const maxStart = chars.length - replaceCount;
+              const startPos = Math.floor(prng() * (maxStart + 1));
+              const newChars = [...chars];
+              for (let k = 0; k < replaceCount; k++) {
+                newChars[startPos + k] =
+                  charSet[Math.floor(prng() * charSet.length)];
+              }
+              const candidate = newChars.join("");
+              if (candidate !== value) {
+                strProposals.push({
+                  name: "string-replaceBlock",
+                  value: candidate,
+                  path: [...subInput.subPath],
+                  simplifies: false,
+                });
+              }
+            }
+
+            // Insert block of characters
+            if (chars.length < options.strLength.max) {
+              const maxIns = Math.min(8, options.strLength.max - chars.length);
+              if (maxIns >= 2) {
+                const insLen = Math.floor(prng() * (maxIns - 1)) + 2;
+                const insPos = Math.floor(prng() * (chars.length + 1));
+                const blockChars: string[] = [];
+                for (let k = 0; k < insLen; k++) {
+                  blockChars.push(charSet[Math.floor(prng() * charSet.length)]);
+                }
+                const candidate = [
+                  ...chars.slice(0, insPos),
+                  ...blockChars,
+                  ...chars.slice(insPos),
+                ].join("");
+                strProposals.push({
+                  name: "string-insertBlock",
+                  value: candidate,
+                  path: [...subInput.subPath],
+                  simplifies: false,
+                });
+              }
+            }
+
+            // Duplicate block of characters
+            if (chars.length >= 1 && chars.length < options.strLength.max) {
+              const maxDup = Math.min(
+                8,
+                chars.length,
+                options.strLength.max - chars.length
+              );
+              if (maxDup >= 1) {
+                const dupLen = Math.floor(prng() * maxDup) + 1;
+                const srcPos = Math.floor(prng() * (chars.length - dupLen + 1));
+                const dstPos = Math.floor(prng() * (chars.length + 1));
+                const slice = chars.slice(srcPos, srcPos + dupLen);
+                const candidate = [
+                  ...chars.slice(0, dstPos),
+                  ...slice,
+                  ...chars.slice(dstPos),
+                ].join("");
+                if (candidate !== value) {
+                  strProposals.push({
+                    name: "string-duplicateBlock",
+                    value: candidate,
+                    path: [...subInput.subPath],
+                    simplifies: false,
+                  });
+                }
+              }
+            }
+
+            // Shuffling/jumble
+            if (chars.length >= 2) {
+              const jumbled = [...chars].sort(() => 0.5 - prng()).join("");
+              if (jumbled !== value) {
+                strProposals.push({
+                  name: "string-jumble",
+                  value: jumbled,
+                  path: [...subInput.subPath],
+                  simplifies: false,
+                });
+              }
+            }
+
+            // Case transform (upper <-> lower)
+            if (chars.length >= 1) {
+              const transformableIndices: number[] = [];
+              for (let idx = 0; idx < chars.length; idx++) {
+                const ch = chars[idx];
+                const flipped =
+                  ch === ch.toUpperCase() ? ch.toLowerCase() : ch.toUpperCase();
+                if (flipped !== ch && options.strCharset.includes(flipped)) {
+                  transformableIndices.push(idx);
+                }
+              }
+              if (transformableIndices.length > 0) {
+                const cPos =
+                  transformableIndices[
+                    Math.floor(prng() * transformableIndices.length)
+                  ];
+                const targetChar = chars[cPos];
+                const flipped =
+                  targetChar === targetChar.toUpperCase()
+                    ? targetChar.toLowerCase()
+                    : targetChar.toUpperCase();
+                const newChars = [...chars];
+                newChars[cPos] = flipped;
+                strProposals.push({
+                  name: "string-caseTransform",
+                  value: newChars.join(""),
+                  path: [...subInput.subPath],
+                  simplifies: false,
+                });
+              }
+            }
+
+            // Insert boundary token
+            const boundaryTokens = [
+              " ",
+              "\t",
+              "\n",
+              '"',
+              "'",
+              "/",
+              "\\",
+              ",",
+              ";",
+              ":",
+              "=",
+              "&",
+              "?",
+              "0",
+              "-1",
+            ];
+            const validTokens = boundaryTokens.filter((token) => {
+              const tChars = Array.from(token);
+              return (
+                chars.length + tChars.length <= options.strLength.max &&
+                tChars.every((tc) => options.strCharset.includes(tc))
+              );
+            });
+            if (validTokens.length > 0) {
+              const chosenToken =
+                validTokens[Math.floor(prng() * validTokens.length)];
+              const bPos = Math.floor(prng() * (chars.length + 1));
+              const tChars = Array.from(chosenToken);
+              const candidate = [
+                ...chars.slice(0, bPos),
+                ...tChars,
+                ...chars.slice(bPos),
+              ].join("");
+              strProposals.push({
+                name: "string-insertBoundaryToken",
+                value: candidate,
+                path: [...subInput.subPath],
+                simplifies: false,
+              });
+            }
+
             addMutations(
               strProposals.filter(
                 (e) =>
@@ -499,13 +949,14 @@ export class ArgDefMutator {
               : Array.isArray(subElem)
                 ? subElem.filter((e): e is number => typeof e === "number")
                 : [];
-            const rPos = Math.floor(prng() * Math.max(0, rawBytes.length - 1));
+            const len = rawBytes.length;
             const rByte = Math.floor(prng() * 256);
             const rBit = Math.floor(prng() * 8);
 
             const proposals: (MutationProposal & { value: Uint8Array })[] = [];
 
-            if (rawBytes.length > 0 && options.byteLength.min === 0) {
+            // Clear (simplification)
+            if (len > 0 && options.byteLength.min === 0) {
               proposals.push({
                 name: "bytes-clear",
                 value: new Uint8Array(0),
@@ -514,7 +965,9 @@ export class ArgDefMutator {
               });
             }
 
-            if (rawBytes.length > 0) {
+            if (len > 0) {
+              const rPos = Math.floor(prng() * len);
+              // Single-bit flip
               const bitFlipped = new Uint8Array(rawBytes);
               const bitWasSet = (rawBytes[rPos] & (1 << rBit)) !== 0;
               bitFlipped[rPos] ^= 1 << rBit;
@@ -525,6 +978,7 @@ export class ArgDefMutator {
                 simplifies: bitWasSet,
               });
 
+              // Single-byte increment
               const byteInc = new Uint8Array(rawBytes);
               byteInc[rPos] = (byteInc[rPos] + 1) % 256;
               proposals.push({
@@ -533,6 +987,61 @@ export class ArgDefMutator {
                 path: [...subInput.subPath],
               });
 
+              // Single-byte decrement
+              const byteDec = new Uint8Array(rawBytes);
+              byteDec[rPos] = (byteDec[rPos] - 1 + 256) % 256;
+              proposals.push({
+                name: "bytes-decByte",
+                value: byteDec,
+                path: [...subInput.subPath],
+                simplifies: byteDec[rPos] < rawBytes[rPos],
+              });
+
+              // Invert single byte (all 8 bits)
+              const byteInvert = new Uint8Array(rawBytes);
+              byteInvert[rPos] ^= 0xff;
+              proposals.push({
+                name: "bytes-invertByte",
+                value: byteInvert,
+                path: [...subInput.subPath],
+              });
+
+              // Set single byte to zero
+              if (rawBytes[rPos] !== 0) {
+                const byteZero = new Uint8Array(rawBytes);
+                byteZero[rPos] = 0;
+                proposals.push({
+                  name: "bytes-setZero",
+                  value: byteZero,
+                  path: [...subInput.subPath],
+                  simplifies: true,
+                });
+              }
+
+              // Set single byte to 0xFF
+              if (rawBytes[rPos] !== 0xff) {
+                const byteOnes = new Uint8Array(rawBytes);
+                byteOnes[rPos] = 0xff;
+                proposals.push({
+                  name: "bytes-setAllOnes",
+                  value: byteOnes,
+                  path: [...subInput.subPath],
+                });
+              }
+
+              // Replace single byte with random byte
+              if (rByte !== rawBytes[rPos]) {
+                const byteReplace = new Uint8Array(rawBytes);
+                byteReplace[rPos] = rByte;
+                proposals.push({
+                  name: "bytes-replaceByte",
+                  value: byteReplace,
+                  path: [...subInput.subPath],
+                  simplifies: rByte < rawBytes[rPos],
+                });
+              }
+
+              // Single-byte delete
               const deleted = new Uint8Array(
                 rawBytes.filter((_, idx) => idx !== rPos)
               );
@@ -542,18 +1051,299 @@ export class ArgDefMutator {
                 path: [...subInput.subPath],
                 simplifies: true,
               });
+
+              // Magic 8-bit boundary values
+              const magic8Values = [0x00, 0x01, 0x7f, 0x80, 0xff];
+              const m8 = magic8Values[Math.floor(prng() * magic8Values.length)];
+              if (m8 !== rawBytes[rPos]) {
+                const magic8 = new Uint8Array(rawBytes);
+                magic8[rPos] = m8;
+                proposals.push({
+                  name: "bytes-insertMagic8",
+                  value: magic8,
+                  path: [...subInput.subPath],
+                  simplifies: m8 < rawBytes[rPos],
+                });
+              }
             }
 
-            if (rawBytes.length < options.byteLength.max) {
-              const inserted = new Uint8Array(rawBytes.length + 1);
-              inserted.set(rawBytes.slice(0, rPos));
-              inserted[rPos] = rByte;
-              inserted.set(rawBytes.slice(rPos), rPos + 1);
+            // Multi-byte operations (2+ bytes)
+            if (len >= 2) {
+              const rPos16 = Math.floor(prng() * (len - 1));
+
+              // Swap adjacent bytes
+              if (rawBytes[rPos16] !== rawBytes[rPos16 + 1]) {
+                const adjSwap = new Uint8Array(rawBytes);
+                adjSwap[rPos16] = rawBytes[rPos16 + 1];
+                adjSwap[rPos16 + 1] = rawBytes[rPos16];
+                proposals.push({
+                  name: "bytes-swapAdjacentBytes",
+                  value: adjSwap,
+                  path: [...subInput.subPath],
+                });
+              }
+
+              // 16-bit arithmetic (LE and BE)
+              const isLE16 = prng() < 0.5;
+              const delta16 = prng() < 0.5 ? 1 : 16;
+              const cur16 = isLE16
+                ? rawBytes[rPos16] | (rawBytes[rPos16 + 1] << 8)
+                : (rawBytes[rPos16] << 8) | rawBytes[rPos16 + 1];
+              const add16Val = (cur16 + delta16) & 0xffff;
+              const sub16Val = (cur16 - delta16 + 0x10000) & 0xffff;
+
+              const bAdd16 = new Uint8Array(rawBytes);
+              bAdd16[rPos16] = isLE16
+                ? add16Val & 0xff
+                : (add16Val >> 8) & 0xff;
+              bAdd16[rPos16 + 1] = isLE16
+                ? (add16Val >> 8) & 0xff
+                : add16Val & 0xff;
+              proposals.push({
+                name: "bytes-add16",
+                value: bAdd16,
+                path: [...subInput.subPath],
+              });
+
+              const bSub16 = new Uint8Array(rawBytes);
+              bSub16[rPos16] = isLE16
+                ? sub16Val & 0xff
+                : (sub16Val >> 8) & 0xff;
+              bSub16[rPos16 + 1] = isLE16
+                ? (sub16Val >> 8) & 0xff
+                : sub16Val & 0xff;
+              proposals.push({
+                name: "bytes-sub16",
+                value: bSub16,
+                path: [...subInput.subPath],
+              });
+
+              // Magic 16-bit boundary values
+              const magic16Values = [
+                0x0000, 0x0001, 0x00ff, 0x0100, 0x7fff, 0x8000, 0xffff,
+              ];
+              const m16 =
+                magic16Values[Math.floor(prng() * magic16Values.length)];
+              const m16b0 = isLE16 ? m16 & 0xff : (m16 >> 8) & 0xff;
+              const m16b1 = isLE16 ? (m16 >> 8) & 0xff : m16 & 0xff;
+              if (
+                rawBytes[rPos16] !== m16b0 ||
+                rawBytes[rPos16 + 1] !== m16b1
+              ) {
+                const magic16 = new Uint8Array(rawBytes);
+                magic16[rPos16] = m16b0;
+                magic16[rPos16 + 1] = m16b1;
+                proposals.push({
+                  name: "bytes-insertMagic16",
+                  value: magic16,
+                  path: [...subInput.subPath],
+                });
+              }
+
+              // 16-bit endianness swap
+              if (rawBytes[rPos16] !== rawBytes[rPos16 + 1]) {
+                const swap16 = new Uint8Array(rawBytes);
+                swap16[rPos16] = rawBytes[rPos16 + 1];
+                swap16[rPos16 + 1] = rawBytes[rPos16];
+                proposals.push({
+                  name: "bytes-swapEndian16",
+                  value: swap16,
+                  path: [...subInput.subPath],
+                });
+              }
+
+              // Delete block (if removing 2+ bytes respects min)
+              const maxDel = Math.min(8, len - options.byteLength.min);
+              if (maxDel >= 2) {
+                const delLen = Math.floor(prng() * (maxDel - 1)) + 2;
+                const delStart = Math.floor(prng() * (len - delLen + 1));
+                const delBlock = new Uint8Array(len - delLen);
+                delBlock.set(rawBytes.slice(0, delStart));
+                delBlock.set(rawBytes.slice(delStart + delLen), delStart);
+                proposals.push({
+                  name: "bytes-deleteBlock",
+                  value: delBlock,
+                  path: [...subInput.subPath],
+                  simplifies: true,
+                });
+              }
+
+              // Fill block with constant byte
+              const maxFill = Math.min(8, len);
+              const fillLen = Math.floor(prng() * (maxFill - 1)) + 2;
+              const fillStart = Math.floor(prng() * (len - fillLen + 1));
+              const fillByte =
+                prng() < 0.5 ? 0x00 : prng() < 0.5 ? 0xff : rByte;
+              const filled = new Uint8Array(rawBytes);
+              filled.fill(fillByte, fillStart, fillStart + fillLen);
+              let hasChange = false;
+              for (let idx = fillStart; idx < fillStart + fillLen; idx++) {
+                if (rawBytes[idx] !== fillByte) {
+                  hasChange = true;
+                  break;
+                }
+              }
+              if (hasChange) {
+                proposals.push({
+                  name: "bytes-fillBlock",
+                  value: filled,
+                  path: [...subInput.subPath],
+                  simplifies: fillByte === 0,
+                });
+              }
+            }
+
+            // Multi-byte operations (4+ bytes)
+            if (len >= 4) {
+              const rPos32 = Math.floor(prng() * (len - 3));
+              const isLE32 = prng() < 0.5;
+
+              // 32-bit arithmetic (LE and BE)
+              const delta32 = prng() < 0.5 ? 1 : 16;
+              const cur32 = isLE32
+                ? (rawBytes[rPos32] |
+                    (rawBytes[rPos32 + 1] << 8) |
+                    (rawBytes[rPos32 + 2] << 16) |
+                    (rawBytes[rPos32 + 3] << 24)) >>>
+                  0
+                : ((rawBytes[rPos32] << 24) |
+                    (rawBytes[rPos32 + 1] << 16) |
+                    (rawBytes[rPos32 + 2] << 8) |
+                    rawBytes[rPos32 + 3]) >>>
+                  0;
+              const add32Val = (cur32 + delta32) >>> 0;
+              const sub32Val = (cur32 - delta32) >>> 0;
+
+              const bAdd32 = new Uint8Array(rawBytes);
+              const bSub32 = new Uint8Array(rawBytes);
+              if (isLE32) {
+                bAdd32[rPos32] = add32Val & 0xff;
+                bAdd32[rPos32 + 1] = (add32Val >>> 8) & 0xff;
+                bAdd32[rPos32 + 2] = (add32Val >>> 16) & 0xff;
+                bAdd32[rPos32 + 3] = (add32Val >>> 24) & 0xff;
+
+                bSub32[rPos32] = sub32Val & 0xff;
+                bSub32[rPos32 + 1] = (sub32Val >>> 8) & 0xff;
+                bSub32[rPos32 + 2] = (sub32Val >>> 16) & 0xff;
+                bSub32[rPos32 + 3] = (sub32Val >>> 24) & 0xff;
+              } else {
+                bAdd32[rPos32] = (add32Val >>> 24) & 0xff;
+                bAdd32[rPos32 + 1] = (add32Val >>> 16) & 0xff;
+                bAdd32[rPos32 + 2] = (add32Val >>> 8) & 0xff;
+                bAdd32[rPos32 + 3] = add32Val & 0xff;
+
+                bSub32[rPos32] = (sub32Val >>> 24) & 0xff;
+                bSub32[rPos32 + 1] = (sub32Val >>> 16) & 0xff;
+                bSub32[rPos32 + 2] = (sub32Val >>> 8) & 0xff;
+                bSub32[rPos32 + 3] = sub32Val & 0xff;
+              }
+              proposals.push({
+                name: "bytes-add32",
+                value: bAdd32,
+                path: [...subInput.subPath],
+              });
+              proposals.push({
+                name: "bytes-sub32",
+                value: bSub32,
+                path: [...subInput.subPath],
+              });
+
+              // Magic 32-bit boundary values
+              const magic32Values = [
+                0x00000000, 0x00000001, 0x0000ffff, 0x7fffffff, 0x80000000,
+                0xffffffff,
+              ];
+              const m32 =
+                magic32Values[Math.floor(prng() * magic32Values.length)];
+              const m32b0 = isLE32 ? m32 & 0xff : (m32 >>> 24) & 0xff;
+              const m32b1 = isLE32 ? (m32 >>> 8) & 0xff : (m32 >>> 16) & 0xff;
+              const m32b2 = isLE32 ? (m32 >>> 16) & 0xff : (m32 >>> 8) & 0xff;
+              const m32b3 = isLE32 ? (m32 >>> 24) & 0xff : m32 & 0xff;
+              if (
+                rawBytes[rPos32] !== m32b0 ||
+                rawBytes[rPos32 + 1] !== m32b1 ||
+                rawBytes[rPos32 + 2] !== m32b2 ||
+                rawBytes[rPos32 + 3] !== m32b3
+              ) {
+                const magic32 = new Uint8Array(rawBytes);
+                magic32[rPos32] = m32b0;
+                magic32[rPos32 + 1] = m32b1;
+                magic32[rPos32 + 2] = m32b2;
+                magic32[rPos32 + 3] = m32b3;
+                proposals.push({
+                  name: "bytes-insertMagic32",
+                  value: magic32,
+                  path: [...subInput.subPath],
+                });
+              }
+
+              // 32-bit endianness swap
+              if (
+                rawBytes[rPos32] !== rawBytes[rPos32 + 3] ||
+                rawBytes[rPos32 + 1] !== rawBytes[rPos32 + 2]
+              ) {
+                const swap32 = new Uint8Array(rawBytes);
+                swap32[rPos32] = rawBytes[rPos32 + 3];
+                swap32[rPos32 + 1] = rawBytes[rPos32 + 2];
+                swap32[rPos32 + 2] = rawBytes[rPos32 + 1];
+                swap32[rPos32 + 3] = rawBytes[rPos32];
+                proposals.push({
+                  name: "bytes-swapEndian32",
+                  value: swap32,
+                  path: [...subInput.subPath],
+                });
+              }
+            }
+
+            // Insertion / Growth operations
+            if (len < options.byteLength.max) {
+              const insPos = Math.floor(prng() * (len + 1));
+              // Single-byte insert
+              const inserted = new Uint8Array(len + 1);
+              inserted.set(rawBytes.slice(0, insPos));
+              inserted[insPos] = rByte;
+              inserted.set(rawBytes.slice(insPos), insPos + 1);
               proposals.push({
                 name: "bytes-insertOneByte",
                 value: inserted,
                 path: [...subInput.subPath],
               });
+
+              // Block insert (2+ bytes)
+              const maxIns = Math.min(8, options.byteLength.max - len);
+              if (maxIns >= 2) {
+                const insLen = Math.floor(prng() * (maxIns - 1)) + 2;
+                const insBlock = new Uint8Array(len + insLen);
+                insBlock.set(rawBytes.slice(0, insPos));
+                for (let k = 0; k < insLen; k++) {
+                  insBlock[insPos + k] = Math.floor(prng() * 256);
+                }
+                insBlock.set(rawBytes.slice(insPos), insPos + insLen);
+                proposals.push({
+                  name: "bytes-insertBlock",
+                  value: insBlock,
+                  path: [...subInput.subPath],
+                });
+              }
+
+              // Duplicate block
+              if (len >= 2) {
+                const maxDup = Math.min(8, len, options.byteLength.max - len);
+                if (maxDup >= 1) {
+                  const dupLen = Math.floor(prng() * maxDup) + 1;
+                  const srcPos = Math.floor(prng() * (len - dupLen + 1));
+                  const dstPos = Math.floor(prng() * (len + 1));
+                  const dupBlock = new Uint8Array(len + dupLen);
+                  dupBlock.set(rawBytes.slice(0, dstPos));
+                  dupBlock.set(rawBytes.slice(srcPos, srcPos + dupLen), dstPos);
+                  dupBlock.set(rawBytes.slice(dstPos), dstPos + dupLen);
+                  proposals.push({
+                    name: "bytes-duplicateBlock",
+                    value: dupBlock,
+                    path: [...subInput.subPath],
+                  });
+                }
+              }
             }
 
             addMutations(
@@ -816,6 +1606,111 @@ export class ArgDefMutator {
                       value: {},
                       path: [...subInput.subPath],
                       simplifies: true,
+                    },
+                  ]);
+                }
+              }
+
+              // 6. Delete block of entries (AFL++ HAVOC_DEL_BLOCK style)
+              const maxDel = keys.length - dictLen.min;
+              if (maxDel >= 2) {
+                const delLen = Math.min(
+                  maxDel,
+                  2 + Math.floor(prng() * maxDel)
+                );
+                const maxStart = keys.length - delLen;
+                const startPos = Math.floor(prng() * (maxStart + 1));
+                const deleteKeys = new Set(
+                  keys.slice(startPos, startPos + delLen)
+                );
+                const newDict: Record<string, ArgValueType> = {};
+                for (const k of keys) {
+                  if (!deleteKeys.has(k)) {
+                    newDict[k] = dict[k];
+                  }
+                }
+                if (ArgDefValidator.validate(newDict, spec)) {
+                  addMutations([
+                    {
+                      name: "dictionary-deleteBlock",
+                      value: newDict,
+                      path: [...subInput.subPath],
+                      simplifies: true,
+                    },
+                  ]);
+                }
+              }
+
+              // 7. Truncate to minimum dictionary length (simplification / escape local minima)
+              if (keys.length > dictLen.min + 1) {
+                const newDict: Record<string, ArgValueType> = {};
+                for (let i = 0; i < dictLen.min; i++) {
+                  newDict[keys[i]] = dict[keys[i]];
+                }
+                if (ArgDefValidator.validate(newDict, spec)) {
+                  addMutations([
+                    {
+                      name: "dictionary-truncateToMin",
+                      value: newDict,
+                      path: [...subInput.subPath],
+                      simplifies: true,
+                    },
+                  ]);
+                }
+              }
+
+              // 8. Swap values between two keys (AFL++ swap style)
+              if (keys.length >= 2) {
+                const idx1 = Math.floor(prng() * keys.length);
+                let idx2 = Math.floor(prng() * (keys.length - 1));
+                if (idx2 >= idx1) idx2++;
+                const k1 = keys[idx1];
+                const k2 = keys[idx2];
+                if (JSONN.stringify(dict[k1]) !== JSONN.stringify(dict[k2])) {
+                  const newDict: Record<string, ArgValueType> = {
+                    ...dict,
+                    [k1]: dict[k2],
+                    [k2]: dict[k1],
+                  };
+                  if (ArgDefValidator.validate(newDict, spec)) {
+                    addMutations([
+                      {
+                        name: "dictionary-swapValues",
+                        value: newDict,
+                        path: [...subInput.subPath],
+                      },
+                    ]);
+                  }
+                }
+              }
+
+              // 9. Replace multiple values in a block (AFL++ fill_block / replace_block style)
+              if (keys.length >= 2 && valueSpec && !valueSpec.isNoInput()) {
+                const replaceCount = Math.min(
+                  keys.length,
+                  2 + Math.floor(prng() * Math.min(5, keys.length - 1))
+                );
+                const maxStart = keys.length - replaceCount;
+                const startPos = Math.floor(prng() * (maxStart + 1));
+                const targetKeys = keys.slice(
+                  startPos,
+                  startPos + replaceCount
+                );
+                const newDict = { ...dict };
+                for (const k of targetKeys) {
+                  newDict[k] = ArgDefGenerator.gen(
+                    valueSpec,
+                    prng,
+                    true,
+                    false
+                  );
+                }
+                if (ArgDefValidator.validate(newDict, spec)) {
+                  addMutations([
+                    {
+                      name: "dictionary-replaceBlock",
+                      value: newDict,
+                      path: [...subInput.subPath],
                     },
                   ]);
                 }

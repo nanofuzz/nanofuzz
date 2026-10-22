@@ -1,3 +1,4 @@
+import * as path from "node:path";
 import { AbstractInputGenerator } from "./AbstractInputGenerator";
 import {
   ArgTag,
@@ -7,18 +8,33 @@ import {
 } from "../analysis/Types";
 import * as JSONN from "../../Jsonn";
 import * as ValueMapper from "../mappers/ValueMapper";
-import { LlmAdapter } from "../adapters/LlmAdapter";
+import {
+  LlmAdapter,
+  isAbandonedError,
+  isTimeoutError,
+} from "../adapters/LlmAdapter";
 import { ArgDef } from "../analysis/ArgDef";
 import { FunctionDef } from "../analysis/FunctionDef";
 import { FuzzTestResults, InputAndSource } from "../Types";
-import { NextableStatus } from "./Types";
+import { InputGeneratorStatsAi, LlmQueryResult, NextableStatus } from "./Types";
 import { ArgDefValidator } from "../analysis/ArgDefValidator";
 import { ArgDefTokenEstimator } from "../analysis/ArgDefTokenEstimator";
 import * as zod from "zod/v4";
-import { InputGeneratorStatsAi } from "./Types";
 import { isError } from "../Util";
 import { isBufferOrUint8Array } from "../../Util";
 import * as Config from "../../Config";
+import {
+  CoverageMeasure,
+  UncoveredCoverageInfo,
+  extractUncoveredLines,
+  formatLineRanges,
+} from "../measures/CoverageMeasure";
+import {
+  CoverageFrontierSampler,
+  SampledFrontierTarget,
+  formatFrontierContext,
+} from "../analysis/CoverageFrontierSampler";
+import { Leaderboard } from "./Leaderboard";
 
 /**
  * Generates new inputs using a large language model
@@ -30,21 +46,30 @@ export class AiInputGenerator extends AbstractInputGenerator {
   protected _llm?: LlmAdapter; // Back-end AI model
   protected _callsPending = 0; // Number of calls to AI model pending
   protected _stats = _initStats(); // Stats about inputs generated
-  protected _allInputs; // Running list of all generated inputs
+  protected _allInputs: Map<string, unknown>; // Running list of all generated inputs
   protected _exhausted = false; // Set to true when the model produces no new valid inputs or encounters an error
   protected _tokensPerInput: number; // Estimated tokens per input (calculated onRunStart)
   protected _requestedInputCount; // Number of inputs to request per LLM call (calculated per request)
+  protected _covMeasure?: CoverageMeasure; // Code coverage measure provider
+  protected _targetAttempts: Record<string, number> = {}; // Historical attempts per target function to decay weight
+  protected _leaderboard?: Leaderboard<InputAndSource>; // Running list of interesting inputs
+  protected _validator: ArgDefValidator; // Validator for argument constraints
 
   public constructor(
     fn: FunctionDef,
     rngSeed: string | undefined,
     allInputs: Map<string, unknown>,
-    moduleSrc: string
+    moduleSrc: string,
+    covMeasure?: CoverageMeasure,
+    leaderboard?: Leaderboard<InputAndSource>
   ) {
     super(fn.getArgDefs(), rngSeed);
     this._fn = fn;
     this._allInputs = allInputs;
     this._moduleSrc = moduleSrc;
+    this._covMeasure = covMeasure;
+    this._leaderboard = leaderboard;
+    this._validator = new ArgDefValidator(this._specs);
     this._tokensPerInput = this._estimateTokensPerInput();
     this._requestedInputCount = this._getRequestedInputCount();
   } // fn: constructor
@@ -67,14 +92,17 @@ export class AiInputGenerator extends AbstractInputGenerator {
         this._inputQueue.length < getChunkSize() &&
         !this._callsPending &&
         this._llm &&
-        !this._exhausted
+        !this._exhausted &&
+        !LlmAdapter.isAbandoned
       ) {
         this._getMoreInputs();
       }
       return "now";
+    } else if (LlmAdapter.isAbandoned || this._exhausted) {
+      return false;
     } else if (this._callsPending) {
       return "soon";
-    } else if (this._llm && !this._exhausted) {
+    } else if (this._llm) {
       this._getMoreInputs();
       return this._callsPending ? "soon" : false;
     } else {
@@ -115,6 +143,10 @@ export class AiInputGenerator extends AbstractInputGenerator {
           );
         } else if (this._stats.calls.valid > 0) {
           diagnostics.push(`The model did not produce any valid inputs.`);
+        } else if (this._stats.calls.invalid > 0) {
+          diagnostics.push(
+            `The model responded, but ${this._stats.calls.invalid} of its responses ${this._stats.calls.invalid === 1 ? "was" : "were"} not well-formed.`
+          );
         } else if (
           this._stats.calls.failed === 0 &&
           this._stats.calls.valid === 0
@@ -135,6 +167,8 @@ export class AiInputGenerator extends AbstractInputGenerator {
    */
   public onRunStart(active: boolean): void {
     this._exhausted = false;
+    this._targetAttempts = {};
+    this._validator = new ArgDefValidator(this._specs);
     this._tokensPerInput = this._estimateTokensPerInput();
     this._requestedInputCount = this._getRequestedInputCount();
 
@@ -149,16 +183,15 @@ export class AiInputGenerator extends AbstractInputGenerator {
 
     // Create new back-end if configured but not yet loaded
     if (active && !this._llm && LlmAdapter.isConfigured()) {
-      this._llm = new LlmAdapter(this._prng);
+      this._llm = new LlmAdapter(this._prng, prompt.system());
       this._inputQueue = []; // empty the queue to avoid user confusion
     }
 
     // Input generation options may have changed, so re-validate
     // any cached inputs
     if (this._inputQueue.length) {
-      const validator = new ArgDefValidator(this._specs);
       this._inputQueue = this._inputQueue.filter((e) => {
-        const isValid = validator.validate(e.value);
+        const isValid = this._validator.validate(e.value);
         if (!isValid) {
           this._stats.inputs.invalidLater++;
         }
@@ -242,162 +275,252 @@ export class AiInputGenerator extends AbstractInputGenerator {
    */
   protected _getMoreInputs(): void {
     // Let any prior calls finish before making a new one
-    if (this._callsPending || this._exhausted) {
+    if (
+      this._callsPending ||
+      this._exhausted ||
+      !this._llm ||
+      LlmAdapter.isAbandoned
+    ) {
       return;
     }
 
-    if (this._llm) {
-      let resolvePending: (hasInputs: boolean) => void = () => {};
-      this._pendingPromise = new Promise<boolean>((resolve) => {
-        resolvePending = resolve;
-      });
+    let resolvePending: (hasInputs: boolean) => void = () => {};
+    this._pendingPromise = new Promise<boolean>((resolve) => {
+      resolvePending = resolve;
+    });
 
-      this._callsPending++;
+    this._callsPending++;
+
+    this._fetchInputs().finally(() => {
+      this._callsPending--;
+      resolvePending(this._inputQueue.length > 0);
+      this._pendingPromise = undefined;
+    });
+  } // fn: _getMoreInputs
+
+  /**
+   * Fetches inputs from the back-end AI model, refreshing the prompt on timeout.
+   */
+  protected async _fetchInputs(): Promise<void> {
+    if (!this._llm) {
+      return;
+    }
+
+    try {
       const modelId = this._llm.id;
-      const validInputs: { [k: string]: ArgValueType }[] = [];
-      const invalidInputs: { [k: string]: ArgValueType }[] = [];
-      const validator = new ArgDefValidator(this._specs);
-
-      this._stats.calls.sent++;
       const [schema, directives] = this._getInputsSchema(this._fn.getLang());
-      const numRequested = this._getRequestedInputCount();
 
-      // Fetch inputs from the llm
-      this._llm
-        .genInputs(
+      const enableCoverageGuidance = Config.get<boolean>(
+        "nanofuzz.ai.coverageGuidance",
+        true
+      );
+      const cfg = LlmAdapter.getConfig();
+      const maxAttempts = Math.max(1, cfg.retries);
+
+      let inputs: LlmQueryResult | undefined;
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        if (!this._llm || this._exhausted || LlmAdapter.isAbandoned) {
+          return;
+        }
+
+        const covStats =
+          this._covMeasure && enableCoverageGuidance
+            ? await this._covMeasure.getCoverageStats().catch(() => undefined)
+            : undefined;
+
+        let uncoveredInfo: UncoveredCoverageInfo | undefined = undefined;
+        let frontierTarget: SampledFrontierTarget | undefined = undefined;
+
+        if (covStats) {
+          uncoveredInfo = extractUncoveredLines(covStats);
+          frontierTarget = CoverageFrontierSampler.sample({
+            covStats,
+            uncoveredInfo,
+            targetAttempts: this._targetAttempts,
+            prng: this._prng,
+            targetFn: this._fn,
+            leaderboard: this._leaderboard,
+            covMeasure: this._covMeasure,
+          });
+        }
+
+        const numRequested = this._getRequestedInputCount();
+        this._stats.calls.sent++;
+
+        const promptText = prompt.genInputs(
           this._fn,
-          schema,
           directives,
           this._allInputs,
           this._moduleSrc,
           numRequested,
-          this._stats.calls.sent
-        )
-        .then((inputs) => {
-          // Update tokens received stats
-          if (inputs.stats) {
-            this._stats.tokens.received += inputs.stats.tokensReceived;
-            if (!this._stats.tokens.receivedCost) {
-              this._stats.tokens.receivedCost = {
-                ...inputs.stats.tokensReceivedCost,
-              };
-            } else if (
-              this._stats.tokens.receivedCost.unit ===
-              inputs.stats.tokensReceivedCost.unit
-            ) {
-              this._stats.tokens.receivedCost.amt +=
-                inputs.stats.tokensReceivedCost.amt;
-            }
+          this._stats.calls.sent,
+          uncoveredInfo,
+          frontierTarget,
+          this._leaderboard
+        );
 
-            // Update tokens sent stats
-            this._stats.tokens.sent += inputs.stats.tokensSent;
-            if (!this._stats.tokens.sentCost) {
-              this._stats.tokens.sentCost = {
-                ...inputs.stats.tokensSentCost,
-              };
-            } else if (
-              this._stats.tokens.sentCost.unit ===
-              inputs.stats.tokensSentCost.unit
-            ) {
-              this._stats.tokens.sentCost.amt +=
-                inputs.stats.tokensSentCost.amt;
-            }
-          }
-
-          // Handle error cases
-          switch (inputs.error?.type) {
-            case undefined:
-              this._stats.calls.valid++;
-              this._stats.calls.history.push({ success: true });
-              break;
-            case "discard":
-              this._stats.calls.invalid++;
-              this._stats.calls.history.push({ discard: true });
-              break;
-            case "failure":
-              this._stats.calls.failed++;
-              this._stats.calls.history.push({
-                failure: true,
-                message: inputs.error.message,
-              });
-              this._exhausted = true;
-              break;
-          }
-
-          // Process the inputs
-          const specMap = new Map<string, ArgDef>(
-            this._specs.map((arg) => [arg.getName(), arg])
-          );
-          inputs.programInputs.forEach((input) => {
-            this._stats.inputs.gen++;
-
-            // Decode the input
-            Object.keys(input).forEach((k) => {
-              input[k] = _decode(input[k], specMap.get(k));
-            });
-
-            // Validate the input
-            if (
-              validator.validate(
-                this._specs.map((arg) => {
-                  return {
-                    tag: "ArgValueTypeWrapped",
-                    value: input[arg.getName()],
-                  };
-                })
-              )
-            ) {
-              validInputs.push(input);
-            } else {
-              invalidInputs.push(input);
-              this._stats.inputs.invalid++;
-            }
+        try {
+          inputs = await this._llm.query(promptText, schema, {
+            retryOnTimeout: false,
+            retries: 0,
           });
-          if (invalidInputs.length && LlmAdapter.isDebugConfigured()) {
-            console.debug(
-              `Discarded ${invalidInputs.length} of ${invalidInputs.length + validInputs.length} LLM inputs for being invalid: ${JSONN.stringify(invalidInputs, null, 2)}`
-            );
+          break;
+        } catch (err: unknown) {
+          if (
+            !LlmAdapter.isAbandoned &&
+            !isAbandonedError(err) &&
+            isTimeoutError(err) &&
+            attempt < maxAttempts &&
+            !this._exhausted
+          ) {
+            if (LlmAdapter.isDebugConfigured()) {
+              console.log(
+                `[NaNofuzz AI] Request timed out on attempt ${attempt}/${maxAttempts}. Refreshing query and retrying in ${cfg.retryDelay}ms...`
+              );
+            }
+            if (cfg.retryDelay > 0) {
+              await new Promise((resolve) =>
+                setTimeout(resolve, cfg.retryDelay)
+              );
+            }
+            continue;
           }
+          throw err;
+        }
+      }
 
-          // Push valid inputs to the input queue
-          this._inputQueue.push(
-            ...validInputs.map((input): InputAndSource => {
+      if (!inputs) {
+        return;
+      }
+
+      // Update tokens received stats
+      if (inputs.stats) {
+        this._stats.tokens.received += inputs.stats.tokensReceived;
+        if (!this._stats.tokens.receivedCost) {
+          this._stats.tokens.receivedCost = {
+            ...inputs.stats.tokensReceivedCost,
+          };
+        } else if (
+          this._stats.tokens.receivedCost.unit ===
+          inputs.stats.tokensReceivedCost.unit
+        ) {
+          this._stats.tokens.receivedCost.amt +=
+            inputs.stats.tokensReceivedCost.amt;
+        }
+
+        // Update tokens sent stats
+        this._stats.tokens.sent += inputs.stats.tokensSent;
+        if (!this._stats.tokens.sentCost) {
+          this._stats.tokens.sentCost = {
+            ...inputs.stats.tokensSentCost,
+          };
+        } else if (
+          this._stats.tokens.sentCost.unit === inputs.stats.tokensSentCost.unit
+        ) {
+          this._stats.tokens.sentCost.amt += inputs.stats.tokensSentCost.amt;
+        }
+      }
+
+      let parsed: { programInputs: Record<string, ArgValueType>[] };
+      try {
+        parsed = JSONN.parse(inputs.text);
+      } catch {
+        this._stats.calls.invalid++;
+        this._stats.calls.history.push({ discard: true });
+        return;
+      }
+
+      // Sanity check llm output
+      if (
+        !(
+          typeof parsed === "object" &&
+          parsed !== null &&
+          "programInputs" in parsed &&
+          Array.isArray(parsed.programInputs) &&
+          parsed.programInputs.every(
+            (e) => typeof e === "object" && e !== null && !Array.isArray(e)
+          )
+        )
+      ) {
+        this._stats.calls.invalid++;
+        this._stats.calls.history.push({ discard: true });
+        return;
+      }
+
+      this._stats.calls.valid++;
+      this._stats.calls.history.push({ success: true });
+
+      // Process the inputs
+      const validInputs: Record<string, ArgValueType>[] = [];
+      const invalidInputs: Record<string, ArgValueType>[] = [];
+      const specMap = new Map<string, ArgDef>(
+        this._specs.map((arg) => [arg.getName(), arg])
+      );
+      parsed.programInputs.forEach((input) => {
+        this._stats.inputs.gen++;
+
+        // Decode the input
+        Object.keys(input).forEach((k) => {
+          input[k] = _decode(input[k], specMap.get(k));
+        });
+
+        // Validate the input
+        if (
+          this._validator.validate(
+            this._specs.map((arg) => {
               return {
-                tick: 0,
-                value: this._specs.map((arg): ArgValueTypeWrapped => {
-                  return {
-                    tag: "ArgValueTypeWrapped",
-                    value: input[arg.getName()],
-                  };
-                }),
-                source: {
-                  type: "generator",
-                  generator: "AiInputGenerator",
-                  model: modelId ?? "unknown model",
-                },
+                tag: "ArgValueTypeWrapped",
+                value: input[arg.getName()],
               };
             })
-          );
+          )
+        ) {
+          validInputs.push(input);
+        } else {
+          invalidInputs.push(input);
+          this._stats.inputs.invalid++;
+        }
+      });
+      if (invalidInputs.length && LlmAdapter.isDebugConfigured()) {
+        console.debug(
+          `Discarded ${invalidInputs.length} of ${invalidInputs.length + validInputs.length} LLM inputs for being invalid: ${JSONN.stringify(invalidInputs, null, 2)}`
+        );
+      }
 
-          if (this._inputQueue.length === 0 && !inputs.error) {
-            this._exhausted = true;
-          }
+      // Push valid inputs to the input queue
+      this._inputQueue.push(
+        ...validInputs.map((input): InputAndSource => {
+          return {
+            tick: 0,
+            value: this._specs.map((arg): ArgValueTypeWrapped => {
+              return {
+                tag: "ArgValueTypeWrapped",
+                value: input[arg.getName()],
+              };
+            }),
+            source: {
+              type: "generator",
+              generator: "AiInputGenerator",
+              model: modelId ?? "unknown model",
+            },
+          };
         })
-        .catch((e: unknown) => {
-          this._stats.calls.failed++;
-          this._stats.calls.history.push({
-            failure: true,
-            message: isError(e) ? e.message : "unknown error",
-          });
-          this._exhausted = true;
-        })
-        .finally(() => {
-          this._callsPending--;
-          resolvePending(this._inputQueue.length > 0);
-          this._pendingPromise = undefined;
+      );
+
+      if (this._inputQueue.length === 0) {
+        this._exhausted = true;
+      }
+    } catch (e: unknown) {
+      if (!LlmAdapter.isAbandoned && !isAbandonedError(e)) {
+        this._stats.calls.failed++;
+        this._stats.calls.history.push({
+          failure: true,
+          message: isError(e) ? e.message : "unknown error",
         });
+      }
+      this._exhausted = true;
     }
-  } // fn: _getMoreInputs
+  } // fn: _fetchInputs
 
   /**
    * Returns a JSON schema representing the function inputs.
@@ -405,7 +528,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
    * @returns JSON schema
    */
   protected _getInputsSchema(lang: ProgramLanguage): [zod.ZodObject, string[]] {
-    const zodObj: { [k: string]: zod.ZodType } = {};
+    const zodObj: Record<string, zod.ZodType> = {};
     const directives: string[] = [];
     this._specs.forEach((arg) => {
       zodObj[arg.getName()] = this._argDefToSchema(
@@ -501,8 +624,11 @@ export class AiInputGenerator extends AbstractInputGenerator {
           const maxDesc = Number.isFinite(argOptions.strLength.max)
             ? ` && <= ${argOptions.strLength.max}`
             : "";
-          const desc = `string length must be >= ${argOptions.strLength.min}${maxDesc}; the string may contain only the following characters: ${charSet}`;
-          directives.push(`${path}: ${desc}}`);
+          const regexDesc = argOptions.strRegex
+            ? `; string must match regex pattern /${argOptions.strRegex.replace(/^\\A/, "^").replace(/\\Z$/, "$")}/`
+            : "";
+          const desc = `string length must be >= ${argOptions.strLength.min}${maxDesc}; the string may contain only the following characters: ${charSet}${regexDesc}`;
+          directives.push(`${path}: ${desc}`);
           let schema = zod.string().min(argOptions.strLength.min);
           if (Number.isFinite(argOptions.strLength.max)) {
             schema = schema.max(argOptions.strLength.max);
@@ -565,7 +691,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
           break;
         }
         case ArgTag.OBJECT: {
-          const obj: { [k: string]: zod.ZodType } = {};
+          const obj: Record<string, zod.ZodType> = {};
           argChildren.forEach((child) => {
             const zodChild = this._argDefToSchema(
               child,
@@ -592,15 +718,38 @@ export class AiInputGenerator extends AbstractInputGenerator {
           if (!key || !value) {
             throw new Error("Dictionary arguments require key and value types");
           }
+          const maxDesc =
+            typeof argOptions.dictLength?.max === "number" &&
+            Number.isFinite(argOptions.dictLength.max)
+              ? ` && <= ${argOptions.dictLength.max}`
+              : "";
+          const desc = `dictionary length must be >= ${argOptions.dictLength.min}${maxDesc}`;
+          directives.push(`${path}: ${desc}`);
+          if (key.getType() === ArgTag.NUMBER) {
+            const isInt = key.getOptions().numInteger;
+            directives.push(
+              `${path}: dictionary keys must be formatted as ${isInt ? "integer" : "number"} strings (e.g. "0", "1")`
+            );
+          } else if (key.getType() === ArgTag.BOOLEAN) {
+            directives.push(
+              `${path}: dictionary keys must be formatted as boolean strings ("true" or "false")`
+            );
+          } else if (key.getType() === ArgTag.BIGINT) {
+            directives.push(
+              `${path}: dictionary keys must be formatted as integer strings (e.g. "0", "1")`
+            );
+          }
           const zodKey = this._argDefToSchema(key, `${path}.keys`, directives);
           if (
             zodKey instanceof zod.ZodString ||
             zodKey instanceof zod.ZodNumber
           ) {
-            return zod.record(
-              zodKey,
-              this._argDefToSchema(value, `${path}.values`, directives)
-            );
+            return zod
+              .record(
+                zodKey,
+                this._argDefToSchema(value, `${path}.values`, directives)
+              )
+              .describe(desc);
           } else {
             throw new Error("Dictionary key must be of type string or number");
           }
@@ -832,3 +981,233 @@ export const NANOFUZZ_MISSING_PROPERTY =
 export const NANOFUZZ_TRUE = "___NANOFUZZ____6158195231___TRUE___";
 export const NANOFUZZ_FALSE = "___NANOFUZZ____6158195231___FALSE___";
 export const NANOFUZZ_BIGINT = "___NANOFUZZ____6158195231___BIGINT___";
+
+/**
+ * Maximum token budget allocated for backfeeding prior and interesting inputs to the AI prompt.
+ */
+export const DEFAULT_MAX_BACKFEED_TOKENS = 4000;
+
+// -------------------------------------------------------------------------- //
+// Prompts
+// -------------------------------------------------------------------------- //
+
+/**
+ * Parameterized prompts for the AI Input Generator.
+ */
+export const prompt = {
+  system: (): string => {
+    return `You are an experienced software engineer who writes efficient tests that thoroughly evaluate the correctness of programs. You are aware of the important differences between a programming language's various equality operators.`;
+  },
+  genInputs: (
+    fn: FunctionDef,
+    directives: string[],
+    allInputs: Map<string, unknown>,
+    moduleSrc: string,
+    numRequested: number,
+    reqSeqNum: number = 1,
+    uncoveredInfo?: UncoveredCoverageInfo,
+    frontierTarget?: SampledFrontierTarget,
+    leaderboard?: Leaderboard<InputAndSource>,
+    maxBackfeedTokens?: number
+  ): string => {
+    const fnRef = fn.getRef();
+    const spec = (fn.getCmt() ?? "").replaceAll("```", "\\`\\`\\`");
+    const fnSrc = fnRef.src.replaceAll("```", "\\`\\`\\`");
+    const escapedModuleSrc = moduleSrc.replaceAll("```", "\\`\\`\\`");
+
+    const backfeed = Config.get<boolean>(
+      "nanofuzz.ai.backfeedPriorInputs",
+      true
+    );
+
+    const moduleContext = escapedModuleSrc
+      ? `The full module source code containing "${fnRef.name}":
+\`\`\`${fnRef.lang}
+${escapedModuleSrc}
+\`\`\`
+
+`
+      : "";
+
+    let coverageContext = "";
+    if (uncoveredInfo) {
+      const parts: string[] = [];
+      const uncoveredEntries = Object.entries(
+        uncoveredInfo.uncoveredLinesByFile ?? {}
+      ).filter(([, lines]) => lines.length > 0);
+      const partiallyEntries = Object.entries(
+        uncoveredInfo.partiallyCoveredLinesByFile ?? {}
+      ).filter(([, lines]) => lines.length > 0);
+
+      if (uncoveredEntries.length > 0 || partiallyEntries.length > 0) {
+        parts.push(
+          "Code coverage achieved by prior tests indicates the following lines have NOT been fully executed:"
+        );
+        for (const [filePath, lines] of uncoveredEntries) {
+          const displayPath = path.isAbsolute(filePath)
+            ? path.relative(process.cwd(), filePath) || filePath
+            : filePath;
+          parts.push(
+            ` - Uncovered in \`${displayPath}\`: line(s) ${formatLineRanges(lines)}`
+          );
+        }
+        for (const [filePath, lines] of partiallyEntries) {
+          const displayPath = path.isAbsolute(filePath)
+            ? path.relative(process.cwd(), filePath) || filePath
+            : filePath;
+          parts.push(
+            ` - Partially covered in \`${displayPath}\`: line(s) ${formatLineRanges(lines)}`
+          );
+        }
+        if (frontierTarget) {
+          parts.push("\n" + formatFrontierContext(frontierTarget, fnRef.lang));
+        }
+        parts.push(
+          "Generate inputs that specifically aim to execute these uncovered lines and branches to achieve higher test coverage.\n"
+        );
+        coverageContext = parts.join("\n") + "\n";
+      }
+    }
+
+    let backfeedSection = "";
+    if (backfeed) {
+      const interestingInputs: string[] = [];
+      const interestingSet = new Set<string>();
+
+      // Exclude inputs already displayed in the frontier target context
+      if (frontierTarget?.reachingInputs) {
+        for (const reaching of frontierTarget.reachingInputs) {
+          interestingSet.add(reaching);
+        }
+      }
+
+      if (leaderboard) {
+        const leaders = leaderboard
+          .getLeaders()
+          .sort((a, b) => b.score - a.score);
+        for (const item of leaders) {
+          const repr = ValueMapper.toLang(
+            fn.getLang(),
+            item.leader.value.map((v) => v.value)
+          );
+          if (!interestingSet.has(repr)) {
+            interestingSet.add(repr);
+            interestingInputs.push(repr);
+          }
+        }
+      }
+
+      const otherInputs: string[] = [];
+      for (const key of allInputs.keys()) {
+        if (!interestingSet.has(key)) {
+          otherInputs.push(key);
+        }
+      }
+
+      if (interestingInputs.length > 0 || otherInputs.length > 0) {
+        let budget = maxBackfeedTokens;
+        if (budget === undefined) {
+          const contextWindow = LlmAdapter.getContextWindow();
+          const tokensPerInput = ArgDefTokenEstimator.estimateTokensPerInput(
+            fn.getArgDefs()
+          );
+          const estimatedOutputTokens = Math.max(
+            Math.ceil(numRequested * tokensPerInput),
+            500
+          );
+          const baseChars =
+            spec.length +
+            fnSrc.length +
+            escapedModuleSrc.length +
+            coverageContext.length +
+            500;
+          const estimatedBaseTokens = Math.ceil(baseChars / 3.5);
+          const availableTokens =
+            contextWindow - estimatedBaseTokens - estimatedOutputTokens - 1000;
+          budget = Math.max(
+            0,
+            Math.min(availableTokens, DEFAULT_MAX_BACKFEED_TOKENS)
+          );
+        }
+
+        const estimateInputTokens = (repr: string): number => {
+          return Math.max(1, Math.ceil((repr.length + 2) / 3.5));
+        };
+
+        let interestingBudget = budget;
+        if (interestingInputs.length > 0 && otherInputs.length > 0) {
+          interestingBudget = Math.floor(budget * 0.5);
+        } else if (otherInputs.length > 0) {
+          interestingBudget = 0;
+        }
+
+        const packedInteresting: string[] = [];
+        let interestingTokensUsed = 0;
+        for (const item of interestingInputs) {
+          const cost = estimateInputTokens(item);
+          if (
+            interestingTokensUsed + cost > interestingBudget &&
+            packedInteresting.length > 0
+          ) {
+            break;
+          }
+          packedInteresting.push(item);
+          interestingTokensUsed += cost;
+        }
+
+        const otherBudget = Math.max(0, budget - interestingTokensUsed);
+        const packedOtherReversed: string[] = [];
+        let otherTokensUsed = 0;
+        for (let i = otherInputs.length - 1; i >= 0; i--) {
+          const item = otherInputs[i];
+          const cost = estimateInputTokens(item);
+          if (
+            otherTokensUsed + cost > otherBudget &&
+            packedOtherReversed.length > 0
+          ) {
+            break;
+          }
+          packedOtherReversed.push(item);
+          otherTokensUsed += cost;
+        }
+        const packedOther = packedOtherReversed.reverse();
+
+        const sections: string[] = [];
+        if (packedInteresting.length > 0) {
+          sections.push(
+            `Prior inputs that covered distinct branches or triggered errors (do not repeat):\n[${packedInteresting.join(", ")}]`
+          );
+        }
+        if (packedOther.length > 0) {
+          sections.push(
+            `The following inputs were previously generated and tested, so don't generate these again:\n[${packedOther.join(", ")}]`
+          );
+        }
+
+        if (sections.length > 0) {
+          backfeedSection = sections.join("\n\n") + "\n";
+        }
+      }
+    } else {
+      backfeedSection = `This is request number ${reqSeqNum ?? 1} for this testing session. Don't repeat inputs previously generated in this session.\n`;
+    }
+
+    return `You are an adversarial property-based testing fuzzer. Your primary objective is to FALSIFY the invariants and assertions of the following ${fnRef.lang} program "${fnRef.name}". Generate ${numRequested} adversarial, pathological edge-case program inputs designed to trigger unexpected behavior, unhandled exceptions, boundary overflows, or assertion failures. Each program input must include all arguments needed to call the program.
+
+Format your response as a single minified JSON object without unnecessary whitespace, newlines, or formatting indentation.
+
+The specification for the "${fnRef.name}" program:
+\`\`\`
+${spec ? spec : `(no specification was found. try to infer the spec from the program below)`}
+\`\`\`
+
+The "${fnRef.name}" program:
+\`\`\`${fnRef.lang}
+${fnSrc}
+\`\`\`
+
+${moduleContext}${directives.length ? `Important details about the program's inputs:\n${directives.map((d) => ` - ${d}\n`).join("")}` : ""} 
+
+${coverageContext}${backfeedSection}`;
+  },
+};

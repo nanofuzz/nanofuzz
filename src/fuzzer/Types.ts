@@ -14,7 +14,7 @@ import {
   InputGeneratorStatsAi,
 } from "./generators/Types";
 import { InputSchedulerType } from "./schedulers/Types";
-import { CodeCoverageMeasureStats } from "./measures/AbstractCoverageMeasure";
+import { CodeCoverageMeasureStats } from "./measures/CoverageMeasure";
 
 /**
  * Error occurring in test harness (property validator or input transformer)
@@ -90,6 +90,7 @@ export type FuzzTestsFunction = {
   argOverrides?: FuzzArgOverride[]; // argument overrides
   sortColumns?: FuzzSortColumns; // column sort order
   validators: string[]; // validator functions
+  userGenerators?: string[]; // user generator functions
   tests: Record<string, FuzzPinnedTest>; // pinned tests
   isVoid: boolean; // is the function return type void?
   isAsync?: true; // is the function async?
@@ -164,6 +165,11 @@ export type FuzzValueOrigin =
       model: string;
     }
   | {
+      type: "generator";
+      generator: "UserInputGenerator";
+      fnName: string;
+    }
+  | {
       type: "transformer";
       transformer: string;
       basis: {
@@ -223,9 +229,23 @@ export function isFuzzResultTab(obj: unknown): obj is FuzzResultTab {
  */
 export type FuzzOutputResults = "all" | "failures" | "none";
 
+/**
+ * Engine version for execution: "auto", "v1", "v2", or "v3"
+ */
+export type FuzzerEngineVersion = "v1" | "v2" | "v3" | "auto";
+
+/**
+ * Execution environment and invocation options for a fuzzing run.
+ */
+export type FuzzExecutionOptions = {
+  engine: FuzzerEngineVersion;
+  workers: number | "auto";
+  outputResults: FuzzOutputResults;
+  precompile: boolean;
+};
+
 export type FuzzOptions = {
   outputFile?: string; // optional file to receive the fuzzing output (JSON format)
-  outputResults?: FuzzOutputResults; // test results retention mode
   argDefaults: ArgOptions; // default options for arguments
   seed?: string; // optional seed for pseudo-random number generator
   maxTests: number; // number of fuzzing tests to execute (>= 0)
@@ -331,7 +351,8 @@ export type VmGlobals = Record<string, unknown>;
 export type SupportedInputGenerators =
   | "RandomInputGenerator"
   | "MutationInputGenerator"
-  | "AiInputGenerator";
+  | "AiInputGenerator"
+  | "UserInputGenerator";
 
 /**
  * List of supported input generators
@@ -421,6 +442,17 @@ export type FuzzBusyStatusMessage =
 export type FuzzStatusUpdater = (payload: FuzzBusyStatusMessage) => void;
 
 /**
+ * Fuzzer status observer for progress and busy status updates.
+ */
+export type FuzzStatusGranularity = "result" | number;
+
+export type FuzzStatusObserver = {
+  update: FuzzStatusUpdater;
+  granularity: FuzzStatusGranularity;
+  heartbeat?: true;
+};
+
+/**
  * Callback called for each test result produced during fuzzing
  */
 export type FuzzResultCallback = (result: FuzzTestResult) => void;
@@ -443,6 +475,8 @@ export class TypescriptCompilerError extends Error {
   }
 }
 
+export { GeneratorExhaustedError } from "./generators/Types";
+
 /**
  * Throw to skip a test input due to an unsatisfied assumption.
  */
@@ -460,9 +494,11 @@ export type Judgment = _Judgment;
  */
 export type FuzzEnv = {
   options: FuzzOptions; // fuzzer options
+  executionOptions: FuzzExecutionOptions; // execution options
   function: FunctionDef; // the function to fuzz
   validators: FunctionRef[]; // list of the module's validator functions
   transformers: FunctionRef[]; // list of the module's input transformer functions
+  userGenerators: FunctionRef[]; // list of the module's user-provided input generator functions
 };
 
 /**
@@ -540,6 +576,7 @@ export type FuzzTestStats = {
     RandomInputGenerator: FuzzGeneratorStatsBase;
     MutationInputGenerator: FuzzGeneratorStatsBase;
     AiInputGenerator: FuzzGeneratorStatsBase & { gen?: InputGeneratorStatsAi };
+    UserInputGenerator: FuzzGeneratorStatsBase;
     CompositeInputGenerator?: {
       config?: {
         scheduler: InputSchedulerType;

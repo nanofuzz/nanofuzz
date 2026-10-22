@@ -25,13 +25,23 @@ const isVerbose = process.argv.includes("--verbose");
 
 // Determine test files to run
 function getTestFiles() {
-  const args = process.argv.slice(2).filter((arg) => arg !== "--verbose");
+  const fileArgs = [];
+  for (let i = 2; i < process.argv.length; i++) {
+    const arg = process.argv[i];
+    if (arg === "--verbose") continue;
+    if (arg === "-j" || arg === "--jobs") {
+      i++;
+      continue;
+    }
+    if (arg.startsWith("-j=") || arg.startsWith("--jobs=")) continue;
+    fileArgs.push(arg);
+  }
 
   // If specific files or filter keywords were passed via CLI args
-  if (args.length > 0) {
+  if (fileArgs.length > 0) {
     const allFiles = findTestFiles("src");
     return allFiles.filter((file) =>
-      args.some((arg) => file.includes(arg) || path.basename(file) === arg)
+      fileArgs.some((arg) => file.includes(arg) || path.basename(file) === arg)
     );
   }
 
@@ -56,18 +66,23 @@ function findTestFiles(dir) {
     .map((f) => path.join(dir, f).replace(/\\/g, "/"));
 }
 
-// Prioritize known longer running test files to run early in the queue
+// Prioritize known longer running test files to run early in the queue.
+// Interleave TypeScript-heavy and Python-heavy suites so workers do not
+// all contend for Python runner host process spawns simultaneously at t=0.
 function sortTestFiles(files) {
   const priority = [
     "FuzzerCoverageOneFile.test.ts",
-    "FuzzerPython.test.ts",
-    "FuzzerExamples1.test.ts",
+    "PythonRunner.test.ts",
     "FuzzerExamples2.test.ts",
-    "FuzzerTypescript.test.ts",
-    "ArgDef.test.ts",
     "CommandLine.test.ts",
-    "TypescriptCoverageMeasure.test.ts",
-    "PythonCoverageMeasure.test.ts",
+    "FuzzerExamples1.test.ts",
+    "PytestAdapter.test.ts",
+    "FuzzerTypescript.test.ts",
+    "Fuzzer.test.ts",
+    "FuzzerCoverageMultiFile.test.ts",
+    "FuzzerPython.test.ts",
+    "CommandLineAiCache.test.ts",
+    "Agent.test.ts",
   ];
 
   return [...files].sort((a, b) => {
@@ -78,6 +93,54 @@ function sortTestFiles(files) {
     if (pB !== -1) return 1;
     return a.localeCompare(b);
   });
+}
+
+// Disaffinity groups: suites within the same group must not execute concurrently.
+// This prevents multiple heavy subprocess or fuzzer workloads from thrashing CPU and
+// starving sub-second timeouts.
+const disaffinityGroups = [
+  // Group 1: Subprocess-heavy Python runner & adapter suites
+  // No two of these may run at the same time.
+  [
+    "PythonRunner.test.ts",
+    "PytestAdapter.test.ts",
+    "CommandLine.test.ts",
+    "FuzzerPython.test.ts",
+    "CommandLineAiCache.test.ts",
+  ],
+  // Group 2: Heavy multi-worker fuzzing campaigns
+  // No two of these may run at the same time.
+  [
+    "FuzzerCoverageOneFile.test.ts",
+    "FuzzerCoverageMultiFile.test.ts",
+    "FuzzerExamples1.test.ts",
+    "FuzzerExamples2.test.ts",
+    "CommandLine.test.ts",
+    "FuzzerTypescript.test.ts",
+    "Fuzzer.test.ts",
+    "Agent.test.ts",
+    "VscodeLmAdapter.test.ts",
+  ],
+];
+
+function hasConflict(fileA, fileB) {
+  const baseA = path.basename(fileA);
+  const baseB = path.basename(fileB);
+  for (const group of disaffinityGroups) {
+    const hasA = group.some((g) => baseA === g || fileA.includes(g));
+    const hasB = group.some((g) => baseB === g || fileB.includes(g));
+    if (hasA && hasB) return true;
+  }
+  return false;
+}
+
+function canRunFile(candidateFile, currentlyRunningFiles) {
+  for (const running of currentlyRunningFiles) {
+    if (hasConflict(candidateFile, running)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 // Run a single test file in a spawned Node or pytest process
@@ -210,20 +273,36 @@ async function main() {
   const testFiles = sortTestFiles(rawFiles);
   const totalFiles = testFiles.length;
 
-  // Use OS available parallelism (number of CPU cores) or JOBS env var
-  // Do not exceed the number of test files to avoid idle workers
+  let jobsOverride = process.env.JOBS
+    ? parseInt(process.env.JOBS, 10)
+    : undefined;
+  for (let i = 2; i < process.argv.length; i++) {
+    if (process.argv[i] === "-j" || process.argv[i] === "--jobs") {
+      if (i + 1 < process.argv.length) {
+        jobsOverride = parseInt(process.argv[i + 1], 10);
+      }
+    } else if (process.argv[i].startsWith("-j=")) {
+      jobsOverride = parseInt(process.argv[i].slice(3), 10);
+    } else if (process.argv[i].startsWith("--jobs=")) {
+      jobsOverride = parseInt(process.argv[i].slice(7), 10);
+    }
+  }
+
+  const cpus = os.availableParallelism
+    ? os.availableParallelism()
+    : os.cpus().length;
+  const innerWorkers = 2;
+
+  // Allocate outer workers assuming 2 inner fuzzer workers per test file (floor(cpus / 2))
   const maxConcurrency = Math.min(
-    process.env.JOBS
-      ? parseInt(process.env.JOBS, 10)
-      : Math.max(
-          1,
-          os.availableParallelism ? os.availableParallelism() : os.cpus().length
-        ),
+    jobsOverride && !isNaN(jobsOverride) && jobsOverride >= 1
+      ? jobsOverride
+      : Math.max(1, Math.floor(cpus / innerWorkers)),
     totalFiles
   );
 
   console.log(
-    `Running ${totalFiles} test file(s) in parallel using ${maxConcurrency} worker(s)...\n`
+    `Running ${totalFiles} test file${totalFiles > 1 ? "s" : ""} across ${maxConcurrency} test worker${maxConcurrency > 1 ? "s" : ""} (${innerWorkers} NaNofuzz workers per test)...\n`
   );
 
   const overallStartTime = Date.now();
@@ -232,32 +311,75 @@ async function main() {
   let totalSpecsRun = 0;
   let totalFailures = 0;
 
-  // Work queue worker pool
+  const queue = [...testFiles];
+  const runningFiles = new Set();
+  let waiters = [];
+
+  function notifyWaiters() {
+    const list = waiters;
+    waiters = [];
+    for (const resolve of list) {
+      resolve();
+    }
+  }
+
+  function waitForChange() {
+    return new Promise((resolve) => {
+      waiters.push(resolve);
+    });
+  }
+
+  function pickNextFile() {
+    for (let i = 0; i < queue.length; i++) {
+      const candidate = queue[i];
+      if (canRunFile(candidate, runningFiles)) {
+        queue.splice(i, 1);
+        runningFiles.add(candidate);
+        return candidate;
+      }
+    }
+    return null;
+  }
+
+  // Work queue worker pool with disaffinity scheduling
   async function worker() {
-    while (testFiles.length > 0) {
-      const file = testFiles.shift();
-      const res = await runTestFile(file);
-      results.push(res);
-      completedCount++;
-      totalSpecsRun += res.specs;
-      totalFailures += res.failures;
-
-      const statusTag = res.code === 0 ? "✓ PASS" : "❌ FAIL";
-      const progress = `[${completedCount}/${totalFiles}]`;
-      console.log(
-        `${progress.padStart(7)} ${statusTag} ${res.file} (${res.durationSec}s)`
-      );
-
-      if (isVerbose && res.stdout) {
-        process.stdout.write(res.stdout);
+    while (true) {
+      const file = pickNextFile();
+      if (!file) {
+        if (queue.length === 0) {
+          break;
+        }
+        await waitForChange();
+        continue;
       }
 
-      // Print output inline if test failed
-      if (res.code !== 0) {
-        console.error(`\n--- FAILURE OUTPUT: ${res.file} ---`);
-        if (res.stdout && !isVerbose) console.error(res.stdout);
-        if (res.stderr) console.error(res.stderr);
-        console.error(`--- END FAILURE OUTPUT ---\n`);
+      try {
+        const res = await runTestFile(file);
+        results.push(res);
+        completedCount++;
+        totalSpecsRun += res.specs;
+        totalFailures += res.failures;
+
+        const statusTag = res.code === 0 ? "✓ PASS" : "❌ FAIL";
+        const progress = `[${completedCount}/${totalFiles}]`;
+        console.log(
+          `${progress.padStart(7)} ${statusTag} ${res.file} (${res.durationSec}s)`
+        );
+
+        if (isVerbose && res.stdout) {
+          process.stdout.write(res.stdout);
+        }
+
+        // Print output inline if test failed
+        if (res.code !== 0) {
+          console.error(`\n--- FAILURE OUTPUT: ${res.file} ---`);
+          if (res.stdout && !isVerbose) console.error(res.stdout);
+          if (res.stderr) console.error(res.stderr);
+          console.error(`--- END FAILURE OUTPUT ---\n`);
+        }
+      } finally {
+        runningFiles.delete(file);
+        notifyWaiters();
       }
     }
   }
@@ -276,16 +398,16 @@ async function main() {
   console.log("\n" + "=".repeat(60));
   if (failedResults.length > 0) {
     console.error(
-      `❌ TEST RUN FAILED: ${failedResults.length}/${totalFiles} file(s) failed.`
+      `❌ TEST RUN FAILED: ${failedResults.length}/${totalFiles} file${totalFiles > 1 ? "s" : ""} failed.`
     );
     console.error(
-      `Summary: ${totalSpecsRun} specs total, ${totalFailures} failed across ${totalFiles} file(s) in ${totalTimeSec}s.\n`
+      `Summary: ${totalSpecsRun} specs total, ${totalFailures} failed across ${totalFiles} file${totalFiles > 1 ? "s" : ""} in ${totalTimeSec}s.\n`
     );
     process.exit(1);
   } else {
     console.log(`✅ ALL TESTS PASSED!`);
     console.log(
-      `Summary: ${totalSpecsRun} specs total across ${totalFiles} file(s) in ${totalTimeSec}s.\n`
+      `Summary: ${totalSpecsRun} specs total across ${totalFiles} file${totalFiles > 1 ? "s" : ""} in ${totalTimeSec}s.\n`
     );
     process.exit(0);
   }

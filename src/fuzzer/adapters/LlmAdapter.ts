@@ -1,13 +1,11 @@
 import vscode from "vscode";
 import seedrandom from "seedrandom";
 import * as Config from "../../Config";
-import { ArgValueType } from "../analysis/Types";
 import * as JSONN from "../../Jsonn";
-import { FunctionDef } from "../analysis/FunctionDef";
 import * as nodellm from "@node-llm/core";
-import { isError } from "../Util";
 import * as telemetry from "../../telemetry/Telemetry";
 import * as zod from "zod/v4";
+import { EnvHttpProxyAgent, setGlobalDispatcher } from "undici";
 import { zodOutputFormat } from "./AnthropicUtils";
 import { LlmCacheManager } from "./LlmCacheManager";
 import { LlmDelayCalculator } from "./LlmDelayCalculator";
@@ -17,12 +15,16 @@ import {
   LlmQueryResult,
 } from "../generators/Types";
 
+// Default system prompt if none is provided
+const DEFAULT_SYSTEM_PROMPT =
+  "You are an experienced software engineer who writes efficient tests that thoroughly evaluate the correctness of programs. You are aware of the important differences between a programming language's various equality operators.";
+
 // Helper function to check if a value is a Record object
 function isRecord(val: unknown): val is Record<string, unknown> {
   return typeof val === "object" && val !== null && !Array.isArray(val);
 }
 
-// Cleans internal JSON schema fields ($schema, $defs, additionalProperties) that Gemini API rejects
+// Cleans internal JSON schema fields ($schema, $defs, additionalProperties: boolean) that Gemini API rejects
 function cleanJsonSchema(
   schema: Record<string, unknown>
 ): Record<string, unknown> {
@@ -33,7 +35,7 @@ function cleanJsonSchema(
       key === "$id" ||
       key === "$defs" ||
       key === "definitions" ||
-      key === "additionalProperties"
+      (key === "additionalProperties" && typeof value === "boolean")
     ) {
       continue;
     }
@@ -55,12 +57,19 @@ function cleanJsonSchema(
  */
 export class LlmAdapter {
   protected _modelConfig: Parameters<typeof nodellm.createLLM>[0] = {}; // LLM configuration
-  protected _backend: nodellm.NodeLLMCore; // LLM instance
+  protected _backend?: nodellm.NodeLLMCore; // LLM instance
   protected _cacheManager: LlmCacheManager; // Cache manager
   protected _cfgString: string; // LLM config; for detecting config changes
+  protected _systemPrompt: string; // System prompt
+  protected static _abandoned = false; // Flag indicating if in-flight and pending LLM queries should be abandoned
+  protected static _abandonPromise: Promise<never> | undefined;
+  protected static _abandonReject: ((reason?: unknown) => void) | undefined;
 
-  public constructor(prng?: seedrandom.prng) {
+  public constructor(prng?: seedrandom.prng, systemPrompt?: string) {
+    LlmAdapter.configureProxy();
     LlmAdapter._handleDebug();
+
+    this._systemPrompt = systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
 
     const cfg = LlmAdapter.getConfig();
     this._cfgString = JSONN.stringify(cfg);
@@ -73,8 +82,8 @@ export class LlmAdapter {
     this._modelConfig = {
       provider: cfg.provider,
       retry: {
-        attempts: LlmAdapter._getConfigValue("retries", 5),
-        delayMs: LlmAdapter._getConfigValue("retryDelay", 1000),
+        attempts: cfg.retries,
+        delayMs: cfg.retryDelay,
       },
     };
 
@@ -111,8 +120,44 @@ export class LlmAdapter {
       }
     }
 
+    // If endpoint is defined, add it to the config.
+    // Otherwise, let @node-llm use its default endpoint
+    const endpoint = cfg.endpoint.trim();
+    if (endpoint !== "") {
+      switch (cfg.provider) {
+        case "openai":
+          this._modelConfig.openaiApiBase = endpoint;
+          break;
+        case "anthropic":
+          this._modelConfig.anthropicApiBase = endpoint;
+          break;
+        case "gemini":
+          this._modelConfig.geminiApiBase = endpoint;
+          break;
+        case "deepseek":
+          this._modelConfig.deepseekApiBase = endpoint;
+          break;
+        case "ollama":
+          this._modelConfig.ollamaApiBase = endpoint;
+          break;
+        case "openrouter":
+          this._modelConfig.openrouterApiBase = endpoint;
+          break;
+        case "xai":
+          this._modelConfig.xaiApiBase = endpoint;
+          break;
+        case "mistral":
+          this._modelConfig.mistralApiBase = endpoint;
+          break;
+        default:
+          break;
+      }
+    }
+
     // Create the model backend
-    this._backend = nodellm.createLLM(this._modelConfig);
+    if (cfg.provider !== "copilot") {
+      this._backend = nodellm.createLLM(this._modelConfig);
+    }
     const delayConfig = cfg.cacheDelay
       ? LlmDelayCalculator.parse(cfg.cacheDelay)
       : undefined;
@@ -122,7 +167,7 @@ export class LlmAdapter {
       delayConfig,
       prng
     );
-  }
+  } // constructor
 
   /**
    * Creates a fresh, stateless LLM chat session for a single query.
@@ -130,10 +175,19 @@ export class LlmAdapter {
    * @returns a new nodellm.Chat instance
    */
   protected _createChat(): nodellm.Chat {
+    if (!this._backend) {
+      throw new Error("NodeLLMCore backend is not initialized");
+    }
     const cfg = LlmAdapter.getConfig();
-    return this._backend.chat(cfg.modelName, {
-      systemPrompt: prompt.system(),
-    });
+    const inRegistry = Boolean(
+      cfg.modelName && nodellm.ModelRegistry.find(cfg.modelName, cfg.provider)
+    );
+    const chatOptions: Parameters<typeof this._backend.chat>[1] = {
+      systemPrompt: this._systemPrompt,
+      requestTimeout: cfg.requestTimeout,
+      ...(inRegistry ? {} : { assumeModelExists: true }),
+    };
+    return this._backend.chat(cfg.modelName, chatOptions);
   } // fn: createChat
 
   /**
@@ -151,181 +205,358 @@ export class LlmAdapter {
    * @returns a string indicating the configured provider and model id
    */
   public get id(): string | undefined {
-    return `v=${this._backend.provider?.id},n=${LlmAdapter.getConfig().modelName}`;
+    const cfg = LlmAdapter.getConfig();
+    if (cfg.provider === "copilot") {
+      const v = cfg.vendor || "copilot";
+      const m = cfg.modelName || "default";
+      return `v=${v},n=${m}`;
+    }
+    return `v=${this._backend?.provider?.id},n=${cfg.modelName}`;
   } // getter: id
 
+  /**
+   * Get cache statistics from the active cache manager
+   *
+   * @returns statistics on cache hits, misses, recordings, and token usage
+   */
   public get cacheStats(): LlmCacheStats {
     return this._cacheManager.stats;
-  }
-
-  public static async flushCache(timeoutMs = 5000): Promise<void> {
-    await LlmCacheManager.flushAllActive(timeoutMs);
-  }
+  } // getter: cacheStats
 
   /**
-   * Prompt an LLM to generate inputs for a function
-   *
-   * @param `fn` function for which inputs should be generated
-   * @param `schema` optional Zod or JSON schema of the function's inputs
-   * @param `directives` formatting directives for input schema
-   * @param `allInputs` map of previously generated inputs
-   * @param `moduleSrc` full module source code
-   * @param `numRequested` number of inputs requested
-   * @param `reqSeqNum` optional 1-indexed sequence number of this request in the session
-   * @returns a set of inputs, stats, and error information
+   * Marks active and pending LLM calls as abandoned (e.g. on SIGINT)
+   * to avoid waiting for in-flight requests or executing retries
    */
-  public async genInputs(
-    fn: FunctionDef,
-    schema: zod.ZodType,
-    directives: string[],
-    allInputs: Map<string, unknown>,
-    moduleSrc: string,
-    numRequested: number,
-    reqSeqNum?: number
-  ): Promise<{
-    programInputs: { [k: string]: ArgValueType }[];
-    stats?: Awaited<ReturnType<LlmAdapter["_query"]>>["stats"];
-    error?: { type: "discard" } | { type: "failure"; message: string };
-  }> {
-    let response: Awaited<ReturnType<LlmAdapter["_query"]>>;
-    try {
-      response = await this._query(
-        [
-          prompt.genInputs(
-            fn,
-            directives,
-            allInputs,
-            moduleSrc,
-            numRequested,
-            reqSeqNum
-          ),
-        ],
-        schema
-      );
-      const inputs: { programInputs: { [k: string]: ArgValueType }[] } =
-        JSONN.parse(response.text);
-
-      // Sanity check llm output
-      if (
-        !(
-          typeof inputs === "object" &&
-          "programInputs" in inputs &&
-          Array.isArray(inputs.programInputs) &&
-          inputs.programInputs.every(
-            (e) => typeof e === "object" && !Array.isArray(e)
-          )
-        )
-      ) {
-        return {
-          programInputs: [],
-          error: { type: "discard" },
-          stats: { ...response.stats },
-        };
-      }
-
-      // Deeper validation is the client's role
-      return { ...inputs, stats: { ...response.stats } };
-    } catch (e: unknown) {
-      return {
-        programInputs: [],
-        error: {
-          type: "failure",
-          message: isError(e) ? e.message : "unknown llm failure",
-        },
-      };
+  public static abandon(): void {
+    LlmAdapter._abandoned = true;
+    if (LlmAdapter._abandonReject) {
+      const reject = LlmAdapter._abandonReject;
+      LlmAdapter._abandonReject = undefined;
+      reject(new LlmAbandonedError());
     }
-  } // fn: genInputs
+  } // fn: abandon
 
   /**
-   * Prompts the LLM and returns a response
+   * Resets the abandoned state
+   */
+  public static resetAbandoned(): void {
+    LlmAdapter._abandoned = false;
+    LlmAdapter._abandonPromise = new Promise<never>((_, reject) => {
+      LlmAdapter._abandonReject = reject;
+    });
+    LlmAdapter._abandonPromise.catch(() => {});
+  } // fn: resetAbandoned
+
+  /**
+   * Indicates whether LLM requests have been abandoned
    *
-   * @param `prompt` LLM prompt
+   * @returns `true` if LLM requests have been abandoned; `false` otherwise
+   */
+  public static get isAbandoned(): boolean {
+    return LlmAdapter._abandoned;
+  } // getter: isAbandoned
+
+  /**
+   * Indicates whether any LLM queries are currently in flight across all active cache managers
+   *
+   * @returns `true` if any LLM queries are currently in flight; `false` otherwise
+   */
+  public static get isInFlight(): boolean {
+    return LlmCacheManager.inFlight.length > 0;
+  } // getter: isInFlight
+
+  /**
+   * Flushes cached requests across all active cache managers to disk
+   *
+   * @param `timeoutMs` max time in ms to wait for pending queries to finish flushing
+   */
+  public static async flushCache(timeoutMs = 5000): Promise<void> {
+    if (LlmAdapter._abandoned) {
+      return;
+    }
+    await LlmCacheManager.flushAllActive(timeoutMs);
+  } // fn: flushCache
+
+  /**
+   * Prompts the LLM and returns a response.
+   *
+   * @param `prompt` LLM prompt string or array of prompt parts
    * @param `schema` optional Zod or JSON schema for the response
+   * @param `options` optional query options to configure retry behavior
    * @returns response string and statistics
    */
-  private async _query(
-    prompt: string[],
-    schema?: zod.ZodType
+  public async query(
+    prompt: string | string[],
+    schema?: zod.ZodType,
+    options?: LlmQueryOptions
   ): Promise<LlmQueryResult> {
+    if (LlmAdapter._abandoned) {
+      throw new LlmAbandonedError();
+    }
     LlmAdapter._handleDebug();
 
-    const provider = LlmAdapter.getConfig().provider;
-    const modelName = LlmAdapter.getConfig().modelName;
+    const cfg = LlmAdapter.getConfig();
+    const provider = cfg.provider;
+    const modelName = cfg.modelName;
     const schemaJson = schema
       ? JSON.stringify(zod.toJSONSchema(schema))
       : undefined;
 
-    return await this._cacheManager.query(
-      provider,
-      modelName,
-      prompt,
-      schemaJson,
-      async () => {
-        const promptParts: nodellm.ContentPart[] = [];
-        prompt.forEach((e) => {
-          promptParts.push({
-            type: "text",
-            text: e,
-          });
-        });
+    const promptArr = Array.isArray(prompt) ? prompt : [prompt];
 
-        vscode.commands.executeCommand(
-          telemetry.commands.logTelemetry.name,
-          new telemetry.LoggerEntry(
-            "LlmAdapter.query.send",
-            "Sending query to LLM (v=%s;m=%s). Query: %s.",
-            [provider, modelName, prompt.join("\n")]
-          )
-        );
+    const abandonPromise =
+      LlmAdapter._abandonPromise ?? Promise.reject(new LlmAbandonedError());
 
-        const baseChat = this._createChat();
-        const jsonSchemaObj = schema ? zod.toJSONSchema(schema) : undefined;
-        const schemaObj = jsonSchemaObj
-          ? nodellm.Schema.fromJson("output", cleanJsonSchema(jsonSchemaObj))
-          : undefined;
-        let chat = (schemaObj ? baseChat.withSchema(schemaObj) : baseChat)
-          .withRequestOptions({
-            responseFormat: { type: "json_object" },
-          })
-          .withParams({
-            max_tokens: undefined, // Overrides default 4096 with undefined
-          });
-
-        // Provider specific settings
-        if (provider === "anthropic") {
-          if (schema) {
-            // Anthropic doesn't always respect responseFormat
-            chat = chat.withParams({
-              output_config: {
-                format: zodOutputFormat(schema),
-              },
+    return await Promise.race([
+      this._cacheManager.query(
+        provider,
+        modelName,
+        promptArr,
+        schemaJson,
+        async () => {
+          const contentParts: nodellm.ContentPart[] = [];
+          promptArr.forEach((e) => {
+            contentParts.push({
+              type: "text",
+              text: e,
             });
+          });
+
+          vscode.commands.executeCommand(
+            telemetry.commands.logTelemetry.name,
+            new telemetry.LoggerEntry(
+              "LlmAdapter.query.send",
+              "Sending query to LLM (v=%s;m=%s). Query: %s.",
+              [provider, modelName, promptArr.join("\n")]
+            )
+          );
+
+          let text = "";
+          let inputTokens = 0;
+          let outputTokens = 0;
+          let inputCost = 0;
+          let outputCost = 0;
+
+          if (provider === "copilot") {
+            if (
+              !vscode.lm ||
+              typeof vscode.lm.selectChatModels !== "function"
+            ) {
+              throw new Error(
+                "Copilot Language Model API is not available in the current environment."
+              );
+            }
+
+            const selector: vscode.LanguageModelChatSelector = {};
+            if (cfg.vendor) {
+              selector.vendor = cfg.vendor;
+            }
+            if (modelName) {
+              selector.family = modelName;
+            }
+
+            let models = await vscode.lm.selectChatModels(
+              Object.keys(selector).length > 0 ? selector : undefined
+            );
+            if (!models || models.length === 0) {
+              models = await vscode.lm.selectChatModels();
+            }
+            if (!models || models.length === 0) {
+              throw new Error(
+                "No Language Models available in VS Code. Ensure a model provider is installed and active in VS Code."
+              );
+            }
+
+            const model = models[0];
+            if (LlmAdapter.isDebugConfigured()) {
+              console.log(
+                `[NaNofuzz Copilot AI] Sending query (${model.vendor}/${model.name || model.id || "copilot"}):\n${promptArr.join("\n")}`
+              );
+            }
+
+            const messages = [
+              vscode.LanguageModelChatMessage.User(promptArr.join("\n")),
+            ];
+
+            const requestOptions: CopilotChatRequestOptions = {
+              modelOptions: {
+                _enableThinking: false,
+              },
+              configuration: {
+                reasoningEffort: "low",
+              },
+            };
+            if (schema) {
+              const rawSchema = zod.toJSONSchema(schema);
+              const jsonSchemaObj = isRecord(rawSchema)
+                ? cleanJsonSchema(rawSchema)
+                : {};
+              requestOptions.tools = [
+                {
+                  name: "programInputs",
+                  description:
+                    "Output generated test inputs adhering to the schema.",
+                  inputSchema: jsonSchemaObj,
+                },
+              ];
+              requestOptions.toolMode =
+                vscode.LanguageModelChatToolMode.Required;
+            }
+
+            const response = await Promise.race([
+              model.sendRequest(
+                messages,
+                requestOptions,
+                new vscode.CancellationTokenSource().token
+              ),
+              abandonPromise,
+            ]);
+            if (response.stream) {
+              for await (const part of response.stream) {
+                if (LlmAdapter._abandoned) {
+                  throw new LlmAbandonedError();
+                }
+                if (part instanceof vscode.LanguageModelToolCallPart) {
+                  text =
+                    typeof part.input === "string"
+                      ? part.input
+                      : JSON.stringify(part.input);
+                } else if (part instanceof vscode.LanguageModelTextPart) {
+                  text += part.value;
+                } else if (isRecord(part)) {
+                  const partValue = part.value;
+                  if (typeof partValue === "string") {
+                    text += partValue;
+                  }
+                }
+              }
+            }
+            if (!text && response.text) {
+              for await (const chunk of response.text) {
+                if (LlmAdapter._abandoned) {
+                  throw new LlmAbandonedError();
+                }
+                text += chunk;
+              }
+            }
+
+            if (LlmAdapter.isDebugConfigured()) {
+              console.log(`[NaNofuzz Copilot AI] Received response:\n${text}`);
+            }
+          } else {
+            const retryOnTimeout =
+              options?.noRetries === true
+                ? false
+                : (options?.retryOnTimeout ?? options?.retries !== 0);
+            const maxAttempts =
+              options?.noRetries === true
+                ? 1
+                : options?.retries !== undefined
+                  ? Math.max(1, options.retries)
+                  : retryOnTimeout
+                    ? Math.max(1, cfg.retries)
+                    : 1;
+
+            let lastError: unknown;
+            for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+              try {
+                const baseChat = this._createChat();
+                const jsonSchemaObj = schema
+                  ? zod.toJSONSchema(schema)
+                  : undefined;
+                const schemaObj = jsonSchemaObj
+                  ? nodellm.Schema.fromJson(
+                      "output",
+                      cleanJsonSchema(jsonSchemaObj)
+                    )
+                  : undefined;
+                let chat = (
+                  schemaObj ? baseChat.withSchema(schemaObj) : baseChat
+                )
+                  .withRequestOptions({
+                    responseFormat: { type: "json_object" },
+                  })
+                  .withParams({
+                    max_tokens: undefined, // Overrides default 4096 with undefined
+                  });
+
+                // Provider specific settings
+                if (provider === "anthropic") {
+                  if (schema) {
+                    // Anthropic doesn't always respect responseFormat
+                    chat = chat.withParams({
+                      output_config: {
+                        format: zodOutputFormat(schema),
+                      },
+                    });
+                  }
+                }
+
+                const response = await Promise.race([
+                  chat.ask(contentParts),
+                  abandonPromise,
+                ]);
+                text = response.toString();
+                inputTokens = response.inputTokens ?? 0;
+                outputTokens = response.outputTokens ?? 0;
+                inputCost = response.input_cost ?? 0;
+                outputCost = response.output_cost ?? 0;
+                lastError = undefined;
+                break;
+              } catch (err: unknown) {
+                lastError = err;
+                if (
+                  isAbandonedError(err) ||
+                  LlmAdapter._abandoned ||
+                  !retryOnTimeout ||
+                  !isTimeoutError(err) ||
+                  attempt >= maxAttempts
+                ) {
+                  throw err;
+                }
+                if (LlmAdapter.isDebugConfigured()) {
+                  console.log(
+                    `[NaNofuzz AI] Request timed out on attempt ${attempt}/${maxAttempts}. Retrying in ${cfg.retryDelay}ms...`
+                  );
+                }
+                if (cfg.retryDelay > 0) {
+                  await Promise.race([
+                    new Promise((resolve) =>
+                      setTimeout(resolve, cfg.retryDelay)
+                    ),
+                    abandonPromise,
+                  ]);
+                }
+              }
+            }
+            if (lastError) {
+              throw lastError;
+            }
           }
+
+          vscode.commands.executeCommand(
+            telemetry.commands.logTelemetry.name,
+            new telemetry.LoggerEntry(
+              "LlmAdapter.query.response",
+              "Received response from LLM (v=%s;m=%s). Response: %s.",
+              [provider, modelName, text]
+            )
+          );
+
+          return {
+            text,
+            stats: {
+              tokensSent: inputTokens,
+              tokensSentCost: { amt: inputCost, unit: "USD" },
+              tokensReceived: outputTokens,
+              tokensReceivedCost: { amt: outputCost, unit: "USD" },
+            },
+          };
         }
-
-        const response = await chat.ask(promptParts);
-
-        vscode.commands.executeCommand(
-          telemetry.commands.logTelemetry.name,
-          new telemetry.LoggerEntry(
-            "LlmAdapter.query.response",
-            "Received response from LLM (v=%s;m=%s). Response: %s.",
-            [provider, modelName, response.toString()]
-          )
-        );
-
-        return {
-          text: response.toString(),
-          stats: {
-            tokensSent: response.inputTokens,
-            tokensSentCost: { amt: response.input_cost ?? 0, unit: "USD" }, // USD per docs
-            tokensReceived: response.outputTokens,
-            tokensReceivedCost: { amt: response.output_cost ?? 0, unit: "USD" }, // USD per docs
-          },
-        };
-      }
-    );
-  } // fn: _query
+      ),
+      abandonPromise,
+    ]);
+  } // fn: query
 
   /**
    * Determines if the LLM is configured and should be active.
@@ -334,7 +565,13 @@ export class LlmAdapter {
    */
   public static isConfigured(): boolean {
     const cfg = LlmAdapter.getConfig();
-    return cfg.provider !== "disabled" && cfg.modelName !== "";
+    if (cfg.provider === "disabled") {
+      return false;
+    }
+    if (cfg.provider === "copilot") {
+      return true;
+    }
+    return cfg.modelName !== "";
   } // fn: isConfigured
 
   /**
@@ -343,12 +580,31 @@ export class LlmAdapter {
    */
   public static getMaxOutputTokens(): number {
     const cfg = LlmAdapter.getConfig();
+    if (cfg.provider === "copilot") {
+      return 4096;
+    }
     const maxTokens = nodellm.ModelRegistry.getMaxOutputTokens(
       cfg.modelName,
       cfg.provider
     );
     return maxTokens ?? DEFAULT_MAX_OUTPUT_TOKENS;
   } // fn: getMaxOutputTokens
+
+  /**
+   * Returns the context window size supported by the configured model,
+   * or a default fallback if unlisted or unconfigured.
+   */
+  public static getContextWindow(): number {
+    const cfg = LlmAdapter.getConfig();
+    if (cfg.provider === "copilot") {
+      return 128000;
+    }
+    const contextWindow = nodellm.ModelRegistry.getContextWindow(
+      cfg.modelName,
+      cfg.provider
+    );
+    return contextWindow ?? DEFAULT_CONTEXT_WINDOW;
+  } // fn: getContextWindow
 
   /**
    * Gets the key elements of the LLM configuration
@@ -358,7 +614,12 @@ export class LlmAdapter {
   public static getConfig(): {
     provider: string;
     modelName: string;
+    vendor: string;
     apiKey: string;
+    endpoint: string;
+    requestTimeout: number;
+    retries: number;
+    retryDelay: number;
     cacheMode: LlmCacheMode;
     cacheFile: string;
     cacheDelay: string;
@@ -366,7 +627,15 @@ export class LlmAdapter {
     return {
       provider: LlmAdapter._getConfigValue("provider", "disabled"),
       modelName: LlmAdapter._getConfigValue("model", ""),
+      vendor: LlmAdapter._getConfigValue("vendor", ""),
       apiKey: LlmAdapter._getConfigValue("apiKey", ""),
+      endpoint: LlmAdapter._getConfigValue("endpoint", ""),
+      requestTimeout: LlmAdapter._getConfigValue<number>(
+        "requestTimeout",
+        DEFAULT_REQUEST_TIMEOUT
+      ),
+      retries: LlmAdapter._getConfigValue<number>("retries", 5),
+      retryDelay: LlmAdapter._getConfigValue<number>("retryDelay", 1000),
       cacheMode: LlmAdapter._getConfigValue<LlmCacheMode>(
         "cacheMode",
         "passthrough"
@@ -400,6 +669,36 @@ export class LlmAdapter {
   } // fn: isDebugActive
 
   /**
+   * Helper function to determine if an error is a timeout or abort error.
+   *
+   * @param err Unknown error to test
+   * @returns True if error is a timeout error; false otherwise
+   */
+  public static isTimeoutError(err: unknown): boolean {
+    return isTimeoutError(err);
+  } // fn: isTimeoutError
+
+  /**
+   * Configures the global Undici dispatcher with EnvHttpProxyAgent
+   * if proxy environment variables are set.
+   *
+   * @returns `true` if proxy agent was configured; `false` otherwise
+   */
+  public static configureProxy(): boolean {
+    const proxyUrl =
+      process.env.HTTPS_PROXY ||
+      process.env.https_proxy ||
+      process.env.HTTP_PROXY ||
+      process.env.http_proxy;
+
+    if (proxyUrl) {
+      setGlobalDispatcher(new EnvHttpProxyAgent());
+      return true;
+    }
+    return false;
+  } // fn: configureProxy
+
+  /**
    * Turns debug logging on or off depending on the `nanofuzz.ai.debug` option
    */
   protected static _handleDebug(): void {
@@ -407,73 +706,95 @@ export class LlmAdapter {
   } // fn: _handleDebug
 } // class: LlmAdapter
 
-/**
- * Parameterized prompts for the LLM
- */
-export const prompt = {
-  system: (): string => {
-    return `You are an experienced software engineer who writes efficient tests that thoroughly evaluate the correctness of programs. You are aware of the important differences between a programming language's various equality operators.`;
-  },
-  genInputs: (
-    fn: FunctionDef,
-    directives: string[],
-    allInputs: Map<string, unknown>,
-    moduleSrc: string,
-    numRequested: number,
-    reqSeqNum: number = 1
-  ): string => {
-    const fnRef = fn.getRef();
-    const spec = (fn.getCmt() ?? "").replaceAll("```", "\\`\\`\\`");
-    const fnSrc = fnRef.src.replaceAll("```", "\\`\\`\\`");
-    const escapedModuleSrc = moduleSrc.replaceAll("```", "\\`\\`\\`");
-
-    const backfeed = Config.get<boolean>(
-      "nanofuzz.ai.backfeedPriorInputs",
-      true
-    );
-    let inputs = backfeed ? Array.from(allInputs.keys()) : [];
-    // draw a line at 10k inputs
-    if (inputs.length > 10000) {
-      inputs = inputs.slice(-10000);
-    }
-
-    const moduleContext = escapedModuleSrc
-      ? `The full module source code containing "${fnRef.name}":
-\`\`\`${fnRef.lang}
-${escapedModuleSrc}
-\`\`\`
-
-`
-      : "";
-
-    return `To evaluate whether the following ${fnRef.lang} program "${fnRef.name}" behaves correctly relative to its specification, generate ${numRequested} program inputs that are important to determine whether the program satisfies its specification. Each program input includes all the arguments needed to call the program.
-
-Format your response as a single minified JSON object without unnecessary whitespace, newlines, or formatting indentation.
-
-The specification for the "${fnRef.name}" program:
-\`\`\`
-${spec ? spec : `(no specification was found. try to infer the spec from the program below)`}
-\`\`\`
-
-The "${fnRef.name}" program:
-\`\`\`${fnRef.lang}
-${fnSrc}
-\`\`\`
-
-${moduleContext}${directives.length ? `Important details about the program's inputs:\n${directives.map((d) => ` - ${d}\n`).join("")}` : ""} 
-
-${
-  backfeed
-    ? inputs.length
-      ? `The following inputs were previously generated and tested, so don't generate these again:\n${inputs.map((u) => ` - ${u}\n`).join("")}`
-      : ""
-    : `This is request number ${reqSeqNum ?? 1} for this testing session. Don't repeat inputs previously generated in this session.\n`
-}`;
-  },
-};
+// Enable standard proxy routing for all LLM fetch requests
+LlmAdapter.configureProxy();
+LlmAdapter.resetAbandoned();
 
 /**
  * Fallback maximum output token limit used when a model's max output token capacity
  * is not specified in the model registry or when no model is configured.
  */
 export const DEFAULT_MAX_OUTPUT_TOKENS = 8192;
+
+/**
+ * Fallback context window size used when a model's context window capacity
+ * is not specified in the model registry or when no model is configured.
+ */
+export const DEFAULT_CONTEXT_WINDOW = 32768;
+
+/**
+ * Fallback request timeout (in ms) for AI model requests.
+ */
+export const DEFAULT_REQUEST_TIMEOUT = 60_000;
+
+/**
+ * Helper function to determine if an error is a timeout or abort error
+ */
+export function isTimeoutError(err: unknown): boolean {
+  if (err instanceof Error) {
+    const msg = err.message.toLowerCase();
+    if (
+      msg.includes("timeout") ||
+      msg.includes("timed out") ||
+      msg.includes("etimedout") ||
+      err.name === "TimeoutError" ||
+      err.name === "AbortError"
+    ) {
+      return true;
+    }
+  }
+  if (isRecord(err)) {
+    const code = err["code"];
+    if (typeof code === "string" && code.toLowerCase().includes("timeout")) {
+      return true;
+    }
+    const cause = err["cause"];
+    if (cause instanceof Error && isTimeoutError(cause)) {
+      return true;
+    }
+  }
+  return false;
+} // fn: isTimeoutError
+
+/**
+ * Options to control query execution and retry policies in LlmAdapter.
+ */
+export interface LlmQueryOptions {
+  /** Maximum retry attempts for this query. 0 or 1 disables retries. Defaults to configured nanofuzz.ai.retries. */
+  retries?: number;
+  /** Whether to retry on timeout errors in LlmAdapter. Defaults to true. If false, timeouts fail immediately without retrying. */
+  retryOnTimeout?: boolean;
+  /** If true, disables all retries for this query. */
+  noRetries?: boolean;
+}
+
+/**
+ * Error thrown when an in-flight LLM query is abandoned on SIGINT or cancellation.
+ */
+export class LlmAbandonedError extends Error {
+  public constructor(message = "LLM query abandoned") {
+    super(message);
+    this.name = "LlmAbandonedError";
+  } // fn: constructor
+} // class: LlmAbandonedError
+
+/**
+ * Helper function to determine if an error was caused by an abandoned query.
+ */
+export function isAbandonedError(err: unknown): boolean {
+  if (err instanceof LlmAbandonedError) {
+    return true;
+  }
+  if (err instanceof Error && err.name === "LlmAbandonedError") {
+    return true;
+  }
+  return false;
+} // fn: isAbandonedError
+
+/**
+ * Extended request options for Copilot Language Model requests
+ */
+interface CopilotChatRequestOptions
+  extends vscode.LanguageModelChatRequestOptions {
+  configuration?: { reasoningEffort?: string };
+}

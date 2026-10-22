@@ -3,7 +3,7 @@ import { intOptions, initParser } from "./FuzzerTestHelper";
 import { FuzzTestResult } from "./Types";
 
 const coverageSearchSeeds = [
-  "qwertyuiop" /*, "coverage", "needle", "mutation"*/,
+  "l0deeld" /*, "qwertyuiop", "coverage", "needle", "mutation"*/,
 ];
 const coverageSearchMinSolved = 1;
 
@@ -41,7 +41,8 @@ describe("fuzzer: coverageOneFile benchmark", () => {
               max: 4,
             },
           },
-        }
+        },
+        { workers: 1 }
       ).test([], { gen: true }, undefined, undefined, (r) =>
         capturedResults.push(r)
       );

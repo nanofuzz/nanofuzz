@@ -1,4 +1,6 @@
+# autopep8: off
 import sys
+from typing import Any, Literal, List, Tuple, Union, TypedDict, NotRequired, Optional, cast
 import signal
 
 # Ignore SIGINT in child runner host; lifecycle is managed exclusively by parent process
@@ -7,36 +9,9 @@ try:
 except Exception:
     pass
 
-# Send an immediate heartbeat as early as possible during startup
-# so parent process timeout timer is reset while modules load.
-if sys.__stdout__ is not None and hasattr(sys.__stdout__, "buffer"):
-    try:
-        sys.__stdout__.buffer.write(b'\x00\x00\x00\x06\xa5HEART')
-        sys.__stdout__.buffer.flush()
-    except Exception:
-        pass
-
-import importlib.util
-import os
-import io
-import json
-import struct
-import logging
-import tempfile
-import traceback
-import uuid
-import ctypes
-import threading
-import sysconfig
-import inspect
-import asyncio
-from contextlib import redirect_stdout, contextmanager
-from typing import Any, Literal, List, Tuple, Union, TypedDict, NotRequired, Optional, cast
-
-_HEARTBEAT_BYTES = b'\x00\x00\x00\x06\xa5HEART'
-
 
 def _send_heartbeat_byte() -> None:
+    _HEARTBEAT_BYTES = b'\x00\x00\x00\x06\xa5HEART'
     if sys.__stdout__ is not None and hasattr(sys.__stdout__, "buffer"):
         try:
             sys.__stdout__.buffer.write(_HEARTBEAT_BYTES)
@@ -45,25 +20,27 @@ def _send_heartbeat_byte() -> None:
             pass
 
 
+# Send an immediate heartbeat as early as possible during startup
+# so parent process timeout timer is reset while modules load.
+_send_heartbeat_byte()
+
+
+import threading
+
+
 class HostHeartbeat:
     """Sends periodic startup heartbeat messages to the parent process.
     Capped at max_heartbeats (default 1000).
     Runs as a daemon thread and stops when stop() is called.
     """
 
-    def __init__(self, interval_sec: float = 0.25, max_heartbeats: int = 1000):
-        self.interval = interval_sec
-        self.max_heartbeats = max_heartbeats
-        self.heartbeat_count = 0
+    def __init__(self):
         self.stop_event = threading.Event()
         self.thread = None
 
     def start(self):
         def _worker():
-            while not self.stop_event.wait(timeout=self.interval):
-                if self.heartbeat_count >= self.max_heartbeats:
-                    break
-                self.heartbeat_count += 1
+            while not self.stop_event.wait(timeout=0.25):
                 _send_heartbeat_byte()
 
         self.thread = threading.Thread(target=_worker, daemon=True)
@@ -73,9 +50,28 @@ class HostHeartbeat:
         self.stop_event.set()
 
 
-_startup_hb = HostHeartbeat(interval_sec=0.25, max_heartbeats=1000)
+_startup_hb = HostHeartbeat()
 _startup_hb.start()
 
+
+from contextlib import redirect_stdout, contextmanager
+import importlib.util
+import os
+import io
+import json
+import struct
+import logging
+import random
+import tempfile
+import traceback
+import uuid
+import ctypes
+import sysconfig
+import inspect
+import asyncio
+
+
+# autopep8: on
 # ---------------------------------------------------------------------------
 # Bootstrap NaNofuzz Vendor Dependencies (_nanofuzz_python)
 # ---------------------------------------------------------------------------
@@ -152,6 +148,7 @@ class RunnerInput(TypedDict):
     args: List[Any]
     seq: int
     timeout: NotRequired[int]
+    validators: NotRequired[List[str]]
     collect: NotRequired[CollectOptions]
 
 
@@ -165,6 +162,8 @@ class RunnerValueResult(TypedDict):
     coverageArcs: NotRequired[dict[str, List[List[int]]]]
     # static coverage data
     staticCoverage: NotRequired[dict[str, dict[str, List]]]
+    # in-host validator results
+    validators: NotRequired[dict[str, Any]]
 
 
 class RunnerErrorResult(TypedDict):
@@ -180,6 +179,8 @@ class RunnerErrorResult(TypedDict):
     coverageArcs: NotRequired[dict[str, List[List[int]]]]
     # static coverage data
     staticCoverage: NotRequired[dict[str, dict[str, List]]]
+    # in-host validator results
+    validators: NotRequired[dict[str, Any]]
 
 
 class RunnerSkipResult(TypedDict):
@@ -192,6 +193,8 @@ class RunnerSkipResult(TypedDict):
     coverageArcs: NotRequired[dict[str, List[List[int]]]]
     # static coverage data
     staticCoverage: NotRequired[dict[str, dict[str, List]]]
+    # in-host validator results
+    validators: NotRequired[dict[str, Any]]
 
 
 class RunnerTimeoutResult(TypedDict):
@@ -203,6 +206,8 @@ class RunnerTimeoutResult(TypedDict):
     coverageArcs: NotRequired[dict[str, List[List[int]]]]
     # static coverage data
     staticCoverage: NotRequired[dict[str, dict[str, List]]]
+    # in-host validator results
+    validators: NotRequired[dict[str, Any]]
 
 
 RunnerResult = Union[RunnerValueResult,
@@ -696,8 +701,19 @@ def program_files(
 
 
 def transform_arg(val: Any, hint: Any) -> Any:
+    if isinstance(val, dict) and val.get("__nanofuzz_type") == "prng":
+        raw_seed = val.get("seed")
+        seed = raw_seed if isinstance(raw_seed, (int, float, str, bytes, bytearray)) else (
+            str(raw_seed) if raw_seed is not None else None)
+        return random.Random(seed).random if seed is not None else random.random
+
     if val is None:
         return None
+
+    if hint == "prng":
+        seed = val if isinstance(val, (int, float, str, bytes, bytearray)) else (
+            str(val) if val is not None else None)
+        return random.Random(seed).random if seed is not None else random.random
 
     if hint == "uuid":
         if isinstance(val, str):
@@ -715,6 +731,22 @@ def transform_arg(val: Any, hint: Any) -> Any:
             return bytes(val)
         if isinstance(val, str):
             return val.encode("latin1")
+        return val
+
+    if hint == "float":
+        if isinstance(val, (int, float, str, bytes, bytearray)):
+            try:
+                return float(val)
+            except (ValueError, TypeError):
+                return val
+        return val
+
+    if hint == "int":
+        if isinstance(val, (int, float, str, bytes, bytearray)):
+            try:
+                return int(val)
+            except (ValueError, TypeError):
+                return val
         return val
 
     if hint == "number":
@@ -872,8 +904,9 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
 
     args = list(input["args"])
     type_hints = input.get("typeHints", [])
-    for i in range(min(len(args), len(type_hints))):
-        args[i] = transform_arg(args[i], type_hints[i])
+    for i in range(len(args)):
+        hint = type_hints[i] if i < len(type_hints) else None
+        args[i] = transform_arg(args[i], hint)
 
     try:
         with redirect_stdout(io.StringIO()) as f:
@@ -894,6 +927,75 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
             skip = e
         else:
             error = e
+
+    validator_results = {}
+    req_validators = input.get("validators")
+    if skip is None and req_validators:
+        fuzz_result_dict = {
+            "in": list(input["args"]),
+            "out": sanitize_output(value) if not is_timeout and error is None else "timeout or exception",
+            "exception": error is not None,
+            "timeout": is_timeout,
+        }
+
+        mod_name = getattr(fn, "__module__", None)
+        mod = sys.modules.get(mod_name) if mod_name else None
+
+        for v_name in req_validators:
+            v_fn = getattr(mod, v_name, None) if mod is not None else None
+            if v_fn is None:
+                fallback_mod_name = mod_name or os.path.splitext(
+                    os.path.basename(filename))[0]
+                [load_err, loaded_fn] = loadPythonFn(
+                    filename, fallback_mod_name, v_name)
+                if load_err is not None:
+                    validator_results[v_name] = {
+                        "tag": "error",
+                        "name": "ValidatorNotFoundError",
+                        "message": f"Could not load validator function '{v_name}' in {filename}",
+                    }
+                    continue
+                v_fn = loaded_fn
+
+            v_error = None
+            v_skip = None
+            v_timeout = False
+            v_value = None
+
+            try:
+                with redirect_stdout(io.StringIO()) as f:
+                    with isolate_put_environment():
+                        if hasattr(v_fn, 'hypothesis') and hasattr(v_fn.hypothesis, 'inner_test'):
+                            v_value = call_with_timeout(
+                                v_fn.hypothesis.inner_test, [fuzz_result_dict], timeout_ms)
+                        else:
+                            v_value = call_with_timeout(
+                                v_fn, [fuzz_result_dict], timeout_ms)
+            except PutTimeoutException:
+                v_timeout = True
+            except Exception as e:
+                if e.__class__.__name__ == "UnsatisfiedAssumption":
+                    v_skip = e
+                else:
+                    v_error = e
+
+            if v_timeout:
+                validator_results[v_name] = {"tag": "timeout"}
+            elif v_skip is not None:
+                validator_results[v_name] = {
+                    "tag": "skip", "message": str(v_skip)}
+            elif v_error is not None:
+                validator_results[v_name] = {
+                    "tag": "error",
+                    "name": v_error.__class__.__name__,
+                    "message": str(v_error),
+                    "stack": "".join(traceback.format_exception(v_error)),
+                }
+            else:
+                validator_results[v_name] = {
+                    "tag": "value",
+                    "value": sanitize_output(v_value),
+                }
 
     # Read coverage after execution: a failing or timing out input still covers lines
     coverageData = {}
@@ -920,13 +1022,18 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
                         coverageArcs[idx] = sorted(
                             [src, dest] for src, dest in arcs)
 
+    val_dict = validator_results if validator_results else None
+
     if is_timeout:
-        return RunnerTimeoutResult(
-            tag="timeout",
-            seq=input["seq"],
-            coverageData=coverageData,
-            coverageArcs=coverageArcs,
-        )
+        res_timeout: RunnerTimeoutResult = {
+            "tag": "timeout",
+            "seq": input["seq"],
+            "coverageData": coverageData,
+            "coverageArcs": coverageArcs,
+        }
+        if val_dict:
+            res_timeout["validators"] = val_dict
+        return res_timeout
 
     if skip is not None:
         return RunnerSkipResult(
@@ -938,24 +1045,30 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
         )
 
     if error is not None:
-        return RunnerErrorResult(
-            tag="error",
-            name="PythonPutError",
-            message=str(error),
-            source="put",
-            stack="".join(traceback.format_exception(error)),
-            seq=input["seq"],
-            coverageData=coverageData,
-            coverageArcs=coverageArcs,
-        )
+        res_err: RunnerErrorResult = {
+            "tag": "error",
+            "name": "PythonPutError",
+            "message": str(error),
+            "source": "put",
+            "stack": "".join(traceback.format_exception(error)),
+            "seq": input["seq"],
+            "coverageData": coverageData,
+            "coverageArcs": coverageArcs,
+        }
+        if val_dict:
+            res_err["validators"] = val_dict
+        return res_err
 
-    return RunnerValueResult(
-        tag="value",
-        value=sanitize_output(value),
-        seq=input["seq"],
-        coverageData=coverageData,
-        coverageArcs=coverageArcs,
-    )
+    res_val: RunnerValueResult = {
+        "tag": "value",
+        "value": sanitize_output(value),
+        "seq": input["seq"],
+        "coverageData": coverageData,
+        "coverageArcs": coverageArcs,
+    }
+    if val_dict:
+        res_val["validators"] = val_dict
+    return res_val
 
 
 def put_result(result: RunnerResult) -> None:
@@ -1003,10 +1116,12 @@ if __name__ == "__main__":
         except Exception:
             direct_packages = []
 
+        collect_static_arg = sys.argv[6] if len(sys.argv) > 6 else ""
+        is_respawn = collect_static_arg.lower() == "respawn"
         collect_static = (
-            sys.argv[6].lower() == "true"
-            if len(sys.argv) > 6
-            else ("static" in coverage_scope)
+            collect_static_arg.lower() == "true"
+            if len(sys.argv) > 6 and not is_respawn
+            else ("static" in coverage_scope and not is_respawn)
         )
 
         pgm_files = program_files(filename, coverage_scope, direct_packages)
@@ -1014,7 +1129,19 @@ if __name__ == "__main__":
         # One in-memory coverage instance for the whole run.
         cov = coverage.Coverage(include=pgm_files, branch=True, data_file=None)
 
-        if collect_static:
+        if is_respawn:
+            # Respawn: do NOT run init_cov tracer, and skip static_coverage_all AST analysis
+            logging.debug(
+                f"[{pid}] Loading function '{fnname}' in {filename} (respawn)")
+            [loadError, fn] = loadPythonFn(filename, modulename, fnname)
+            if (loadError is not None):
+                logging.debug(f"[{pid}]  - Unable to load")
+            else:
+                logging.debug(f"[{pid}]  - Loaded function")
+
+            covInfo = {}
+            initialCoverage = {}
+        elif collect_static:
             # Start temporary coverage tracer before loading module so static coverage is captured.
             init_cov = coverage.Coverage(branch=True, data_file=None)
             init_cov.start()

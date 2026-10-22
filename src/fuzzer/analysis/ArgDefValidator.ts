@@ -179,10 +179,16 @@ export class ArgDefValidator {
           return entries.every(([rawKey, entry]) => {
             let key: ArgValueType = rawKey;
             if (keySpec.getType() === ArgTag.NUMBER) {
-              key = Number(rawKey);
+              key = rawKey.trim() !== "" ? Number(rawKey) : NaN;
             } else if (keySpec.getType() === ArgTag.BOOLEAN) {
               if (rawKey === "true") key = true;
               else if (rawKey === "false") key = false;
+            } else if (keySpec.getType() === ArgTag.BIGINT) {
+              try {
+                key = BigInt(rawKey);
+              } catch {
+                return false;
+              }
             }
             return (
               ArgDefValidator.validate(key, keySpec) &&
@@ -201,8 +207,8 @@ export class ArgDefValidator {
             value instanceof Set
               ? Array.from(value.values())
               : Array.isArray(value)
-              ? value
-              : [];
+                ? value
+                : [];
           const setLen = options.setLength;
           if (items.length < setLen.min || items.length > setLen.max) {
             return false;

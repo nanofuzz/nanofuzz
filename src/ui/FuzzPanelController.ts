@@ -5,54 +5,43 @@ import * as ValueMapper from "../fuzzer/mappers/ValueMapper";
 import * as fuzzer from "../fuzzer/Types";
 import { ArgDef } from "../fuzzer/analysis/ArgDef";
 import { FunctionDef } from "../fuzzer/analysis/FunctionDef";
-import { TypescriptProgram } from "../fuzzer/analysis/typescript/TypescriptProgram";
 import {
   ArgOptions,
   ArgTag,
   ArgValueTypeWrapped,
   FunctionRef,
-  Interval,
   ProgramLanguage,
 } from "../fuzzer/analysis/Types";
 import {
   bigIntOrThrow,
   getTransformers,
+  getUserGenerators,
   getValidators,
 } from "../fuzzer/analysis/Util";
 import { getIoKey } from "../fuzzer/Util";
 import * as fs from "fs";
 import { htmlEscape } from "escape-goat";
 import * as telemetry from "../telemetry/Telemetry";
-import * as TestAdapterFactory from "../fuzzer/adapters/TestAdapterFactory";
 import {
   isError,
   getErrorMessageOrJson,
   normalizePathForKey,
 } from "../fuzzer/Util";
 import { parseCoverageScope } from "../fuzzer/measures/Util";
-import {
-  removeTickFromOrigin,
-  encodeEscapeSequences,
-  decodeEscapeSequences,
-} from "../Util";
+import { removeTickFromOrigin, encodeEscapeSequences } from "../Util";
 import { FuzzerFactory, IFuzzer } from "../fuzzer/FuzzerFactory";
 import {
   applyCoverageHeatmapToEditor,
   clearCoverageHeatmapFromEditor,
 } from "./CoverageHeatmap";
-import { CodeCoverageMeasureStats } from "../fuzzer/measures/AbstractCoverageMeasure";
+import { CodeCoverageMeasureStats } from "../fuzzer/measures/CoverageMeasure";
 import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
 import { AbstractProgram } from "../fuzzer/analysis/AbstractProgram";
-import { PythonProgram } from "../fuzzer/analysis/python/PythonProgram";
 import * as CompilerFactory from "../fuzzer/compilers/CompilerFactory";
-
-// Consts for validator result arg name generation
-const resultArgCandidateNames = ["r", "result", "_r", "_result"];
-const maxResultArgSuffix = 1000;
-
-// Consts for validator out variable name generation
-const outVarCandidateNames = ["out", "output", "_out", "_output"];
-const maxOutVarSuffix = 1000;
+import { synthesizeValidator } from "../fuzzer/synthesis/ValidatorSynthesizer";
+import { synthesizeTransformer } from "../fuzzer/synthesis/TransformerSynthesizer";
+import { synthesizeUserGenerator } from "../fuzzer/synthesis/UserGeneratorSynthesizer";
+import { FuzzConfigStore, CURR_FILE_FMT_VER } from "../fuzzer/FuzzConfigStore";
 
 /**
  * FuzzPanel displays fuzzer options, actions, and the last results for a
@@ -155,6 +144,9 @@ export class FuzzPanel {
         panel,
         extensionUri,
         FuzzerFactory(moduleFile, fnName, normalizeFuzzOptions(options), {
+          engine: "auto",
+          workers: Config.get("nanofuzz.fuzzer.workers", "auto"),
+          outputResults: "all",
           precompile: true,
         })
       );
@@ -218,7 +210,12 @@ export class FuzzPanel {
             state.fnRef.module,
             state.fnRef.name,
             normalizeFuzzOptions(state.options),
-            { precompile: true }
+            {
+              engine: "auto",
+              workers: Config.get("nanofuzz.fuzzer.workers", "auto"),
+              outputResults: "all",
+              precompile: true,
+            }
           )
         );
         fuzzPanel = localFuzzPanel;
@@ -500,6 +497,14 @@ export class FuzzPanel {
             await this._doAddTransformerCmd();
             this._doGetValidatorsAndTransformers();
             break;
+          case "userGenerator.add":
+            await this._doAddUserGeneratorCmd();
+            this._doGetValidatorsAndTransformers();
+            break;
+          case "userGenerator.show":
+            await this._doShowUserGeneratorCmd();
+            break;
+          case "userGenerator.getList":
           case "validator.getList":
             this._doGetValidatorsAndTransformers();
             break;
@@ -564,8 +569,8 @@ export class FuzzPanel {
    * @returns filename of pinned tests
    */
   private _getFuzzTestsFilename(): string {
-    return this._fuzzEnv.function.getModule() + ".nano.json5";
-  } // fn: _getPinnedTestFilename()
+    return FuzzConfigStore.getNanoFilename(this._fuzzEnv.function.getModule());
+  } // fn: _getFuzzTestsFilename()
 
   /**
    * Returns the filename where pinned tests were persisted
@@ -574,10 +579,10 @@ export class FuzzPanel {
    * @returns filename of pinned tests
    */
   private _getFuzzTestsFilenameOld(): string {
-    let module = this._fuzzEnv.function.getModule();
-    module = module.split(".").slice(0, -1).join(".") || module;
-    return module + ".nano.test.json";
-  } // fn: _getPinnedTestFilename()
+    return FuzzConfigStore.getLegacyNanoFilename(
+      this._fuzzEnv.function.getModule()
+    );
+  } // fn: _getFuzzTestsFilenameOld()
 
   /**
    * Returns pinned tests for all functions in the current module.
@@ -585,172 +590,7 @@ export class FuzzPanel {
    * @returns all pinned tests for all functions in the current module
    */
   private _getFuzzTestsForModule(): fuzzer.FuzzTests {
-    const jsonFileOld = this._getFuzzTestsFilenameOld();
-    const jsonFile = this._getFuzzTestsFilename();
-    let inputTests, testSet: fuzzer.FuzzTests;
-
-    // Migrate to the v0.4 naming convention, which avoids
-    // collisions between Typescript and Python modules.
-    if (fs.existsSync(jsonFileOld) && !fs.existsSync(jsonFile)) {
-      fs.renameSync(jsonFileOld, jsonFile);
-      console.info(`Moved test set in file ${jsonFileOld} to ${jsonFile}`);
-    }
-
-    // Read the file; if it doesn't exist, load default values
-    try {
-      inputTests = JSONN.parse<fuzzer.FuzzTests>(
-        fs.readFileSync(jsonFile).toString()
-      );
-      testSet = inputTests;
-    } catch (_e: unknown) {
-      return this._initFuzzTestsForThisFn();
-    }
-
-    // Handle any version conversions needed
-    while (inputTests.version !== CURR_FILE_FMT_VER) {
-      if (!("version" in inputTests)) {
-        // v0.1.0 format -- convert to current format
-        testSet = this._initFuzzTestsForThisFn();
-        const fnName = this._fuzzEnv.function.getName();
-        if (fnName in inputTests) {
-          testSet.functions[fnName].tests = inputTests[fnName];
-        }
-        console.info(
-          `Upgraded test set in file ${jsonFile} from ${testSet.version} to current version`
-        );
-        inputTests = testSet;
-      } else {
-        switch (inputTests.version) {
-          case "0.2.0": {
-            // v0.2.0 format -- add maxFailures and onlyFailure options
-            testSet = { ...inputTests, version: "0.2.1" };
-            for (const fn in testSet.functions) {
-              testSet.functions[fn].options.maxFailures = 0;
-              testSet.functions[fn].options.useHuman = true;
-              testSet.functions[fn].options.useImplicit = true;
-            }
-            console.info(
-              `Upgraded test set in file ${jsonFile} from ${inputTests.version} to ${testSet.version}`
-            );
-            inputTests = testSet;
-            break;
-          }
-          case "0.2.1": {
-            // v0.2.1 format -- infer useProperty option & turn on useHuman (the latter
-            // is req'd b/c we eliminated the UI button that controls this)
-            testSet = { ...inputTests, version: "0.3.0" };
-            for (const fn in testSet.functions) {
-              testSet.functions[fn].options.useProperty =
-                "validator" in testSet.functions[fn];
-              testSet.functions[fn].options.useHuman = true;
-            }
-            console.info(
-              `Upgraded test set in file ${jsonFile} from ${inputTests.version} to ${testSet.version}`
-            );
-            inputTests = testSet;
-            break;
-          }
-          case "0.3.0": {
-            // v0.3.0 format -- infer arg strCharset override from function default
-            testSet = { ...inputTests, version: "0.3.3" };
-            for (const fn in testSet.functions) {
-              const thisFn = testSet.functions[fn];
-              if (thisFn.argOverrides) {
-                for (const i in thisFn.argOverrides) {
-                  const arg = thisFn.argOverrides[i];
-                  // strings overrides only
-                  if (arg.string && !arg.string.strCharset) {
-                    arg.string.strCharset =
-                      thisFn.options.argDefaults.strCharset;
-                  }
-                }
-              }
-              break;
-            }
-            console.info(
-              `Upgraded test set in file ${jsonFile} from ${inputTests.version} to ${testSet.version}`
-            );
-            inputTests = testSet;
-            break;
-          }
-          case "0.3.3": {
-            // v0.3.3 format -- only additions such as isVoid and literal types that
-            // older versions of NaNofuzz will not interpret. Also check for missing
-            // maxDupeInputs value
-            testSet = { ...inputTests, version: "0.3.6" };
-            for (const fn in testSet.functions) {
-              const thisFn = testSet.functions[fn];
-              const thisOpt: Partial<fuzzer.FuzzOptions> = thisFn.options;
-              if (
-                !("maxDupeInputs" in thisOpt) ||
-                thisOpt.maxDupeInputs === undefined ||
-                isNaN(thisOpt.maxDupeInputs)
-              ) {
-                thisOpt.maxDupeInputs = Config.get(
-                  "nanofuzz.fuzzer.maxDupeInputs",
-                  500
-                );
-              }
-            }
-            console.info(
-              `Upgraded test set in file ${jsonFile} from ${inputTests.version} to ${testSet.version}`
-            );
-            inputTests = testSet;
-            break;
-          }
-          case "0.3.6": {
-            // v0.3.6 format -- add configuration for measures and generators,
-            //        re-key and add origin info to saved test inputs
-            testSet = { ...inputTests, version: "0.4.0" }; // !!!!!!!!
-            for (const fn in testSet.functions) {
-              const thisFn = testSet.functions[fn];
-              thisFn.options.measures = getDefaultFuzzOptions().measures;
-              thisFn.options.generators = getDefaultFuzzOptions().generators;
-              thisFn.options.useTransformer = true;
-
-              const oldTestSet = thisFn.tests;
-              thisFn.tests = {};
-              for (const oldKey in oldTestSet) {
-                const newKey = getIoKey(oldTestSet[oldKey].input);
-                const thisTest = (thisFn.tests[newKey] = oldTestSet[oldKey]);
-                for (const input of thisTest.input) {
-                  input.origin = {
-                    type: "generator",
-                    generator: "RandomInputGenerator",
-                  };
-                }
-                for (const output of thisTest.output) {
-                  output.origin = { type: "put" };
-                }
-                if (thisTest.expectedOutput) {
-                  for (const expectedOutput of thisTest.expectedOutput) {
-                    expectedOutput.origin = { type: "user" };
-                  }
-                }
-              }
-            }
-            console.info(
-              `Upgraded test set in file ${jsonFile} from ${inputTests.version} to ${testSet.version}`
-            );
-            inputTests = testSet;
-            break;
-          }
-          case "0.3.9": {
-            // same as v0.4.0; only used for testing
-            inputTests = { ...inputTests, version: "0.4.0" };
-            break;
-          }
-          default: {
-            // unknown format; stop to avoid losing data
-            throw new Error(
-              `Unknown version ${inputTests.version} in test file ${jsonFile}. Update your ${toolName} extension or delete/rename the file to continue.`
-            );
-          }
-        }
-      }
-    }
-
-    return this._pruneTestSet(testSet);
+    return FuzzConfigStore.loadForModule(this._fuzzEnv.function.getModule());
   } // fn: _getFuzzTestsForModule()
 
   /**
@@ -762,16 +602,7 @@ export class FuzzPanel {
    *          tests with an expected output.
    */
   private _pruneTestSet(testSet: fuzzer.FuzzTests): fuzzer.FuzzTests {
-    const prunedTestSet = structuredClone(testSet);
-    for (const fn in prunedTestSet.functions) {
-      for (const test in prunedTestSet.functions[fn].tests) {
-        const thisTest = prunedTestSet.functions[fn].tests[test];
-        if (!thisTest.pinned && thisTest.expectedOutput === undefined) {
-          delete prunedTestSet.functions[fn].tests[test];
-        }
-      }
-    }
-    return prunedTestSet;
+    return FuzzConfigStore.prune(testSet);
   } // fn: _pruneTestSet
 
   /**
@@ -782,23 +613,26 @@ export class FuzzPanel {
    */
   private _initFuzzTestsForThisFn(): fuzzer.FuzzTests {
     const fnRef = this._fuzzEnv.function.getRef();
+    const fnConfig = FuzzConfigStore.createDefaultFunctionConfig(
+      this._fuzzEnv.function.getName(),
+      {
+        options: {
+          ...this._fuzzEnv.options,
+          ...(fnRef.fuzzOptions ?? {}),
+        },
+        argOverrides: this._argOverrides,
+        validators: this._fuzzEnv.validators.map((ref) => ref.name),
+        userGenerators: this._fuzzEnv.userGenerators.map((ref) => ref.name),
+        tests: {},
+        isVoid: this._fuzzEnv.function.isVoid(),
+        ...(this._fuzzEnv.function.isAsync() ? { isAsync: true as const } : {}),
+      }
+    );
 
     return {
       version: CURR_FILE_FMT_VER,
       functions: {
-        [this._fuzzEnv.function.getName()]: {
-          options: {
-            ...this._fuzzEnv.options,
-            ...(fnRef.fuzzOptions ?? {}),
-          },
-          argOverrides: this._argOverrides,
-          validators: this._fuzzEnv.validators.map((ref) => ref.name),
-          tests: {},
-          isVoid: this._fuzzEnv.function.isVoid(),
-          ...(this._fuzzEnv.function.isAsync()
-            ? { isAsync: true as const }
-            : {}),
-        },
+        [this._fuzzEnv.function.getName()]: fnConfig,
       },
     };
   } // fn: _initFuzzTestsForThisFn()
@@ -809,18 +643,29 @@ export class FuzzPanel {
    * @returns saved tests for the current function
    */
   private _getFuzzTestsForThisFn(): fuzzer.FuzzTestsFunction {
-    // Get the tests for the entire module
-    const moduleSet = this._getFuzzTestsForModule();
-
-    // Get the persistent tests for the function, if it exists
+    const fnRef = this._fuzzEnv.function.getRef();
     const fnName = this._fuzzEnv.function.getName();
-    const fnSet = // persistent tests
-      fnName in moduleSet.functions
-        ? moduleSet.functions[fnName]
-        : this._initFuzzTestsForThisFn().functions[fnName];
+    const defaultOptions = {
+      ...this._fuzzEnv.options,
+      ...(fnRef.fuzzOptions ?? {}),
+    };
 
-    if (fnSet.options) {
-      fnSet.options = normalizeFuzzOptions(fnSet.options);
+    const fnSet = FuzzConfigStore.loadForFunction(
+      this._fuzzEnv.function.getModule(),
+      fnName,
+      defaultOptions
+    );
+
+    if (fnSet.argOverrides === undefined) {
+      fnSet.argOverrides = this._argOverrides;
+    }
+    if (fnSet.validators === undefined) {
+      fnSet.validators = this._fuzzEnv.validators.map((ref) => ref.name);
+    }
+    if (fnSet.userGenerators === undefined) {
+      fnSet.userGenerators = this._fuzzEnv.userGenerators.map(
+        (ref) => ref.name
+      );
     }
 
     return fnSet;
@@ -832,67 +677,21 @@ export class FuzzPanel {
    * @param testSet the pinned tests for the current function
    */
   private _putFuzzTestsForThisFn(testSet: fuzzer.FuzzTestsFunction): void {
-    const jsonFile = this._getFuzzTestsFilename();
-    let fullSet = this._getFuzzTestsForModule();
-
-    // Update the function in the dataset
-    fullSet.functions[this._fuzzEnv.function.getName()] = testSet;
-
-    // Prune unused tests
-    fullSet = this._pruneTestSet(fullSet);
-
-    // Count the number of pinned tests for the module
-    let pinnedCount = 0;
-    Object.values(fullSet.functions).forEach((fn) => {
-      pinnedCount += Object.values(fn.tests).filter((e) => e.pinned).length;
-    });
-
-    // Persist the test set
-    try {
-      fs.writeFileSync(jsonFile, JSONN.stringify(fullSet)); // Update the file
-    } catch (e: unknown) {
-      const msg = isError(e) ? e.message : JSONN.stringify(e);
-      vscode.window.showErrorMessage(
-        `Unable to update json file: ${jsonFile} (${msg})`
-      );
-    }
-
-    // Build the Test Adapter
-    const testAdapter = TestAdapterFactory.fromSourceFilename(
+    FuzzConfigStore.saveForFunction(
       this._fuzzEnv.function.getModule(),
-      this._getFuzzTestsForModule()
+      this._fuzzEnv.function.getName(),
+      testSet,
+      {
+        syncTestAdapter: true,
+        onError: (e: unknown) => {
+          const msg = isError(e) ? e.message : JSONN.stringify(e);
+          vscode.window.showErrorMessage(
+            `Unable to update test configuration / files (${msg})`
+          );
+        },
+      }
     );
-
-    if (pinnedCount) {
-      // Generate the Jest test data for CI
-      // The Jest file should contain all tests that are pinned
-      const jestTests = testAdapter.toString();
-
-      // Persist the Jest tests for CI
-      try {
-        fs.writeFileSync(testAdapter.filename, jestTests);
-      } catch (e: unknown) {
-        const msg = isError(e) ? e.message : JSONN.stringify(e);
-
-        vscode.window.showErrorMessage(
-          `Unable to update ${testAdapter.toolname} test file: ${testAdapter.filename} (${msg})`
-        );
-      }
-    } else if (fs.existsSync(testAdapter.filename)) {
-      // Delete the test file: it would contain no tests
-      try {
-        fs.rmSync(testAdapter.filename);
-      } catch (e: unknown) {
-        const msg = isError(e) ? e.message : JSONN.stringify(e);
-        vscode.window.showErrorMessage(
-          `Unable to remove ${testAdapter.toolname} test file: ${testAdapter.filename} (${msg})`
-        );
-      }
-    }
-
-    // Return
-    return;
-  } // fn: _putFuzzTestsForFn
+  } // fn: _putFuzzTestsForThisFn()
 
   /**
    * Add and/or delete from the persisted set of tests.
@@ -900,34 +699,20 @@ export class FuzzPanel {
    * @param `test` test case to update
    */
   private _updateFuzzTestsForThisFn(test: fuzzer.FuzzPinnedTest): void {
-    const currInputsJson = getIoKey(test.input);
-    const testSet = this._getFuzzTestsForThisFn();
-
-    // If input is already in pinnedSet, is not pinned, and does not have
-    // an expected value assigned, then delete it
-    if (
-      currInputsJson in testSet.tests &&
-      !test.pinned &&
-      !test.expectedOutput
-    ) {
-      delete testSet.tests[currInputsJson];
-    } else {
-      // Else, save to pinnedSet w/o ticks or output
-      testSet.tests[currInputsJson] = {
-        ...test,
-        output: [],
-        input: test.input.map((i) => {
-          return {
-            ...i,
-            // ticks are tester-specific
-            origin: removeTickFromOrigin(i.origin),
-          };
-        }),
-      };
-    }
-
-    // Persist the updated set of tests
-    this._putFuzzTestsForThisFn(testSet);
+    FuzzConfigStore.updatePinnedTest(
+      this._fuzzEnv.function.getModule(),
+      this._fuzzEnv.function.getName(),
+      test,
+      {
+        syncTestAdapter: true,
+        onError: (e: unknown) => {
+          const msg = isError(e) ? e.message : JSONN.stringify(e);
+          vscode.window.showErrorMessage(
+            `Unable to update test configuration / files (${msg})`
+          );
+        },
+      }
+    );
   } // fn: _updateFuzzTestsForThisFn()
 
   /**
@@ -1014,7 +799,6 @@ export class FuzzPanel {
   private async _doAddValidatorCmd() {
     const fn = this._fuzzEnv.function; // Function under test
     const module = this._fuzzEnv.function.getModule();
-    const validatorPrefix = fn.getName() + "Validator";
     let program: AbstractProgram;
 
     try {
@@ -1026,138 +810,11 @@ export class FuzzPanel {
       return;
     }
 
-    // Determine the next available validator name
-    const fnCounter = getNextAvailableFnNumber(
-      Object.keys(program.functions),
-      validatorPrefix
-    );
-
-    const inArgs = fn.getArgDefs();
-    const validatorArgs = this._getValidatorArgs(inArgs);
-
-    // vvvvvvv Language-specific logic vvvvvvv
-    const skelGenerators = {
-      typescript: {
-        inputMapper: (argDef: ArgDef, i: number) => {
-          return `  const ${argDef.getName()}: ${TypescriptProgram.getTypeAnnotation(argDef)} = ${
-            validatorArgs.resultArgName
-          }.in[${i}];`;
-        },
-        outputMapper: (
-          inArgs: ArgDef[],
-          resultArgName: string,
-          returnType?: string
-        ): string => {
-          const outVarName = this._getIdentifierNameAvoidingConflicts(
-            inArgs,
-            outVarCandidateNames,
-            maxOutVarSuffix
-          );
-          const outVarString = `const ${outVarName.name}${
-            returnType ? ": " + returnType : ""
-          } = ${resultArgName}.out;`;
-          return outVarString;
-        },
-        importMapper: () => [
-          {
-            name: `FuzzTestResult`,
-            stmt: `import { FuzzTestResult } from "@nanofuzz/runtime";
-`,
-          },
-        ],
-        skelMapper: (
-          validatorName: string,
-          validatorArgs: ReturnType<typeof this._getValidatorArgs>,
-          inArgConsts: string,
-          outArgConst: string
-        ) => `
-
-export function ${validatorName}${validatorArgs.str}: "pass" | "fail" | "unknown" {
-${inArgConsts}
-  ${outArgConst}
-
-  return "pass";
-}`,
-        getTypeAnnotation: TypescriptProgram.getTypeAnnotation,
-      },
-      python: {
-        inputMapper: (argDef: ArgDef, i: number) => {
-          return `  ${argDef.getName()}: ${PythonProgram.getTypeAnnotation(argDef)} = ${
-            validatorArgs.resultArgName
-          }['in'][${i}]`;
-        },
-        outputMapper: (
-          inArgs: ArgDef[],
-          resultArgName: string,
-          returnType?: string
-        ): string => {
-          const outVarName = this._getIdentifierNameAvoidingConflicts(
-            inArgs,
-            outVarCandidateNames,
-            maxOutVarSuffix
-          );
-          const outVarString = `${outVarName.name}${
-            returnType ? ": " + returnType : ""
-          } = ${resultArgName}['out']`;
-          return outVarString;
-        },
-        importMapper: () => [
-          {
-            name: "FuzzTestResult",
-            stmt: `from nanofuzz_runtime import FuzzTestResult
-`,
-          },
-          {
-            name: "Literal",
-            stmt: `from typing import Literal
-`,
-          },
-        ],
-        skelMapper: (
-          validatorName: string,
-          validatorArgs: ReturnType<typeof this._getValidatorArgs>,
-          inArgConsts: string,
-          outArgConst: string
-        ) => `
-
-def ${validatorName}${validatorArgs.str} -> Literal["pass", "fail", "unknown"]:
-${inArgConsts}
-  ${outArgConst}
-
-  return "pass"
-`,
-        getTypeAnnotation: PythonProgram.getTypeAnnotation,
-      },
-    };
-    // ^^^^^^^ Language-specific logic ^^^^^^^
-
-    if (program.lang === "*") {
-      throw new Error("Internal error: program is of invalid language: *");
-    }
-    const inArgConsts = inArgs
-      .map(skelGenerators[program.lang].inputMapper)
-      .join("\n");
-
-    const outTypeAsArg = fn.getReturnArg();
-    const outArgConst = skelGenerators[program.lang].outputMapper(
-      inArgs,
-      validatorArgs.resultArgName,
-      outTypeAsArg
-        ? skelGenerators[program.lang].getTypeAnnotation(outTypeAsArg)
-        : undefined
-    );
-
-    // Name of the validator generated
-    const validatorName = `${validatorPrefix}${
-      fnCounter === 0 ? "" : fnCounter
-    }`;
-
-    const skeleton = skelGenerators[program.lang].skelMapper(
-      validatorName,
-      validatorArgs,
-      inArgConsts,
-      outArgConst
-    );
+    const {
+      name: validatorName,
+      skeleton,
+      imports,
+    } = synthesizeValidator(fn, program.lang, Object.keys(program.functions));
 
     // Save the editor if dirty
     for (const editor of vscode.window.visibleTextEditors) {
@@ -1169,7 +826,7 @@ ${inArgConsts}
     // Append the code skeleton to the source file
     try {
       let importData = "";
-      skelGenerators[program.lang].importMapper().forEach((i) => {
+      imports.forEach((i) => {
         // If there is no import, then add it
         if (!Object.keys(program.imports).some((e) => e === i.name)) {
           importData += i.stmt;
@@ -1239,9 +896,7 @@ ${inArgConsts}
     const existingTransformers = getTransformers(program, fn);
     if (existingTransformers.length > 0) {
       this._fuzzEnv.transformers = existingTransformers;
-      const fnDef =
-        program.functionsExported[existingTransformers[0].name] ??
-        program.functions[existingTransformers[0].name];
+      const fnDef = program.functions[existingTransformers[0].name];
       if (fnDef) {
         this._navigateToSource(fnDef.getModule(), fnDef.getStartOffset());
         return;
@@ -1252,72 +907,11 @@ ${inArgConsts}
       return;
     }
 
-    const transformerPrefix = fn.getName() + "Transformer";
-
-    // Determine the next available transformer name
-    const fnCounter = getNextAvailableFnNumber(
-      Object.keys(program.functions),
-      transformerPrefix
-    );
-
-    const inArgs = fn.getArgDefs();
-
-    const inputsTypeName = `${fn.getName()}Inputs`;
-    const transformerName = `${transformerPrefix}${
-      fnCounter === 0 ? "" : fnCounter
-    }`;
-
-    // Build the destructuring assignment for the args tuple
-    const argDestructuring = inArgs
-      .map((argDef) => argDef.getName())
-      .join(", ");
-
-    if (program.lang === "*") {
-      throw new Error("Internal error: program is of invalid language: *");
-    }
-    // vvvvvvv Language-specific logic vvvvvvv
-    let skeleton: string;
-    switch (program.lang) {
-      case "typescript": {
-        const tsDestructuring =
-          inArgs.length === 0 ? "" : `  const [${argDestructuring}] = args;\n`;
-        skeleton = `
-export function ${transformerName}(...args: Parameters<typeof ${fn.getName()}>): Parameters<typeof ${inputsTypeName}> {
-${tsDestructuring}  // 'throw new UnsatisfiedAssumption(message)' to skip this input
-  // Otherwise, return the transformed inputs
-  return [${argDestructuring}];
-}`;
-        break;
-      }
-
-      case "python": {
-        const pyParams = inArgs
-          .map(
-            (a) =>
-              `${a.getName()}: ${PythonProgram.getTypeAnnotation(a, { useTypeRefs: true })}`
-          )
-          .join(", ");
-        const pyTupleType =
-          inArgs.length === 0
-            ? "tuple[()]"
-            : `tuple[${inArgs.map((a) => PythonProgram.getTypeAnnotation(a, { useTypeRefs: true })).join(", ")}]`;
-        const pyReturnTuple =
-          inArgs.length === 0
-            ? "()"
-            : inArgs.length === 1
-              ? `(${argDestructuring},)`
-              : `(${argDestructuring})`;
-        skeleton = `
-
-def ${transformerName}(${pyParams}) -> ${pyTupleType}:
-  # 'raise UnsatisfiedAssumption(message)' to skip this input
-  # Otherwise, return the transformed inputs
-  return ${pyReturnTuple}
-`;
-        break;
-      }
-    }
-    // ^^^^^^^ Language-specific logic ^^^^^^^
+    const {
+      name: transformerName,
+      skeleton,
+      imports,
+    } = synthesizeTransformer(fn, program.lang, Object.keys(program.functions));
 
     // Save the editor
     for (const editor of vscode.window.visibleTextEditors) {
@@ -1328,14 +922,41 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
 
     // Append the code skeleton to the source file
     try {
-      const fd = fs.openSync(module, "as+");
-      fs.writeFileSync(fd, skeleton);
-      fs.closeSync(fd);
+      let importData = "";
+      imports.forEach((i) => {
+        // If there is no import, then add it
+        if (!Object.keys(program.imports).some((e) => e === i.name)) {
+          importData += i.stmt;
+        }
+      });
+
+      if (importData.length) {
+        // Pre-pend the import & append the transformer
+        const fileData = fs.readFileSync(module);
+        const importStmt = Buffer.from(importData);
+        const transformerFn = Buffer.from(skeleton);
+        const fd = fs.openSync(module, "w+");
+
+        fs.writeSync(fd, importStmt, 0, importStmt.length, 0);
+        fs.writeSync(fd, fileData, 0, fileData.length, importStmt.length);
+        fs.writeSync(
+          fd,
+          transformerFn,
+          0,
+          transformerFn.length,
+          importStmt.length + fileData.length
+        );
+        fs.closeSync(fd);
+      } else {
+        const fd = fs.openSync(module, "as+");
+        fs.writeFileSync(fd, skeleton);
+        fs.closeSync(fd);
+      }
 
       // Change focus to the generated transformer
       try {
         const pgm = ProgramFactory.fromFile(module);
-        const fn = pgm.functionsExported[transformerName];
+        const fn = pgm.functions[transformerName];
         this._navigateToSource(fn.getModule(), fn.getStartOffset());
       } catch (e: unknown) {
         this._setErrorFromException(e);
@@ -1352,73 +973,144 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
   } // fn: _doAddTransformerCmd()
 
   /**
-   * Choose a name for an identifier that doesn't conflict with the input arguments
-   *
-   * @param inArgs The input arguments
-   * @param candidateNames The candidate names to choose from
-   * @param maxSuffix The maximum suffix to use when generating a new name
-   * @returns The chosen name and whether it was generated
+   * Add a user-provided input generator code skeleton to the source code
    */
-  private _getIdentifierNameAvoidingConflicts(
-    // The input arguments
-    inArgs: ArgDef[],
-    // The candidate names to choose from
-    candidateNames: string[],
-    // The maximum suffix to use when generating a new name
-    maxSuffix: number
-  ): {
-    // The chosen name
-    name: string;
-    // Whether the name was generated (as opposed to being in possibleResultArgNames)
-    generated: boolean;
-  } {
-    const inArgNames = inArgs.map((argDef) => argDef.getName());
-    for (const name of candidateNames) {
-      if (!inArgNames.includes(name)) {
-        return { name, generated: false };
+  private async _doAddUserGeneratorCmd() {
+    const fn = this._fuzzEnv.function; // Function under test
+    const module = this._fuzzEnv.function.getModule();
+    let program: AbstractProgram;
+
+    try {
+      program = ProgramFactory.fromFile(module);
+    } catch (e: unknown) {
+      this._setErrorFromException(e);
+      vscode.window.showErrorMessage(
+        `Unable to add the user input generator. Source file cannot be parsed. ${this._fuzzEnv.function.getModule()}`
+      );
+      return;
+    }
+
+    const {
+      name: userGenName,
+      skeleton,
+      imports,
+    } = synthesizeUserGenerator(
+      fn,
+      program.lang,
+      Object.keys(program.functions)
+    );
+
+    // Save the editor
+    for (const editor of vscode.window.visibleTextEditors) {
+      if (editor.document.fileName === module && editor.document.isDirty) {
+        await editor.document.save();
       }
     }
 
-    let i = 1;
-    // Generate a new name with a suffix
-    for (const candidateName of candidateNames) {
-      while (i <= maxSuffix) {
-        const name = `${candidateName}_${i}`;
-        if (!inArgNames.includes(name)) {
-          return { name, generated: true };
+    // Append the code skeleton to the source file
+    try {
+      let importData = "";
+      imports.forEach((i) => {
+        // If there is no import, then add it
+        if (!Object.keys(program.imports).some((e) => e === i.name)) {
+          importData += i.stmt;
         }
-        i++;
-      }
-    }
+      });
 
-    // In the extremely unlikely event that all the names generated above are
-    // already in `inArgNames`, we'll just return `r_conflicted` and not worry
-    // about potential conflicts.
-    return { name: "r_conflicted", generated: true };
-  } // fn: getIdentifierNameAvoidingConflicts()
+      if (importData.length) {
+        const fileData = fs.readFileSync(module);
+        const importStmt = Buffer.from(importData);
+        const userGenFn = Buffer.from(skeleton);
+        const fd = fs.openSync(module, "w+");
+
+        fs.writeSync(fd, importStmt, 0, importStmt.length, 0);
+        fs.writeSync(fd, fileData, 0, fileData.length, importStmt.length);
+        fs.writeSync(
+          fd,
+          userGenFn,
+          0,
+          userGenFn.length,
+          importStmt.length + fileData.length
+        );
+        fs.closeSync(fd);
+      } else {
+        const fd = fs.openSync(module, "as+");
+        fs.writeFileSync(fd, skeleton);
+        fs.closeSync(fd);
+      }
+
+      // Change focus to the generated user generator
+      try {
+        const pgm = ProgramFactory.fromFile(module);
+        const userGens = getUserGenerators(pgm, fn);
+        const targetGen =
+          userGens.find((g) => g.name === userGenName) ?? userGens[0];
+        if (targetGen && targetGen.startOffset !== undefined) {
+          this._navigateToSource(targetGen.module, targetGen.startOffset);
+        } else {
+          const fnDef = pgm.functions[userGenName];
+          if (fnDef) {
+            this._navigateToSource(fnDef.getModule(), fnDef.getStartOffset());
+          } else {
+            throw new Error(
+              `Unable to locate function '${userGenName}' in '${module}'`
+            );
+          }
+        }
+      } catch (e: unknown) {
+        this._setErrorFromException(e);
+        vscode.window.showErrorMessage(
+          `Unable to navigate to the created user input generator '${userGenName}' in '${fn.getModule()}'`
+        );
+        return;
+      }
+    } catch {
+      vscode.window.showErrorMessage(
+        `Unable to write user input generator code skeleton to source file`
+      );
+    }
+  } // fn: _doAddUserGeneratorCmd()
 
   /**
-   * Get the string representation for the validator arguments, along with the
-   * name of the argument that will hold the result.
-   *
-   * @param inArgs The input arguments
-   * @returns An object containing the above information
+   * Navigate to the custom input generator in the source code
    */
-  private _getValidatorArgs(inArgs: ArgDef[]): {
-    str: string;
-    resultArgName: string;
-  } {
-    const resultArgName = this._getIdentifierNameAvoidingConflicts(
-      inArgs,
-      resultArgCandidateNames,
-      maxResultArgSuffix
+  private async _doShowUserGeneratorCmd() {
+    const fn = this._fuzzEnv.function;
+    const module = this._fuzzEnv.function.getModule();
+    let program: AbstractProgram;
+
+    try {
+      program = ProgramFactory.fromFile(module);
+    } catch (e: unknown) {
+      this._setErrorFromException(e);
+      vscode.window.showErrorMessage(
+        `Unable to show the custom input generator. Source file cannot be parsed. ${this._fuzzEnv.function.getModule()}`
+      );
+      return;
+    }
+
+    const existingUserGenerators = getUserGenerators(program, fn);
+    if (existingUserGenerators.length > 0) {
+      this._fuzzEnv.userGenerators = existingUserGenerators;
+      const targetGen = existingUserGenerators[0];
+      const fnDef = program.functions[targetGen.name];
+      if (fnDef) {
+        this._navigateToSource(fnDef.getModule(), fnDef.getStartOffset());
+        return;
+      } else if (targetGen.startOffset !== undefined) {
+        this._navigateToSource(targetGen.module, targetGen.startOffset);
+        return;
+      }
+    } else if (this._fuzzEnv.userGenerators.length > 0) {
+      const userGen = this._fuzzEnv.userGenerators[0];
+      this._navigateToSource(userGen.module, userGen.startOffset);
+      return;
+    }
+
+    vscode.window.showInformationMessage(
+      `No custom input generator found for '${fn.getName()}'. Click + to create one.`
     );
-    const resultArgString = `${resultArgName.name}: FuzzTestResult`;
-    return {
-      str: `(${resultArgString})`,
-      resultArgName: resultArgName.name,
-    };
-  } // fn: getValidatorArgs()
+  } // fn: _doShowUserGeneratorCmd()
 
   /**
    * Message handler for the `validator.getList` command. Gets the list
@@ -1484,6 +1176,28 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
       };
       this._postToView(message);
     }
+
+    // User Generators
+    const oldUserGeneratorNames = JSONN.stringify(
+      this._fuzzEnv.userGenerators.map((e) => e.name)
+    );
+    const newUserGenerators = getUserGenerators(program, fn);
+    const newUserGeneratorNames = JSONN.stringify(
+      newUserGenerators.map((e) => e.name)
+    );
+
+    // Only send the message if there has been a change
+    if (oldUserGeneratorNames !== newUserGeneratorNames) {
+      // Update the Fuzzer Environment
+      this._fuzzEnv.userGenerators = newUserGenerators;
+
+      // Notify webview about the change
+      const message: FuzzPanelMessageToWebView = {
+        command: "userGenerator.list",
+        userGenerators: newUserGenerators.map((e) => e.name),
+      };
+      this._panel.webview.postMessage(message);
+    }
   } // fn: _doGetValidatorsAndTransformers()
 
   /**
@@ -1524,7 +1238,13 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
         this._tester = FuzzerFactory(
           this._fuzzEnv.function.getModule(),
           this._fuzzEnv.function.getName(),
-          this._fuzzEnv.options
+          this._fuzzEnv.options,
+          {
+            engine: "auto",
+            workers: Config.get("nanofuzz.fuzzer.workers", "auto"),
+            outputResults: "all",
+            precompile: false,
+          }
         );
       } catch (e: unknown) {
         this._state = FuzzPanelState.error;
@@ -1620,13 +1340,16 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
         const result = await this._tester.test(
           testsToInject,
           { gen: mode.gen },
-          // Fn that provides test status feedback to the panel => {
-          (payload: fuzzer.FuzzBusyStatusMessage): void => {
-            const message: FuzzPanelMessageToWebView = {
-              command: "busy.message",
-              message: payload,
-            };
-            this._postToView(message);
+          // Observer that provides test status feedback to the panel => {
+          {
+            update: (payload: fuzzer.FuzzBusyStatusMessage): void => {
+              const message: FuzzPanelMessageToWebView = {
+                command: "busy.message",
+                message: payload,
+              };
+              this._postToView(message);
+            },
+            granularity: "result",
           },
           // Fn to cancel testing
           () => this._pauseTesting
@@ -1715,7 +1438,13 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
       this._tester = FuzzerFactory(
         this._fuzzEnv.function.getModule(),
         this._fuzzEnv.function.getName(),
-        this._fuzzEnv.options
+        this._fuzzEnv.options,
+        {
+          engine: "auto",
+          workers: Config.get("nanofuzz.fuzzer.workers", "auto"),
+          outputResults: "all",
+          precompile: true,
+        }
       );
     } catch (e: unknown) {
       this._state = FuzzPanelState.error;
@@ -1913,6 +1642,9 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
     const testSet = this._getFuzzTestsForThisFn();
     testSet.options = this._fuzzEnv.options;
     testSet.validators = this._fuzzEnv.validators.map((ref) => ref.name);
+    testSet.userGenerators = this._fuzzEnv.userGenerators.map(
+      (ref) => ref.name
+    );
     testSet.argOverrides = this._argOverrides;
     testSet.sortColumns = this._sortColumns;
     testSet.isVoid = this._fuzzEnv.function.isVoid();
@@ -2216,6 +1948,28 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
                         <vscode-link id="open.settings.ai">change</vscode-link>
                       </span>
                     </vscode-checkbox>
+                    <span style="display:inline-block;">
+                      <vscode-checkbox ${disabledFlag} id="fuzz-gen-UserInputGenerator-enabled" ${this._fuzzEnv.options.generators.UserInputGenerator?.enabled ? "checked" : ""}>
+                        <span> 
+                          With a custom input generator
+                        </span>
+                      </vscode-checkbox>
+                      <span id="userGenerator.show" class="${this._fuzzEnv.userGenerators.length > 0 ? "" : "hidden "}tooltipped tooltipped-nw clickable" aria-label="Open custom generator in editor">
+                        <span ${disabledFlag} class="classAddRefreshValidator">
+                          <span class="codicon codicon-go-to-file" style="padding-left:0.1em; padding-right:0.1em;"></span>
+                        </span>
+                      </span>
+                      <span id="userGenerator.add" class="${this._fuzzEnv.userGenerators.length > 0 ? "hidden " : ""}tooltipped tooltipped-nw clickable" aria-label="Create new custom generator">
+                        <span ${disabledFlag} class="classAddRefreshValidator">
+                          <span class="codicon codicon-add" style="padding-left:0.1em; padding-right:0.1em;"></span>
+                        </span>
+                      </span>
+                      <span id="userGenerator.getList" class="tooltipped tooltipped-nw clickable" aria-label="Refresh list">
+                        <span ${disabledFlag} class="classAddRefreshValidator">
+                          <span class="codicon codicon-refresh" style="padding-left:0.1em;"></span>
+                        </span>
+                      </span>
+                    </span>
                   </div>
                 </vscode-panel-view>
 
@@ -2799,6 +2553,18 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
             this._results.stats.outcomes.total ||
             this._results.results.length ||
             1;
+          const workersCount = this._tester.workerCount;
+          const engine =
+            this._tester.engine ??
+            Config.get<string>("nanofuzz.fuzzer.engine", "auto");
+          const scheduler =
+            this._results.stats.generators.CompositeInputGenerator?.config
+              ?.scheduler ??
+            Config.get<string>("nanofuzz.generators.scheduler.impl", "mab");
+          const coverageScope = Config.get<string>(
+            "nanofuzz.fuzzer.coverageScope",
+            "project static"
+          );
 
           // Add the run info tab to the panel
           tabs.push({
@@ -2950,6 +2716,13 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
             <p>${aiGeneratorText.join(" ")}</p>`
                 : ``
             }
+            
+            <div class="fuzzResultHeading">What are some internal details?</div>
+            <p>
+              ${toolName} used the ${engine} engine and ${scheduler} scheduler to coordinate test execution with ${workersCount} worker${
+                workersCount === 1 ? "" : "s"
+              } and ${coverageScope} coverage scope.
+            </p>
             `,
             hasGrid: false,
           });
@@ -3109,6 +2882,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
         hiddenColumns,
         validators: this._fuzzEnv.validators.map((e) => e.name),
         transformers: this._fuzzEnv.transformers.map((e) => e.name),
+        userGenerators: this._fuzzEnv.userGenerators.map((e) => e.name),
         lang,
         panelState: this.getState(),
       };
@@ -3722,7 +3496,12 @@ export async function handleFuzzWithValidatorCommand(
 
   let tester: IFuzzer;
   try {
-    tester = FuzzerFactory(srcFile, fnName, fuzzOptions);
+    tester = FuzzerFactory(srcFile, fnName, fuzzOptions, {
+      engine: "auto",
+      workers: Config.get("nanofuzz.fuzzer.workers", "auto"),
+      outputResults: "all",
+      precompile: false,
+    });
   } catch (e: unknown) {
     const msg = getErrorMessageOrJson(e);
     vscode.window.showErrorMessage(
@@ -3899,7 +3678,7 @@ export function provideCodeLenses(
       "nanofuzz.ui.codeLens.includeValidators",
       true
     );
-    const allFunctions = Object.values(program.functionsExported);
+    const allFunctions = Object.values(program.functions);
     const functions = (fuzzValidators === undefined ? true : fuzzValidators)
       ? allFunctions
       : allFunctions.filter((fn) => !fn.isValidator());
@@ -3955,129 +3734,7 @@ function _applyArgOverrides(
   }
 
   // Apply argument option changes
-  for (const i in argOverrides) {
-    const thisOverride = argOverrides[i];
-    const thisArg: ArgDef = argsFlat[i];
-    if (Number(i) + 1 > argsFlat.length) {
-      break; // exit the for loop
-    }
-
-    // Min and max values
-    switch (thisArg.getType()) {
-      case ArgTag.NUMBER:
-        if (thisOverride.number) {
-          // Min / Max
-          thisArg.setIntervals([
-            {
-              min: Number(thisOverride.number.min),
-              max: Number(thisOverride.number.max),
-            },
-          ]);
-          // Number is integer
-          thisArg.setOptions({
-            numInteger: !!thisOverride.number.numInteger,
-          });
-        }
-        break;
-
-      case ArgTag.BIGINT:
-        if (thisOverride.bigInt) {
-          // Min / Max
-          thisArg.setIntervals([
-            {
-              min: thisOverride.bigInt.min,
-              max: thisOverride.bigInt.max,
-            },
-          ]);
-        }
-        break;
-
-      case ArgTag.BOOLEAN:
-        if (thisOverride.boolean) {
-          // Min / Max
-          thisArg.setIntervals([
-            {
-              min: !!thisOverride.boolean.min,
-              max: !!thisOverride.boolean.max,
-            },
-          ]);
-        }
-        break;
-      case ArgTag.STRING:
-        if (thisOverride.string) {
-          // String length
-          thisArg.setOptions({
-            strLength: {
-              min: Number(thisOverride.string.minStrLen),
-              max: Number(thisOverride.string.maxStrLen),
-            },
-            // Character set. Note: empty sets are invalid
-            strCharset:
-              thisOverride.string.strCharset === ""
-                ? argDefaults.strCharset
-                : decodeEscapeSequences(thisOverride.string.strCharset),
-            strRegex: thisOverride.string.strRegex,
-          });
-        }
-        break;
-      case ArgTag.BYTES:
-        if (thisOverride.bytes) {
-          thisArg.setOptions({
-            byteLength: {
-              min: Number(thisOverride.bytes.minByteLen),
-              max: Number(thisOverride.bytes.maxByteLen),
-            },
-          });
-        }
-        break;
-      case ArgTag.DICTIONARY:
-        if (thisOverride.dictionary) {
-          thisArg.setOptions({
-            dictLength: {
-              min: Number(thisOverride.dictionary.minDictLen),
-              max: Number(thisOverride.dictionary.maxDictLen),
-            },
-          });
-        }
-        break;
-      case ArgTag.SET:
-        if (thisOverride.set) {
-          thisArg.setOptions({
-            setLength: {
-              min: Number(thisOverride.set.minSetLen),
-              max: Number(thisOverride.set.maxSetLen),
-            },
-          });
-        }
-        break;
-      case ArgTag.OBJECT:
-      case ArgTag.LITERAL:
-      case ArgTag.UNION:
-      case ArgTag.TUPLE:
-      case ArgTag.UNRESOLVED:
-        break;
-    }
-
-    // isNoInput
-    thisArg.setOptions({
-      isNoInput: thisOverride.isNoInput ?? false,
-    });
-
-    // Array dimensions
-    if (thisOverride.array) {
-      thisOverride.array.dimLength.forEach((e: Interval<number>) => {
-        if (!(typeof e === "object" && "min" in e && "max" in e)) {
-          throw new Error(
-            `Invalid interval for array dimensions: ${JSONN.stringify(e)}`
-          );
-        }
-      });
-      thisArg.setOptions({
-        dimLength: thisOverride.array.dimLength,
-        dimsUnique: !!thisOverride.array.dimsUnique,
-      });
-    }
-  } // for: each argument
+  FuzzConfigStore.applyArgOverrides(fn, argOverrides, argDefaults);
 } // fn: _applyArgOverrides()
 
 /**
@@ -4086,40 +3743,7 @@ function _applyArgOverrides(
  * @returns default set of fuzzer options
  */
 export const getDefaultFuzzOptions = (): fuzzer.FuzzOptions => {
-  return {
-    outputResults: "all",
-    argDefaults: ArgDef.getDefaultOptions(),
-    maxTests: Config.get("nanofuzz.fuzzer.maxTests", 1000),
-    fnTimeout: Config.get("nanofuzz.fuzzer.fnTimeout", 100),
-    suiteTimeout: Config.get("nanofuzz.fuzzer.suiteTimeout", 3000),
-    maxDupeInputs: Config.get("nanofuzz.fuzzer.maxDupeInputs", 500),
-    maxFailures: Config.get("nanofuzz.fuzzer.maxFailures", 0),
-    useTransformer: true,
-    useHuman: true,
-    useImplicit: true,
-    useProperty: false,
-    measures: {
-      FailedTestMeasure: {
-        enabled: true,
-        weight: 1,
-      },
-      CoverageMeasure: {
-        enabled: true,
-        weight: 1,
-      },
-    },
-    generators: {
-      RandomInputGenerator: {
-        enabled: true,
-      },
-      MutationInputGenerator: {
-        enabled: true,
-      },
-      AiInputGenerator: {
-        enabled: true,
-      },
-    },
-  };
+  return FuzzConfigStore.getDefaultFuzzOptions();
 }; // fn: getDefaultFuzzOptions()
 
 /**
@@ -4131,20 +3755,7 @@ export const getDefaultFuzzOptions = (): fuzzer.FuzzOptions => {
 export const normalizeFuzzOptions = (
   options?: Partial<fuzzer.FuzzOptions>
 ): fuzzer.FuzzOptions => {
-  const dft = getDefaultFuzzOptions();
-  if (!options) return dft;
-  return {
-    ...dft,
-    ...options,
-    outputResults: options.outputResults ?? "all",
-    argDefaults: ArgDef.normalizeOptions(options.argDefaults),
-    generators: options.generators
-      ? { ...dft.generators, ...options.generators }
-      : dft.generators,
-    measures: options.measures
-      ? { ...dft.measures, ...options.measures }
-      : dft.measures,
-  };
+  return FuzzConfigStore.normalizeFuzzOptions(options);
 }; // fn: normalizeFuzzOptions()
 
 /**
@@ -4219,34 +3830,6 @@ function getSequentialFailures(
     message,
   };
 } // fn: getSequentialFailures
-
-/**
- * Determines the next available integer counter suffix for a generated function name
- * given a list of existing function names and a prefix.
- *
- * @param existingFnNames Array of function names in the source module
- * @param prefix Name prefix (e.g., "myFnValidator" or "myFnTransformer")
- * @returns The next available counter value
- */
-function getNextAvailableFnNumber(
-  existingFnNames: string[],
-  prefix: string
-): number {
-  let fnCounter = 0;
-  existingFnNames
-    .filter((e) => e.startsWith(prefix))
-    .forEach((e) => {
-      if (e.endsWith(prefix)) {
-        fnCounter++;
-      } else {
-        const suffix = e.substring(prefix.length);
-        if (suffix.match(/^[0-9]+$/)) {
-          fnCounter = Math.max(fnCounter, Number(suffix)) + 1;
-        }
-      }
-    });
-  return fnCounter;
-} // fn: getNextAvailableFnNumber
 
 /**
  * Initializes the module
@@ -4336,11 +3919,6 @@ export const languages = ["typescript", "typescriptreact", "python"];
  */
 const fuzzPanelStateVer = "FuzzPanelStateSerialized-0.4.0"; // !!!!!!! Increment if fmt changes
 
-/**
- * Current file format version for persisting test sets / pinned test cases
- */
-const CURR_FILE_FMT_VER = "0.4.0"; // !!!!!!! Increment if fmt changes
-
 // ----------------------------- Types ----------------------------- //
 
 /**
@@ -4367,6 +3945,9 @@ export type FuzzPanelMessageFromWebView =
         | "validator.add"
         | "validator.getList"
         | "transformer.add"
+        | "userGenerator.add"
+        | "userGenerator.show"
+        | "userGenerator.getList"
         | "open.source"
         | "open.settings.ai";
     };
@@ -4426,6 +4007,7 @@ export type FuzzPanelViewState = {
   hiddenColumns: string[];
   validators: string[];
   transformers: string[];
+  userGenerators: string[];
   lang: ProgramLanguage;
   panelState: FuzzPanelStateSerialized;
 };
@@ -4459,6 +4041,10 @@ export type FuzzPanelMessageToWebView =
   | {
       command: "transformer.list";
       transformers: string[];
+    }
+  | {
+      command: "userGenerator.list";
+      userGenerators: string[];
     }
   | { command: "busy.message"; message: fuzzer.FuzzBusyStatusMessage }
   | { command: "busy.ending" }

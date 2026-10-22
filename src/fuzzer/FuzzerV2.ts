@@ -5,6 +5,7 @@ import { deepFreeze } from "../Util";
 import { ArgDef } from "./analysis/ArgDef";
 import { FunctionRef } from "./analysis/Types";
 import { CompositeInputGenerator } from "./generators/CompositeInputGenerator";
+import { GeneratorExhaustedError } from "./generators/Types";
 import * as CompilerFactory from "./compilers/CompilerFactory";
 import { Instrumenter } from "./compilers/Instrumenter";
 import * as ProgramFactory from "./analysis/ProgramFactory";
@@ -12,11 +13,14 @@ import { FunctionDef } from "./analysis/FunctionDef";
 import {
   BaseMeasureConfig,
   FuzzEnv,
+  FuzzExecutionOptions,
   FuzzMode,
   FuzzOptions,
   FuzzPinnedTest,
   FuzzResultCallback,
   FuzzStatusUpdater,
+  FuzzStatusObserver,
+  FuzzBusyStatusMessage,
   FuzzStopReason,
   FuzzTestResult,
   FuzzTestResults,
@@ -24,12 +28,16 @@ import {
   InputAndSource,
   TransformedInputAndSource,
 } from "./Types";
-import { getTransformers, getValidators, isOptionValid } from "./analysis/Util";
+import {
+  getTransformers,
+  getUserGenerators,
+  getValidators,
+  isOptionValid,
+} from "./analysis/Util";
 import { MeasureFactory } from "./measures/MeasureFactory";
 import { RunnerFactory } from "./runners/RunnerFactory";
 import { Leaderboard } from "./generators/Leaderboard";
 import { getIoKey, isError, isSameJudgments } from "./Util";
-import { PropertyOracle } from "./oracles/PropertyOracle";
 import { AbstractProgram } from "./analysis/AbstractProgram";
 import { AbstractRunner } from "./runners/AbstractRunner";
 import { AbstractMeasure } from "./measures/AbstractMeasure";
@@ -46,10 +54,12 @@ export class FuzzerV2 {
   protected _module: string;
   protected _fnName: string;
   protected _options: FuzzOptions;
+  protected _executionOptions: FuzzExecutionOptions;
   protected _program: AbstractProgram;
   protected _function: FunctionDef;
   protected _validators: FunctionRef[] = [];
   protected _transformers: FunctionRef[] = [];
+  protected _userGenerators: FunctionRef[] = [];
   protected _measures: AbstractMeasure[];
   protected _leaderboard = new Leaderboard<InputAndSource>();
   protected _allInputs: Map<string, unknown> = new Map();
@@ -73,10 +83,11 @@ export class FuzzerV2 {
     module: string,
     fnName: string,
     options: FuzzOptions,
-    mode: { precompile?: true } = {}
+    executionOptions: FuzzExecutionOptions
   ) {
     this._module = require.resolve(module);
     this._fnName = fnName;
+    this._executionOptions = structuredClone(executionOptions);
 
     const normalizedOptions: FuzzOptions = {
       ...options,
@@ -98,7 +109,7 @@ export class FuzzerV2 {
       );
     }
 
-    const fnList = this._program.functionsExported;
+    const fnList = this._program.functions;
     if (!(this._fnName in fnList)) {
       if (this._fnName in this._program.functionsNotSupported) {
         const reason = this._program.functionsNotSupported[this._fnName].reason;
@@ -107,13 +118,14 @@ export class FuzzerV2 {
         );
       }
       throw new Error(
-        `Could not find exported function ${this._fnName} in: ${this._module}`
+        `Could not find function ${this._fnName} in: ${this._module}`
       );
     }
     this._function = fnList[this._fnName];
 
-    this._validators = getValidators(this._program, fnList[this._fnName]);
-    this._transformers = getTransformers(this._program, fnList[this._fnName]);
+    this._validators = getValidators(this._program, this._function);
+    this._transformers = getTransformers(this._program, this._function);
+    this._userGenerators = getUserGenerators(this._program, this._function);
 
     if (!isOptionValid(normalizedOptions)) {
       throw new Error(
@@ -132,7 +144,9 @@ export class FuzzerV2 {
       this._options,
       this._function,
       this._validators,
-      this._transformers
+      this._transformers,
+      this._userGenerators,
+      this._executionOptions
     );
 
     this._compositeInputGenerator = new CompositeInputGenerator(
@@ -147,7 +161,7 @@ export class FuzzerV2 {
       this.getFuzzerFocus.bind(this)
     );
 
-    if (mode.precompile) {
+    if (this._executionOptions.precompile) {
       CompilerFactory.fromSourcefile(module)?.compileAsync(module);
     }
   } // fn: constructor
@@ -231,11 +245,20 @@ export class FuzzerV2 {
   public get env(): FuzzEnv {
     return {
       options: structuredClone(this._options),
+      executionOptions: structuredClone(this._executionOptions),
       function: this._function,
       validators: structuredClone(this._validators),
       transformers: structuredClone(this._transformers),
+      userGenerators: structuredClone(this._userGenerators),
     };
   } // get: env
+
+  /**
+   * Retrieves the current execution options.
+   */
+  public get executionOptions(): FuzzExecutionOptions {
+    return structuredClone(this._executionOptions);
+  } // get: executionOptions
 
   /**
    * Retrieves the current state of the fuzzer.
@@ -245,11 +268,25 @@ export class FuzzerV2 {
   } // fn: state
 
   /**
+   * Retrieves the active worker count.
+   */
+  public get workerCount(): number {
+    return 1;
+  } // get: workerCount
+
+  /**
+   * Retrieves the fuzzer engine version.
+   */
+  public get engine(): "v2" {
+    return "v2";
+  } // fn: engine
+
+  /**
    * Executes the fuzzing run and returns the finalized results.
    *
    * @param injectTests An array of pinned tests to inject into the fuzzing run.
    * @param mode The fuzzing mode to use for this run.
-   * @param updateFn Optional callback function to receive status updates.
+   * @param observer Optional status observer to receive status updates.
    * @param cancelFn Optional function to determine if the fuzzing run should be canceled.
    * @param onResultFn Optional callback function to receive individual test results.
    * @returns A promise that resolves with the fuzz test results.
@@ -257,8 +294,8 @@ export class FuzzerV2 {
   public async test(
     injectTests: FuzzPinnedTest[] = [],
     mode: FuzzMode = { gen: true },
-    updateFn?: FuzzStatusUpdater,
-    cancelFn?: () => boolean,
+    observer?: FuzzStatusObserver,
+    cancelFn: () => boolean = () => false,
     onResultFn?: FuzzResultCallback
   ): Promise<FuzzTestResults> {
     const state = this.state;
@@ -270,6 +307,12 @@ export class FuzzerV2 {
 
     this._stats.startRun();
 
+    const intervalMs =
+      typeof observer?.granularity === "number" && observer.granularity > 0
+        ? observer.granularity
+        : 0;
+    let lastClientUpdateTimestamp = 0;
+    let lastPendingPayload: FuzzBusyStatusMessage | undefined = undefined;
     let lastUpdateTimestamp = 0;
     let periodicTimer: ReturnType<typeof setInterval> | undefined = undefined;
 
@@ -279,17 +322,33 @@ export class FuzzerV2 {
         clearInterval(periodicTimer);
         periodicTimer = undefined;
       }
-      if (updateFn) {
-        updateFn({ ...payload });
+      if (observer) {
+        const isMilestone =
+          payload.type === "compiling" ||
+          payload.type === "instrumenting" ||
+          payload.type === "testing-complete";
+        const now = performance.now();
+        if (isMilestone) {
+          if (lastPendingPayload) {
+            observer.update({ ...lastPendingPayload });
+            lastPendingPayload = undefined;
+          }
+          lastClientUpdateTimestamp = now;
+          observer.update({ ...payload });
+        } else if (
+          intervalMs <= 0 ||
+          now - lastClientUpdateTimestamp >= intervalMs
+        ) {
+          lastPendingPayload = undefined;
+          lastClientUpdateTimestamp = now;
+          observer.update({ ...payload });
+        } else {
+          lastPendingPayload = payload;
+        }
       }
     };
 
-    this._executor = await this._initExecutor(
-      injectTests,
-      mode,
-      update,
-      updateFn
-    );
+    this._executor = await this._initExecutor(injectTests, mode, update);
 
     let stillInjecting = injectTests.length > 0;
     this._state = "ready";
@@ -297,6 +356,7 @@ export class FuzzerV2 {
 
     const checkPeriodicUpdate = () => {
       if (
+        observer?.heartbeat &&
         this._state === "running" &&
         performance.now() - lastUpdateTimestamp >= 100
       ) {
@@ -305,7 +365,7 @@ export class FuzzerV2 {
           this._compositeInputGenerator.nextable() !== false,
           stillInjecting,
           injectTests.length,
-          Boolean(cancelFn && cancelFn()),
+          cancelFn(),
           this._fuzzerFocus.mode,
           Boolean(mode.gen),
           {
@@ -322,10 +382,14 @@ export class FuzzerV2 {
       }
     };
 
-    periodicTimer = setInterval(checkPeriodicUpdate, 50);
+    if (observer?.heartbeat) {
+      periodicTimer = setInterval(checkPeriodicUpdate, 50);
+    }
 
     try {
       while (true) {
+        stillInjecting =
+          this._stats.currentRun.counters.inputsInjected < injectTests.length;
         this._state = "running";
         checkPeriodicUpdate();
 
@@ -334,7 +398,7 @@ export class FuzzerV2 {
           this._compositeInputGenerator.nextable() !== false,
           stillInjecting,
           injectTests.length,
-          Boolean(cancelFn && cancelFn()),
+          cancelFn(),
           this._fuzzerFocus.mode,
           Boolean(mode.gen),
           {
@@ -371,16 +435,28 @@ export class FuzzerV2 {
                     (performance.now() - this._stats!.startGenTime)
                 )
               : undefined;
-          update({
-            type: "waiting-for-generator",
-            pendingGenerators:
-              this._compositeInputGenerator.getPendingGeneratorNames(),
-            stats: this._stats!.currentRun,
-            pct: typeof stopCondition === "number" ? stopCondition : 0,
-          });
-          await this._compositeInputGenerator.waitForNextInput(
-            remainingTimeout
-          );
+          const waitTimer = setTimeout(() => {
+            update({
+              type: "waiting-for-generator",
+              pendingGenerators:
+                this._compositeInputGenerator.getPendingGeneratorNames(),
+              stats: this._stats!.currentRun,
+              pct: typeof stopCondition === "number" ? stopCondition : 0,
+            });
+          }, 200);
+          try {
+            await this._compositeInputGenerator.waitForNextInput(
+              remainingTimeout
+            );
+          } catch (e: unknown) {
+            this._state = "crashed";
+            if (this._stats) {
+              this._stats.results.stopReason = FuzzStopReason.CRASH;
+            }
+            throw e;
+          } finally {
+            clearTimeout(waitTimer);
+          }
         }
 
         if (
@@ -395,8 +471,15 @@ export class FuzzerV2 {
         let candidate: TransformedInputAndSource;
         try {
           candidate = await this._compositeInputGenerator.nextTransformed();
-        } catch {
-          continue;
+        } catch (e: unknown) {
+          if (e instanceof GeneratorExhaustedError) {
+            continue;
+          }
+          this._state = "crashed";
+          if (this._stats) {
+            this._stats.results.stopReason = FuzzStopReason.CRASH;
+          }
+          throw e;
         }
         const genTime = performance.now() - startGenTime;
 
@@ -413,7 +496,7 @@ export class FuzzerV2 {
           this._compositeInputGenerator.nextable() !== false,
           stillInjecting,
           injectTests.length,
-          Boolean(cancelFn && cancelFn()),
+          cancelFn(),
           this._fuzzerFocus.mode,
           Boolean(mode.gen),
           {
@@ -432,7 +515,6 @@ export class FuzzerV2 {
           genTime,
           this._compositeInputGenerator,
           () => {
-            if (!cancelFn) return undefined;
             return () => !stillInjecting && cancelFn();
           },
           initMeasTime
@@ -462,6 +544,9 @@ export class FuzzerV2 {
         }
       }
     } catch (e: unknown) {
+      if (cancelFn()) {
+        return await this._finalizeRun(FuzzStopReason.PAUSE, update, cancelFn); // <--- Finalize clean results on cancel instead of throwing
+      }
       if (this._state === "running") {
         this._state = "crashed";
       }
@@ -479,19 +564,17 @@ export class FuzzerV2 {
   } // fn: test
 
   /**
-   * Initializes the fuzz executor with the given pinned tests, fuzzing mode, and status updaters.
+   * Initializes the fuzz executor with the given pinned tests, fuzzing mode, and status updater.
    *
    * @param injectTests The list of pinned tests to inject into the fuzzer.
    * @param mode The current fuzzing mode, indicating whether generation is enabled.
    * @param update The status updater function to report progress and messages.
-   * @param updateFn Optional secondary status updater function.
    * @returns A promise that resolves to the initialized fuzz executor.
    */
   protected async _initExecutor(
     injectTests: FuzzPinnedTest[],
     mode: FuzzMode,
-    update: FuzzStatusUpdater,
-    updateFn?: FuzzStatusUpdater
+    update: FuzzStatusUpdater
   ): Promise<FuzzExecutor> {
     if (mode.gen) {
       this._compositeInputGenerator.permitGenerators();
@@ -517,7 +600,7 @@ export class FuzzerV2 {
           this._lastCompiler.getCompiledDependencies(),
           this._measures,
           this._lastCompiler.options.tmpDir,
-          updateFn
+          update
         )
       : mod;
     if (this._stats) {
@@ -525,7 +608,12 @@ export class FuzzerV2 {
         performance.now() - instrumentTime;
     }
 
-    const runner = RunnerFactory(this.env, targetMod, this._function.getName());
+    const runner = RunnerFactory(
+      this.env,
+      targetMod,
+      this._function.getName(),
+      { acceptsStaticCoverage: true }
+    );
     await runner.onRunStart();
 
     let transformRunner: ReturnType<typeof RunnerFactory> | undefined;
@@ -538,25 +626,40 @@ export class FuzzerV2 {
       await transformRunner.onRunStart();
     }
 
+    let userGenRunner: ReturnType<typeof RunnerFactory> | undefined;
+    if (
+      this.env.options.generators.UserInputGenerator?.enabled &&
+      this.env.userGenerators.length
+    ) {
+      userGenRunner = RunnerFactory(
+        this.env,
+        targetMod,
+        this.env.userGenerators[0].name
+      );
+      await userGenRunner.onRunStart();
+    }
+
     this._compositeInputGenerator.onRunStart(
       Boolean(mode.gen),
       injectTests,
       transformRunner,
       this._options.fnTimeout,
-      this._options.maxDupeInputs
+      this._options.maxDupeInputs,
+      userGenRunner
     );
 
-    const propRunners = this._validators.map((vFnRef) =>
-      RunnerFactory(this.env, targetMod, vFnRef.name)
-    );
-    await Promise.all(propRunners.map((p) => p.onRunStart()));
-    const propertyOracle = new PropertyOracle(propRunners);
+    const workers = [
+      {
+        id: 0,
+        runner,
+      },
+    ];
 
-    const runners = [runner, transformRunner, ...propRunners].filter(
+    const runners = [runner, transformRunner, userGenRunner].filter(
       (r): r is AbstractRunner => r !== undefined
     );
     this._measures.forEach((m) => {
-      m.onRunStart(runners);
+      m.onRunStart(runners, this.env);
     });
 
     const injectMap = new Map(injectTests.map((t) => [getIoKey(t.input), t]));
@@ -574,10 +677,9 @@ export class FuzzerV2 {
     };
 
     return new FuzzExecutor(
-      runner,
+      workers,
       transformRunner,
-      propRunners,
-      propertyOracle,
+      userGenRunner,
       this._measures,
       this._options,
       this._function,
@@ -651,6 +753,7 @@ export class FuzzerV2 {
           RandomInputGenerator: { enabled: false },
           MutationInputGenerator: { enabled: true },
           AiInputGenerator: { enabled: false },
+          UserInputGenerator: { enabled: false },
         };
       }
     }
@@ -681,7 +784,7 @@ export class FuzzerV2 {
     candidate: TransformedInputAndSource,
     pct: number,
     update: FuzzStatusUpdater,
-    cancelFn?: () => boolean,
+    cancelFn: () => boolean = () => false,
     stillInjecting: boolean = false
   ): void {
     update({
@@ -692,7 +795,7 @@ export class FuzzerV2 {
       stats: this._stats!.currentRun,
       pct,
       stillInjecting,
-      isCancelled: Boolean(cancelFn && cancelFn()),
+      isCancelled: cancelFn(),
     });
   } // fn: _notify
 
@@ -708,7 +811,7 @@ export class FuzzerV2 {
   protected async _finalizeRun(
     stopReason: FuzzStopReason,
     update: FuzzStatusUpdater,
-    cancelFn?: () => boolean
+    cancelFn: () => boolean = () => false
   ): Promise<FuzzTestResults> {
     const results = this._stats!.finalize(stopReason);
 
@@ -726,7 +829,7 @@ export class FuzzerV2 {
 
     update({
       type: "testing-complete",
-      cancelled: Boolean(cancelFn && cancelFn()),
+      cancelled: cancelFn(),
       pct: 100,
     });
 

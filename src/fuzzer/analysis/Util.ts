@@ -2,7 +2,7 @@ import { ArgDef } from "./ArgDef";
 import { AbstractProgram } from "./AbstractProgram";
 import { FunctionDef } from "./FunctionDef";
 import { ArgType, ArgValueType, FunctionRef } from "./Types";
-import { FuzzOptions } from "../Types";
+import { FuzzExecutionOptions, FuzzOptions } from "../Types";
 
 /**
  * Replacer function for JSON.stringify that removes the parent property
@@ -76,8 +76,6 @@ export function isOptionValid(options: FuzzOptions): boolean {
     options.maxTests >= 0 &&
     options.maxDupeInputs >= 0 &&
     options.maxFailures >= 0 &&
-    (options.outputResults === undefined ||
-      ["all", "failures", "none"].includes(options.outputResults)) &&
     ArgDef.isOptionValid(options.argDefaults) &&
     typeof options.generators === "object" &&
     "RandomInputGenerator" in options.generators &&
@@ -85,6 +83,22 @@ export function isOptionValid(options: FuzzOptions): boolean {
     typeof options.measures === "object"
   );
 } // fn: isOptionValid()
+
+/**
+ * Validates a FuzzExecutionOptions object.
+ *
+ * @param options execution options
+ * @returns true if the options are valid, false otherwise
+ */
+export function isExecutionOptionValid(options: FuzzExecutionOptions): boolean {
+  return (
+    ["auto", "v1", "v2", "v3"].includes(options.engine) &&
+    (options.workers === "auto" ||
+      (typeof options.workers === "number" && options.workers >= 1)) &&
+    ["all", "failures", "none"].includes(options.outputResults) &&
+    typeof options.precompile === "boolean"
+  );
+} // fn: isExecutionOptionValid()
 
 /**
  * Returns the given interval bound as a bigint.
@@ -115,7 +129,7 @@ export function getValidators(
   fnUnderTest: FunctionDef
 ): FunctionRef[] {
   const fnUnderTestName = fnUnderTest.getName();
-  return Object.values(program.functionsExported)
+  return Object.values(program.functions)
     .filter(
       (fn) =>
         fn.isValidator() && fn.getValidatorTargetName() === fnUnderTestName
@@ -134,10 +148,45 @@ export function getTransformers(
   program: AbstractProgram,
   fnUnderTest: FunctionDef
 ): FunctionRef[] {
-  return Object.values(program.functionsExported)
+  return Object.values(program.functions)
     .filter(
       (fn) =>
         fn.isTransformer() && fn.getName().startsWith(fnUnderTest.getName())
     )
     .map((fn) => fn.getRef());
 } // fn: getTransformers()
+
+/**
+ * Returns a list of user-provided input generator functions for the function under test.
+ *
+ * @param program the program to search
+ * @param fnUnderTest the function under test
+ * @returns an array of user generator FunctionRefs
+ */
+export function getUserGenerators(
+  program: AbstractProgram,
+  fnUnderTest: FunctionDef
+): FunctionRef[] {
+  const fnUnderTestName = fnUnderTest.getName();
+
+  const isUserGen = (name: string, isExported: boolean) =>
+    isExported &&
+    name.endsWith("Generator") &&
+    !name.endsWith("InputGenerator") &&
+    name !== fnUnderTestName &&
+    name.startsWith(fnUnderTestName);
+
+  const fromSupported = Object.values(program.functions)
+    .filter((fn) => isUserGen(fn.getName(), fn.isExported()))
+    .map((fn) => fn.getRef());
+
+  const fromUnsupported = Object.values(program.functionsNotSupported)
+    .filter(
+      (entry): entry is { reason: string; function: FunctionRef } =>
+        "function" in entry && entry.function !== undefined
+    )
+    .map((entry) => entry.function)
+    .filter((fnRef) => isUserGen(fnRef.name, fnRef.isExported));
+
+  return [...fromSupported, ...fromUnsupported];
+} // fn: getUserGenerators()

@@ -856,6 +856,10 @@ export class TypescriptProgram extends AbstractProgram {
         }
         return [ArgTag.UNRESOLVED, 0, typeName];
       }
+      case "TSFunctionType":
+      case "TSConstructorType": {
+        return [ArgTag.UNRESOLVED, 0, "Function"];
+      }
       default:
         throw new Error(
           "Unsupported type annotation: " +
@@ -1145,12 +1149,21 @@ export class TypescriptProgram extends AbstractProgram {
           }
         } catch (e: unknown) {
           const msg = getErrorMessageOrJson(e);
-          console.debug(
-            `Error processing function '${name}' in module '${this._filename}': ${msg}`
-          );
+          const fnRef: FunctionRef = {
+            module: this._filename,
+            name,
+            src: path.toString(),
+            lang: TypescriptProgram.lang,
+            startOffset: path.node.start ?? 0,
+            endOffset: path.node.end ?? 0,
+            isExported: true,
+            isVoid: false,
+            args: [],
+          };
           unsupported[name] = {
             reason: msg,
             node: JSONN.stringify(path.node),
+            function: fnRef,
           };
         }
       }, // enter

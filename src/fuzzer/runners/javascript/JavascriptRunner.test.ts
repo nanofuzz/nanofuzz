@@ -12,13 +12,14 @@ import * as ProgramFactory from "../../analysis/ProgramFactory";
 import * as Parser from "../../adapters/ParserAdapter";
 import * as Config from "../../../Config";
 import {
-  TypescriptCoverageMeasure,
+  CoverageMeasure,
   isCoverageMapData,
-} from "../../measures/TypescriptCoverageMeasure";
+} from "../../measures/CoverageMeasure";
 import * as ts from "typescript";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
+import { getDefaultFuzzExecutionOptions } from "../../FuzzerFactory";
 
 describe("fuzzer/runners/JavascriptRunner", () => {
   beforeAll(async () => {
@@ -115,10 +116,13 @@ export function processTypes(bytes: Uint8Array, mySet: Set<string>, myMap: Map<s
             RandomInputGenerator: { enabled: true },
             MutationInputGenerator: { enabled: true },
             AiInputGenerator: { enabled: false },
+            UserInputGenerator: { enabled: false },
           },
         },
+        executionOptions: getDefaultFuzzExecutionOptions(),
         validators: [],
         transformers: [],
+        userGenerators: [],
       };
 
       const runner = new JavascriptRunner(jsPath, "processTypes", env);
@@ -206,10 +210,13 @@ export function processBigInts(a: bigint, b: bigint, c: bigint, d: bigint) {
             RandomInputGenerator: { enabled: true },
             MutationInputGenerator: { enabled: true },
             AiInputGenerator: { enabled: false },
+            UserInputGenerator: { enabled: false },
           },
         },
+        executionOptions: getDefaultFuzzExecutionOptions(),
         validators: [],
         transformers: [],
+        userGenerators: [],
       };
 
       const runner = new JavascriptRunner(jsPath, "processBigInts", env);
@@ -340,6 +347,70 @@ module.exports = { crash, ok };
     }
   });
 
+  (process.platform === "win32" ? xit : it)(
+    "kills JavascriptRunnerHost when memory usage exceeds configured limit",
+    async () => {
+      const tmpDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "nanofuzz-jsrunner-ram-")
+      );
+      const jsPath = path.join(tmpDir, "leakModule.js");
+      const jsCode = `
+const leaked = [];
+function leakMemory() {
+  while (true) {
+    leaked.push(Buffer.alloc(10 * 1024 * 1024, 1));
+  }
+}
+function normalFn(x) {
+  return x * 2;
+}
+module.exports = { leakMemory, normalFn };
+`;
+      fs.writeFileSync(jsPath, jsCode);
+
+      const prevMaxMem = Config.get("nanofuzz.fuzzer.maxRunnerMemory", 8192);
+      Config.override("nanofuzz.fuzzer.maxRunnerMemory", 100);
+
+      try {
+        // Memory limit configured via Config.override above (100 MB)
+        const runner = new JavascriptRunner(jsPath, "leakMemory");
+        await runner.onRunStart();
+
+        const res = await runner.run([], 15000);
+        expect(res.result.tag).toBe("error");
+        if (res.result.tag === "error") {
+          expect(res.result.name).toBe("HostMemoryExceededError");
+          expect(res.result.message).toContain("exceeded RAM limit");
+        }
+
+        await runner.onRunEnd();
+        Config.override("nanofuzz.fuzzer.maxRunnerMemory", prevMaxMem);
+
+        // Subsequent run with normal runner and fresh host succeeds
+        const normalRunner = new JavascriptRunner(jsPath, "normalFn");
+        await normalRunner.onRunStart();
+        const normalRes = await normalRunner.run([21], 5000);
+        expect(normalRes.result.tag).toBe("value");
+        if (normalRes.result.tag === "value") {
+          expect(normalRes.result.value).toBe(42);
+        }
+        await normalRunner.onRunEnd();
+      } finally {
+        Config.override("nanofuzz.fuzzer.maxRunnerMemory", prevMaxMem);
+        try {
+          fs.rmSync(tmpDir, {
+            recursive: true,
+            force: true,
+            maxRetries: 10,
+            retryDelay: 100,
+          });
+        } catch {
+          // ignore
+        }
+      }
+    }
+  );
+
   it("timeout coverage data is retained", async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nanofuzz-jsrunner-"));
     const jsPath = path.join(tmpDir, "timeoutModule.js");
@@ -396,7 +467,7 @@ module.exports = { slowAdd };
     fs.writeFileSync(jsPath, jsCode);
     const hostStartupTimeout = Config.get(
       "nanofuzz.fuzzer.hostStartupTimeout",
-      10000
+      20000
     );
 
     try {
@@ -452,7 +523,7 @@ function deadCode() {
 module.exports = { absVal, deadCode };
 `;
     fs.writeFileSync(jsPath, rawJsCode);
-    const measure = new TypescriptCoverageMeasure();
+    const measure = new CoverageMeasure();
     const instJsCode = measure.onAfterCompile(rawJsCode, jsPath);
     fs.writeFileSync(jsPath, instJsCode);
 
@@ -548,15 +619,17 @@ export function x(
     fs.writeFileSync(jsPath + ".map", out.sourceMapText!);
     const realJsPath = fs.realpathSync(jsPath);
 
-    const measure = new TypescriptCoverageMeasure();
+    const measure = new CoverageMeasure();
     const instJsCode = measure.onAfterCompile(out.outputText, realJsPath);
     fs.writeFileSync(realJsPath, instJsCode);
 
     try {
-      const runner = new JavascriptRunner(realJsPath, "x");
+      const runner = new JavascriptRunner(realJsPath, "x", undefined, {
+        acceptsStaticCoverage: true,
+      });
       await runner.onRunStart();
 
-      // Attach TypescriptCoverageMeasure to runner
+      // Attach CoverageMeasure to runner
       measure.onRunStart([runner]);
 
       // 1. Initial static coverage on host connect before test execution
@@ -691,8 +764,10 @@ export function x(
               RandomInputGenerator: { enabled: true },
               MutationInputGenerator: { enabled: false },
               AiInputGenerator: { enabled: false },
+              UserInputGenerator: { enabled: false },
             },
           },
+          executionOptions: getDefaultFuzzExecutionOptions(),
           function: ProgramFactory.fromSource(
             () => tsCode,
             "typescript",
@@ -700,6 +775,7 @@ export function x(
           ).functionsExported["x"],
           validators: [],
           transformers: [],
+          userGenerators: [],
         },
         stopReason: FuzzStopReason.MAXTESTS,
         interesting: { inputs: [] },
@@ -760,6 +836,7 @@ export function x(
             RandomInputGenerator: dummyGenStats,
             MutationInputGenerator: dummyGenStats,
             AiInputGenerator: dummyGenStats,
+            UserInputGenerator: dummyGenStats,
           },
           measures: {},
         },
@@ -987,7 +1064,7 @@ export function x(): number {
     const realJsPath = fs.realpathSync(jsPath);
 
     Config.override("nanofuzz.fuzzer.coverageScope", "project");
-    const measure = new TypescriptCoverageMeasure();
+    const measure = new CoverageMeasure();
     const instJsCode = measure.onAfterCompile(out.outputText, realJsPath);
     fs.writeFileSync(realJsPath, instJsCode);
 
@@ -1070,8 +1147,10 @@ export function x(): number {
               RandomInputGenerator: { enabled: true },
               MutationInputGenerator: { enabled: false },
               AiInputGenerator: { enabled: false },
+              UserInputGenerator: { enabled: false },
             },
           },
+          executionOptions: getDefaultFuzzExecutionOptions(),
           function: ProgramFactory.fromSource(
             () => tsCode,
             "typescript",
@@ -1079,6 +1158,7 @@ export function x(): number {
           ).functionsExported["x"],
           validators: [],
           transformers: [],
+          userGenerators: [],
         },
         stopReason: FuzzStopReason.MAXTESTS,
         interesting: { inputs: [] },
@@ -1139,6 +1219,7 @@ export function x(): number {
             RandomInputGenerator: dummyGenStats,
             MutationInputGenerator: dummyGenStats,
             AiInputGenerator: dummyGenStats,
+            UserInputGenerator: dummyGenStats,
           },
           measures: {},
         },

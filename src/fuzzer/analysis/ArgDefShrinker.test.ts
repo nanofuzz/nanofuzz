@@ -73,9 +73,17 @@ describe("ArgDefShrinker", () => {
     const names = shrinkers.map((s) => s.name);
     expect(names).toContain("array-clear");
     expect(names.some((n) => n.startsWith("array-deleteElement"))).toBeTrue();
+    expect(names).toContain("array-deleteBlock");
+    expect(names).toContain("array-truncateToMin");
     expect(names).not.toContain("array-jumble");
     expect(names).not.toContain("array-reverse");
     expect(names).not.toContain("array-appendNewElement");
+    expect(names).not.toContain("array-swapElements");
+    expect(names).not.toContain("array-rotate");
+    expect(names).not.toContain("array-insertElement");
+    expect(names).not.toContain("array-replaceBlock");
+    expect(names).not.toContain("array-duplicateBlock");
+    expect(names).not.toContain("array-fillBlock");
   });
 
   it("shrink numbers towards zero", () => {
@@ -162,8 +170,20 @@ describe("ArgDefShrinker", () => {
     const names = shrinkers.map((s) => s.name);
     expect(names).toContain("string-clear");
     expect(names).toContain("string-deleteOneChar");
+    expect(names).toContain("string-deleteBlock");
+    expect(names).toContain("string-truncateToMin");
     expect(names).not.toContain("string-insertOneChar");
     expect(names).not.toContain("string-replaceOneChar");
+    expect(names).not.toContain("string-reverse");
+    expect(names).not.toContain("string-reverseSlice");
+    expect(names).not.toContain("string-swapChars");
+    expect(names).not.toContain("string-rotate");
+    expect(names).not.toContain("string-replaceBlock");
+    expect(names).not.toContain("string-insertBlock");
+    expect(names).not.toContain("string-duplicateBlock");
+    expect(names).not.toContain("string-jumble");
+    expect(names).not.toContain("string-caseTransform");
+    expect(names).not.toContain("string-insertBoundaryToken");
   });
 
   it("shrinks objects", () => {
@@ -303,6 +323,39 @@ describe("ArgDefShrinker", () => {
     expect(names).toContain("bytes-deleteOneByte");
     expect(names).toContain("bytes-flipBit"); // bit is 1, so flipping to 0 simplifies
     expect(names).not.toContain("bytes-insertOneByte");
+  });
+
+  it("shrinks multi-byte buffers with block deletions and simplifications", () => {
+    const spec = makeArgDef(
+      dummyModule,
+      "bytesArg",
+      0,
+      ArgTag.BYTES,
+      {
+        ...argOptions,
+        byteLength: { min: 1, max: 10 },
+      },
+      0,
+      false
+    );
+    const input: ArgValueTypeWrapped[] = [
+      {
+        tag: "ArgValueTypeWrapped",
+        value: new Uint8Array([0x50, 0x60, 0x70, 0x80]),
+      },
+    ];
+    const prng = seedrandom("shrinkerMultiBytes");
+    const shrinkers = ArgDefShrinker.getShrinkers([spec], input, prng);
+
+    expect(shrinkers.every((s) => s.simplifies === true)).toBeTrue();
+    const names = shrinkers.map((s) => s.name);
+    expect(
+      names.some(
+        (n) => n === "bytes-deleteOneByte" || n === "bytes-deleteBlock"
+      )
+    ).toBeTrue();
+    expect(names).not.toContain("bytes-insertOneByte");
+    expect(names).not.toContain("bytes-insertBlock");
   });
 
   it("shrinker produce simplified input", () => {

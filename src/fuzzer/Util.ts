@@ -1,5 +1,6 @@
 import * as path from "node:path";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as JSONN from "../Jsonn";
 import { CompositeOracle } from "./oracles/CompositeOracle";
 import { FuzzIoElement, FuzzResultCategory, FuzzTestResult } from "./Types";
@@ -29,9 +30,21 @@ export function isError(obj: unknown): obj is Error {
 } // fn: isError
 
 /**
+ * In-memory cache of normalized file path keys to avoid repeated expensive calls
+ * to path.normalize() and platform casing conversions during high-frequency test
+ * execution and coverage merging. Capped at 10,000 entries to prevent unbounded memory growth.
+ */
+const normPathCache = new Map<string, string>();
+
+/**
  * Normalizes a file path string for use as a key (in maps) to avoid cross-platform issues.
  */
 export function normalizePathForKey(rawPath: string): string {
+  const cached = normPathCache.get(rawPath);
+  if (cached !== undefined) {
+    return cached;
+  }
+
   let p = rawPath.trim();
   p = path.normalize(p);
 
@@ -39,6 +52,10 @@ export function normalizePathForKey(rawPath: string): string {
   // are (usually) case sensitive.
   if (process.platform === "win32") {
     p = p.toLowerCase();
+  }
+
+  if (normPathCache.size < 10000) {
+    normPathCache.set(rawPath, p);
   }
 
   return p;
@@ -192,6 +209,57 @@ export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
       return "disagree";
   }
 } // fn: categorizeResult
+
+/**
+ * Determines the number of concurrent runner worker processes.
+ *
+ * In 'auto' mode:
+ *  - CLI mode (process.env.BUILD_TARGET === "node-cli"): favors throughput with (cores - 1).
+ *  - Non-CLI / IDE mode: favors responsiveness with floor(cores / 2).
+ *  - Both modes clamp to total system memory assuming ~100MB per worker with 1024MB safety reserve.
+ *  - Minimum of 1 worker is always guaranteed.
+ *
+ * @param configured configured worker count or "auto"
+ * @param isCli whether running in CLI mode
+ * @param availableCores optional explicit core count for testing/overrides
+ * @param totalMemoryBytes optional explicit total memory in bytes for testing/overrides
+ * @returns resolved integer worker count >= 1
+ */
+export function determineWorkerCount(
+  configured: number | "auto" | string,
+  isCli: boolean = process.env.BUILD_TARGET === "node-cli",
+  availableCores?: number,
+  totalMemoryBytes?: number
+): number {
+  if (typeof configured === "number" && configured >= 1) {
+    return Math.floor(configured);
+  }
+  if (typeof configured === "string" && configured !== "auto") {
+    const parsed = parseInt(configured, 10);
+    if (!isNaN(parsed) && parsed >= 1) return parsed;
+  }
+
+  const cpus =
+    availableCores !== undefined
+      ? availableCores
+      : os.availableParallelism
+        ? os.availableParallelism()
+        : os.cpus().length;
+  const cpuTarget = isCli
+    ? Math.max(1, cpus - 1)
+    : Math.max(1, Math.floor(cpus / 2));
+
+  // 100 MB memory clamp with 1024 MB OS/IDE safety buffer based on total system memory
+  const totalMemMB =
+    (totalMemoryBytes !== undefined ? totalMemoryBytes : os.totalmem()) /
+    (1024 * 1024);
+  const memClamp = Math.max(
+    1,
+    Math.floor(Math.max(0, totalMemMB - 1024) / 100)
+  );
+
+  return Math.max(1, Math.min(cpuTarget, memClamp));
+} // fn: determineWorkerCount
 
 /**
  * Gets the input key as a string from an array of `FuzzIoElement`s

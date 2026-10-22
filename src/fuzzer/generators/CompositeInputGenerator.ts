@@ -2,7 +2,7 @@ import * as Config from "../../Config";
 import { AbstractInputGenerator } from "./AbstractInputGenerator";
 import { AbstractMeasure, BaseMeasurement } from "../measures/AbstractMeasure";
 import { Leaderboard } from "./Leaderboard";
-import { ScoredInput } from "./Types";
+import { GeneratorExhaustedError, NextableStatus, ScoredInput } from "./Types";
 import {
   FuzzOptions,
   FuzzPinnedTest,
@@ -12,7 +12,6 @@ import {
   InputAndSource,
   TransformedInputAndSource,
 } from "./../Types";
-import { NextableStatus } from "./Types";
 import { FunctionDef } from "../analysis/FunctionDef";
 import { InputGeneratorFactory } from "./InputGeneratorFactory";
 import { AbstractRunner, RunnerResult } from "../runners/AbstractRunner";
@@ -102,6 +101,8 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     this._fn = fn;
     this._allInputs = allInputs;
     this._rngSeed = rngSeed;
+    this._measures = measures;
+
     this._subgens = InputGeneratorFactory(
       options,
       fn,
@@ -110,9 +111,9 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
       genStats,
       allInputs,
       moduleSrc,
-      getFuzzerFocus
+      getFuzzerFocus,
+      this._measures
     );
-    this._measures = measures;
     this._leaderboard = leaderboard;
     this._genStats = genStats;
 
@@ -214,7 +215,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
         }
 
         const promises: Promise<unknown>[] = pendingSubgens.map((g) =>
-          g.nextSoon().catch(() => {})
+          g.waitUntilReady()
         );
 
         if (remaining !== undefined) {
@@ -276,12 +277,13 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
 
     // Make sure we are permitted to generate inputs
     if (!this.nextable()) {
-      throw new Error(
-        "Injected inputs exhausted and input generators are suppressed."
-      );
+      throw new GeneratorExhaustedError();
     }
 
     while (this._permitSubgens || this._hasPrioritySubgen()) {
+      if (this.nextable() !== "now" && this.nextable() !== "now!") {
+        throw new GeneratorExhaustedError();
+      }
       const { candidate, genCost } = this._generateCandidate();
 
       // Injected inputs from HumanInputGenerator bpass the dupe check
@@ -300,9 +302,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
       return this._acceptCandidate(candidate);
     }
 
-    throw new Error(
-      "Injected inputs exhausted and input generators are suppressed."
-    );
+    throw new GeneratorExhaustedError();
   } // fn: next
 
   /**
@@ -311,28 +311,46 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
    * @returns the next transformed input, including its source metadata and transformer result
    */
   public async nextTransformed(): Promise<TransformedInputAndSource> {
-    // If no transformer is active, fast-path to standard synchronous next()
-    if (!this._transformRunner) {
-      return this.next();
-    }
-
     // Make sure we are permitted to generate inputs
     if (!this.nextable()) {
-      throw new Error(
-        "Injected inputs exhausted and input generators are suppressed."
-      );
+      throw new GeneratorExhaustedError();
     }
 
     while (this._permitSubgens || this._hasPrioritySubgen()) {
-      const { candidate: untransformedCandidate, genCost } =
-        this._generateCandidate();
+      if (this.nextable() === "soon") {
+        const ready = await this.waitForNextInput();
+        if (!ready) {
+          break;
+        }
+      }
+
+      if (this.nextable() !== "now" && this.nextable() !== "now!") {
+        break;
+      }
+
+      const {
+        candidate: untransformedCandidate,
+        genCost,
+        selectedSubgen,
+      } = this._generateCandidate();
 
       // Injected inputs from HumanInputGenerator are always processed and never dupe-skipped or transformed
       if (untransformedCandidate.injected) {
         return this._acceptCandidate(untransformedCandidate);
       }
 
-      // Stage 1: Pre-transformer duplicate check (only if transformer is active)
+      // If generator is not transformable (e.g. UserInputGenerator), bypass transformer
+      if (!selectedSubgen.isTransformable || !this._transformRunner) {
+        if (this._isDuplicate(untransformedCandidate, this._allInputs)) {
+          if (this._handleDuplicate(untransformedCandidate, genCost)) {
+            break;
+          }
+          continue;
+        }
+        return this._acceptCandidate(untransformedCandidate);
+      }
+
+      // Stage 1: Pre-transformer duplicate check (only if transformer is active and generator is transformable)
       if (this._transformRunner && this._fn && this._fn.getArgDefs().length) {
         if (
           this._isDuplicate(untransformedCandidate, this._pretransformedInputs)
@@ -370,9 +388,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
       return this._acceptCandidate(candidate);
     } // while (generate & dupe check inputs)
 
-    throw new Error(
-      "Injected inputs exhausted and input generators are suppressed."
-    );
+    throw new GeneratorExhaustedError();
   } // fn: nextTransformed
 
   /**
@@ -455,6 +471,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
   protected _generateCandidate(): {
     candidate: InputAndSource;
     genCost: number;
+    selectedSubgen: AbstractInputGenerator;
   } {
     if (
       this._ticksLeftInChunk <= 0 ||
@@ -481,7 +498,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     };
     this._lastInput = candidate;
     this._lastInputSubgenIndex = this._selectedSubgenIndex;
-    return { candidate, genCost };
+    return { candidate, genCost, selectedSubgen };
   } // fn: _generateCandidate
 
   /**
@@ -517,7 +534,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     genCost: number
   ): boolean {
     this._recordDupe(candidate);
-    this.onInputFeedback([], genCost);
+    this.onInputFeedback([], genCost, candidate);
 
     if (this._dupesSequential >= this._maxDupeInputs) {
       this.suppressGenerators();
@@ -567,7 +584,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     };
     this._lastInput = skippedInput;
     this._lastInputSubgenIndex = this._selectedSubgenIndex;
-    this.onInputFeedback([], genCost);
+    this.onInputFeedback([], genCost, skippedInput);
     return structuredClone(skippedInput);
   } // fn: _acceptSkippedCandidate
 
@@ -580,9 +597,11 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     this._inputsGenerated++;
     if (candidate.source.type === "generator") {
       const stats = this._genStats[candidate.source.generator];
-      stats.counters.dupesGenerated++;
-      stats.counters.inputsGenerated++;
-      stats.counters.dupeTicks.push(candidate.tick);
+      if (stats) {
+        stats.counters.dupesGenerated++;
+        stats.counters.inputsGenerated++;
+        stats.counters.dupeTicks.push(candidate.tick);
+      }
     }
   } // fn: _recordDupe
 
@@ -593,7 +612,9 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     this._inputsGenerated++;
     if (candidate.source.type === "generator") {
       const stats = this._genStats[candidate.source.generator];
-      stats.counters.inputsGenerated++;
+      if (stats) {
+        stats.counters.inputsGenerated++;
+      }
     }
   } // fn: _recordGenerated
 
@@ -607,23 +628,18 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
   } // fn: _hasPrioritySubgen
 
   /**
-   * Provide feedback to the composite input generator about the last input generated.
-   *
-   * Note: Requires that an input has already been generated.
+   * Provide feedback about an input to the composite input generator.
    *
    * @param `measurements` array of measurements that correspond to this._measures
    * @param `cost` cost of generating and executing the input (e.g., ms)
+   * @param `input` the input for which feedback is being provided
    * @returns list of measures making the input interesting, if any
    */
   public onInputFeedback(
     measurements: BaseMeasurement[],
-    cost: number
+    cost: number,
+    input: InputAndSource
   ): string[] {
-    // Ensure we actually generated something
-    if (this._lastInput === undefined) {
-      throw new Error("Input feedback provided prior to input generation");
-    }
-
     // Ensure we have either no measures (e.g., input was a dupe not executed) or
     // a matching number of measures
     if (measurements.length && measurements.length !== this._measures.length) {
@@ -666,8 +682,8 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     // Update history of composite input generator if the input was interesting
     if (interestingReasons.length > 0) {
       this.interestingInputs.push({
-        input: this._lastInput,
-        tick: this._tick,
+        input,
+        tick: input.tick,
         score: weightedProgress,
         cost,
         measurements,
@@ -682,7 +698,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     // measures that contributed to its interestingness.
     if (
       measurements.length &&
-      this._leaderboard.postScore(this._lastInput, weightedProgress)
+      this._leaderboard.postScore(input, weightedProgress)
     ) {
       return interestingReasons;
     } else {
@@ -708,9 +724,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
 
     // 2. Guard: If priority is exhausted and autonomous generation is suppressed
     if (!this._permitSubgens) {
-      throw new Error(
-        "Injected inputs exhausted and input generators are suppressed."
-      );
+      throw new GeneratorExhaustedError();
     }
 
     // 3. Reset standard chunk size for autonomous generation
@@ -790,7 +804,8 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     injectedInputs: (FuzzPinnedTest | Omit<InputAndSource, "tick">)[] = [],
     transformRunner?: AbstractRunner,
     fnTimeout: number = 0,
-    maxDupeInputs: number = 0
+    maxDupeInputs: number = 0,
+    userGenRunner?: AbstractRunner
   ): void {
     this._dupesSequential = 0;
     this._dupesGenerated = 0;
@@ -812,7 +827,11 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     for (const subgen in this._subgens) {
       this._subgens[subgen].onRunStart(
         gen && this._activeSubgens[subgen],
-        injectedInputs
+        injectedInputs,
+        transformRunner,
+        fnTimeout,
+        maxDupeInputs,
+        userGenRunner
       );
     }
   } // fn: onRunStart

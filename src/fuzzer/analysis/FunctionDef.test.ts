@@ -1455,4 +1455,50 @@ describe("fuzzer/analysis/typescript/FunctionDef:", () => {
     expect(fnAsync.isAsync()).toBeTrue();
     expect(fnDefault.isAsync()).toBeFalse();
   });
+
+  it("isValidator and isTransformer role checks", () => {
+    const valFn = FunctionDef.fromFunctionRef({
+      ...dummyRef,
+      name: "myPutValidator",
+      isExported: true,
+      args: [
+        {
+          name: "result",
+          module: dummyModule,
+          dims: 0,
+          optional: false,
+          isExported: false,
+          type: {
+            type: ArgTag.OBJECT,
+            dims: 0,
+            children: [],
+            resolved: true,
+          },
+          typeRefName: "FuzzTestResult",
+        },
+      ],
+    });
+    const transFn = FunctionDef.fromFunctionRef({
+      ...dummyRef,
+      name: "myPutTransformer",
+      isExported: true,
+      args: [],
+    });
+    const standardFn = FunctionDef.fromFunctionRef({
+      ...dummyRef,
+      name: "myPut",
+      isExported: true,
+      args: [],
+    });
+
+    expect(valFn.isValidator()).toBeTrue();
+    expect(valFn.isTransformer()).toBeFalse();
+    expect(valFn.getValidatorTargetName()).toBe("myPut");
+
+    expect(transFn.isValidator()).toBeFalse();
+    expect(transFn.isTransformer()).toBeTrue();
+
+    expect(standardFn.isValidator()).toBeFalse();
+    expect(standardFn.isTransformer()).toBeFalse();
+  });
 });

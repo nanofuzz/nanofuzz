@@ -29,6 +29,9 @@ export const allGenerators = {
   AiInputGenerator: {
     enabled: true,
   },
+  UserInputGenerator: {
+    enabled: true,
+  },
 };
 
 /**
@@ -63,4 +66,4 @@ export const floatOptions: FuzzOptions = {
 
 export async function initParser(): Promise<void> {
   await Parser.init();
-}
+} // fn: initParser

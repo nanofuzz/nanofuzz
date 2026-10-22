@@ -142,11 +142,6 @@ export abstract class AbstractProgram {
           }
         } catch (e: unknown) {
           const msg = getErrorMessageOrJson(e);
-          console.debug(
-            `Error resolving types for function '${fnRef.name}' argument '${
-              lastArgName ?? "(unknown)"
-            }'; marking fn as unsupported. Reason: ${msg}`
-          );
 
           // Remove functions that we couldn't resolve
           this._functions.unsupported[fnRef.name] = {
@@ -164,12 +159,8 @@ export abstract class AbstractProgram {
             lastArgName = "return";
             this.resolveTypeRef(fnRef.returnType);
           }
-        } catch (e: unknown) {
-          console.debug(
-            `Error resolving return type for function '${
-              fnRef.name
-            }'; Reason: ${getErrorMessageOrJson(e)}`
-          );
+        } catch (_e: unknown) {
+          // Failure to resolve return type does not make function unsupported
         }
       }
     }
@@ -358,7 +349,7 @@ export abstract class AbstractProgram {
    */
   public get functionsNotSupported(): Record<
     IdentifierName,
-    { reason: string; node?: string; argument?: string }
+    { reason: string; node?: string; argument?: string; function?: FunctionRef }
   > {
     return structuredClone(this._functions.unsupported);
   } // fn: get functionsNotSupported()

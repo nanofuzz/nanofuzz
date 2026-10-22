@@ -10,10 +10,10 @@ import * as JSONN from "../../../Jsonn";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import vm from "node:vm";
+import seedrandom from "seedrandom";
 import { Worker } from "node:worker_threads";
 import { serialize, deserialize } from "node:v8";
-import { RunnerInput, TypeHint } from "../AbstractRunner";
-import { MAX_HEARTBEATS } from "../AbstractHost";
+import { RunnerInput, TypeHint, ValidatorResult } from "../AbstractRunner";
 import { isError } from "../../Util";
 
 const realStdoutWrite = process.stdout.write.bind(process.stdout);
@@ -52,8 +52,10 @@ function getGlobalPaths(): string[] {
 async function main() {
   const initialFilename = process.argv[2];
   const initialFnName = process.argv[3];
+  const collectStaticArg = process.argv[5];
+  const isRespawn = collectStaticArg === "respawn";
   const collectStatic =
-    process.argv[5] !== undefined ? process.argv[5] === "true" : true;
+    collectStaticArg !== undefined ? collectStaticArg === "true" : true;
 
   const loadedModules: Record<string, unknown> = {};
 
@@ -77,14 +79,27 @@ async function main() {
     const mod = loadedModules[resolvedPath];
     let fnToExec: unknown;
     if (isRecord(mod)) {
+      // Check exported function
       fnToExec = mod[fnNameToLoad];
+
+      // Use __nanofuzz_get__ accessor for unexported functions)
+      if (
+        typeof fnToExec !== "function" &&
+        typeof mod.__nanofuzz_get__ === "function"
+      ) {
+        try {
+          fnToExec = Reflect.apply(mod.__nanofuzz_get__, mod, [fnNameToLoad]);
+        } catch {
+          // Identifier not found or evaluation failed
+        }
+      }
     } else if (typeof mod === "function") {
       fnToExec = mod;
     }
 
     if (typeof fnToExec !== "function") {
       throw new Error(
-        `Could not find exported function ${fnNameToLoad} in ${resolvedPath}`
+        `Could not find function '${fnNameToLoad}' in ${resolvedPath}`
       );
     }
 
@@ -109,11 +124,15 @@ async function main() {
   sendMsg("READY");
 
   // Send initial coverage info
-  const rawCoverage = getGlobalCoverageData() ?? {};
-  if (!collectStatic) {
-    resetCoverageCounters(rawCoverage);
+  if (isRespawn) {
+    sendMsg({});
+  } else {
+    const rawCoverage = getGlobalCoverageData() ?? {};
+    if (!collectStatic) {
+      resetCoverageCounters(rawCoverage);
+    }
+    sendMsg(rawCoverage);
   }
-  sendMsg(rawCoverage);
 
   // Main loop
   while (true) {
@@ -133,77 +152,74 @@ async function main() {
     const targetFilename = input.filename ?? initialFilename;
     const targetFnName = input.fnName ?? initialFnName;
 
-    let resultTag: "value" | "timeout" | "skip" | "error" = "value";
-    let value: unknown = undefined;
-    let errName = "";
-    let errMsg = "";
-    let errStack = "";
+    if (!targetFilename || !targetFnName) {
+      throw new Error("Target filename or function name missing");
+    }
 
-    try {
-      if (!targetFilename || !targetFnName) {
-        throw new Error("Target filename or function name missing");
-      }
+    const fnToExec = getTargetFunction(targetFilename, targetFnName);
+    const typeHints = input.typeHints ?? [];
+    const hydratedArgs = input.args.map((arg, i) =>
+      transformArg(arg, i < typeHints.length ? typeHints[i] : undefined)
+    );
 
-      const fnToExec = getTargetFunction(targetFilename, targetFnName);
-      const typeHints = input.typeHints ?? [];
-      const hydratedArgs = input.args.map((arg, i) =>
-        i < typeHints.length ? transformArg(arg, typeHints[i]) : arg
-      );
+    const putExec = await invokeWithTimeout(
+      fnToExec,
+      hydratedArgs,
+      input.timeout
+    );
 
-      const startExecTime = performance.now();
-      if (input.timeout && input.timeout > 0) {
-        value = functionTimeout(fnToExec)(input.timeout, ...hydratedArgs);
-      } else {
-        value = fnToExec(...hydratedArgs);
-      }
+    const validatorResults: Record<string, ValidatorResult> = {};
+    if (
+      putExec.tag !== "skip" &&
+      input.validators &&
+      input.validators.length > 0
+    ) {
+      const fuzzResultObj = {
+        in: hydratedArgs,
+        out:
+          putExec.tag === "value"
+            ? sanitizeOutput(putExec.value)
+            : "timeout or exception",
+        exception: putExec.tag === "error",
+        timeout: putExec.tag === "timeout",
+      };
 
-      if (isPromiseLike(value)) {
-        if (input.timeout && input.timeout > 0) {
-          const elapsed = performance.now() - startExecTime;
-          const remainingTimeout = Math.max(1, input.timeout - elapsed);
-          let timer: NodeJS.Timeout | undefined;
-          const timeoutPromise = new Promise<never>((_, reject) => {
-            timer = setTimeout(() => {
-              const err = new Error("Script execution timed out");
-              Reflect.set(err, "code", "ERR_SCRIPT_EXECUTION_TIMEOUT");
-              reject(err);
-            }, remainingTimeout);
-            if (typeof timer.unref === "function") {
-              timer.unref();
-            }
-          });
-
-          try {
-            value = await Promise.race([value, timeoutPromise]);
-          } finally {
-            if (timer !== undefined) {
-              clearTimeout(timer);
-            }
+      for (const vName of input.validators) {
+        try {
+          const vFn = getTargetFunction(targetFilename, vName);
+          const vExec = await invokeWithTimeout(
+            vFn,
+            [fuzzResultObj],
+            input.timeout
+          );
+          if (vExec.tag === "value") {
+            validatorResults[vName] = {
+              tag: "value",
+              value: sanitizeOutput(vExec.value),
+            };
+          } else if (vExec.tag === "timeout") {
+            validatorResults[vName] = { tag: "timeout" };
+          } else if (vExec.tag === "skip") {
+            validatorResults[vName] = {
+              tag: "skip",
+              message: vExec.errMsg ?? "",
+            };
+          } else {
+            validatorResults[vName] = {
+              tag: "error",
+              name: vExec.errName ?? "PropertyValidatorError",
+              message: vExec.errMsg ?? "Property validator error",
+              stack: vExec.errStack,
+            };
           }
-        } else {
-          value = await value;
+        } catch (e: unknown) {
+          validatorResults[vName] = {
+            tag: "error",
+            name: isError(e) ? e.name : "ValidatorNotFoundError",
+            message: isError(e) ? e.message : String(e),
+            stack: isError(e) ? e.stack : undefined,
+          };
         }
-      }
-    } catch (e: unknown) {
-      const isTimeout =
-        isError(e) &&
-        (("code" in e && e.code === "ERR_SCRIPT_EXECUTION_TIMEOUT") ||
-          e.message.includes("Script execution timed out"));
-      if (isTimeout) {
-        resultTag = "timeout";
-      } else if (isError(e) && e.name === "UnsatisfiedAssumption") {
-        resultTag = "skip";
-        errMsg = e.message;
-      } else if (isError(e)) {
-        resultTag = "error";
-        errName = e.name;
-        errMsg = e.message;
-        errStack = e.stack ?? "";
-      } else {
-        resultTag = "error";
-        errName = "UnknownJavascriptRunnerError";
-        errMsg = "unknown";
-        errStack = "<no stack>";
       }
     }
 
@@ -211,42 +227,123 @@ async function main() {
       ? extractDynamicCoverage(getGlobalCoverageData() ?? {})
       : undefined;
 
+    const valDict =
+      Object.keys(validatorResults).length > 0 ? validatorResults : undefined;
+
     let resultMsg: Record<string, unknown>;
-    if (resultTag === "timeout") {
+    if (putExec.tag === "timeout") {
       resultMsg = {
         tag: "timeout",
         seq: input.seq,
         coverageData: currentCoverage,
+        validators: valDict,
       };
-    } else if (resultTag === "skip") {
+    } else if (putExec.tag === "skip") {
       resultMsg = {
         tag: "skip",
-        message: errMsg,
+        message: putExec.errMsg,
         seq: input.seq,
         coverageData: currentCoverage,
       };
-    } else if (resultTag === "error") {
+    } else if (putExec.tag === "error") {
       resultMsg = {
         tag: "error",
-        name: errName,
-        message: errMsg,
-        stack: errStack,
+        name: putExec.errName,
+        message: putExec.errMsg,
+        stack: putExec.errStack,
         source: "put",
         seq: input.seq,
         coverageData: currentCoverage,
+        validators: valDict,
       };
     } else {
       resultMsg = {
         tag: "value",
-        value: sanitizeOutput(value),
+        value: sanitizeOutput(putExec.value),
         seq: input.seq,
         coverageData: currentCoverage,
+        validators: valDict,
       };
     }
 
     sendMsg(resultMsg);
   }
 } // fn: main
+
+async function invokeWithTimeout(
+  fnToExec: (...args: unknown[]) => unknown,
+  args: unknown[],
+  timeout?: number
+): Promise<{
+  tag: "value" | "timeout" | "skip" | "error";
+  value?: unknown;
+  errName?: string;
+  errMsg?: string;
+  errStack?: string;
+}> {
+  try {
+    const startExecTime = performance.now();
+    let value: unknown;
+    if (timeout && timeout > 0) {
+      value = functionTimeout(fnToExec)(timeout, ...args);
+    } else {
+      value = fnToExec(...args);
+    }
+
+    if (isPromiseLike(value)) {
+      if (timeout && timeout > 0) {
+        const elapsed = performance.now() - startExecTime;
+        const remainingTimeout = Math.max(1, timeout - elapsed);
+        let timer: NodeJS.Timeout | undefined;
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          timer = setTimeout(() => {
+            const err = new Error("Script execution timed out");
+            Reflect.set(err, "code", "ERR_SCRIPT_EXECUTION_TIMEOUT");
+            reject(err);
+          }, remainingTimeout);
+          if (typeof timer.unref === "function") {
+            timer.unref();
+          }
+        });
+
+        try {
+          value = await Promise.race([value, timeoutPromise]);
+        } finally {
+          if (timer !== undefined) {
+            clearTimeout(timer);
+          }
+        }
+      } else {
+        value = await value;
+      }
+    }
+    return { tag: "value", value };
+  } catch (e: unknown) {
+    const isTimeout =
+      isError(e) &&
+      (("code" in e && e.code === "ERR_SCRIPT_EXECUTION_TIMEOUT") ||
+        e.message.includes("Script execution timed out"));
+    if (isTimeout) {
+      return { tag: "timeout" };
+    } else if (isError(e) && e.name === "UnsatisfiedAssumption") {
+      return { tag: "skip", errMsg: e.message };
+    } else if (isError(e)) {
+      return {
+        tag: "error",
+        errName: e.name,
+        errMsg: e.message,
+        errStack: e.stack ?? "",
+      };
+    } else {
+      return {
+        tag: "error",
+        errName: "UnknownJavascriptRunnerError",
+        errMsg: "unknown",
+        errStack: "<no stack>",
+      };
+    }
+  }
+} // fn: invokeWithTimeout
 
 function setupNodePath() {
   const globalPaths = getGlobalPaths();
@@ -320,16 +417,9 @@ function startHeartbeat(intervalMs = 250): void {
       const fs = require("node:fs");
       const v8 = require("node:v8");
 
-      let count = 0;
-      const maxCount = ${MAX_HEARTBEATS};
       const interval = ${intervalMs};
 
       const timer = setInterval(() => {
-        count++;
-        if (count > maxCount) {
-          clearInterval(timer);
-          return;
-        }
         try {
           const payload = v8.serialize("HEART");
           const msg = Buffer.alloc(4 + payload.length);
@@ -406,9 +496,26 @@ function functionTimeout(
  * @param hint The type hint guiding the transformation.
  * @returns The transformed value.
  */
+function isPrngPayload(val: unknown): val is { seed?: string } {
+  return (
+    val !== null &&
+    typeof val === "object" &&
+    "__nanofuzz_type" in val &&
+    Reflect.get(val, "__nanofuzz_type") === "prng"
+  );
+}
+
 function transformArg(val: unknown, hint: TypeHint | undefined): unknown {
+  if (isPrngPayload(val)) {
+    return seedrandom(val.seed);
+  }
+
   if (val === null || val === undefined || hint === undefined) {
     return val;
+  }
+
+  if (hint === "prng") {
+    return seedrandom(typeof val === "string" ? val : undefined);
   }
 
   if (hint === "bytes") {
@@ -419,6 +526,11 @@ function transformArg(val: unknown, hint: TypeHint | undefined): unknown {
   }
 
   if (typeof hint === "object") {
+    if (hint.kind === "prng") {
+      const seed = typeof val === "string" ? val : hint.seed;
+      return seedrandom(seed);
+    }
+
     if (hint.kind === "array" && Array.isArray(val)) {
       return val.map((item) => transformArg(item, hint.element));
     }

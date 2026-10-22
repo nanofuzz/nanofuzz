@@ -1,5 +1,5 @@
 /**
- * TypeScript source fixtures for `TypescriptCoverageMeasure.test.ts`.
+ * TypeScript source fixtures for `CoverageMeasureTypescript.test.ts`.
  *
  * The fixtures in `CoverageMeasure.testfixture1` are JavaScript, because
  * `onAfterCompile` instruments the compiled JS. These are the *TypeScript*

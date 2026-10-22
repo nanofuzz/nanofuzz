@@ -15,12 +15,15 @@ import {
   FuzzResultCategoryValues,
   FuzzStopReason,
   FuzzStatusUpdater,
+  FuzzStatusObserver,
+  FuzzBusyStatusMessage,
   FuzzResultCallback,
   BaseMeasureConfig,
   FuzzerFocus,
   TransformedInputAndSource,
   InputAndSource,
   FuzzOptions,
+  FuzzExecutionOptions,
   FuzzEnv,
   FuzzMode,
   FuzzTestResults,
@@ -33,6 +36,7 @@ import { Leaderboard } from "./generators/Leaderboard";
 import { categorizeResult, getIoKey, isError, isSameJudgments } from "./Util";
 import {
   getTransformers,
+  getUserGenerators,
   getValidators,
   isArgValueType,
   isOptionValid,
@@ -45,6 +49,7 @@ import { AbstractProgram } from "./analysis/AbstractProgram";
 import { AbstractRunner, RunnerResult } from "./runners/AbstractRunner";
 import { CompilerStaleness } from "./compilers/Types";
 import { getToolVersion } from "../ToolVersion";
+import { GeneratorExhaustedError } from "./generators/Types";
 
 export class Tester {
   protected _module: string; // module filename
@@ -56,11 +61,13 @@ export class Tester {
     "init"; // tester state
 
   protected _options: FuzzOptions; // testing options
+  protected _executionOptions: FuzzExecutionOptions; // execution options
   protected _program: AbstractProgram; // program under test
   protected _function: FunctionDef; // function under test
   protected _compositeInputGenerator: CompositeInputGenerator; // composite input generator
   protected _validators: FunctionRef[] = []; // property validator functions
   protected _transformers: FunctionRef[] = []; // input transformer functions
+  protected _userGenerators: FunctionRef[] = []; // user input generator functions
   protected _lastCompiler?: ReturnType<
     (typeof CompilerFactory)["fromSourcefile"]
   >; // last compiler object used
@@ -79,10 +86,11 @@ export class Tester {
     module: string,
     fnName: string,
     options: FuzzOptions,
-    mode: { precompile?: true } = {}
+    executionOptions: FuzzExecutionOptions
   ) {
     this._module = require.resolve(module);
     this._fnName = fnName;
+    this._executionOptions = structuredClone(executionOptions);
 
     const normalizedOptions: FuzzOptions = {
       ...options,
@@ -104,7 +112,7 @@ export class Tester {
         { cause: e }
       );
     }
-    const fnList = this._program.functionsExported;
+    const fnList = this._program.functions;
     if (!(this._fnName in fnList)) {
       if (this._fnName in this._program.functionsNotSupported) {
         const reason = this._program.functionsNotSupported[this._fnName].reason;
@@ -113,16 +121,19 @@ export class Tester {
         );
       }
       throw new Error(
-        `Could not find exported function ${this._fnName} in: ${this._module}`
+        `Could not find function ${this._fnName} in: ${this._module}`
       );
     }
     this._function = fnList[this._fnName];
 
     // Get the list of property validators
-    this._validators = getValidators(this._program, fnList[this._fnName]);
+    this._validators = getValidators(this._program, this._function);
 
     // Get the list of input transformers
-    this._transformers = getTransformers(this._program, fnList[this._fnName]);
+    this._transformers = getTransformers(this._program, this._function);
+
+    // Get the list of user generators
+    this._userGenerators = getUserGenerators(this._program, this._function);
 
     // Options
     if (!isOptionValid(normalizedOptions)) {
@@ -161,7 +172,7 @@ export class Tester {
 
     // Start a background compilation if precompile mode is active
     // and this is a compiled language.
-    if (mode.precompile) {
+    if (this._executionOptions.precompile) {
       CompilerFactory.fromSourcefile(module)?.compileAsync(module);
     }
   } // constructor
@@ -220,9 +231,11 @@ export class Tester {
       toolVersion: getToolVersion(),
       env: {
         options: structuredClone(this._options),
+        executionOptions: structuredClone(this._executionOptions),
         function: this._function,
         validators: structuredClone(this._validators),
         transformers: getTransformers(this._program, this._function),
+        userGenerators: getUserGenerators(this._program, this._function),
       },
       stopReason: FuzzStopReason.CRASH, // updated later
       stats: {
@@ -309,6 +322,20 @@ export class Tester {
               dupeTicks: [],
             },
           },
+          UserInputGenerator: {
+            timers: {
+              gen: 0, // updated below
+              run: 0, // updated later
+              val: 0, // updated later
+              measure: 0, // updated later
+              transform: 0, // updated later
+            },
+            counters: {
+              dupesGenerated: 0, // updated later
+              inputsGenerated: 0, // updated later
+              dupeTicks: [],
+            },
+          },
         },
         measures: {}, // updated later
       },
@@ -352,11 +379,20 @@ export class Tester {
   public get env(): FuzzEnv {
     return {
       options: structuredClone(this._options),
+      executionOptions: structuredClone(this._executionOptions),
       function: this._function,
       validators: structuredClone(this._validators),
       transformers: structuredClone(this._transformers),
+      userGenerators: structuredClone(this._userGenerators),
     };
   } // property: get env
+
+  /**
+   * Returns the current execution options
+   */
+  public get executionOptions(): FuzzExecutionOptions {
+    return structuredClone(this._executionOptions);
+  } // property: get executionOptions
 
   /**
    * Returns the current state
@@ -364,6 +400,20 @@ export class Tester {
   public get state(): typeof this._state {
     return this._state;
   } // property: get state
+
+  /**
+   * Returns the active worker count.
+   */
+  public get workerCount(): number {
+    return 1;
+  } // get: workerCount
+
+  /**
+   * Retrieves the fuzzer engine version.
+   */
+  public get engine(): "v1" {
+    return "v1";
+  } // fn: engine
 
   /**
    * Runs the tester and returns its results.
@@ -378,18 +428,22 @@ export class Tester {
   public async test(
     injectTests: FuzzPinnedTest[] = [],
     mode: FuzzMode = { gen: true },
-    updateFn?: FuzzStatusUpdater,
-    cancelFn?: () => boolean,
+    observer?: FuzzStatusObserver,
+    cancelFn: () => boolean = () => false,
     onResultFn?: FuzzResultCallback
   ): Promise<FuzzTestResults> {
     let result: FuzzTestResults | undefined;
     try {
-      const run = this._run(injectTests, mode, updateFn, cancelFn, onResultFn);
+      const run = this._run(injectTests, mode, observer, cancelFn, onResultFn);
       while (!result) {
         result = (await run.next()).value;
       }
       return result;
     } catch (e: unknown) {
+      if (cancelFn()) {
+        this._results.stopReason = FuzzStopReason.PAUSE;
+        return this._results;
+      }
       if (this._state === "running") {
         this._state = "crashed";
       }
@@ -402,7 +456,7 @@ export class Tester {
    *
    * @param `injectTests` tests to inject
    * @param `mode` tester mode
-   * @param `updateFn` called to report status updates
+   * @param `observer` status observer
    * @param `cancelFn` called to check cancel status
    * @param `onResultFn` called for each test result produced
    * @returns test results
@@ -410,8 +464,8 @@ export class Tester {
   protected async *_run(
     injectTests: FuzzPinnedTest[] = [],
     mode: FuzzMode = { gen: true },
-    updateFn?: FuzzStatusUpdater,
-    cancelFn?: () => boolean,
+    observer?: FuzzStatusObserver,
+    cancelFn: () => boolean = () => false,
     onResultFn?: FuzzResultCallback
   ): AsyncGenerator<
     FuzzTestResults | undefined,
@@ -426,6 +480,12 @@ export class Tester {
     }
     this._results.stats.counters.testingRuns++;
 
+    const intervalMs =
+      typeof observer?.granularity === "number" && observer.granularity > 0
+        ? observer.granularity
+        : 0;
+    let lastClientUpdateTimestamp = 0;
+    let lastPendingPayload: FuzzBusyStatusMessage | undefined = undefined;
     let lastUpdateTimestamp = 0;
     let periodicTimer: ReturnType<typeof setInterval> | undefined = undefined;
 
@@ -435,8 +495,29 @@ export class Tester {
         clearInterval(periodicTimer);
         periodicTimer = undefined;
       }
-      if (updateFn) {
-        updateFn({ ...payload });
+      if (observer) {
+        const isMilestone =
+          payload.type === "compiling" ||
+          payload.type === "instrumenting" ||
+          payload.type === "testing-complete";
+        const now = performance.now();
+        if (isMilestone) {
+          if (lastPendingPayload) {
+            observer.update({ ...lastPendingPayload });
+            lastPendingPayload = undefined;
+          }
+          lastClientUpdateTimestamp = now;
+          observer.update({ ...payload });
+        } else if (
+          intervalMs <= 0 ||
+          now - lastClientUpdateTimestamp >= intervalMs
+        ) {
+          lastPendingPayload = undefined;
+          lastClientUpdateTimestamp = now;
+          observer.update({ ...payload });
+        } else {
+          lastPendingPayload = payload;
+        }
       }
     };
     const runStats: CurrentRunStats = {
@@ -504,13 +585,18 @@ export class Tester {
           this._lastCompiler.getCompiledDependencies(),
           this._measures,
           this._lastCompiler.options.tmpDir,
-          updateFn
+          update
         )
       : mod;
     this._results.stats.timers.instrument = performance.now() - instrumentTime;
 
     // Build a test runner for executing tests
-    const runner = RunnerFactory(this.env, targetMod, this._function.getName());
+    const runner = RunnerFactory(
+      this.env,
+      targetMod,
+      this._function.getName(),
+      { acceptsStaticCoverage: true }
+    );
     await runner.onRunStart();
 
     // Build a test runner for executing transformers, if any are present and enabled
@@ -525,13 +611,28 @@ export class Tester {
       await transformRunner.onRunStart();
     }
 
+    // Build a test runner for executing user generators, if any are present and enabled
+    let userGenRunner: ReturnType<typeof RunnerFactory> | undefined;
+    if (
+      this.env.options.generators.UserInputGenerator?.enabled &&
+      this.env.userGenerators.length
+    ) {
+      userGenRunner = RunnerFactory(
+        this.env,
+        targetMod,
+        this.env.userGenerators[0].name
+      );
+      await userGenRunner.onRunStart();
+    }
+
     // Indicate the start of the run for the composite input generator
     this._compositeInputGenerator.onRunStart(
       !!mode.gen,
       injectTests,
       transformRunner,
       this._options.fnTimeout,
-      this._options.maxDupeInputs
+      this._options.maxDupeInputs,
+      userGenRunner
     );
 
     // Build runners for the property validators
@@ -544,11 +645,14 @@ export class Tester {
 
     // Connect the measures to the runners. Measures that source their data
     // from runners (e.g., Python or TypeScript coverage) need them before the first test.
-    const runners = [runner, transformRunner, ...propRunners].filter(
-      (r): r is AbstractRunner => r !== undefined
-    );
+    const runners = [
+      runner,
+      transformRunner,
+      userGenRunner,
+      ...propRunners,
+    ].filter((r): r is AbstractRunner => r !== undefined);
     this._measures.forEach((m) => {
-      m.onRunStart(runners);
+      m.onRunStart(runners, this.env);
     });
 
     // Injected tests lookup map
@@ -561,6 +665,7 @@ export class Tester {
 
     const checkPeriodicUpdate = () => {
       if (
+        observer?.heartbeat &&
         this._state === "running" &&
         performance.now() - lastUpdateTimestamp >= 100
       ) {
@@ -576,7 +681,7 @@ export class Tester {
           this._compositeInputGenerator.nextable() !== false,
           stillInjecting,
           injectTests.length,
-          !!cancelFn && cancelFn(),
+          cancelFn(),
           runStats,
           !!mode.gen,
           this._fuzzerFocus.mode
@@ -589,11 +694,14 @@ export class Tester {
       }
     };
 
-    periodicTimer = setInterval(checkPeriodicUpdate, 50);
+    if (observer?.heartbeat) {
+      periodicTimer = setInterval(checkPeriodicUpdate, 50);
+    }
 
     try {
       // Main test loop
       while (true) {
+        stillInjecting = runStats.counters.inputsInjected < injectTests.length;
         this._state = "running";
         checkPeriodicUpdate();
         runStats.counters.inputsGenerated =
@@ -609,7 +717,7 @@ export class Tester {
           this._compositeInputGenerator.nextable() !== false,
           stillInjecting,
           injectTests.length,
-          !!cancelFn && cancelFn(),
+          cancelFn(),
           runStats,
           !!mode.gen,
           this._fuzzerFocus.mode
@@ -681,13 +789,14 @@ export class Tester {
             [
               runner.onRunEnd(),
               transformRunner?.onRunEnd(),
+              userGenRunner?.onRunEnd(),
               ...propRunners.map((p) => p.onRunEnd()),
             ].filter((e) => e !== undefined)
           );
 
           update({
             type: "testing-complete",
-            cancelled: Boolean(cancelFn && cancelFn()),
+            cancelled: cancelFn(),
             pct: 100,
           });
 
@@ -743,6 +852,10 @@ export class Tester {
           runStats.timers.startGenTime = startGenTime;
         }
 
+        const getEffectiveCancelFn = (): (() => boolean) => {
+          return () => !stillInjecting && cancelFn();
+        };
+
         if (this._compositeInputGenerator.nextable() === "soon") {
           const remainingTimeout =
             this._options.suiteTimeout > 0 && runStats.timers.startGenTime > 0
@@ -752,16 +865,26 @@ export class Tester {
                     (performance.now() - runStats.timers.startGenTime)
                 )
               : undefined;
-          update({
-            type: "waiting-for-generator",
-            pendingGenerators:
-              this._compositeInputGenerator.getPendingGeneratorNames(),
-            stats: runStats,
-            pct: typeof stopCondition === "number" ? stopCondition : 0,
-          });
-          await this._compositeInputGenerator.waitForNextInput(
-            remainingTimeout
-          );
+          const waitTimer = setTimeout(() => {
+            update({
+              type: "waiting-for-generator",
+              pendingGenerators:
+                this._compositeInputGenerator.getPendingGeneratorNames(),
+              stats: runStats,
+              pct: typeof stopCondition === "number" ? stopCondition : 0,
+            });
+          }, 200);
+          try {
+            await this._compositeInputGenerator.waitForNextInput(
+              remainingTimeout
+            );
+          } catch (e: unknown) {
+            this._state = "crashed";
+            this._results.stopReason = FuzzStopReason.CRASH;
+            throw e;
+          } finally {
+            clearTimeout(waitTimer);
+          }
         }
 
         if (
@@ -783,18 +906,18 @@ export class Tester {
             : Infinity;
         };
 
-        const getEffectiveCancelFn = (): (() => boolean) | undefined => {
-          if (!cancelFn) return undefined;
-          return () => !stillInjecting && cancelFn();
-        };
-
         if (transformRunner) {
           let transformedInput: TransformedInputAndSource;
           try {
             transformedInput =
               await this._compositeInputGenerator.nextTransformed();
-          } catch {
-            continue; // stopReason checked at top of loop
+          } catch (e: unknown) {
+            if (e instanceof GeneratorExhaustedError) {
+              continue; // stopReason checked at top of loop
+            }
+            this._state = "crashed";
+            this._results.stopReason = FuzzStopReason.CRASH;
+            throw e;
           }
           result.inputGenerated = transformedInput;
 
@@ -835,8 +958,13 @@ export class Tester {
         } else {
           try {
             result.inputGenerated = this._compositeInputGenerator.next();
-          } catch {
-            continue; // stopReason checked at top of loop
+          } catch (e: unknown) {
+            if (e instanceof GeneratorExhaustedError) {
+              continue; // stopReason checked at top of loop
+            }
+            this._state = "crashed";
+            this._results.stopReason = FuzzStopReason.CRASH;
+            throw e;
           }
         }
         result.timers.gen = performance.now() - startGenTime; // total time: input generation
@@ -1142,6 +1270,7 @@ export class Tester {
               RandomInputGenerator: { enabled: false },
               MutationInputGenerator: { enabled: true },
               AiInputGenerator: { enabled: false },
+              UserInputGenerator: { enabled: false },
             };
           }
         }
@@ -1203,7 +1332,8 @@ export class Tester {
           result.interestingReasons =
             this._compositeInputGenerator.onInputFeedback(
               measurements,
-              result.timers.run + result.timers.gen
+              result.timers.run + result.timers.gen,
+              result.inputGenerated
             );
 
           // Measurement stats
@@ -1215,7 +1345,7 @@ export class Tester {
         }
 
         // Store the result for this iteration
-        const retention = this._options.outputResults ?? "all";
+        const retention = this._executionOptions.outputResults;
         const shouldRetain =
           retention === "all" ||
           Boolean(result.inputGenerated?.injected) ||

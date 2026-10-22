@@ -1121,6 +1121,286 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
     expect(mutatorNames).toContain("dictionary-clear");
   });
 
+  it("Dictionary AFL++ mutators: deleteBlock, truncateToMin, swapValues, replaceBlock", () => {
+    const spec = makeArgDef(
+      dummyModule,
+      "dictArg",
+      0,
+      ArgTag.DICTIONARY,
+      {
+        ...argOptions,
+        dictLength: { min: 2, max: 10 },
+      },
+      0,
+      false,
+      [
+        makeTypeRef(dummyModule, "keys", ArgTag.STRING, 0),
+        makeTypeRef(dummyModule, "values", ArgTag.NUMBER, 0),
+      ]
+    );
+    const input = [
+      {
+        tag: "ArgValueTypeWrapped" as const,
+        value: { a: 10, b: 20, c: 30, d: 40, e: 50 },
+      },
+    ];
+    const mutators = ArgDefMutator.getMutators(
+      [spec],
+      input,
+      seedrandom("dictAflMutators")
+    );
+    const mutatorNames = mutators.map((m) => m.name);
+
+    expect(mutatorNames).toContain("dictionary-deleteBlock");
+    expect(mutatorNames).toContain("dictionary-truncateToMin");
+    expect(mutatorNames).toContain("dictionary-swapValues");
+    expect(mutatorNames).toContain("dictionary-replaceBlock");
+
+    // Execute each AFL++ dictionary mutator and verify the output validates
+    const validator = new ArgDefValidator([spec]);
+    for (const name of [
+      "dictionary-deleteBlock",
+      "dictionary-truncateToMin",
+      "dictionary-swapValues",
+      "dictionary-replaceBlock",
+    ]) {
+      const candidateInput = structuredClone(input);
+      const targetMutators = ArgDefMutator.getMutators(
+        [spec],
+        candidateInput,
+        seedrandom("dictAflExecution")
+      );
+      const target = targetMutators.find((m) => m.name === name);
+      expect(target).toBeDefined();
+      if (target) {
+        target.fn();
+        expect(validator.validate(candidateInput)).toBeTrue();
+      }
+    }
+  });
+
+  it("Array mutators: deleteBlock, truncateToMin, swapElements, rotate, insertElement, replaceBlock, duplicateBlock, fillBlock, and single deleteElement", () => {
+    const spec = makeArgDef(
+      dummyModule,
+      "arrArg",
+      0,
+      ArgTag.NUMBER,
+      {
+        ...argOptions,
+        dimLength: [{ min: 2, max: 10 }],
+      },
+      1,
+      false
+    );
+    const input = [
+      {
+        tag: "ArgValueTypeWrapped" as const,
+        value: [10, 20, 30, 40, 50],
+      },
+    ];
+    const mutators = ArgDefMutator.getMutators(
+      [spec],
+      input,
+      seedrandom("arrayBlockMutators")
+    );
+    const mutatorMap = new Map(mutators.map((m) => [m.name, m]));
+
+    // Check all array mutators are present
+    expect(mutatorMap.has("array-deleteElement")).toBeTrue();
+    expect(mutatorMap.has("array-deleteBlock")).toBeTrue();
+    expect(mutatorMap.has("array-truncateToMin")).toBeTrue();
+    expect(mutatorMap.has("array-swapElements")).toBeTrue();
+    expect(mutatorMap.has("array-rotate")).toBeTrue();
+    expect(mutatorMap.has("array-insertElement")).toBeTrue();
+    expect(mutatorMap.has("array-replaceBlock")).toBeTrue();
+    expect(mutatorMap.has("array-duplicateBlock")).toBeTrue();
+    expect(mutatorMap.has("array-fillBlock")).toBeTrue();
+
+    // Verify simplifies flags as described:
+    // Only deleteElement, deleteBlock, and truncateToMin simplify
+    expect(mutatorMap.get("array-deleteElement")?.simplifies).toBeTrue();
+    expect(mutatorMap.get("array-deleteBlock")?.simplifies).toBeTrue();
+    expect(mutatorMap.get("array-truncateToMin")?.simplifies).toBeTrue();
+
+    expect(mutatorMap.get("array-swapElements")?.simplifies).toBeFalse();
+    expect(mutatorMap.get("array-rotate")?.simplifies).toBeFalse();
+    expect(mutatorMap.get("array-insertElement")?.simplifies).toBeFalse();
+    expect(mutatorMap.get("array-replaceBlock")?.simplifies).toBeFalse();
+    expect(mutatorMap.get("array-duplicateBlock")?.simplifies).toBeFalse();
+    expect(mutatorMap.get("array-fillBlock")?.simplifies).toBeFalse();
+    expect(mutatorMap.get("array-jumble")?.simplifies).toBeFalse();
+    expect(mutatorMap.get("array-reverse")?.simplifies).toBeFalse();
+    expect(mutatorMap.get("array-appendNewElement")?.simplifies).toBeFalse();
+
+    // Execute each array mutator and verify the output validates
+    const validator = new ArgDefValidator([spec]);
+    for (const name of [
+      "array-deleteElement",
+      "array-deleteBlock",
+      "array-truncateToMin",
+      "array-swapElements",
+      "array-rotate",
+      "array-insertElement",
+      "array-replaceBlock",
+      "array-duplicateBlock",
+      "array-fillBlock",
+    ]) {
+      const candidateInput = structuredClone(input);
+      const targetMutators = ArgDefMutator.getMutators(
+        [spec],
+        candidateInput,
+        seedrandom("arrayExecution")
+      );
+      const target = targetMutators.find((m) => m.name === name);
+      expect(target).toBeDefined();
+      if (target) {
+        target.fn();
+        expect(validator.validate(candidateInput)).toBeTrue();
+      }
+    }
+  });
+
+  it("String mutators: reverse, reverseSlice, blocks, and tokens generate valid mutations and preserve Unicode code points", () => {
+    const spec = makeArgDef(
+      dummyModule,
+      "strArg",
+      0,
+      ArgTag.STRING,
+      {
+        ...argOptions,
+        strLength: { min: 2, max: 20 },
+        strCharset:
+          "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ 01- 👋",
+      },
+      0,
+      false
+    );
+    const input = [
+      {
+        tag: "ArgValueTypeWrapped" as const,
+        value: "abcdef 👋",
+      },
+    ];
+    const validator = new ArgDefValidator([spec]);
+    const mutators = ArgDefMutator.getMutators(
+      [spec],
+      input,
+      seedrandom("stringMutatorsTest")
+    );
+    const mutatorMap = new Map(mutators.map((m) => [m.name, m]));
+
+    expect(mutatorMap.has("string-reverse")).toBeTrue();
+    expect(mutatorMap.has("string-reverseSlice")).toBeTrue();
+    expect(mutatorMap.has("string-deleteBlock")).toBeTrue();
+    expect(mutatorMap.has("string-truncateToMin")).toBeTrue();
+    expect(mutatorMap.has("string-swapChars")).toBeTrue();
+    expect(mutatorMap.has("string-rotate")).toBeTrue();
+    expect(mutatorMap.has("string-replaceBlock")).toBeTrue();
+    expect(mutatorMap.has("string-insertBlock")).toBeTrue();
+    expect(mutatorMap.has("string-duplicateBlock")).toBeTrue();
+    expect(mutatorMap.has("string-jumble")).toBeTrue();
+    expect(mutatorMap.has("string-caseTransform")).toBeTrue();
+    expect(mutatorMap.has("string-insertBoundaryToken")).toBeTrue();
+
+    // Verify simplifies flags
+    expect(mutatorMap.get("string-deleteBlock")?.simplifies).toBeTrue();
+    expect(mutatorMap.get("string-truncateToMin")?.simplifies).toBeTrue();
+    expect(mutatorMap.get("string-reverse")?.simplifies).toBeFalse();
+    expect(mutatorMap.get("string-reverseSlice")?.simplifies).toBeFalse();
+    expect(mutatorMap.get("string-swapChars")?.simplifies).toBeFalse();
+    expect(mutatorMap.get("string-rotate")?.simplifies).toBeFalse();
+    expect(mutatorMap.get("string-replaceBlock")?.simplifies).toBeFalse();
+    expect(mutatorMap.get("string-insertBlock")?.simplifies).toBeFalse();
+    expect(mutatorMap.get("string-duplicateBlock")?.simplifies).toBeFalse();
+    expect(mutatorMap.get("string-jumble")?.simplifies).toBeFalse();
+    expect(mutatorMap.get("string-caseTransform")?.simplifies).toBeFalse();
+    expect(
+      mutatorMap.get("string-insertBoundaryToken")?.simplifies
+    ).toBeFalse();
+
+    for (const name of [
+      "string-reverse",
+      "string-reverseSlice",
+      "string-deleteBlock",
+      "string-truncateToMin",
+      "string-swapChars",
+      "string-rotate",
+      "string-replaceBlock",
+      "string-insertBlock",
+      "string-duplicateBlock",
+      "string-jumble",
+      "string-caseTransform",
+      "string-insertBoundaryToken",
+    ]) {
+      const candidateInput = structuredClone(input);
+      const targetMutators = ArgDefMutator.getMutators(
+        [spec],
+        candidateInput,
+        seedrandom("stringMutatorsTest")
+      );
+      const target = targetMutators.find((m) => m.name === name);
+      expect(target).toBeDefined();
+      if (target) {
+        target.fn();
+        expect(validator.validate(candidateInput)).toBeTrue();
+      }
+    }
+  });
+
+  it("Bytes mutators: generates and executes valid byte mutations for single- and multi-byte inputs", () => {
+    const spec = makeArgDef(
+      dummyModule,
+      "bytesArg",
+      0,
+      ArgTag.BYTES,
+      {
+        ...argOptions,
+        byteLength: { min: 2, max: 10 },
+      },
+      0,
+      false
+    );
+    const input = [
+      {
+        tag: "ArgValueTypeWrapped" as const,
+        value: new Uint8Array([0x10, 0x20, 0x30, 0x40, 0x50]),
+      },
+    ];
+    const validator = new ArgDefValidator([spec]);
+    const mutators = ArgDefMutator.getMutators(
+      [spec],
+      input,
+      seedrandom("bytesMutatorsTest")
+    );
+
+    expect(mutators.length).toBeGreaterThan(0);
+    const names = mutators.map((m) => m.name);
+    // Verify core and new byte mutator presence
+    expect(names.some((n) => n.startsWith("bytes-"))).toBeTrue();
+
+    for (let index = 0; index < mutators.length; index++) {
+      const candidate = [
+        {
+          tag: "ArgValueTypeWrapped" as const,
+          value: new Uint8Array([0x10, 0x20, 0x30, 0x40, 0x50]),
+        },
+      ];
+      const candidateMutators = ArgDefMutator.getMutators(
+        [spec],
+        candidate,
+        seedrandom("bytesMutatorsTest")
+      );
+      candidateMutators[index].fn();
+      expect(validator.validate(candidate)).toBeTrue();
+      const val = candidate[0].value;
+      expect(val instanceof Uint8Array).toBeTrue();
+      if (val instanceof Uint8Array) {
+        expect(val.length).toBeGreaterThanOrEqual(2);
+        expect(val.length).toBeLessThanOrEqual(10);
+      }
+    }
+  });
+
   it("Set mutators reject element mutations that duplicate an existing element in the Set", () => {
     const spec = makeArgDef(
       dummyModule,
@@ -1193,6 +1473,20 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
     mutators[0].fn();
     expect(typeof inputWithUndef[0].value).toBe("bigint");
     expect(ArgDefValidator.validate(inputWithUndef[0].value, spec)).toBeTrue();
+  });
+
+  it("getMutators handles functions with more than 10 arguments without constructor arity error", () => {
+    const specs: ArgDef[] = Array.from(
+      { length: 12 },
+      (_, i) => new ArgDef(`arg${i}`, i, ArgTag.NUMBER, argOptions)
+    );
+    const input: ArgValueTypeWrapped[] = Array.from({ length: 12 }, (_, i) => ({
+      tag: "ArgValueTypeWrapped",
+      value: i,
+    }));
+    const prng = seedrandom("manyArgsMutator");
+    const mutators = ArgDefMutator.getMutators(specs, input, prng);
+    expect(mutators.length).toBeGreaterThan(0);
   });
 
   /**
