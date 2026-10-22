@@ -129,6 +129,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
           erroredTests: 0,
           passedTests: 1,
           inputsSkipped: 0,
+          inputsInterrupted: 0,
           failedTests: 0,
         },
         outcomes: {
@@ -258,6 +259,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
             erroredTests: 0,
             passedTests: 1,
             inputsSkipped: 0,
+            inputsInterrupted: 0,
             failedTests: 0,
           },
           outcomes: {
@@ -405,6 +407,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
             erroredTests: 0,
             passedTests: chunkSize * 2,
             inputsSkipped: 0,
+            inputsInterrupted: 0,
             failedTests: 0,
           },
           outcomes: {
@@ -630,6 +633,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
             erroredTests: 0,
             passedTests: 2,
             inputsSkipped: 0,
+            inputsInterrupted: 0,
             failedTests: 0,
           },
           outcomes: {

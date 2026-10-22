@@ -1073,6 +1073,7 @@ def x(val: int) -> int:
             erroredTests: 0,
             passedTests: 1,
             inputsSkipped: 0,
+            inputsInterrupted: 0,
             failedTests: 0,
           },
           timers: {
@@ -1329,6 +1330,7 @@ def x(val: int) -> int:
             erroredTests: 0,
             passedTests: 1,
             inputsSkipped: 0,
+            inputsInterrupted: 0,
             failedTests: 0,
           },
           timers: {
