@@ -4,15 +4,18 @@ import os from "node:os";
 import crypto from "node:crypto";
 import * as ChildProcess from "node:child_process";
 import { FileCoverageData } from "istanbul-lib-coverage";
-import { RustCompiler } from "../../compilers/rust/RustCompiler";
+import { RustCompiler, CargoPackage } from "../../compilers/rust/RustCompiler";
 import { RustCompilerError } from "../../compilers/Types";
 import { RustProgram } from "../../analysis/rust/RustProgram";
 import { FuzzEnv } from "../../Types";
 import { findInAncestor } from "../../Util";
 import * as Parser from "../../adapters/ParserAdapter";
 import * as ProgramFactory from "../../analysis/ProgramFactory";
+import * as Config from "../../../Config";
+import { parseCoverageScope } from "../../measures/Util";
+import { CoverageScopeConfig } from "../../measures/Types";
 
-const HARNESS_TEMPLATE_VER = "RustHarness-0.4.6";
+const HARNESS_TEMPLATE_VER = "RustHarness-0.4.7";
 
 /**
  * Builds and returns the compiled Rust harness binary for testing a target function.
@@ -45,6 +48,20 @@ export function buildRustHarness(
     tmpDir ?? path.join(fs.realpathSync(os.tmpdir()), "nanofuzz", "rust");
   fs.mkdirSync(baseTmp, { recursive: true });
 
+  const coverageScopeRaw = Config.get<unknown>(
+    "nanofuzz.fuzzer.coverageScope",
+    "project static"
+  );
+  let scopeConfig: CoverageScopeConfig = {
+    target: "project",
+    collectStaticCoverage: true,
+  };
+  try {
+    scopeConfig = parseCoverageScope(coverageScopeRaw);
+  } catch {
+    // fallback
+  }
+
   // Discover local module files for multi-file coverage in project scope
   const userCargoToml = findInAncestor(path.dirname(normTarget), "Cargo.toml");
   let baseDir = path.dirname(normTarget);
@@ -70,7 +87,87 @@ export function buildRustHarness(
     }
   }
 
-  const allProjectFiles = [normTarget, ...localModules];
+  // Discover direct external crates if directimports scope is active
+  const externalCratesToVendor: CargoPackage[] = [];
+  const cratesIoPatches = new Map<string, string>();
+  const pathDepOverrides = new Map<string, string>();
+
+  if (scopeConfig.target.includes("directimports") && userCargoToml) {
+    const directCrateNames = RustProgram.findDirectCrates(normTarget);
+    const localModNames = new Set(
+      localModules.map((f) => path.basename(f, ".rs"))
+    );
+    const candidateCrateNames = directCrateNames.filter(
+      (c) => !localModNames.has(c)
+    );
+
+    if (candidateCrateNames.length > 0) {
+      const metadata = RustCompiler.getCargoMetadata(userCargoToml);
+      if (metadata) {
+        for (const cName of candidateCrateNames) {
+          const pkg = metadata.packages.find((p) => {
+            if (p.manifest_path === userCargoToml) return false;
+            if (
+              p.name === "nanofuzz-runtime" ||
+              p.name === "serde" ||
+              p.name === "serde_json"
+            ) {
+              return false;
+            }
+            const norm = p.name.replace(/-/g, "_");
+            if (p.name === cName || norm === cName) return true;
+            return p.targets.some(
+              (t) => t.name === cName || t.name.replace(/-/g, "_") === cName
+            );
+          });
+          if (pkg && !externalCratesToVendor.some((e) => e.name === pkg.name)) {
+            externalCratesToVendor.push(pkg);
+          }
+        }
+      }
+    }
+  }
+
+  const externalCrateFiles: Array<{
+    rsFile: string;
+    origPath: string;
+    relVendorPath: string;
+    pkgName: string;
+  }> = [];
+
+  for (const pkg of externalCratesToVendor) {
+    const pkgDir = path.dirname(pkg.manifest_path);
+
+    if (pkg.source !== null) {
+      cratesIoPatches.set(pkg.name, `vendor/${pkg.name}`);
+    } else {
+      pathDepOverrides.set(pkg.name, `vendor/${pkg.name}`);
+    }
+
+    const pkgSrcDir = path.join(pkgDir, "src");
+    const searchDir = fs.existsSync(pkgSrcDir) ? pkgSrcDir : pkgDir;
+    const rsFiles = findRsFilesRecursive(searchDir);
+
+    for (const rsFile of rsFiles) {
+      const origPath = fs.existsSync(rsFile)
+        ? fs.realpathSync(rsFile)
+        : path.resolve(rsFile);
+      const rel = path.relative(pkgDir, rsFile);
+      const relVendorPath = path.join("vendor", pkg.name, rel);
+      externalCrateFiles.push({
+        rsFile,
+        origPath,
+        relVendorPath,
+        pkgName: pkg.name,
+      });
+    }
+  }
+
+  const allProjectFiles = [
+    normTarget,
+    ...localModules,
+    ...externalCrateFiles.map((e) => e.origPath),
+  ];
   let maxMtime = 0;
   for (const pf of allProjectFiles) {
     if (fs.existsSync(pf)) {
@@ -81,11 +178,11 @@ export function buildRustHarness(
 
   const validators = env?.validators.map((v) => v.name) ?? [];
 
-  // Compute a deterministic cache key including all project files
+  // Compute a deterministic cache key including all project and external files
   const cacheHash = crypto
     .createHash("md5")
     .update(
-      `${allProjectFiles.sort().join(",")}:${fnName}:${validators.sort().join(",")}:${HARNESS_TEMPLATE_VER}`
+      `${allProjectFiles.sort().join(",")}:${fnName}:${validators.sort().join(",")}:${scopeConfig.target}:${HARNESS_TEMPLATE_VER}`
     )
     .digest("hex")
     .substring(0, 16);
@@ -137,6 +234,29 @@ export function buildRustHarness(
     });
   }
 
+  // Instrument all external crate files (fileId = nextFileId, ...)
+  let nextFileId = 1 + localModules.length;
+  const vendoredFilesToWrite: Array<{
+    destFile: string;
+    instrumentedSrc: string;
+  }> = [];
+
+  for (const item of externalCrateFiles) {
+    const fileId = nextFileId++;
+    const extSrc = fs.readFileSync(item.origPath, "utf8");
+    const extCov = instrumentRustSource(extSrc, item.origPath, fileId, true);
+    staticCovMap[item.origPath.replace(/\\/g, "/")] = extCov.staticCov;
+    manifestEntries.push({
+      fileId,
+      filePath: item.origPath,
+      branchArms: extCov.branchArms,
+    });
+    vendoredFilesToWrite.push({
+      destFile: path.join(harnessDir, item.relVendorPath),
+      instrumentedSrc: extCov.instrumentedSrc,
+    });
+  }
+
   // Return cached binary if it already exists and is up-to-date relative to all project files
   if (
     fs.existsSync(binaryPath) &&
@@ -170,6 +290,27 @@ export function buildRustHarness(
     fs.writeFileSync(mod.instLocalPath, mod.instrumentedSrc, "utf8");
   }
 
+  // Vendor external crates and write instrumented external files
+  for (const pkg of externalCratesToVendor) {
+    const pkgDir = path.dirname(pkg.manifest_path);
+    const vendorPkgDir = path.join(harnessDir, "vendor", pkg.name);
+    fs.mkdirSync(vendorPkgDir, { recursive: true });
+    fs.cpSync(pkgDir, vendorPkgDir, {
+      recursive: true,
+      filter: (srcPath) => !srcPath.includes(path.sep + "target"),
+    });
+  }
+
+  for (const vf of vendoredFilesToWrite) {
+    fs.mkdirSync(path.dirname(vf.destFile), { recursive: true });
+    try {
+      fs.chmodSync(vf.destFile, 0o666);
+    } catch {
+      // ignore chmod errors
+    }
+    fs.writeFileSync(vf.destFile, vf.instrumentedSrc, "utf8");
+  }
+
   // Locate the nanofuzz-runtime crate
   const runtimeCratePath = findRuntimeCrate();
   if (!runtimeCratePath) {
@@ -180,8 +321,16 @@ export function buildRustHarness(
 
   // Check for ancestor Cargo.toml to extract user dependencies
   const extraDependencies = userCargoToml
-    ? extractCargoDependencies(userCargoToml)
+    ? extractCargoDependencies(userCargoToml, pathDepOverrides)
     : "";
+
+  let patchSection = "";
+  if (cratesIoPatches.size > 0) {
+    const patchLines = Array.from(cratesIoPatches.entries()).map(
+      ([name, relPath]) => `${name} = { path = "${relPath}" }`
+    );
+    patchSection = `\n[patch.crates-io]\n${patchLines.join("\n")}\n`;
+  }
 
   // Write Cargo.toml
   const cargoTomlContent = `[package]
@@ -194,6 +343,7 @@ nanofuzz-runtime = { path = "${runtimeCratePath.replace(/\\/g, "/")}" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 ${extraDependencies}
+${patchSection}
 `;
   fs.writeFileSync(
     path.join(harnessDir, "Cargo.toml"),
@@ -430,12 +580,14 @@ ${validatorBlocks.join("\n")}
  * @param src Target Rust source code
  * @param targetFile Absolute path of the target file
  * @param fileId Optional file identifier for multi-file coverage attribution (default: 0)
+ * @param useExternC When true, emits FFI extern C probes for external vendored crates
  * @returns Object with instrumented source code, static coverage, and branch arms
  */
 export function instrumentRustSource(
   src: string,
   targetFile: string = "",
-  fileId: number = 0
+  fileId: number = 0,
+  useExternC: boolean = false
 ): {
   instrumentedSrc: string;
   staticCov: FileCoverageData;
@@ -459,7 +611,7 @@ export function instrumentRustSource(
   let fIdx = 0;
   let bIdx = 0;
 
-  // 1. Function items
+  // Function items
   const fnQuery = Parser.query(
     "rust",
     `
@@ -503,9 +655,12 @@ export function instrumentRustSource(
     };
     f[currentFIdx] = 0;
 
+    const fnProbe = useExternC
+      ? ` unsafe { __nanofuzz_hit_fn(${fileId}, ${currentFIdx}); }; `
+      : ` nanofuzz_runtime::coverage::hit_fn(${fileId}, ${currentFIdx}); `;
     insertions.push({
       pos: bodyNode.startIndex + 1,
-      text: ` nanofuzz_runtime::coverage::hit_fn(${fileId}, ${currentFIdx}); `,
+      text: fnProbe,
     });
 
     for (let i = 0; i < bodyNode.childCount; i++) {
@@ -531,14 +686,17 @@ export function instrumentRustSource(
         },
       };
       s[currentSIdx] = 0;
+      const stmtProbe = useExternC
+        ? `unsafe { __nanofuzz_hit_stmt(${fileId}, ${currentSIdx}); }; `
+        : `nanofuzz_runtime::coverage::hit_stmt(${fileId}, ${currentSIdx}); `;
       insertions.push({
         pos: child.startIndex,
-        text: `nanofuzz_runtime::coverage::hit_stmt(${fileId}, ${currentSIdx}); `,
+        text: stmtProbe,
       });
     }
   }
 
-  // 2. If branches
+  // If branches
   const ifQuery = Parser.query(
     "rust",
     `
@@ -608,21 +766,30 @@ export function instrumentRustSource(
     };
     b[currentBIdx] = [0, 0];
 
+    const branchProbe0 = useExternC
+      ? ` unsafe { __nanofuzz_hit_branch(${fileId}, ${currentBIdx}, 0); }; `
+      : ` nanofuzz_runtime::coverage::hit_branch(${fileId}, ${currentBIdx}, 0); `;
     insertions.push({
       pos: thenBlock.startIndex + 1,
-      text: ` nanofuzz_runtime::coverage::hit_branch(${fileId}, ${currentBIdx}, 0); `,
+      text: branchProbe0,
     });
 
     if (elseNode) {
       if (elseNode.type === "block") {
+        const branchProbe1 = useExternC
+          ? ` unsafe { __nanofuzz_hit_branch(${fileId}, ${currentBIdx}, 1); }; `
+          : ` nanofuzz_runtime::coverage::hit_branch(${fileId}, ${currentBIdx}, 1); `;
         insertions.push({
           pos: elseNode.startIndex + 1,
-          text: ` nanofuzz_runtime::coverage::hit_branch(${fileId}, ${currentBIdx}, 1); `,
+          text: branchProbe1,
         });
       } else if (elseNode.type === "if_expression") {
+        const branchProbe1 = useExternC
+          ? `{ unsafe { __nanofuzz_hit_branch(${fileId}, ${currentBIdx}, 1); }; `
+          : `{ nanofuzz_runtime::coverage::hit_branch(${fileId}, ${currentBIdx}, 1); `;
         insertions.push({
           pos: elseNode.startIndex,
-          text: `{ nanofuzz_runtime::coverage::hit_branch(${fileId}, ${currentBIdx}, 1); `,
+          text: branchProbe1,
         });
         insertions.push({
           pos: elseNode.endIndex,
@@ -630,14 +797,17 @@ export function instrumentRustSource(
         });
       }
     } else {
+      const branchProbe1 = useExternC
+        ? ` else { unsafe { __nanofuzz_hit_branch(${fileId}, ${currentBIdx}, 1); }; } `
+        : ` else { nanofuzz_runtime::coverage::hit_branch(${fileId}, ${currentBIdx}, 1); } `;
       insertions.push({
         pos: thenBlock.endIndex,
-        text: ` else { nanofuzz_runtime::coverage::hit_branch(${fileId}, ${currentBIdx}, 1); } `,
+        text: branchProbe1,
       });
     }
   }
 
-  // 3. Match branches
+  // Match branches
   const matchQuery = Parser.query(
     "rust",
     `
@@ -713,14 +883,20 @@ export function instrumentRustSource(
 
       if (valNode) {
         if (valNode.type === "block") {
+          const matchArmProbe = useExternC
+            ? ` unsafe { __nanofuzz_hit_branch(${fileId}, ${currentBIdx}, ${j}); }; `
+            : ` nanofuzz_runtime::coverage::hit_branch(${fileId}, ${currentBIdx}, ${j}); `;
           insertions.push({
             pos: valNode.startIndex + 1,
-            text: ` nanofuzz_runtime::coverage::hit_branch(${fileId}, ${currentBIdx}, ${j}); `,
+            text: matchArmProbe,
           });
         } else {
+          const matchArmProbe = useExternC
+            ? `{ unsafe { __nanofuzz_hit_branch(${fileId}, ${currentBIdx}, ${j}); }; `
+            : `{ nanofuzz_runtime::coverage::hit_branch(${fileId}, ${currentBIdx}, ${j}); `;
           insertions.push({
             pos: valNode.startIndex,
-            text: `{ nanofuzz_runtime::coverage::hit_branch(${fileId}, ${currentBIdx}, ${j}); `,
+            text: matchArmProbe,
           });
           insertions.push({
             pos: valNode.endIndex,
@@ -738,6 +914,10 @@ export function instrumentRustSource(
       instrumentedSrc.slice(0, ins.pos) +
       ins.text +
       instrumentedSrc.slice(ins.pos);
+  }
+
+  if (useExternC) {
+    instrumentedSrc += `\n#[allow(dead_code)]\nextern "C" {\n    fn __nanofuzz_hit_stmt(file_id: u32, id: u32);\n    fn __nanofuzz_hit_fn(file_id: u32, id: u32);\n    fn __nanofuzz_hit_branch(file_id: u32, branch_id: u32, arm_id: u32);\n}\n`;
   }
 
   const staticCov: FileCoverageData = {
@@ -850,7 +1030,10 @@ function findRuntimeCrate(): string | undefined {
 /**
  * Extracts dependencies block from a Cargo.toml file.
  */
-function extractCargoDependencies(cargoTomlPath: string): string {
+function extractCargoDependencies(
+  cargoTomlPath: string,
+  pathOverrides?: Map<string, string>
+): string {
   try {
     const content = fs.readFileSync(cargoTomlPath, "utf8");
     const lines = content.split(/\r?\n/);
@@ -868,7 +1051,29 @@ function extractCargoDependencies(cargoTomlPath: string): string {
           !trimmed.startsWith("nanofuzz-runtime") &&
           !trimmed.startsWith("serde")
         ) {
-          depLines.push(line);
+          const match = trimmed.match(/^([a-zA-Z0-9_-]+)\s*=/);
+          if (match && pathOverrides && pathOverrides.has(match[1])) {
+            const overrideRel = pathOverrides.get(match[1])!;
+            if (line.includes("path")) {
+              depLines.push(
+                line.replace(/path\s*=\s*"[^"]+"/, `path = "${overrideRel}"`)
+              );
+            } else {
+              depLines.push(`${match[1]} = { path = "${overrideRel}" }`);
+            }
+          } else {
+            const pathMatch = line.match(/path\s*=\s*"([^"]+)"/);
+            if (pathMatch && !path.isAbsolute(pathMatch[1])) {
+              const abs = path
+                .resolve(path.dirname(cargoTomlPath), pathMatch[1])
+                .replace(/\\/g, "/");
+              depLines.push(
+                line.replace(/path\s*=\s*"[^"]+"/, `path = "${abs}"`)
+              );
+            } else {
+              depLines.push(line);
+            }
+          }
         }
       }
     }
@@ -878,6 +1083,25 @@ function extractCargoDependencies(cargoTomlPath: string): string {
     return "";
   }
 } // fn: extractCargoDependencies
+
+function findRsFilesRecursive(dir: string): string[] {
+  const rsFiles: string[] = [];
+  if (!fs.existsSync(dir)) return rsFiles;
+  try {
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory() && entry.name !== "target") {
+        rsFiles.push(...findRsFilesRecursive(full));
+      } else if (entry.isFile() && entry.name.endsWith(".rs")) {
+        rsFiles.push(full);
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return rsFiles;
+} // fn: findRsFilesRecursive
 
 type CoverageManifestEntry = {
   fileId: number;

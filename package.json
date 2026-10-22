@@ -252,7 +252,7 @@
               "project"
             ],
             "default": "project static",
-            "description": "Code coverage scope (`directimports` is currently only supported for Python)"
+            "description": "Code coverage scope (`directimports` is supported for Python and Rust)"
           },
           "nanofuzz.fuzzer.engine": {
             "title": "Fuzzer engine version",

@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import * as Config from "../../Config";
 import { CoverageMeasure } from "./CoverageMeasure";
 import { RustRunner } from "../runners/rust/RustRunner";
 import { instrumentRustSource } from "../runners/rust/RustHarness";
@@ -424,6 +425,84 @@ pub fn calculate(x: i32) -> i32 {
     expect(helperStats!.counters.branchesCovered).toBe(1);
 
     await runner.onRunEnd();
+  });
+
+  it("coverage scope: 'project static' vs 'project directimports static' for Rust", async () => {
+    const depDir = path.join(tempDir, "ext_dep");
+    const appDir = path.join(tempDir, "my_app");
+    fs.mkdirSync(path.join(depDir, "src"), { recursive: true });
+    fs.mkdirSync(path.join(appDir, "src"), { recursive: true });
+
+    fs.writeFileSync(
+      path.join(depDir, "Cargo.toml"),
+      `[package]\nname = "ext_dep"\nversion = "0.1.0"\nedition = "2021"\n`
+    );
+    fs.writeFileSync(
+      path.join(depDir, "src", "lib.rs"),
+      `pub fn square(x: i32) -> i32 {\n    if x > 0 {\n        x * x\n    } else {\n        0\n    }\n}\n`
+    );
+
+    fs.writeFileSync(
+      path.join(appDir, "Cargo.toml"),
+      `[package]\nname = "my_app"\nversion = "0.1.0"\nedition = "2021"\n\n[dependencies]\next_dep = { path = "../ext_dep" }\n`
+    );
+    const mainRs = path.join(appDir, "src", "main.rs");
+    fs.writeFileSync(
+      mainRs,
+      `use ext_dep::square;\n\npub fn compute(n: i32) -> i32 {\n    square(n) + 1\n}\n\nfn main() {}\n`
+    );
+
+    const program = ProgramFactory.fromFile(mainRs, "rust");
+    const fnDef = program.functionsExported["compute"];
+    const env = createTestEnv(fnDef);
+
+    try {
+      // 1. Default 'project static' scope
+      Config.override("nanofuzz.fuzzer.coverageScope", "project static");
+      const runnerProject = new RustRunner(mainRs, "compute", env);
+      await runnerProject.onRunStart();
+      const resProject = await runnerProject.run([4], 5000);
+      expect(resProject.result.tag).toBe("value");
+      if (resProject.result.tag === "value") {
+        expect(resProject.result.value).toBe(17);
+      }
+      expect(runnerProject.coverageInfo).toBeDefined();
+      const projectFiles = Object.keys(runnerProject.coverageInfo!);
+      expect(projectFiles.some((f) => f.includes("main.rs"))).toBeTrue();
+      // External dependency should NOT be in project scope
+      expect(projectFiles.some((f) => f.includes("ext_dep"))).toBeFalse();
+      await runnerProject.onRunEnd();
+
+      // 2. 'project directimports static' scope
+      Config.override(
+        "nanofuzz.fuzzer.coverageScope",
+        "project directimports static"
+      );
+      const runnerImports = new RustRunner(mainRs, "compute", env);
+      await runnerImports.onRunStart();
+      const resImports = await runnerImports.run([4], 5000);
+      expect(resImports.result.tag).toBe("value");
+      if (resImports.result.tag === "value") {
+        expect(resImports.result.value).toBe(17);
+      }
+      expect(runnerImports.coverageInfo).toBeDefined();
+      const importFiles = Object.keys(runnerImports.coverageInfo!);
+      // Both main.rs AND ext_dep/src/lib.rs should be present
+      expect(importFiles.some((f) => f.includes("main.rs"))).toBeTrue();
+      expect(importFiles.some((f) => f.includes("ext_dep"))).toBeTrue();
+
+      // Verify dynamic hits recorded for external crate
+      const extFile = importFiles.find((f) => f.includes("ext_dep"));
+      expect(extFile).toBeDefined();
+      const extCov = runnerImports.coverageInfo![extFile!];
+      expect(Object.values(extCov.f).some((h) => h > 0)).toBeTrue();
+      expect(Object.values(extCov.s).some((h) => h > 0)).toBeTrue();
+      expect(extCov.b["0"]).toEqual([1, 0]);
+
+      await runnerImports.onRunEnd();
+    } finally {
+      Config.override("nanofuzz.fuzzer.coverageScope", "project static");
+    }
   });
 });
 

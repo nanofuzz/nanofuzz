@@ -788,6 +788,17 @@ export class RustProgram extends AbstractProgram {
   ): string[] {
     return findLocalModules(sourceFile, visited);
   } // fn: findLocalModules
+
+  /**
+   * Discovers top-level 3rd-party or external crate identifiers directly imported
+   * in the given Rust source file via `use <crate>::...` or `extern crate <crate>;`.
+   *
+   * @param sourceFile Absolute path to the source file
+   * @returns Array of unique crate identifiers
+   */
+  public static findDirectCrates(sourceFile: string): string[] {
+    return findDirectCrates(sourceFile);
+  } // fn: findDirectCrates
 } // class: RustProgram
 
 // ============================================================================
@@ -1082,3 +1093,74 @@ function findLocalModules(
 
   return results;
 } // fn: findLocalModules
+
+const BUILTIN_CRATES = new Set([
+  "std",
+  "core",
+  "alloc",
+  "crate",
+  "super",
+  "self",
+  "nanofuzz_runtime",
+  "nanofuzz-runtime",
+]);
+
+/**
+ * Finds directly imported external crate identifiers from a Rust source file.
+ *
+ * @param sourceFile The path to the Rust source file.
+ * @returns Array of unique external crate identifiers.
+ */
+function findDirectCrates(sourceFile: string): string[] {
+  const norm = fs.existsSync(sourceFile)
+    ? fs.realpathSync(sourceFile)
+    : path.resolve(sourceFile);
+  if (!fs.existsSync(norm)) {
+    return [];
+  }
+
+  const crates = new Set<string>();
+  const src = fs.readFileSync(norm, "utf8");
+  const tree = Parser.parse("rust", src);
+  if (!tree) return [];
+
+  const query = Parser.query(
+    "rust",
+    `
+(use_declaration) @use.decl
+(extern_crate_declaration
+  name: (identifier) @extern.name) @extern.decl
+`
+  );
+  const matches = query.matches(tree.rootNode);
+
+  for (const match of matches) {
+    const externName = match.captures.find(
+      (c) => c.name === "extern.name"
+    )?.node;
+    if (externName) {
+      const name = externName.text.trim();
+      if (name && !BUILTIN_CRATES.has(name)) {
+        crates.add(name);
+      }
+      continue;
+    }
+
+    const useNode = match.captures.find((c) => c.name === "use.decl")?.node;
+    if (!useNode) continue;
+    const argNode = useNode.childForFieldName("argument");
+    if (!argNode) continue;
+
+    const raw = argNode.text.trim();
+    const root = raw.split("::")[0].trim().split(/\s+/)[0];
+    if (
+      root &&
+      /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(root) &&
+      !BUILTIN_CRATES.has(root)
+    ) {
+      crates.add(root);
+    }
+  }
+
+  return Array.from(crates);
+} // fn: findDirectCrates

@@ -31,6 +31,10 @@ export class RustCompiler {
     string,
     { result: boolean; expiresAt: number }
   > = new Map();
+  protected static _metadataCache: Map<
+    string,
+    { metadata: CargoMetadata; mtimeMs: number }
+  > = new Map();
 
   constructor(fqModulePath: string) {
     this._moduleFile = fqModulePath;
@@ -449,6 +453,57 @@ export class RustCompiler {
     return result;
   } // fn: canExecute
 
+  /**
+   * Retrieves cargo metadata for a given Cargo.toml manifest, with caching.
+   *
+   * @param cargoTomlPath Absolute path to Cargo.toml
+   * @returns Parsed CargoMetadata object or undefined on failure
+   */
+  public static getCargoMetadata(
+    cargoTomlPath: string
+  ): CargoMetadata | undefined {
+    if (!fs.existsSync(cargoTomlPath)) {
+      return undefined;
+    }
+    const realToml = fs.realpathSync(cargoTomlPath);
+    const mtime = fs.statSync(realToml).mtimeMs;
+    const cached = RustCompiler._metadataCache.get(realToml);
+    if (cached && cached.mtimeMs === mtime) {
+      return cached.metadata;
+    }
+
+    const cargoBin = RustCompiler.resolveCargo();
+    if (!cargoBin) {
+      return undefined;
+    }
+
+    try {
+      const res = ChildProcess.spawnSync(
+        cargoBin,
+        ["metadata", "--format-version", "1", "--manifest-path", realToml],
+        {
+          encoding: "utf8",
+          windowsHide: true,
+          maxBuffer: 32 * 1024 * 1024,
+          timeout: 10000,
+        }
+      );
+      if (res.status === 0 && res.stdout) {
+        const parsed: unknown = JSON.parse(res.stdout);
+        if (isCargoMetadata(parsed)) {
+          RustCompiler._metadataCache.set(realToml, {
+            metadata: parsed,
+            mtimeMs: mtime,
+          });
+          return parsed;
+        }
+      }
+    } catch {
+      // ignore metadata failure
+    }
+    return undefined;
+  } // fn: getCargoMetadata
+
   protected _getCompilationRecordFilename(moduleFile: string): string {
     const hash = crypto
       .createHash("md5")
@@ -666,3 +721,33 @@ function findRuntimeRlib(): string | undefined {
 
   return undefined;
 } // fn: findRuntimeRlib
+
+export type CargoPackageTarget = {
+  kind: string[];
+  name: string;
+  src_path: string;
+};
+
+export type CargoPackage = {
+  name: string;
+  version: string;
+  manifest_path: string;
+  source: string | null;
+  targets: CargoPackageTarget[];
+  dependencies?: Array<{ name: string; path?: string }>;
+};
+
+export type CargoMetadata = {
+  packages: CargoPackage[];
+  workspace_root: string;
+};
+
+function isCargoMetadata(obj: unknown): obj is CargoMetadata {
+  return (
+    typeof obj === "object" &&
+    obj !== null &&
+    !Array.isArray(obj) &&
+    "packages" in obj &&
+    Array.isArray(obj.packages)
+  );
+} // fn: isCargoMetadata

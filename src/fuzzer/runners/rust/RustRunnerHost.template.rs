@@ -95,6 +95,21 @@ const MANIFEST: &[nanofuzz_runtime::coverage::FileCoverageSpec] = &[
     /* __NANOFUZZ_COVERAGE_MANIFEST__ */
 ];
 
+#[no_mangle]
+pub extern "C" fn __nanofuzz_hit_stmt(file_id: u32, id: u32) {
+    nanofuzz_runtime::coverage::hit_stmt(file_id, id);
+}
+
+#[no_mangle]
+pub extern "C" fn __nanofuzz_hit_fn(file_id: u32, id: u32) {
+    nanofuzz_runtime::coverage::hit_fn(file_id, id);
+}
+
+#[no_mangle]
+pub extern "C" fn __nanofuzz_hit_branch(file_id: u32, branch_id: u32, arm_id: u32) {
+    nanofuzz_runtime::coverage::hit_branch(file_id, branch_id, arm_id);
+}
+
 fn main() -> io::Result<()> {
     // Suppress default panic printing to stderr so intentional fuzzer panics do not clutter output
     std::panic::set_hook(Box::new(|_| {}));

@@ -263,4 +263,44 @@ pub fn entry() {}
       fs.rmSync(tmp, { recursive: true, force: true });
     }
   });
+
+  it("extracts direct external crate imports while ignoring standard and internal crates", () => {
+    const tmp = fs.mkdtempSync(
+      path.join(fs.realpathSync(os.tmpdir()), "nanofuzz-crates-test-")
+    );
+    try {
+      const srcFile = path.join(tmp, "main.rs");
+      fs.writeFileSync(
+        srcFile,
+        `use std::collections::HashMap;
+use core::fmt;
+use alloc::vec::Vec;
+use crate::local_mod;
+use super::parent_mod;
+use self::sibling;
+use nanofuzz_runtime::assume;
+use regex::Regex;
+use serde::{Serialize, Deserialize};
+extern crate itertools;
+use itoa as custom_itoa;
+
+pub fn test_fn() {}
+`
+      );
+
+      const crates = RustProgram.findDirectCrates(srcFile);
+      expect(crates.length).toBe(4);
+      expect(crates).toContain("regex");
+      expect(crates).toContain("serde");
+      expect(crates).toContain("itertools");
+      expect(crates).toContain("itoa");
+      expect(crates).not.toContain("std");
+      expect(crates).not.toContain("core");
+      expect(crates).not.toContain("alloc");
+      expect(crates).not.toContain("crate");
+      expect(crates).not.toContain("nanofuzz_runtime");
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
 });
