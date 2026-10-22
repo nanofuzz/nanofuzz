@@ -21,7 +21,8 @@ import {
 } from "./CommandLine";
 
 async function runCli(
-  args: string[]
+  args: string[],
+  cliOptions?: { progressBar?: boolean }
 ): Promise<{ status: number; stdout: string; stderr: string }> {
   let stdout = "";
   let stderr = "";
@@ -92,6 +93,16 @@ async function runCli(
       !effectiveArgs.includes("-V")
     ) {
       effectiveArgs.push("--workers", "1");
+    }
+    if (
+      !effectiveArgs.includes("--no-progress-bar") &&
+      !effectiveArgs.includes("--help") &&
+      !effectiveArgs.includes("-h") &&
+      !effectiveArgs.includes("--version") &&
+      !effectiveArgs.includes("-V") &&
+      !cliOptions?.progressBar
+    ) {
+      effectiveArgs.push("--no-progress-bar");
     }
     const status = await runCliInProcess(effectiveArgs);
     return { status, stdout, stderr };
@@ -1304,14 +1315,17 @@ describe("cli:", () => {
         configurable: true,
         writable: true,
       });
-      const res = await runCli([
-        targetFile,
-        targetFn,
-        "--max-tests",
-        "5",
-        "--seed",
-        "cli_seed_bar_runtime",
-      ]);
+      const res = await runCli(
+        [
+          targetFile,
+          targetFn,
+          "--max-tests",
+          "5",
+          "--seed",
+          "cli_seed_bar_runtime",
+        ],
+        { progressBar: true }
+      );
 
       expect(res.status).toBe(0);
       expect(res.stderr).toMatch(/Testing \[.*\] \d+%/);

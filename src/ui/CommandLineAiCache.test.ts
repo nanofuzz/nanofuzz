@@ -76,7 +76,17 @@ async function runCli(
 
   try {
     Config.clearOverrides();
-    const status = await runCliInProcess(args);
+    const effectiveArgs = [...args];
+    if (
+      !effectiveArgs.includes("--no-progress-bar") &&
+      !effectiveArgs.includes("--help") &&
+      !effectiveArgs.includes("-h") &&
+      !effectiveArgs.includes("--version") &&
+      !effectiveArgs.includes("-V")
+    ) {
+      effectiveArgs.push("--no-progress-bar");
+    }
+    const status = await runCliInProcess(effectiveArgs);
     return { status, stdout, stderr };
   } finally {
     process.stdout.write = origStdoutWrite;
