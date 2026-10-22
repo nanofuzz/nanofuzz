@@ -49,6 +49,21 @@ describe("src/fuzzer/synthesis/UserGeneratorSynthesizer", () => {
     expect(result.fullTemplate).toContain("from typing import Callable");
   });
 
+  it("synthesizes Rust user input generator with FnMut prng and Option tuple return type", () => {
+    const src = `pub fn add(a: i32, b: f64) -> i32 { a + (b as i32) }`;
+    const program = ProgramFactory.fromSource(() => src, "rust");
+    const fnDef = program.functionsExported["add"];
+    expect(fnDef).toBeDefined();
+
+    const result = synthesizeUserGenerator(fnDef, "rust");
+    expect(result.name).toBe("addGenerator");
+    expect(result.skeleton).toContain(
+      "pub fn addGenerator(mut _prng: impl FnMut() -> f64) -> Option<(i32, f64)> {"
+    );
+    expect(result.skeleton).toContain("Some(");
+    expect(result.fullTemplate).toContain("pub fn addGenerator");
+  });
+
   it("disambiguates generator name when existing names conflict", () => {
     const program = ProgramFactory.fromFile(tsFixture);
     const fnDef = program.functions["targetUserGen"];

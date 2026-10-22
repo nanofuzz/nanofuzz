@@ -55,6 +55,28 @@ describe("src/fuzzer/synthesis/ValidatorSynthesizer", () => {
     expect(result.fullTemplate).toContain("from typing import Literal");
   });
 
+  it("synthesizes Rust validator with correct signature and FuzzTestResult unpacking", () => {
+    const src = `pub fn add(a: i32, b: f64) -> i32 { a + (b as i32) }`;
+    const program = ProgramFactory.fromSource(() => src, "rust");
+    const fnDef = program.functionsExported["add"];
+    expect(fnDef).toBeDefined();
+
+    const result = synthesizeValidator(fnDef, "rust");
+    expect(result.name).toBe("addValidator");
+    expect(result.imports.length).toBe(1);
+    expect(result.imports[0].name).toBe("FuzzTestResult");
+    expect(result.skeleton).toContain(
+      "pub fn addValidator(r: &FuzzTestResult) -> &'static str {"
+    );
+    expect(result.skeleton).toContain("let a: i32 = r.get_in(0).unwrap();");
+    expect(result.skeleton).toContain("let b: f64 = r.get_in(1).unwrap();");
+    expect(result.skeleton).toContain("let out: i32 = r.get_out().unwrap();");
+    expect(result.skeleton).toContain('"pass"');
+    expect(result.fullTemplate).toContain(
+      "use nanofuzz_runtime::FuzzTestResult;"
+    );
+  });
+
   it("disambiguates validator name when existing names conflict", () => {
     const program = ProgramFactory.fromFile(tsFixture);
     const fnDef = program.functions["testStandardVoidReturnUndefined"];

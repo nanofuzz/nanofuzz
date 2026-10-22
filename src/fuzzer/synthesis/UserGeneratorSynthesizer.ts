@@ -1,6 +1,7 @@
 import seedrandom from "seedrandom";
 import { FunctionDef } from "../analysis/FunctionDef";
 import { PythonProgram } from "../analysis/python/PythonProgram";
+import { RustProgram } from "../analysis/rust/RustProgram";
 import { ProgramLanguage } from "../analysis/Types";
 import { ArgDefGenerator } from "../analysis/ArgDefGenerator";
 import * as ValueMapper from "../mappers/ValueMapper";
@@ -70,6 +71,48 @@ export function synthesizeUserGenerator(
     ];
 
     const skeleton = `\n\ndef ${userGenName}(prng: Callable[[], float]) -> ${pyTupleType}:\n  # Return an argument tuple for ${fn.getName()}, or return None when exhausted\n  return ${pyDefaultArgs}\n`;
+    const importData = imports.map((i) => i.stmt).join("");
+    const fullTemplate = `${importData}${skeleton.trimStart()}`;
+
+    return {
+      name: userGenName,
+      skeleton,
+      imports,
+      fullTemplate,
+    };
+  } else if (targetLang === "rust") {
+    const rustTupleType =
+      inArgs.length === 0
+        ? "Option<()>"
+        : inArgs.length === 1
+          ? `Option<(${RustProgram.getTypeAnnotation(inArgs[0], { useTypeRefs: true })},)>`
+          : `Option<(${inArgs
+              .map((a) =>
+                RustProgram.getTypeAnnotation(a, { useTypeRefs: true })
+              )
+              .join(", ")})>`;
+
+    const rustDefaultArgs =
+      inArgs.length === 0
+        ? "()"
+        : inArgs.length === 1
+          ? `(${ValueMapper.toLang(
+              "rust",
+              ArgDefGenerator.gen(inArgs[0], seedrandom("skeleton")),
+              inArgs[0]
+            )},)`
+          : `(${inArgs
+              .map((a) =>
+                ValueMapper.toLang(
+                  "rust",
+                  ArgDefGenerator.gen(a, seedrandom("skeleton")),
+                  a
+                )
+              )
+              .join(", ")})`;
+
+    const imports: { name: string; stmt: string }[] = [];
+    const skeleton = `\n\npub fn ${userGenName}(mut _prng: impl FnMut() -> f64) -> ${rustTupleType} {\n  // Return an argument tuple for ${fn.getName()}, or None when exhausted\n  Some(${rustDefaultArgs})\n}`;
     const importData = imports.map((i) => i.stmt).join("");
     const fullTemplate = `${importData}${skeleton.trimStart()}`;
 

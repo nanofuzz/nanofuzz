@@ -105,6 +105,7 @@ const disaffinityGroups = [
   [
     "PythonRunner.test.ts",
     "RustRunner.test.ts",
+    "CargoTestAdapter.test.ts",
     "PytestAdapter.test.ts",
     "CommandLine.test.ts",
     "FuzzerPython.test.ts",

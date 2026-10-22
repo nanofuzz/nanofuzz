@@ -1,6 +1,7 @@
 import { FunctionDef } from "../analysis/FunctionDef";
 import { TypescriptProgram } from "../analysis/typescript/TypescriptProgram";
 import { PythonProgram } from "../analysis/python/PythonProgram";
+import { RustProgram } from "../analysis/rust/RustProgram";
 import { ProgramLanguage } from "../analysis/Types";
 import { FuzzerCodeSnippet } from "./Types";
 import {
@@ -108,6 +109,51 @@ export function synthesizeValidator(
     bodyLines.push(`\n  return "pass"\n`);
 
     const skeleton = `\n\ndef ${validatorName}${validatorArgs.str} -> Literal["pass", "fail", "unknown"]:\n${bodyLines.join("\n")}`;
+    const importData = imports.map((i) => i.stmt).join("");
+    const fullTemplate = `${importData}${skeleton.trimStart()}`;
+
+    return {
+      name: validatorName,
+      skeleton,
+      imports,
+      fullTemplate,
+    };
+  } else if (targetLang === "rust") {
+    const inArgLines = inArgs.map(
+      (argDef, i) =>
+        `  let ${argDef.getName()}: ${RustProgram.getTypeAnnotation(argDef)} = ${
+          validatorArgs.resultArgName
+        }.get_in(${i}).unwrap();`
+    );
+    const outTypeAsArg = fn.getReturnArg();
+    const returnTypeStr = outTypeAsArg
+      ? RustProgram.getTypeAnnotation(outTypeAsArg)
+      : undefined;
+    const outVarName = getIdentifierNameAvoidingConflicts(
+      inArgs,
+      outVarCandidateNames,
+      maxOutVarSuffix
+    );
+    const outArgLine =
+      !fn.isVoid() && returnTypeStr && returnTypeStr !== "()"
+        ? `  let ${outVarName.name}: ${returnTypeStr} = ${validatorArgs.resultArgName}.get_out().unwrap();`
+        : `  let ${outVarName.name}: () = ${validatorArgs.resultArgName}.get_out().unwrap_or(());`;
+
+    const imports = [
+      {
+        name: "FuzzTestResult",
+        stmt: `use nanofuzz_runtime::FuzzTestResult;\n`,
+      },
+    ];
+
+    const bodyLines: string[] = [];
+    if (inArgLines.length > 0) {
+      bodyLines.push(...inArgLines);
+    }
+    bodyLines.push(outArgLine);
+    bodyLines.push(`\n  "pass"\n}`);
+
+    const skeleton = `\n\npub fn ${validatorName}(${validatorArgs.resultArgName}: &FuzzTestResult) -> &'static str {\n${bodyLines.join("\n")}`;
     const importData = imports.map((i) => i.stmt).join("");
     const fullTemplate = `${importData}${skeleton.trimStart()}`;
 
