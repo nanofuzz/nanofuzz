@@ -73,6 +73,41 @@ describe("fuzzer/compilers/rust/RustCompiler: ", () => {
     expect(staleCheck).toBeFalse();
   });
 
+  it("compiles a Cargo project importing nanofuzz_runtime without manifest dependency", () => {
+    const projDir = path.join(tempDir, "cargo_proj_nanofuzz_runtime");
+    const srcDir = path.join(projDir, "src");
+    fs.mkdirSync(srcDir, { recursive: true });
+
+    fs.writeFileSync(
+      path.join(projDir, "Cargo.toml"),
+      `[package]
+name = "test_nanofuzz_runtime_import"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+path = "src/lib.rs"
+`
+    );
+
+    const libRs = path.join(srcDir, "lib.rs");
+    fs.writeFileSync(
+      libRs,
+      `use nanofuzz_runtime::assume;
+use nanofuzz_runtime::FuzzTestResult;
+
+pub fn add(a: i32, b: i32) -> i32 {
+    a + b
+}
+`
+    );
+
+    const compiler = new RustCompiler(libRs);
+    const compiledFile = compiler.compileSync();
+    expect(compiledFile).toBe(libRs);
+    expect(compiler.isStale()).toBeFalse();
+  });
+
   it("detects source file changes and reports staleness", () => {
     const standaloneRs = path.join(tempDir, "sample.rs");
     fs.writeFileSync(

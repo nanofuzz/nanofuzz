@@ -213,6 +213,8 @@ export class RustCompiler {
     let cmd: string;
     let args: string[];
     let cwd: string;
+    const runtimeRlib = findRuntimeRlib(this._projectPath);
+    const spawnEnv: NodeJS.ProcessEnv = { ...process.env };
 
     if (this._cargoTomlPath && cargo) {
       cmd = cargo;
@@ -222,6 +224,12 @@ export class RustCompiler {
         this._cargoTomlPath,
         "--message-format=json",
       ];
+      if (runtimeRlib) {
+        const extraFlags = `-L ${path.dirname(runtimeRlib)} --extern nanofuzz_runtime=${runtimeRlib}`;
+        spawnEnv.RUSTFLAGS = spawnEnv.RUSTFLAGS
+          ? `${spawnEnv.RUSTFLAGS} ${extraFlags}`
+          : extraFlags;
+      }
       cwd = this._projectPath;
     } else if (rustc) {
       const safeCrateName = path
@@ -236,7 +244,6 @@ export class RustCompiler {
         "--out-dir",
         this._options.tmpDir,
       ];
-      const runtimeRlib = findRuntimeRlib();
       if (runtimeRlib) {
         args.push(
           "-L",
@@ -258,6 +265,7 @@ export class RustCompiler {
     const cli = `${cmd} ${args.join(" ")}`;
     const res = ChildProcess.spawnSync(cmd, args, {
       cwd,
+      env: spawnEnv,
       encoding: "utf8",
       windowsHide: true,
       maxBuffer: 16 * 1024 * 1024,
@@ -669,10 +677,14 @@ function parseRustCompilerOutput(
   };
 } // fn: parseRustCompilerOutput
 
-function findRuntimeRlib(): string | undefined {
+function findRuntimeRlib(userProjectPath?: string): string | undefined {
   const currModuleDir = path.dirname(path.resolve(module.filename));
   const projectRoot = findInAncestor(currModuleDir, "package.json");
   const candidates: string[] = [];
+
+  if (userProjectPath) {
+    candidates.push(path.join(userProjectPath, "target", "debug", "deps"));
+  }
 
   if (projectRoot) {
     const rootDir = path.dirname(projectRoot);
