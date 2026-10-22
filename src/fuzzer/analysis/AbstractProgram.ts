@@ -13,8 +13,16 @@ import {
   TypeAnnotationOptionDefaults,
 } from "./Types";
 import { getErrorMessageOrJson, normalizePathForKey } from "../Util";
-import * as ProgramFactory from "./ProgramFactory";
 import * as fs from "node:fs";
+
+let _programFactoryModule: typeof import("./ProgramFactory") | undefined;
+function getProgramFactory(): typeof import("./ProgramFactory") {
+  if (!_programFactoryModule) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    _programFactoryModule = require("./ProgramFactory");
+  }
+  return _programFactoryModule!;
+}
 
 /**
  * The AbstractProgram class represents a program definition in a source
@@ -452,7 +460,7 @@ export abstract class AbstractProgram {
             directImport.imported === "*" ? callee : directImport.imported;
           const childProg =
             program.find(directImport.programPath) ??
-            ProgramFactory.fromFile(
+            getProgramFactory().fromFile(
               directImport.programPath,
               undefined,
               program._options,
@@ -473,7 +481,7 @@ export abstract class AbstractProgram {
           ) {
             const childProg =
               program.find(imp.programPath) ??
-              ProgramFactory.fromFile(
+              getProgramFactory().fromFile(
                 imp.programPath,
                 undefined,
                 program._options,
@@ -577,7 +585,7 @@ export abstract class AbstractProgram {
             directImport.imported === "*" ? callee : directImport.imported;
           const childProg =
             program.find(directImport.programPath) ??
-            ProgramFactory.fromFile(
+            getProgramFactory().fromFile(
               directImport.programPath,
               undefined,
               program._options,
@@ -616,7 +624,7 @@ export abstract class AbstractProgram {
           ) {
             const childProg =
               program.find(imp.programPath) ??
-              ProgramFactory.fromFile(
+              getProgramFactory().fromFile(
                 imp.programPath,
                 undefined,
                 program._options,
