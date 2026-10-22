@@ -54,6 +54,9 @@ export class CargoTestAdapter extends AbstractTestAdapter {
       `//`,
       `#![allow(dead_code, unused_imports, unused_variables, non_snake_case)]`,
       ``,
+      `extern crate nanofuzz_runtime;`,
+      `use nanofuzz_runtime::{FuzzTestResult, ValidatorResult};`,
+      ``,
       `mod target {`,
       `    include!("./${baseFilename}");`,
       `}`,
@@ -68,8 +71,9 @@ export class CargoTestAdapter extends AbstractTestAdapter {
       try {
         const pgm = ProgramFactory.fromFile(this._module, "rust");
         if (fn in pgm.functions) {
-          argDefs = pgm.functions[fn].getArgDefs();
-          if (pgm.functions[fn].isAsync()) {
+          const fnObj = pgm.functions[fn];
+          argDefs = fnObj.getArgDefs();
+          if (fnObj.isAsync()) {
             isAsync = true;
           }
         }
@@ -169,7 +173,7 @@ export class CargoTestAdapter extends AbstractTestAdapter {
               `        target::${validator}(&ftr)`,
               `    }));`,
               `    match val_res {`,
-              `        Ok(res) => assert_ne!(res, "fail"),`,
+              `        Ok(res) => assert_ne!(nanofuzz_runtime::ValidatorResult::from(res), nanofuzz_runtime::ValidatorResult::Fail),`,
               `        Err(e) => {`,
               `            if !e.is::<nanofuzz_runtime::UnsatisfiedAssumption>() {`,
               `                panic!("Validator panicked");`,

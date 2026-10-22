@@ -799,12 +799,29 @@ export class RustProgram extends AbstractProgram {
   public static findDirectCrates(sourceFile: string): string[] {
     return findDirectCrates(sourceFile);
   } // fn: findDirectCrates
+
+  /**
+   * Converts a Rust type annotation (including borrowed references and slices)
+   * into its owned, deserializable type for FuzzTestResult unpacking.
+   *
+   * @param typeAnnot Raw Rust type annotation (e.g. '&str', '&[i32]', '&MyStruct')
+   * @returns Owned Rust type string (e.g. 'String', 'Vec<i32>', 'MyStruct')
+   */
+  public static toOwnedType(typeAnnot: string): string {
+    return toOwnedRustType(typeAnnot);
+  } // fn: toOwnedType
 } // class: RustProgram
 
 // ============================================================================
 // Helper Functions
 // ============================================================================
 
+/**
+ * Checks whether an AST syntax node has a public visibility modifier (`pub`).
+ *
+ * @param node The AST syntax node to check
+ * @returns True if the node has `pub` visibility, false otherwise
+ */
 function isNodePublic(node: Parser.SyntaxNode): boolean {
   for (const child of node.children) {
     if (child.type === "visibility_modifier") {
@@ -814,6 +831,12 @@ function isNodePublic(node: Parser.SyntaxNode): boolean {
   return false;
 } // fn: isNodePublic
 
+/**
+ * Extracts triple-slash documentation comments (`///`) immediately preceding an AST node.
+ *
+ * @param node The AST syntax node to inspect
+ * @returns Combined doc comment string, or undefined if no doc comments exist
+ */
 function extractLeadingDocComment(node: Parser.SyntaxNode): string | undefined {
   const comments: string[] = [];
   let prev = node.previousNamedSibling;
@@ -832,6 +855,12 @@ function extractLeadingDocComment(node: Parser.SyntaxNode): string | undefined {
   return comments.length > 0 ? comments.join("\n") : undefined;
 } // fn: extractLeadingDocComment
 
+/**
+ * Extracts imported identifiers from a Rust `use` declaration node and populates `imports`.
+ *
+ * @param node The `use_declaration` AST syntax node
+ * @param imports ProgramImports collection to populate with imported identifiers
+ */
 function extractUseDeclaration(
   node: Parser.SyntaxNode,
   imports: ProgramImports
@@ -839,28 +868,125 @@ function extractUseDeclaration(
   const argNode = node.childForFieldName("argument");
   if (!argNode) return;
 
-  const text = argNode.text;
-  if (text.includes("::")) {
-    const parts = text.split("::");
-    const local = parts[parts.length - 1];
-    imports.identifiers[local] = {
-      local,
-      imported: local,
-      programPath: text,
-      resolved: false,
-      default: false,
-    };
-  } else {
-    imports.identifiers[text] = {
-      local: text,
-      imported: text,
-      programPath: text,
-      resolved: false,
-      default: false,
-    };
-  }
+  collectUseIdentifiers(argNode, "", imports);
 } // fn: extractUseDeclaration
 
+/**
+ * Recursively traverses a Rust `use` clause argument node to collect imported identifiers,
+ * supporting nested scoped lists (`use a::{b, c};`), aliasing (`use a as b;`), and paths.
+ *
+ * @param node Current AST syntax node in the use tree
+ * @param prefix Accumulated module path prefix (e.g. "std::collections")
+ * @param imports ProgramImports collection to populate with imported identifiers
+ */
+function collectUseIdentifiers(
+  node: Parser.SyntaxNode,
+  prefix: string,
+  imports: ProgramImports
+): void {
+  switch (node.type) {
+    case "scoped_use_list": {
+      const pathNode = node.childForFieldName("path");
+      const listNode = node.childForFieldName("list");
+      const base = pathNode
+        ? prefix
+          ? `${prefix}::${pathNode.text}`
+          : pathNode.text
+        : prefix;
+      if (listNode) {
+        collectUseIdentifiers(listNode, base, imports);
+      }
+      break;
+    }
+    case "use_list": {
+      for (const child of node.namedChildren) {
+        collectUseIdentifiers(child, prefix, imports);
+      }
+      break;
+    }
+    case "use_as_clause": {
+      const aliasNode = node.childForFieldName("alias");
+      const pathNode = node.childForFieldName("path");
+      const fullPath = pathNode
+        ? prefix
+          ? `${prefix}::${pathNode.text}`
+          : pathNode.text
+        : "";
+      if (aliasNode) {
+        const local = aliasNode.text;
+        imports.identifiers[local] = {
+          local,
+          imported: pathNode?.text ?? local,
+          programPath: fullPath,
+          resolved: false,
+          default: false,
+        };
+      }
+      break;
+    }
+    case "scoped_identifier": {
+      const nameNode = node.childForFieldName("name");
+      const pathNode = node.childForFieldName("path");
+      const fullPath = pathNode
+        ? prefix
+          ? `${prefix}::${pathNode.text}`
+          : pathNode.text
+        : "";
+      const local = nameNode?.text ?? node.text.split("::").pop() ?? node.text;
+      const progPath = fullPath ? `${fullPath}::${local}` : node.text;
+      imports.identifiers[local] = {
+        local,
+        imported: local,
+        programPath: progPath,
+        resolved: false,
+        default: false,
+      };
+      break;
+    }
+    case "identifier": {
+      const local = node.text;
+      const progPath = prefix ? `${prefix}::${local}` : local;
+      imports.identifiers[local] = {
+        local,
+        imported: local,
+        programPath: progPath,
+        resolved: false,
+        default: false,
+      };
+      break;
+    }
+    default: {
+      const text = node.text;
+      if (text.includes("::")) {
+        const parts = text.split("::");
+        const local = parts[parts.length - 1];
+        imports.identifiers[local] = {
+          local,
+          imported: local,
+          programPath: text,
+          resolved: false,
+          default: false,
+        };
+      } else if (text && /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(text)) {
+        imports.identifiers[text] = {
+          local: text,
+          imported: text,
+          programPath: text,
+          resolved: false,
+          default: false,
+        };
+      }
+      break;
+    }
+  }
+} // fn: collectUseIdentifiers
+
+/**
+ * Resolves a Rust primitive type name to its corresponding ArgTag and interval/option overrides.
+ *
+ * @param name Primitive type name (e.g. "bool", "i32", "f64")
+ * @returns Object with ArgTag and optional interval/integer overrides, or undefined if not primitive
+ */
 function resolveRustPrimitive(name: string):
   | {
       tag: ArgTag;
@@ -977,6 +1103,12 @@ function resolveRustPrimitive(name: string):
   }
 } // fn: resolveRustPrimitive
 
+/**
+ * Checks whether an identifier corresponds to a Rust primitive or built-in scalar type name.
+ *
+ * @param name The type name to check
+ * @returns True if the identifier is a primitive or built-in, false otherwise
+ */
 function isRustPrimitiveOrBuiltin(name: string): boolean {
   const builtins = new Set([
     "bool",
@@ -1164,3 +1296,26 @@ function findDirectCrates(sourceFile: string): string[] {
 
   return Array.from(crates);
 } // fn: findDirectCrates
+
+/**
+ * Normalizes borrowed reference and slice type annotations into owned types suitable for deserialization.
+ * For example, converts `&str` to `String`, `&[T]` to `Vec<T>`, and `&T` to `T`.
+ *
+ * @param typeAnnot Raw Rust type annotation string
+ * @returns Corresponding owned Rust type string
+ */
+function toOwnedRustType(typeAnnot: string): string {
+  const trimmed = typeAnnot.trim();
+  const stripped = trimmed.replace(/^&'([a-zA-Z_][a-zA-Z0-9_]*)\s+/, "&");
+  if (stripped === "&str" || stripped === "str") {
+    return "String";
+  }
+  if (stripped.startsWith("&[") && stripped.endsWith("]")) {
+    const inner = stripped.slice(2, -1).trim();
+    return `Vec<${inner}>`;
+  }
+  if (stripped.startsWith("&")) {
+    return stripped.slice(1).trim();
+  }
+  return trimmed;
+} // fn: toOwnedRustType

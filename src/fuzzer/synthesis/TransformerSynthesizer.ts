@@ -105,11 +105,11 @@ export function synthesizeTransformer(
     const imports = [
       {
         name: "assume",
-        stmt: `use nanofuzz_runtime::assume;\n`,
+        stmt: `use nanofuzz_runtime::{assume, UnsatisfiedAssumption};\n`,
       },
     ];
 
-    const skeleton = `\n\npub fn ${transformerName}(${rustParams}) -> ${rustTupleType} {\n  // Use assume!(condition, "msg") to filter out-of-domain inputs\n  // Otherwise, return the transformed inputs\n  ${rustReturnTuple}\n}`;
+    const skeleton = `\n\npub fn ${transformerName}(${rustParams}) -> ${rustTupleType} {\n  // Use assume!(condition, "msg") or panic with UnsatisfiedAssumption to filter out-of-domain inputs\n  // Otherwise, return the transformed inputs\n  ${rustReturnTuple}\n}`;
     const importData = imports.map((i) => i.stmt).join("");
     const fullTemplate = `${importData}${skeleton.trimStart()}`;
 

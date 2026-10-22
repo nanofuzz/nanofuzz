@@ -191,6 +191,10 @@ describe("fuzzer/adapters/cargo/CargoTestAdapter:", () => {
     expect(out).toContain("fn test_voidFn_0_heuristic()");
     expect(out).toContain("fn test_heuristicFn_0_heuristic()");
     expect(out).toContain("assert!(nanofuzz_runtime::implicit_oracle(&res));");
+    expect(out).toContain("extern crate nanofuzz_runtime;");
+    expect(out).toContain(
+      "use nanofuzz_runtime::{FuzzTestResult, ValidatorResult};"
+    );
     expect(out).toContain("mod target {");
     expect(out).toContain('include!("./mymodule.rs");');
   });

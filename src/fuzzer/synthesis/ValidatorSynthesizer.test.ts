@@ -63,17 +63,36 @@ describe("src/fuzzer/synthesis/ValidatorSynthesizer", () => {
 
     const result = synthesizeValidator(fnDef, "rust");
     expect(result.name).toBe("addValidator");
-    expect(result.imports.length).toBe(1);
+    expect(result.imports.length).toBe(2);
     expect(result.imports[0].name).toBe("FuzzTestResult");
+    expect(result.imports[1].name).toBe("ValidatorResult");
     expect(result.skeleton).toContain(
-      "pub fn addValidator(r: &FuzzTestResult) -> &'static str {"
+      "pub fn addValidator(r: &FuzzTestResult) -> ValidatorResult {"
     );
     expect(result.skeleton).toContain("let a: i32 = r.get_in(0).unwrap();");
     expect(result.skeleton).toContain("let b: f64 = r.get_in(1).unwrap();");
     expect(result.skeleton).toContain("let out: i32 = r.get_out().unwrap();");
-    expect(result.skeleton).toContain('"pass"');
+    expect(result.skeleton).toContain("ValidatorResult::Pass");
+    expect(result.skeleton).toContain("// Extract input arguments");
+    expect(result.skeleton).toContain("// Validate properties");
     expect(result.fullTemplate).toContain(
-      "use nanofuzz_runtime::FuzzTestResult;"
+      "use nanofuzz_runtime::FuzzTestResult;\nuse nanofuzz_runtime::ValidatorResult;\n"
+    );
+  });
+
+  it("synthesizes Rust validator converting reference types to owned deserializable types", () => {
+    const src = `pub fn parse_expr(s: &str, items: &[i32]) -> &'static str { s }`;
+    const program = ProgramFactory.fromSource(() => src, "rust");
+    const fnDef = program.functionsExported["parse_expr"];
+    expect(fnDef).toBeDefined();
+
+    const result = synthesizeValidator(fnDef, "rust");
+    expect(result.skeleton).toContain("let s: String = r.get_in(0).unwrap();");
+    expect(result.skeleton).toContain(
+      "let items: Vec<i32> = r.get_in(1).unwrap();"
+    );
+    expect(result.skeleton).toContain(
+      "let out: String = r.get_out().unwrap();"
     );
   });
 

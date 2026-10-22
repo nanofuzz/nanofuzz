@@ -102,11 +102,17 @@ export function synthesizeValidator(
     ];
 
     const bodyLines: string[] = [];
+    bodyLines.push(
+      "  # Extract input arguments and return value from the execution result"
+    );
     if (inArgLines.length > 0) {
       bodyLines.push(...inArgLines);
     }
     bodyLines.push(outArgLine);
-    bodyLines.push(`\n  return "pass"\n`);
+    bodyLines.push(
+      `\n  # Validate properties and return "pass", "fail", or "unknown"`
+    );
+    bodyLines.push(`  return "pass"\n`);
 
     const skeleton = `\n\ndef ${validatorName}${validatorArgs.str} -> Literal["pass", "fail", "unknown"]:\n${bodyLines.join("\n")}`;
     const importData = imports.map((i) => i.stmt).join("");
@@ -119,15 +125,16 @@ export function synthesizeValidator(
       fullTemplate,
     };
   } else if (targetLang === "rust") {
-    const inArgLines = inArgs.map(
-      (argDef, i) =>
-        `  let ${argDef.getName()}: ${RustProgram.getTypeAnnotation(argDef)} = ${
-          validatorArgs.resultArgName
-        }.get_in(${i}).unwrap();`
-    );
+    const inArgLines = inArgs.map((argDef, i) => {
+      const typeAnnot = RustProgram.getTypeAnnotation(argDef);
+      const ownedType = RustProgram.toOwnedType(typeAnnot);
+      return `  let ${argDef.getName()}: ${ownedType} = ${
+        validatorArgs.resultArgName
+      }.get_in(${i}).unwrap();`;
+    });
     const outTypeAsArg = fn.getReturnArg();
     const returnTypeStr = outTypeAsArg
-      ? RustProgram.getTypeAnnotation(outTypeAsArg)
+      ? RustProgram.toOwnedType(RustProgram.getTypeAnnotation(outTypeAsArg))
       : undefined;
     const outVarName = getIdentifierNameAvoidingConflicts(
       inArgs,
@@ -144,16 +151,26 @@ export function synthesizeValidator(
         name: "FuzzTestResult",
         stmt: `use nanofuzz_runtime::FuzzTestResult;\n`,
       },
+      {
+        name: "ValidatorResult",
+        stmt: `use nanofuzz_runtime::ValidatorResult;\n`,
+      },
     ];
 
     const bodyLines: string[] = [];
+    bodyLines.push(
+      "  // Extract input arguments and return value from the execution result"
+    );
     if (inArgLines.length > 0) {
       bodyLines.push(...inArgLines);
     }
     bodyLines.push(outArgLine);
-    bodyLines.push(`\n  "pass"\n}`);
+    bodyLines.push(
+      `\n  // Validate properties and return ValidatorResult::Pass, ValidatorResult::Fail, or ValidatorResult::Unknown`
+    );
+    bodyLines.push(`  ValidatorResult::Pass\n}`);
 
-    const skeleton = `\n\npub fn ${validatorName}(${validatorArgs.resultArgName}: &FuzzTestResult) -> &'static str {\n${bodyLines.join("\n")}`;
+    const skeleton = `\n\npub fn ${validatorName}(${validatorArgs.resultArgName}: &FuzzTestResult) -> ValidatorResult {\n${bodyLines.join("\n")}`;
     const importData = imports.map((i) => i.stmt).join("");
     const fullTemplate = `${importData}${skeleton.trimStart()}`;
 
@@ -192,11 +209,17 @@ export function synthesizeValidator(
     ];
 
     const bodyLines: string[] = [];
+    bodyLines.push(
+      "  // Extract input arguments and return value from the execution result"
+    );
     if (inArgLines.length > 0) {
       bodyLines.push(...inArgLines);
     }
     bodyLines.push(outArgLine);
-    bodyLines.push(`\n  return "pass";\n}`);
+    bodyLines.push(
+      `\n  // Validate properties and return "pass", "fail", or "unknown"`
+    );
+    bodyLines.push(`  return "pass";\n}`);
 
     const skeleton = `\n\nexport function ${validatorName}${validatorArgs.str}: "pass" | "fail" | "unknown" {\n${bodyLines.join("\n")}`;
     const importData = imports.map((i) => i.stmt).join("");

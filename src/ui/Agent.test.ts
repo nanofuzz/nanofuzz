@@ -173,12 +173,15 @@ describe("Agent", () => {
       "use nanofuzz_runtime::FuzzTestResult;"
     );
     expect(greetingFn.validatorTemplate).toContain(
-      "pub fn greetingValidator1(r: &FuzzTestResult) -> &'static str {"
+      "use nanofuzz_runtime::ValidatorResult;"
+    );
+    expect(greetingFn.validatorTemplate).toContain(
+      "pub fn greetingValidator1(r: &FuzzTestResult) -> ValidatorResult {"
     );
 
     expect(greetingFn.transformerTemplate).toBeDefined();
     expect(greetingFn.transformerTemplate).toContain(
-      "use nanofuzz_runtime::assume;"
+      "use nanofuzz_runtime::{assume, UnsatisfiedAssumption};"
     );
     expect(greetingFn.transformerTemplate).toContain(
       "pub fn greetingTransformer"

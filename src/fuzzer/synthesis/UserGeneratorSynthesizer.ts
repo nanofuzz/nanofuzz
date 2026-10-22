@@ -70,7 +70,7 @@ export function synthesizeUserGenerator(
       },
     ];
 
-    const skeleton = `\n\ndef ${userGenName}(prng: Callable[[], float]) -> ${pyTupleType}:\n  # Return an argument tuple for ${fn.getName()}, or return None when exhausted\n  return ${pyDefaultArgs}\n`;
+    const skeleton = `\n\ndef ${userGenName}(prng: Callable[[], float]) -> ${pyTupleType}:\n  # Return an argument tuple for ${fn.getName()}, or return None when exhausted\n  # Call prng() to generate random float values in [0.0, 1.0)\n  return ${pyDefaultArgs}\n`;
     const importData = imports.map((i) => i.stmt).join("");
     const fullTemplate = `${importData}${skeleton.trimStart()}`;
 
@@ -112,7 +112,7 @@ export function synthesizeUserGenerator(
               .join(", ")})`;
 
     const imports: { name: string; stmt: string }[] = [];
-    const skeleton = `\n\npub fn ${userGenName}(mut _prng: impl FnMut() -> f64) -> ${rustTupleType} {\n  // Return an argument tuple for ${fn.getName()}, or None when exhausted\n  Some(${rustDefaultArgs})\n}`;
+    const skeleton = `\n\npub fn ${userGenName}(mut _prng: impl FnMut() -> f64) -> ${rustTupleType} {\n  // Return an argument tuple for ${fn.getName()}, or return None when exhausted\n  // Call _prng() to generate random f64 values in [0.0, 1.0)\n  Some(${rustDefaultArgs})\n}`;
     const importData = imports.map((i) => i.stmt).join("");
     const fullTemplate = `${importData}${skeleton.trimStart()}`;
 
@@ -137,7 +137,7 @@ export function synthesizeUserGenerator(
             .join(", ");
 
     const imports: { name: string; stmt: string }[] = [];
-    const skeleton = `\n\nexport function ${userGenName}(prng: () => number): Parameters<typeof ${fn.getName()}> | undefined {\n  // Return an argument tuple for ${fn.getName()}, or return undefined when exhausted\n  return [${tsDefaultArgs}];\n}`;
+    const skeleton = `\n\nexport function ${userGenName}(prng: () => number): Parameters<typeof ${fn.getName()}> | undefined {\n  // Return an argument tuple for ${fn.getName()}, or return undefined when exhausted\n  // Call prng() to generate random number values in [0.0, 1.0)\n  return [${tsDefaultArgs}];\n}`;
     const importData = imports.map((i) => i.stmt).join("");
     const fullTemplate = `${importData}${skeleton.trimStart()}`;
 
