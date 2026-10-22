@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import { AbstractProgram } from "../AbstractProgram";
 import {
   FunctionRef,
@@ -185,6 +186,16 @@ export class RustProgram extends AbstractProgram {
     }
 
     const name = typeRef.typeRefName;
+    if (name === "FuzzTestResult") {
+      typeRef.type = {
+        type: ArgTag.OBJECT,
+        dims: 0,
+        children: [],
+        resolved: true,
+      };
+      return typeRef;
+    }
+
     const primitiveResolved = resolveRustPrimitive(name);
     if (primitiveResolved) {
       typeRef.type = {
@@ -211,7 +222,12 @@ export class RustProgram extends AbstractProgram {
 
     if (name in this._imports.identifiers) {
       const imp = this._imports.identifiers[name];
-      if (imp.programPath && imp.programPath !== "?") {
+      if (
+        imp.programPath &&
+        imp.programPath !== "?" &&
+        !imp.programPath.includes("::") &&
+        fs.existsSync(imp.programPath)
+      ) {
         const importedProgram = ProgramFactory.fromFile(
           imp.programPath,
           "rust",
@@ -429,6 +445,48 @@ export class RustProgram extends AbstractProgram {
   protected _findDefaultTypeExport(): TypeRef | undefined {
     return undefined;
   } // fn: _findDefaultTypeExport
+
+  /**
+   * Identifies all function and method names called within the body of a function.
+   *
+   * @param fnName Name of function to inspect
+   * @returns Set of callee names
+   */
+  protected _findCallees(fnName: string): Set<string> {
+    const callees = new Set<string>();
+    const unsupp = this._functions.unsupported[fnName];
+    const unsuppFn =
+      unsupp && "function" in unsupp ? unsupp.function : undefined;
+    const fnRef = this._functions.supported[fnName] ?? unsuppFn;
+    if (!fnRef || !fnRef.src) return callees;
+
+    const tree = Parser.parse("rust", fnRef.src);
+    if (!tree) {
+      throw new Error(
+        `Tree-sitter failed to parse Rust function "${fnName}" in module "${this._filename}"`
+      );
+    }
+
+    const query = Parser.query(
+      "rust",
+      `
+[
+  (call_expression function: (identifier) @callee.name)
+  (call_expression function: (field_expression field: (field_identifier) @callee.name))
+  (call_expression function: (scoped_identifier name: (identifier) @callee.name))
+]
+`
+    );
+    const matches = query.matches(tree.rootNode);
+    for (const match of matches) {
+      const cap = match.captures.find((c) => c.name === "callee.name");
+      if (cap) {
+        callees.add(cap.node.text);
+      }
+    }
+
+    return callees;
+  } // fn: _findCallees
 
   protected _getFunctionFromNode(
     itemNode: Parser.SyntaxNode,

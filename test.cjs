@@ -73,6 +73,7 @@ function sortTestFiles(files) {
   const priority = [
     "FuzzerCoverageOneFile.test.ts",
     "PythonRunner.test.ts",
+    "RustRunner.test.ts",
     "FuzzerExamples2.test.ts",
     "CommandLine.test.ts",
     "FuzzerExamples1.test.ts",
@@ -99,10 +100,11 @@ function sortTestFiles(files) {
 // This prevents multiple heavy subprocess or fuzzer workloads from thrashing CPU and
 // starving sub-second timeouts.
 const disaffinityGroups = [
-  // Group 1: Subprocess-heavy Python runner & adapter suites
+  // Group 1: Subprocess-heavy Python and Rust runner & adapter suites
   // No two of these may run at the same time.
   [
     "PythonRunner.test.ts",
+    "RustRunner.test.ts",
     "PytestAdapter.test.ts",
     "CommandLine.test.ts",
     "FuzzerPython.test.ts",

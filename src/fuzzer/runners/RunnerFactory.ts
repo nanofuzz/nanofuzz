@@ -1,8 +1,10 @@
 import { PythonProgram } from "../analysis/python/PythonProgram";
+import { RustProgram } from "../analysis/rust/RustProgram";
 import { FuzzEnv } from "../Types";
 import { AbstractRunner, RunnerOverrides } from "./AbstractRunner";
 import { JavascriptRunner } from "./javascript/JavascriptRunner";
 import { PythonRunner } from "./python/PythonRunner";
+import { RustRunner } from "./rust/RustRunner";
 
 /**
  * Returns an AbstractRunner appropriate to the input environment, module,
@@ -30,6 +32,10 @@ export function RunnerFactory(
 
   if (PythonProgram.understands({ filename: module })) {
     return new PythonRunner(module, fn, env, overrides);
+  }
+
+  if (RustProgram.understands({ filename: module })) {
+    return new RustRunner(module, fn, env, overrides);
   }
 
   throw new Error(`Support not yet implemented for program in: ${module}`);

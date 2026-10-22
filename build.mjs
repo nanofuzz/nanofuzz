@@ -33,6 +33,13 @@ copyfiles(
   () => console.log("copied .py oracle")
 );
 
+// Copy Rust assets
+copyfiles(
+  ["./src/fuzzer/runners/rust/RustRunnerHost.template.rs", "./build/extension"],
+  true,
+  () => console.log("copied .rs runner template")
+);
+
 // Copy Python runtime package (nanofuzz_runtime)
 const pyRuntimeSrc = path.resolve(
   "./packages/runtime/python/src/nanofuzz_runtime"

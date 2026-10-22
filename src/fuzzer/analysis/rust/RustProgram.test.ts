@@ -208,4 +208,22 @@ pub fn dummy(
     expect(RustProgram.getTypeAnnotation(args[4])).toBe("Vec<i32>");
     expect(RustProgram.getTypeAnnotation(args[5])).toBe("Option<String>");
   });
+
+  it("identifies callees called within function bodies", () => {
+    const src = `
+fn helper_a() -> i32 { 1 }
+fn helper_b() -> i32 { 2 }
+
+pub fn caller() -> i32 {
+    let x = helper_a();
+    let y = helper_b();
+    x + y
+}
+`;
+    const program = ProgramFactory.fromSource(() => src, "rust");
+    const callees = program.getCallees("caller");
+    expect(callees.has("helper_a")).toBeTrue();
+    expect(callees.has("helper_b")).toBeTrue();
+    expect(callees.has("non_existent")).toBeFalse();
+  });
 });

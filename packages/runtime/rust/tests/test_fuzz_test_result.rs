@@ -46,7 +46,7 @@ fn test_fuzz_test_result_serde_roundtrip() {
     let res: FuzzTestResult = serde_json::from_str(raw_json).expect("failed to deserialize");
     assert_eq!(res.get_in::<i32>(0).unwrap(), 10);
     assert_eq!(res.get_in::<String>(1).unwrap(), "test");
-    assert_eq!(res.get_out::<bool>().unwrap(), true);
+    assert!(res.get_out::<bool>().unwrap());
 
     let serialized = serde_json::to_string(&res).expect("failed to serialize");
     assert!(serialized.contains("\"in\":[10,\"test\"]"));
