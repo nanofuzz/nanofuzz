@@ -67,12 +67,12 @@ describe("src/fuzzer/synthesis/TransformerSynthesizer", () => {
     const result = synthesizeTransformer(fnDef, "rust");
     expect(result.name).toBe("addTransformer");
     expect(result.imports.length).toBe(1);
-    expect(result.imports[0].stmt).toContain("use nanofuzz_runtime::assume;");
+    expect(result.imports[0].stmt).toContain("use nanofuzz_runtime::{assume,");
     expect(result.skeleton).toContain(
       "pub fn addTransformer(a: i32, b: f64) -> (i32, f64) {"
     );
     expect(result.skeleton).toContain("(a, b)");
-    expect(result.fullTemplate).toContain("use nanofuzz_runtime::assume;");
+    expect(result.fullTemplate).toContain("use nanofuzz_runtime::{assume,");
   });
 
   it("disambiguates transformer name when existing names conflict", () => {
