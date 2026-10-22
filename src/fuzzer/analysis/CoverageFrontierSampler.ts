@@ -9,7 +9,7 @@ import {
   formatLineRanges,
 } from "../measures/CoverageMeasure";
 import { FunctionDef } from "./FunctionDef";
-import { FunctionRef, ProgramLanguage } from "./Types";
+import { FunctionRef } from "./Types";
 import { Leaderboard } from "../generators/Leaderboard";
 import { InputAndSource } from "../Types";
 import * as ValueMapper from "../mappers/ValueMapper";
