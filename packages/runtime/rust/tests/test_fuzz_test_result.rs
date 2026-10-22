@@ -66,3 +66,32 @@ fn test_validator_result() {
     assert_eq!(ValidatorResult::from("fail"), ValidatorResult::Fail);
     assert_eq!(ValidatorResult::from("other"), ValidatorResult::Unknown);
 }
+
+#[test]
+fn test_implicit_oracle() {
+    use nanofuzz_runtime::implicit_oracle;
+
+    assert!(implicit_oracle(&42));
+    assert!(implicit_oracle(&"hello"));
+    assert!(implicit_oracle(&vec![1, 2, 3]));
+    assert!(implicit_oracle(&Some(100)));
+
+    assert!(!implicit_oracle(&f64::NAN));
+    assert!(!implicit_oracle(&f64::INFINITY));
+    assert!(!implicit_oracle(&-f64::INFINITY));
+    assert!(!implicit_oracle(&Option::<i32>::None));
+    assert!(!implicit_oracle(&vec![Some(1), None]));
+}
+
+#[test]
+fn test_block_on() {
+    use nanofuzz_runtime::block_on;
+
+    let res = block_on(async {
+        let a = 10;
+        let b = 20;
+        a + b
+    });
+    assert_eq!(res, 30);
+}
+

@@ -73,23 +73,7 @@ fn write_msg(msg: &[u8]) -> io::Result<()> {
     s.flush()
 }
 
-#[allow(dead_code)]
-fn block_on<F: std::future::Future>(f: F) -> F::Output {
-    use std::pin::pin;
-    use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
-    const VTABLE: RawWakerVTable =
-        RawWakerVTable::new(|p| RawWaker::new(p, &VTABLE), |_| {}, |_| {}, |_| {});
-    let raw_waker = RawWaker::new(std::ptr::null(), &VTABLE);
-    let waker = unsafe { Waker::from_raw(raw_waker) };
-    let mut cx = Context::from_waker(&waker);
-    let mut pinned = pin!(f);
-    loop {
-        match pinned.as_mut().poll(&mut cx) {
-            Poll::Ready(val) => return val,
-            Poll::Pending => std::thread::yield_now(),
-        }
-    }
-}
+use nanofuzz_runtime::block_on;
 
 const MANIFEST: &[nanofuzz_runtime::coverage::FileCoverageSpec] = &[
     /* __NANOFUZZ_COVERAGE_MANIFEST__ */

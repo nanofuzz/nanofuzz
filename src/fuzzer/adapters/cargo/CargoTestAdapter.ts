@@ -64,10 +64,14 @@ export class CargoTestAdapter extends AbstractTestAdapter {
       const thisFn = this._testSet.functions[fn];
 
       let argDefs: ArgDef[] = [];
+      let isAsync = thisFn.isAsync === true;
       try {
         const pgm = ProgramFactory.fromFile(this._module, "rust");
         if (fn in pgm.functions) {
           argDefs = pgm.functions[fn].getArgDefs();
+          if (pgm.functions[fn].isAsync()) {
+            isAsync = true;
+          }
         }
       } catch {
         // ignore if AST parsing fails
@@ -84,7 +88,10 @@ export class CargoTestAdapter extends AbstractTestAdapter {
         const inputStr = thisTest.input
           .map((e, idx) => ValueMapper.toLang("rust", e.value, argDefs[idx]))
           .join(", ");
-        const callStr = `target::${fn}(${inputStr})`;
+        const rawCall = `target::${fn}(${inputStr})`;
+        const callStr = isAsync
+          ? `nanofuzz_runtime::block_on(${rawCall})`
+          : rawCall;
 
         // Human-annotated expected output
         const expectedOutput = thisTest.expectedOutput;
@@ -185,6 +192,7 @@ export class CargoTestAdapter extends AbstractTestAdapter {
             rustData.push(
               `#[test]`,
               `fn test_${fn}_${i}_heuristic() {`,
+              `    // As a void function, expect no panic`,
               `    ${callStr};`,
               `}`,
               ``
@@ -193,7 +201,9 @@ export class CargoTestAdapter extends AbstractTestAdapter {
             rustData.push(
               `#[test]`,
               `fn test_${fn}_${i}_heuristic() {`,
-              `    let _ = ${callStr};`,
+              `    // Expect no panic, NaN, None, or infinity`,
+              `    let res = ${callStr};`,
+              `    assert!(nanofuzz_runtime::implicit_oracle(&res));`,
               `}`,
               ``
             );

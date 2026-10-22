@@ -157,6 +157,51 @@ macro_rules! assume {
     };
 }
 
+/// Evaluates a serde_json Value against the NaNofuzz heuristic / implicit oracle.
+/// Fails (returns false) if the value is Null (or contains Null, NaN, or Infinity anywhere).
+pub fn implicit_oracle_value(val: &Value) -> bool {
+    match val {
+        Value::Null => false,
+        Value::Number(n) => {
+            if let Some(f) = n.as_f64() {
+                !f.is_nan() && !f.is_infinite()
+            } else {
+                true
+            }
+        }
+        Value::Array(arr) => arr.iter().all(implicit_oracle_value),
+        Value::Object(map) => map.values().all(implicit_oracle_value),
+        _ => true,
+    }
+}
+
+/// Evaluates a value against the NaNofuzz implicit / heuristic oracle.
+/// Returns false if the value contains nulls, NaNs, or Infinities.
+pub fn implicit_oracle<T: Serialize>(val: &T) -> bool {
+    match serde_json::to_value(val) {
+        Ok(v) => implicit_oracle_value(&v),
+        Err(_) => false,
+    }
+}
+
+/// Minimal blocking executor to await a Future without an external runtime.
+pub fn block_on<F: std::future::Future>(f: F) -> F::Output {
+    use std::pin::pin;
+    use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
+    const VTABLE: RawWakerVTable =
+        RawWakerVTable::new(|p| RawWaker::new(p, &VTABLE), |_| {}, |_| {}, |_| {});
+    let raw_waker = RawWaker::new(std::ptr::null(), &VTABLE);
+    let waker = unsafe { Waker::from_raw(raw_waker) };
+    let mut cx = Context::from_waker(&waker);
+    let mut pinned = pin!(f);
+    loop {
+        match pinned.as_mut().poll(&mut cx) {
+            Poll::Ready(val) => return val,
+            Poll::Pending => std::thread::yield_now(),
+        }
+    }
+}
+
 /// In-process coverage tracking module used by NaNofuzz runner host.
 pub mod coverage {
     use serde::{Deserialize, Serialize};

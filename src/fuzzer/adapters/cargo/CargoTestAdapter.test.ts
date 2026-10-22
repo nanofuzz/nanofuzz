@@ -160,6 +160,25 @@ describe("fuzzer/adapters/cargo/CargoTestAdapter:", () => {
           },
           isVoid: true,
         },
+        heuristicFn: {
+          options: makeOptions({ useImplicit: true }),
+          validators: [],
+          tests: {
+            "0": {
+              input: [
+                {
+                  name: "0",
+                  offset: 0,
+                  value: 42,
+                  origin: { type: "user" },
+                },
+              ],
+              output: [],
+              pinned: true,
+            },
+          },
+          isVoid: false,
+        },
       },
     };
 
@@ -170,6 +189,8 @@ describe("fuzzer/adapters/cargo/CargoTestAdapter:", () => {
     expect(out).toContain("fn test_sampleFn_1_expect()");
     expect(out).toContain("#[should_panic]");
     expect(out).toContain("fn test_voidFn_0_heuristic()");
+    expect(out).toContain("fn test_heuristicFn_0_heuristic()");
+    expect(out).toContain("assert!(nanofuzz_runtime::implicit_oracle(&res));");
     expect(out).toContain("mod target {");
     expect(out).toContain('include!("./mymodule.rs");');
   });
@@ -236,6 +257,10 @@ pub fn addValidator(r: &FuzzTestResult) -> &'static str {
     let b: i32 = r.get_in(1).unwrap();
     let out: i32 = r.get_out().unwrap();
     if a + b == out { "pass" } else { "fail" }
+}
+
+pub fn add_heuristic(a: i32, b: i32) -> i32 {
+    a + b
 }
 
 pub fn reset_all() {
@@ -343,6 +368,31 @@ pub fn reset_all() {
           },
           isVoid: true,
         },
+        add_heuristic: {
+          options: makeOptions({ useImplicit: true }),
+          validators: [],
+          tests: {
+            "0": {
+              input: [
+                {
+                  name: "a",
+                  offset: 0,
+                  value: 3,
+                  origin: { type: "user" },
+                },
+                {
+                  name: "b",
+                  offset: 1,
+                  value: 4,
+                  origin: { type: "user" },
+                },
+              ],
+              output: [],
+              pinned: true,
+            },
+          },
+          isVoid: false,
+        },
       },
     };
 
@@ -370,6 +420,6 @@ pub fn reset_all() {
     expect(res.status)
       .withContext(`stdout: ${res.stdout}\nstderr: ${res.stderr}`)
       .toBe(0);
-    expect(res.stdout).toContain("4 passed");
+    expect(res.stdout).toContain("5 passed");
   });
 });
