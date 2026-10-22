@@ -1,5 +1,4 @@
-import { PythonProgram } from "../analysis/python/PythonProgram";
-import { RustProgram } from "../analysis/rust/RustProgram";
+import * as ProgramFactory from "../analysis/ProgramFactory";
 import { FuzzEnv } from "../Types";
 import { AbstractRunner, RunnerOverrides } from "./AbstractRunner";
 import { JavascriptRunner } from "./javascript/JavascriptRunner";
@@ -30,13 +29,15 @@ export function RunnerFactory(
     return new JavascriptRunner(module, fn, env, overrides);
   }
 
-  if (PythonProgram.understands({ filename: module })) {
-    return new PythonRunner(module, fn, env, overrides);
+  const lang = ProgramFactory.getLanguage({ filename: module });
+  switch (lang) {
+    case "python":
+      return new PythonRunner(module, fn, env, overrides);
+    case "rust":
+      return new RustRunner(module, fn, env, overrides);
+    case "typescript":
+    case "*":
+    default:
+      throw new Error(`Support not yet implemented for program in: ${module}`);
   }
-
-  if (RustProgram.understands({ filename: module })) {
-    return new RustRunner(module, fn, env, overrides);
-  }
-
-  throw new Error(`Support not yet implemented for program in: ${module}`);
 } // fn: RunnerFactory

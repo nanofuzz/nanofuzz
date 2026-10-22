@@ -38,6 +38,10 @@ describe("Agent", () => {
     __dirname,
     "../fuzzer/test_fixtures/Fuzzer.testfixtures.py"
   );
+  const rsFixture = path.resolve(
+    __dirname,
+    "../fuzzer/test_fixtures/Fuzzer.testfixtures.rs"
+  );
 
   beforeAll(async () => {
     await ParserAdapter.init();
@@ -147,6 +151,46 @@ describe("Agent", () => {
     expect(asyncFn).toBeDefined();
     expect(asyncFn!.isAsync).toBe(true);
     expect(asyncFn!.signature).toContain("async def async_greeting");
+  });
+
+  it("listTargets: rs", async () => {
+    const result = await listTargets(rsFixture);
+    expect(result.language).toBe("rust");
+    expect(result.functions.length).toBeGreaterThan(0);
+
+    const fnMap = new Map(result.functions.map((f) => [f.name, f]));
+    expect(fnMap.has("greeting")).toBe(true);
+    expect(fnMap.has("throws")).toBe(true);
+
+    const greetingFn = fnMap.get("greeting")!;
+    expect(greetingFn.args.length).toBe(1);
+    expect(greetingFn.args[0].name).toBe("name");
+    expect(greetingFn.signature).toContain(
+      "pub fn greeting(name: String) -> String"
+    );
+    expect(greetingFn.validatorTemplate).toBeDefined();
+    expect(greetingFn.validatorTemplate).toContain(
+      "use nanofuzz_runtime::FuzzTestResult;"
+    );
+    expect(greetingFn.validatorTemplate).toContain(
+      "pub fn greetingValidator1(r: &FuzzTestResult) -> &'static str {"
+    );
+
+    expect(greetingFn.transformerTemplate).toBeDefined();
+    expect(greetingFn.transformerTemplate).toContain(
+      "use nanofuzz_runtime::assume;"
+    );
+    expect(greetingFn.transformerTemplate).toContain(
+      "pub fn greetingTransformer"
+    );
+
+    expect(greetingFn.generatorTemplate).toBeDefined();
+    expect(greetingFn.generatorTemplate).toContain("pub fn greetingGenerator");
+
+    const asyncFn = fnMap.get("async_greeting");
+    expect(asyncFn).toBeDefined();
+    expect(asyncFn!.isAsync).toBe(true);
+    expect(asyncFn!.signature).toContain("pub async fn async_greeting");
   });
 
   it("listTargets: missing file", async () => {

@@ -67,8 +67,7 @@ The following are not yet supported:
  - Testing class and object methods (write a test harness for these)
  - Compiling to module formats other than CommonJS (related to [VS Code issue 130367](https://github.com/microsoft/vscode/issues/130367))
  - Stateful, flaky, or non-deterministic tests
- - Sandboxing external side-effects of the program under test, mocks, or stubs 
- - Custom generators and input filters
+ - Sandboxing external side-effects of the program under test, mocks, or stubs
 
 If the `NaNofuzz...` button does not appear above the function you want to test, that usually means one of its inputs is comprised of types that are not yet supported. For unsupported functions or class methods, write a test harness function that accepts NaNofuzz' supported inputs and calls the function you want to test.
 

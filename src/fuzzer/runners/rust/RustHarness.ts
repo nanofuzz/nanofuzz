@@ -10,8 +10,9 @@ import { RustProgram } from "../../analysis/rust/RustProgram";
 import { FuzzEnv } from "../../Types";
 import { findInAncestor } from "../../Util";
 import * as Parser from "../../adapters/ParserAdapter";
+import * as ProgramFactory from "../../analysis/ProgramFactory";
 
-const HARNESS_TEMPLATE_VER = "RustHarness-0.4.3";
+const HARNESS_TEMPLATE_VER = "RustHarness-0.4.4";
 
 /**
  * Builds and returns the compiled Rust harness binary for testing a target function.
@@ -184,9 +185,14 @@ function generateHarnessSource(
   instTargetPath?: string
 ): string {
   const normPath = targetFile.replace(/\\/g, "/");
-  const fnDef = env?.function;
-  const argDefs = fnDef ? fnDef.getArgDefs() : [];
-  const isVoid = fnDef ? fnDef.isVoid() : false;
+  const prog = ProgramFactory.fromFile(targetFile, "rust");
+  const targetFnDef =
+    env?.function?.getName() === fnName
+      ? env.function
+      : (prog.functions[fnName] ?? env?.function);
+  const argDefs = targetFnDef ? targetFnDef.getArgDefs() : [];
+  const isVoid = targetFnDef ? targetFnDef.isVoid() : false;
+  const isAsync = targetFnDef ? targetFnDef.isAsync() : false;
 
   const argConversions: string[] = [];
   const callArgs: string[] = [];
@@ -194,6 +200,37 @@ function generateHarnessSource(
   for (let i = 0; i < argDefs.length; i++) {
     const arg = argDefs[i];
     const typeAnnot = RustProgram.getTypeAnnotation(arg);
+
+    if (arg.getName() === "prng" || typeAnnot.includes("Fn")) {
+      argConversions.push(
+        `        let mut seed_val_${i}: u64 = {
+            let mut h: u64 = 0x811c9dc5;
+            if let Some(seed_str) = input.args.get(${i}).and_then(|v| v.get("seed")).and_then(|s| s.as_str()) {
+                for b in seed_str.as_bytes() {
+                    h = h.wrapping_mul(0x100000001b3).wrapping_add(*b as u64);
+                }
+            } else {
+                h = 123456789;
+            }
+            h
+        };
+        let mut arg_${i} = move || -> f64 {
+            seed_val_${i} = seed_val_${i}.wrapping_add(0x9e3779b97f4a7c15);
+            let mut z = seed_val_${i};
+            z = (z ^ (z >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94d049bb133111eb);
+            let val = z ^ (z >> 31);
+            (val as f64) / (u64::MAX as f64)
+        };`
+      );
+      if (typeAnnot.startsWith("&")) {
+        callArgs.push(`&mut arg_${i}`);
+      } else {
+        callArgs.push(`arg_${i}`);
+      }
+      continue;
+    }
+
     const deserInfo = getDeserializationInfo(typeAnnot);
 
     argConversions.push(
@@ -217,9 +254,12 @@ function generateHarnessSource(
     callArgs.push(deserInfo.callPrefix + `arg_${i}`);
   }
 
+  const callInvocation = `target::${fnName}(${callArgs.join(", ")})`;
+  const actualCall = isAsync ? `block_on(${callInvocation})` : callInvocation;
+
   const fnCallExpr = isVoid
-    ? `target::${fnName}(${callArgs.join(", ")});\n                let json_val = serde_json::Value::Null;`
-    : `let ret = target::${fnName}(${callArgs.join(", ")});\n                let json_val = serde_json::to_value(&ret).unwrap_or(serde_json::Value::Null);`;
+    ? `${actualCall};\n                let json_val = serde_json::Value::Null;`
+    : `let ret = ${actualCall};\n                let json_val = serde_json::to_value(&ret).unwrap_or(serde_json::Value::Null);`;
 
   const validators = env?.validators ?? [];
   const validatorBlocks: string[] = [];

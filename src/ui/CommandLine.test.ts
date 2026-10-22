@@ -311,6 +311,49 @@ describe("cli:", () => {
     expect(pyOutputData.stats.outcomes.total).toBeLessThanOrEqual(maxTests);
   });
 
+  it("--output-file: check matching parameter set for Rust", async () => {
+    const outputFile = path.join(tmpDir, "rs_output.json5");
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.rs";
+    const targetFn = "greeting";
+    const seed = "rs_cli_seed_789";
+    const maxTests = 2;
+    const maxRuntime = 10000;
+
+    const res = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--max-tests",
+      maxTests.toString(),
+      "--max-runtime",
+      maxRuntime.toString(),
+      "--seed",
+      seed,
+    ]);
+
+    expect(res.status).toBe(0);
+    expect(fs.existsSync(outputFile)).toBeTrue();
+
+    const rsOutputData = JSON5.parse<FuzzTestResults>(
+      fs.readFileSync(outputFile, "utf8")
+    );
+
+    // Verify output matches target function
+    const fnMeta = getFnNameAndModule(rsOutputData.env.function);
+    expect(fnMeta.name).toBe(targetFn);
+    expect(fnMeta.module).toBe(path.resolve(targetFile));
+
+    // Verify parameter set in output options matches CLI flags
+    expect(rsOutputData.env.options.maxTests).toBe(maxTests);
+    expect(rsOutputData.env.options.suiteTimeout).toBe(maxRuntime);
+    expect(rsOutputData.env.options.seed).toBe(seed);
+
+    // Verify test results were produced
+    expect(rsOutputData.stats.outcomes.total).toBeGreaterThan(0);
+    expect(rsOutputData.stats.outcomes.total).toBeLessThanOrEqual(maxTests);
+  });
+
   it("--output-file: writes packed binary output for .msgpack extension", async () => {
     const outputFile = path.join(tmpDir, "ts_output.msgpack");
     const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";

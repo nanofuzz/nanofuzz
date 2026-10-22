@@ -73,6 +73,24 @@ fn write_msg(msg: &[u8]) -> io::Result<()> {
     s.flush()
 }
 
+#[allow(dead_code)]
+fn block_on<F: std::future::Future>(f: F) -> F::Output {
+    use std::pin::pin;
+    use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
+    const VTABLE: RawWakerVTable =
+        RawWakerVTable::new(|p| RawWaker::new(p, &VTABLE), |_| {}, |_| {}, |_| {});
+    let raw_waker = RawWaker::new(std::ptr::null(), &VTABLE);
+    let waker = unsafe { Waker::from_raw(raw_waker) };
+    let mut cx = Context::from_waker(&waker);
+    let mut pinned = pin!(f);
+    loop {
+        match pinned.as_mut().poll(&mut cx) {
+            Poll::Ready(val) => return val,
+            Poll::Pending => std::thread::yield_now(),
+        }
+    }
+}
+
 const TARGET_PATH: &str = r#"/* __NANOFUZZ_REAL_PATH__ */"#;
 const BRANCH_ARMS: &[(u32, usize)] = &[/* __NANOFUZZ_BRANCH_ARMS__ */];
 
@@ -122,12 +140,11 @@ fn main() -> io::Result<()> {
             json_val
         }));
 
-        let cov = nanofuzz_runtime::coverage::take_hits(TARGET_PATH, BRANCH_ARMS);
-        let cov_data = Some(HashMap::from([(TARGET_PATH.to_string(), cov)]));
-
         let response = match call_res {
             Ok(json_val) => {
                 /* __NANOFUZZ_VALIDATORS__ */
+                let cov = nanofuzz_runtime::coverage::take_hits(TARGET_PATH, BRANCH_ARMS);
+                let cov_data = Some(HashMap::from([(TARGET_PATH.to_string(), cov)]));
                 RunnerResultPayload::Value {
                     value: json_val,
                     seq: input.seq,
@@ -136,6 +153,8 @@ fn main() -> io::Result<()> {
                 }
             }
             Err(panic_err) => {
+                let cov = nanofuzz_runtime::coverage::take_hits(TARGET_PATH, BRANCH_ARMS);
+                let cov_data = Some(HashMap::from([(TARGET_PATH.to_string(), cov)]));
                 if let Some(assump) =
                     panic_err.downcast_ref::<nanofuzz_runtime::UnsatisfiedAssumption>()
                 {

@@ -1,5 +1,4 @@
-import { TypescriptProgram } from "../analysis/typescript/TypescriptProgram";
-import { RustProgram } from "../analysis/rust/RustProgram";
+import * as ProgramFactory from "../analysis/ProgramFactory";
 import { TypescriptCompiler } from "./TypescriptCompiler";
 import { RustCompiler } from "./rust/RustCompiler";
 
@@ -7,20 +6,22 @@ export { TypescriptCompiler, RustCompiler };
 
 // TODO: Create an AbstractCompiler class & a matching strategy
 export function fromSourcefile(fqSrcFile: string): Compiler | undefined {
-  if (TypescriptProgram.understands({ filename: fqSrcFile })) {
-    return new TypescriptCompiler(fqSrcFile);
+  const lang = ProgramFactory.getLanguage({ filename: fqSrcFile });
+  switch (lang) {
+    case "typescript":
+      return new TypescriptCompiler(fqSrcFile);
+    case "rust":
+      return new RustCompiler(fqSrcFile);
+    case "python":
+    case "*":
+    default:
+      return undefined;
   }
-  if (RustProgram.understands({ filename: fqSrcFile })) {
-    return new RustCompiler(fqSrcFile);
-  }
-  return undefined;
 } // fn: fromSourcefile
 
 export function needsCompilation(fqSrcFile: string): boolean {
-  return (
-    TypescriptProgram.understands({ filename: fqSrcFile }) ||
-    RustProgram.understands({ filename: fqSrcFile })
-  );
+  const lang = ProgramFactory.getLanguage({ filename: fqSrcFile });
+  return lang === "typescript" || lang === "rust";
 } // fn: needsCompilation
 
 /**

@@ -208,14 +208,28 @@ export class RustCompiler {
       ];
       cwd = this._projectPath;
     } else if (rustc) {
+      const safeCrateName = path
+        .basename(this._moduleFile, ".rs")
+        .replace(/[^a-zA-Z0-9_]/g, "_");
       cmd = rustc;
       args = [
+        "--edition=2021",
+        `--crate-name=${safeCrateName}`,
         "--error-format=json",
         "--crate-type=lib",
         "--out-dir",
         this._options.tmpDir,
-        this._moduleFile,
       ];
+      const runtimeRlib = findRuntimeRlib();
+      if (runtimeRlib) {
+        args.push(
+          "-L",
+          path.dirname(runtimeRlib),
+          "--extern",
+          `nanofuzz_runtime=${runtimeRlib}`
+        );
+      }
+      args.push(this._moduleFile);
       cwd = this._projectPath;
     } else {
       throw new RustCompilerError("Cargo is required for Cargo.toml projects", {
@@ -587,3 +601,56 @@ function parseRustCompilerOutput(
     diagnostics,
   };
 } // fn: parseRustCompilerOutput
+
+function findRuntimeRlib(): string | undefined {
+  const currModuleDir = path.dirname(path.resolve(module.filename));
+  const projectRoot = findInAncestor(currModuleDir, "package.json");
+  const candidates: string[] = [];
+
+  if (projectRoot) {
+    const rootDir = path.dirname(projectRoot);
+    candidates.push(
+      path.join(
+        rootDir,
+        "packages",
+        "runtime",
+        "rust",
+        "target",
+        "debug",
+        "deps"
+      ),
+      path.join(
+        rootDir,
+        "build",
+        "extension",
+        "nanofuzz-runtime",
+        "target",
+        "debug",
+        "deps"
+      )
+    );
+  }
+
+  candidates.push(
+    path.resolve("./packages/runtime/rust/target/debug/deps"),
+    path.resolve("./build/extension/nanofuzz-runtime/target/debug/deps")
+  );
+
+  for (const dir of candidates) {
+    if (fs.existsSync(dir)) {
+      try {
+        const files = fs.readdirSync(dir);
+        const rlib = files.find(
+          (f) => f.startsWith("libnanofuzz_runtime") && f.endsWith(".rlib")
+        );
+        if (rlib) {
+          return path.join(dir, rlib);
+        }
+      } catch {
+        // ignore read error
+      }
+    }
+  }
+
+  return undefined;
+} // fn: findRuntimeRlib
