@@ -958,7 +958,7 @@ export function parseExpression(input: string): boolean {
     expect(formatted).toContain("function scanToken(input: string): boolean");
   });
 
-  it("Option 2A: handles circular and recursive call graphs without infinite loops", () => {
+  it("handles circular and recursive call graphs without infinite loops", () => {
     const cycleFile = path.join(tmpDir, "Cycle.ts");
     fs.writeFileSync(
       cycleFile,
