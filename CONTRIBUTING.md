@@ -27,6 +27,7 @@ Be sure you have these tools installed:
 - [Node.js][] v22+ (if using Linux or Mac, we recommend installing via [nvm][])
 - [Yarn][] v1.x
 - [python][] v3.13+
+- [Rust][] v1.80+ (cargo & rustc)
 
 If you're using [Nix][], all dependencies other than Git will be automatically provided by the `flake.nix` file in this repo once you've cloned it.
 
@@ -227,3 +228,4 @@ Our repo uses [semantic versioning][] and maintains the same version number for 
 [semantic versioning]: https://semver.org
 [github release]: https://docs.github.com/en/repositories/releasing-projects-on-github/managing-releases-in-a-repository
 [python]: https://www.python.org/
+[rust]: https://www.rust-lang.org/

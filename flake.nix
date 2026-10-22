@@ -21,6 +21,8 @@
             buildInputs = [
               nixfmt-rfc-style
               yarn
+              cargo
+              rustc
             ];
           };
       }
