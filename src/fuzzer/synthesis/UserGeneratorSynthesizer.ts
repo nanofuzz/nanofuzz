@@ -3,10 +3,10 @@ import { FunctionDef } from "../analysis/FunctionDef";
 import { PythonProgram } from "../analysis/python/PythonProgram";
 import { RustProgram } from "../analysis/rust/RustProgram";
 import { ProgramLanguage } from "../analysis/Types";
+import { CompanionManager } from "../analysis/CompanionManager";
 import { ArgDefGenerator } from "../analysis/ArgDefGenerator";
 import * as ValueMapper from "../mappers/ValueMapper";
 import { FuzzerCodeSnippet } from "./Types";
-import { getNextAvailableFnNumber } from "./Util";
 
 /**
  * Synthesizes a complete user-provided input generator code skeleton for a function definition.
@@ -24,15 +24,14 @@ export function synthesizeUserGenerator(
   generatorNameOverride?: string
 ): FuzzerCodeSnippet {
   const targetLang = lang ?? fn.getLang();
-  const userGenPrefix = fn.getName() + "Generator";
-
-  let userGenName = generatorNameOverride;
-  if (!userGenName) {
-    const fnCounter = existingFnNames
-      ? getNextAvailableFnNumber(existingFnNames, userGenPrefix)
-      : 0;
-    userGenName = `${userGenPrefix}${fnCounter === 0 ? "" : fnCounter}`;
-  }
+  const userGenName =
+    generatorNameOverride ??
+    CompanionManager.getNextAvailableName(
+      existingFnNames ?? [],
+      fn.getName(),
+      "generator",
+      targetLang
+    );
 
   const inArgs = fn.getArgDefs();
 
