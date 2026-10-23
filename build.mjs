@@ -104,6 +104,40 @@ if (fs.existsSync(rustRuntimeDir)) {
   console.log("copied nanofuzz-runtime");
 }
 
+// Build and copy OCaml runtime library (nanofuzz_runtime)
+const oxRuntimeDir = path.resolve("./packages/runtime/oxcaml");
+if (fs.existsSync(oxRuntimeDir)) {
+  const duneBin = resolveDune();
+  if (duneBin) {
+    try {
+      const duneDir = path.dirname(duneBin);
+      const pathEnvKey =
+        Object.keys(process.env).find((k) => k.toLowerCase() === "path") ||
+        "PATH";
+      ChildProcess.execFileSync(duneBin, ["build"], {
+        cwd: oxRuntimeDir,
+        env: {
+          ...process.env,
+          [pathEnvKey]: `${duneDir}${path.delimiter}${process.env[pathEnvKey] || ""}`,
+        },
+        stdio: "inherit",
+      });
+    } catch {
+      console.warn("WARNING: dune build failed for nanofuzz_runtime");
+    }
+  }
+
+  const destOxRuntime = path.resolve(
+    "./build/extension/nanofuzz_runtime_oxcaml"
+  );
+  fs.mkdirSync(destOxRuntime, { recursive: true });
+  fs.cpSync(oxRuntimeDir, destOxRuntime, {
+    recursive: true,
+    filter: (src) => !src.includes(`${path.sep}_build`),
+  });
+  console.log("copied nanofuzz_runtime_oxcaml");
+}
+
 // Copy Python imports
 let interpreter = "python";
 if (!fs.existsSync(path.resolve(path.join(".", ".venv")))) {
@@ -440,3 +474,48 @@ function resolveCargo() {
   }
   return undefined;
 } // fn: resolveCargo
+
+/**
+ * Resolves the dune executable location.
+ *
+ * @returns Path to the dune executable or undefined if not found
+ */
+function resolveDune() {
+  const duneBinName = process.platform === "win32" ? "dune.exe" : "dune";
+  const candidates = [];
+  if (process.env.OPAM_SWITCH_PREFIX) {
+    candidates.push(
+      path.join(process.env.OPAM_SWITCH_PREFIX, "bin", duneBinName)
+    );
+  }
+  const home = os.homedir();
+  if (home) {
+    const opamDir = path.join(home, ".opam");
+    if (fs.existsSync(opamDir)) {
+      try {
+        const switches = fs.readdirSync(opamDir);
+        for (const sw of switches) {
+          candidates.push(path.join(opamDir, sw, "bin", duneBinName));
+        }
+      } catch {
+        // ignore
+      }
+    }
+  }
+  candidates.push(duneBinName);
+
+  for (const candidate of candidates) {
+    try {
+      const res = ChildProcess.spawnSync(candidate, ["--version"], {
+        encoding: "utf8",
+        stdio: "pipe",
+      });
+      if (res.status === 0) {
+        return candidate;
+      }
+    } catch {
+      // not found or not executable
+    }
+  }
+  return undefined;
+} // fn: resolveDune

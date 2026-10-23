@@ -1,0 +1,4 @@
+(library
+ (name nanofuzz_runtime)
+ (public_name nanofuzz_runtime)
+ (libraries yojson))
