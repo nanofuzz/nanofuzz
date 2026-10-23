@@ -1356,7 +1356,12 @@ export function formatFunctionSignature(
   const isAsync = fnDef.isAsync();
   const argParts = args.map((arg) => {
     const opt =
-      arg.isOptional() && lang !== "rust" && lang !== "python" ? "?" : "";
+      arg.isOptional() &&
+      lang !== "rust" &&
+      lang !== "python" &&
+      lang !== "java"
+        ? "?"
+        : "";
     const typeStr = formatArgDefType(arg);
     return `${arg.getName()}${opt}: ${typeStr}`;
   });
@@ -1372,6 +1377,15 @@ export function formatFunctionSignature(
     const retStr = returnType && returnType !== "()" ? ` -> ${returnType}` : "";
     const prefix = isAsync ? "pub async fn" : "pub fn";
     return `${prefix} ${name}(${argParts.join(", ")})${retStr}`;
+  }
+  if (lang === "java") {
+    const javaArgs = args.map((arg) => {
+      const typeStr = formatArgDefType(arg);
+      return `${typeStr} ${arg.getName()}`;
+    });
+    const retStr = returnType ?? (fnDef.isVoid() ? "void" : "Object");
+    const prefix = fnDef.isExported() ? "public " : "";
+    return `${prefix}${retStr} ${name}(${javaArgs.join(", ")})`;
   }
   const retStr = returnType
     ? `: ${returnType}`

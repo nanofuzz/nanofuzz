@@ -42,6 +42,10 @@ describe("Agent", () => {
     __dirname,
     "../fuzzer/test_fixtures/Fuzzer.testfixtures.rs"
   );
+  const javaFixture = path.resolve(
+    __dirname,
+    "../fuzzer/test_fixtures/Fuzzer.testfixtures.java"
+  );
 
   beforeAll(async () => {
     await ParserAdapter.init();
@@ -196,6 +200,21 @@ describe("Agent", () => {
     expect(asyncFn).toBeDefined();
     expect(asyncFn!.isAsync).toBe(true);
     expect(asyncFn!.signature).toContain("pub async fn async_greeting");
+  });
+
+  it("listTargets: java", async () => {
+    const result = await listTargets(javaFixture);
+    expect(result.language).toBe("java");
+    expect(result.functions.length).toBeGreaterThan(0);
+
+    const fnMap = new Map(result.functions.map((f) => [f.name, f]));
+    expect(fnMap.has("greeting")).toBe(true);
+    expect(fnMap.has("throwsException")).toBe(true);
+
+    const greetingFn = fnMap.get("greeting")!;
+    expect(greetingFn.args.length).toBe(1);
+    expect(greetingFn.args[0].name).toBe("name");
+    expect(greetingFn.signature).toBe("public String greeting(String name)");
   });
 
   it("listTargets: missing file", async () => {

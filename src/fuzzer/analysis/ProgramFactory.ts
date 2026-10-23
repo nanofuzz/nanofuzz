@@ -5,6 +5,7 @@ import * as path from "path";
 import { TypescriptProgram } from "./typescript/TypescriptProgram";
 import { PythonProgram } from "./python/PythonProgram";
 import { RustProgram } from "./rust/RustProgram";
+import { JavaProgram } from "./java/JavaProgram";
 
 /**
  * Returns an AbstractProgram object for the given filename.
@@ -103,7 +104,7 @@ function factory(
     case "rust":
       return new RustProgram(getSource, filename, options, parent);
     case "java":
-      throw new Error(`JavaProgram not yet implemented: ${filename}`);
+      return new JavaProgram(getSource, filename, options, parent);
     case "typescript":
     case "*":
     default:
@@ -115,7 +116,7 @@ function factory(
  * Determines the programming language of a source file based on its filename or language hint.
  *
  * @param details Object containing filename and/or optional language hint
- * @returns Detected ProgramLanguage ("typescript" | "python" | "rust")
+ * @returns Detected ProgramLanguage ("typescript" | "python" | "rust" | "java")
  */
 export function getLanguage(details: {
   filename?: string;
@@ -126,6 +127,9 @@ export function getLanguage(details: {
   }
   if (RustProgram.understands(details)) {
     return "rust";
+  }
+  if (JavaProgram.understands(details)) {
+    return "java";
   }
   return "typescript";
 } // fn: getLanguage
