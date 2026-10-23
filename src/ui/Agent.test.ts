@@ -606,10 +606,12 @@ describe("Agent", () => {
       const pyFile = path.join(tmpDir, "settings_test.py");
       fs.writeFileSync(
         pyFile,
-        `from hypothesis import given, settings, strategies as st
+        `def settings(**kwargs):
+    def deco(fn):
+        return fn
+    return deco
 
 @settings(max_examples=3, deadline=250)
-@given(x=st.integers())
 def py_double(x: int) -> int:
     return x * 2
 `
@@ -640,10 +642,12 @@ def py_double(x: int) -> int:
       const jsonFile = path.join(tmpDir, "settings_override.py.nano.json5");
       fs.writeFileSync(
         pyFile,
-        `from hypothesis import given, settings, strategies as st
+        `def settings(**kwargs):
+    def deco(fn):
+        return fn
+    return deco
 
 @settings(max_examples=50)
-@given(x=st.integers())
 def py_double(x: int) -> int:
     return x * 2
 `
@@ -690,10 +694,12 @@ def py_double(x: int) -> int:
       const jsonFile = path.join(tmpDir, "caller_override.py.nano.json5");
       fs.writeFileSync(
         pyFile,
-        `from hypothesis import given, settings, strategies as st
+        `def settings(**kwargs):
+    def deco(fn):
+        return fn
+    return deco
 
 @settings(max_examples=50)
-@given(x=st.integers())
 def py_double(x: int) -> int:
     return x * 2
 `

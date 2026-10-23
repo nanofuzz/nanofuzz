@@ -2274,10 +2274,12 @@ export function calc(x: number): number {
     fs.writeFileSync(
       pyFile,
       `
-from hypothesis import given, settings, strategies as st
+def settings(**kwargs):
+    def deco(fn):
+        return fn
+    return deco
 
 @settings(max_examples=100)
-@given(x=st.integers())
 def py_fn(x: int) -> int:
     return x * 2
 `,
