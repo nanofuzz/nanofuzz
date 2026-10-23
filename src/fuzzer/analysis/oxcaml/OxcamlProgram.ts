@@ -26,6 +26,14 @@ export class OxcamlProgram extends AbstractProgram {
   ]);
   protected _ast: Parser.Tree | undefined;
 
+  /**
+   * Constructs an OxcamlProgram instance for the given source and file path.
+   *
+   * @param getSource Callback returning the source code
+   * @param filename Path to the OCaml source file
+   * @param options Argument options
+   * @param parent Optional parent program in the module hierarchy
+   */
   constructor(
     getSource: () => string,
     filename: string,
@@ -40,16 +48,26 @@ export class OxcamlProgram extends AbstractProgram {
     }
   } // constructor
 
+  /**
+   * Returns the programming language for this program ("oxcaml").
+   */
   public get lang(): ProgramLanguage {
     return OxcamlProgram.lang;
   } // fn: lang
 
+  /**
+   * Returns the file extensions recognized by OxcamlProgram ([".ml", ".mli"]).
+   */
   public get extensions(): readonly string[] {
     return OxcamlProgram.extensions;
   } // fn: extensions
 
   /**
    * Returns an OCaml/OxCaml type annotation string for the given argument.
+   *
+   * @param arg The ArgDef to format
+   * @param options Formatting options for type annotations
+   * @returns Formatted OCaml type annotation string
    */
   public static getTypeAnnotation(
     arg: ArgDef,
@@ -85,7 +103,11 @@ export class OxcamlProgram extends AbstractProgram {
   } // fn: getTypeAnnotation
 
   /**
-   * Returns the base type string for an argument.
+   * Returns the base type string for an argument in OCaml/OxCaml syntax.
+   *
+   * @param arg The ArgDef to inspect
+   * @param options Formatting options for type annotations
+   * @returns Base type representation in OCaml syntax
    */
   public static getBaseType(
     arg: ArgDef,
@@ -165,6 +187,13 @@ export class OxcamlProgram extends AbstractProgram {
     }
   } // fn: getBaseType
 
+  /**
+   * Resolves a TypeRef object through type aliases, local declarations, and imports
+   * to a concrete ArgTag representation.
+   *
+   * @param typeRef The TypeRef object to resolve
+   * @returns Resolved TypeRef
+   */
   public resolveTypeRef(typeRef: TypeRef): TypeRef {
     if (typeRef.type && typeRef.type.type !== ArgTag.UNRESOLVED) {
       if (typeRef.type.resolved) {
@@ -255,10 +284,20 @@ export class OxcamlProgram extends AbstractProgram {
     return typeRef;
   } // fn: resolveTypeRef
 
+  /**
+   * Parses OCaml source code into a tree-sitter AST.
+   *
+   * @param src Source text to parse
+   */
   protected _parse(src: string): void {
     this._ast = Parser.parse("oxcaml", src) ?? undefined;
   } // fn: _parse
 
+  /**
+   * Analyzes open module statements (`open Module`) and resolves local file imports.
+   *
+   * @returns A record of imports defined in the program
+   */
   protected _findImports(): ProgramImports {
     const imports: ProgramImports = { programs: {}, identifiers: {} };
     if (!this._ast) {
@@ -300,6 +339,11 @@ export class OxcamlProgram extends AbstractProgram {
     return imports;
   } // fn: _findImports
 
+  /**
+   * Extracts type definitions (aliases, records, variants) defined in the source file.
+   *
+   * @returns A dictionary of type names to TypeRef objects
+   */
   protected _findTypes(): Record<IdentifierName, TypeRef> {
     const types: Record<IdentifierName, TypeRef> = {};
     if (!this._ast) {
@@ -381,6 +425,11 @@ export class OxcamlProgram extends AbstractProgram {
     return types;
   } // fn: _findTypes
 
+  /**
+   * Extracts top-level let-bindings and classifies them as supported or unsupported functions.
+   *
+   * @returns An object with `supported` and `unsupported` function maps
+   */
   protected _findFunctions(): typeof this._functions {
     if (!this._ast) {
       throw new Error("AST not loaded");
@@ -455,10 +504,21 @@ export class OxcamlProgram extends AbstractProgram {
     return { supported, unsupported };
   } // fn: _findFunctions
 
+  /**
+   * Returns the default type export for the program (not applicable for OCaml).
+   *
+   * @returns undefined
+   */
   protected _findDefaultTypeExport(): TypeRef | undefined {
     return undefined;
   } // fn: _findDefaultTypeExport
 
+  /**
+   * Identifies function calls within the body of a given function.
+   *
+   * @param fnName Name of function to inspect
+   * @returns Set of callee names
+   */
   protected _findCallees(fnName: string): Set<string> {
     const callees = new Set<string>();
     const unsupp = this._functions.unsupported[fnName];
@@ -496,6 +556,15 @@ export class OxcamlProgram extends AbstractProgram {
     return callees;
   } // fn: _findCallees
 
+  /**
+   * Constructs a FunctionRef from an AST value definition node.
+   *
+   * @param itemNode The outer value_definition node
+   * @param bindingNode The let_binding node
+   * @param nameNode The function identifier node
+   * @param isExported True if the function is exposed in the module interface
+   * @returns The constructed FunctionRef
+   */
   protected _getFunctionFromNode(
     itemNode: Parser.SyntaxNode,
     bindingNode: Parser.SyntaxNode,
@@ -546,6 +615,12 @@ export class OxcamlProgram extends AbstractProgram {
     return fnRef;
   } // fn: _getFunctionFromNode
 
+  /**
+   * Parses a single parameter node into a TypeRef, extracting its name and type annotation.
+   *
+   * @param paramNode The parameter AST node
+   * @returns The extracted TypeRef or undefined for unit arguments
+   */
   protected _getParameterTypeRef(
     paramNode: Parser.SyntaxNode
   ): TypeRef | undefined {
@@ -596,6 +671,12 @@ export class OxcamlProgram extends AbstractProgram {
     return typeRef;
   } // fn: _getParameterTypeRef
 
+  /**
+   * Maps a tree-sitter OCaml type expression node into a TypeRef structure.
+   *
+   * @param node The AST type node
+   * @returns The constructed TypeRef
+   */
   protected _getTypeRefFromAstNode(node: Parser.SyntaxNode): TypeRef {
     const thisType: TypeRef = {
       module: this._filename,
@@ -739,6 +820,11 @@ export class OxcamlProgram extends AbstractProgram {
     }
   } // fn: _getTypeRefFromAstNode
 
+  /**
+   * Reads the companion `.mli` interface file (if one exists) to extract public `val` signatures.
+   *
+   * @returns Set of exported identifier names, or undefined if no .mli exists
+   */
   protected _getMliExports(): Set<string> | undefined {
     if (!this._filename || !this._filename.endsWith(".ml")) {
       return undefined;
@@ -765,6 +851,9 @@ export class OxcamlProgram extends AbstractProgram {
 
 /**
  * Resolves standard OCaml and OxCaml primitive types to their ArgTag representations.
+ *
+ * @param name Type name string (e.g. "int", "float", "#int")
+ * @returns Object with ArgTag and generator options, or undefined if not a primitive
  */
 function resolveOxcamlPrimitive(
   name: string
@@ -854,6 +943,9 @@ function resolveOxcamlPrimitive(
 
 /**
  * Returns true if the type name is an OCaml/OxCaml primitive or built-in type.
+ *
+ * @param name Type name to test
+ * @returns True if the type name is a primitive or built-in
  */
 function isOxcamlPrimitiveOrBuiltin(name: string): boolean {
   return (
@@ -874,6 +966,9 @@ function isOxcamlPrimitiveOrBuiltin(name: string): boolean {
 
 /**
  * Extracts leading doc comments preceding an OCaml definition node.
+ *
+ * @param node The AST definition node
+ * @returns Docstring text if present, or undefined
  */
 function extractLeadingDocComment(node: Parser.SyntaxNode): string | undefined {
   let prev = node.previousNamedSibling;

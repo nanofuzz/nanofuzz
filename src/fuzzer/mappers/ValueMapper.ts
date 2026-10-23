@@ -3,6 +3,7 @@ import { ArgDef } from "../analysis/ArgDef";
 import * as PythonValueMapper from "./python/PythonValueMapper";
 import * as TypescriptValueMapper from "./typescript/TypescriptValueMapper";
 import * as RustValueMapper from "./rust/RustValueMapper";
+import * as OxcamlValueMapper from "./oxcaml/OxcamlValueMapper";
 
 export function toLang(
   lang: Omit<ProgramLanguage, "*">,
@@ -16,6 +17,8 @@ export function toLang(
       return TypescriptValueMapper.toTypescript(val, argDef);
     case "rust":
       return RustValueMapper.toRust(val, argDef);
+    case "oxcaml":
+      return OxcamlValueMapper.toOxcaml(val, argDef);
   }
   throw new Error(`Unknown language: ${lang}`);
 }
@@ -28,6 +31,8 @@ export function fromLang<T>(lang: Omit<ProgramLanguage, "*">, text: string): T {
       return TypescriptValueMapper.fromTypescript(text);
     case "rust":
       return RustValueMapper.fromRust(text);
+    case "oxcaml":
+      return OxcamlValueMapper.fromOxcaml(text);
   }
   throw new Error(`Unknown language: ${lang}`);
 }
