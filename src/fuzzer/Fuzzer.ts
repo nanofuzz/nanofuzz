@@ -34,13 +34,8 @@ import { MeasureFactory } from "./measures/MeasureFactory";
 import { RunnerFactory } from "./runners/RunnerFactory";
 import { Leaderboard } from "./generators/Leaderboard";
 import { categorizeResult, getIoKey, isError, isSameJudgments } from "./Util";
-import {
-  getTransformers,
-  getUserGenerators,
-  getValidators,
-  isArgValueType,
-  isOptionValid,
-} from "./analysis/Util";
+import { isArgValueType, isOptionValid } from "./analysis/Util";
+import { CompanionManager } from "./analysis/CompanionManager";
 import { ImplicitOracle } from "./oracles/ImplicitOracle";
 import { ExampleOracle } from "./oracles/ExampleOracle";
 import { PropertyOracle } from "./oracles/PropertyOracle";
@@ -128,13 +123,22 @@ export class Tester {
     this._function = fnList[this._fnName];
 
     // Get the list of property validators
-    this._validators = getValidators(this._program, this._function);
+    this._validators = CompanionManager.getValidators(
+      this._program,
+      this._function
+    );
 
     // Get the list of input transformers
-    this._transformers = getTransformers(this._program, this._function);
+    this._transformers = CompanionManager.getTransformers(
+      this._program,
+      this._function
+    );
 
     // Get the list of user generators
-    this._userGenerators = getUserGenerators(this._program, this._function);
+    this._userGenerators = CompanionManager.getUserGenerators(
+      this._program,
+      this._function
+    );
 
     // Options
     if (!isOptionValid(normalizedOptions)) {
@@ -235,8 +239,14 @@ export class Tester {
         executionOptions: structuredClone(this._executionOptions),
         function: this._function,
         validators: structuredClone(this._validators),
-        transformers: getTransformers(this._program, this._function),
-        userGenerators: getUserGenerators(this._program, this._function),
+        transformers: CompanionManager.getTransformers(
+          this._program,
+          this._function
+        ),
+        userGenerators: CompanionManager.getUserGenerators(
+          this._program,
+          this._function
+        ),
       },
       stopReason: FuzzStopReason.CRASH, // updated later
       stats: {

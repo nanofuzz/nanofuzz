@@ -228,9 +228,9 @@ export class CargoTestAdapter extends AbstractTestAdapter {
         // Property validators
         if (thisFn.options.useProperty) {
           for (const validator of thisFn.validators) {
-            const validatorSuffix = validator.startsWith(fn)
-              ? validator.slice(fn.length)
-              : validator;
+            const validatorSuffix = (
+              validator.startsWith(fn) ? validator.slice(fn.length) : validator
+            ).replace(/^_+/, "");
 
             const inputArgsJson = thisTest.input.map((e) =>
               JSON.stringify(e.value)
