@@ -37,40 +37,83 @@ export function formatRunSummary(
       ? "interrupted"
       : results.stopReason;
 
-  if (counters.inputsInterrupted) {
+  const dupeText =
+    counters.dupesGenerated > 0
+      ? ` (${counters.dupesGenerated} were dupes)`
+      : "";
+
+  if (counters.inputsInjected > 0) {
     lines.push(
-      ` - Executed ${outcomes.total}, skipped ${
-        counters.inputsSkipped
-      }, interrupted ${counters.inputsInterrupted} in-flight tests in ${stats.timers.total.toFixed(0)} ms this run. Stopped for reason: ${stopReason}.`
+      ` - Injected ${counters.inputsInjected} and generated ${counters.inputsGenerated} inputs${dupeText}`
     );
   } else {
-    lines.push(
-      ` - Executed ${outcomes.total} and skipped ${
-        counters.inputsSkipped
-      } tests in ${stats.timers.total.toFixed(0)} ms this run. Stopped for reason: ${stopReason}.`
-    );
+    lines.push(` - Generated ${counters.inputsGenerated} inputs${dupeText}`);
   }
+
+  const ms = stats.timers.total.toFixed(0);
+  if (counters.inputsInterrupted) {
+    const skippedText =
+      counters.inputsSkipped > 0 ? `, skipped ${counters.inputsSkipped}` : "";
+    lines.push(
+      ` - Executed ${outcomes.total}${skippedText}, interrupted ${counters.inputsInterrupted} in-flight tests in ${ms} ms`
+    );
+  } else {
+    const skippedText =
+      counters.inputsSkipped > 0
+        ? ` and skipped ${counters.inputsSkipped}`
+        : "";
+    lines.push(` - Executed ${outcomes.total}${skippedText} tests in ${ms} ms`);
+  }
+
   lines.push(
-    ` - Injected ${counters.inputsInjected} and generated ${
-      counters.inputsGenerated
-    } inputs (${counters.dupesGenerated} were dupes) this run.`
-  );
-  lines.push(
-    ` - Total tests with exceptions: ${outcomes.exceptions}, timeouts: ${
+    `   - Tests with exceptions: ${outcomes.exceptions}, timeouts: ${
       outcomes.timeouts
     }, errors: ${counters.erroredTests}`
   );
-  lines.push(
-    ` - Total tests where human validator passed: ${outcomes.oracles.human.pass}, failed: ${outcomes.oracles.human.fail}`
-  );
-  lines.push(
-    ` - Total tests where property validator passed: ${outcomes.oracles.property.pass}, failed: ${outcomes.oracles.property.fail}`
-  );
-  lines.push(
-    ` - Total tests where heuristic validator passed: ${outcomes.oracles.heuristic.pass}, failed: ${outcomes.oracles.heuristic.fail}`
-  );
 
-  if (results.env.options.outputFile) {
+  const useHuman = results.env?.options?.useHuman ?? false;
+  const hasHuman =
+    useHuman &&
+    ((outcomes.oracles?.human?.pass ?? 0) +
+      (outcomes.oracles?.human?.fail ?? 0) >
+      0 ||
+      Boolean(
+        results.results?.some(
+          (r) => r.expectedOutput && r.expectedOutput.length > 0
+        )
+      ));
+  if (hasHuman) {
+    lines.push(
+      `   - Human validator passed: ${outcomes.oracles.human.pass}, failed: ${outcomes.oracles.human.fail}`
+    );
+  }
+
+  const useProperty = results.env?.options?.useProperty ?? false;
+  const hasProperty =
+    useProperty &&
+    ((results.env?.validators && results.env.validators.length > 0) ||
+      (outcomes.oracles?.property?.pass ?? 0) +
+        (outcomes.oracles?.property?.fail ?? 0) >
+        0);
+  if (hasProperty) {
+    lines.push(
+      `   - Property validator passed: ${outcomes.oracles.property.pass}, failed: ${outcomes.oracles.property.fail}`
+    );
+  }
+
+  const useHeuristic = results.env?.options?.useImplicit ?? false;
+  const hasHeuristic =
+    useHeuristic &&
+    (outcomes.oracles?.heuristic?.pass ?? 0) +
+      (outcomes.oracles?.heuristic?.fail ?? 0) >
+      0;
+  if (hasHeuristic) {
+    lines.push(
+      `   - Heuristic validator passed: ${outcomes.oracles.heuristic.pass}, failed: ${outcomes.oracles.heuristic.fail}`
+    );
+  }
+
+  if (results.env?.options?.outputFile) {
     lines.push(` - Test results: ${results.env.options.outputFile}`);
   }
 
@@ -87,7 +130,10 @@ export function formatRunSummary(
     );
   }
 
-  lines.push(`Testing ${isCancelled ? "interrupted" : "finished"}.`);
+  const stopReasonStr = stopReason ? ` Stopped for reason: ${stopReason}.` : "";
+  lines.push(
+    `Testing ${isCancelled ? "interrupted" : "finished"}.${stopReasonStr}`
+  );
 
   return lines.join("\n");
 } // fn: formatRunSummary
