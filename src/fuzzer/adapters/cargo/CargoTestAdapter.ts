@@ -2,6 +2,8 @@ import * as Config from "../../../Config";
 import { FuzzTests } from "../../Types";
 import * as ValueMapper from "../../mappers/ValueMapper";
 import * as ProgramFactory from "../../analysis/ProgramFactory";
+import { AbstractProgram } from "../../analysis/AbstractProgram";
+import { RustProgram } from "../../analysis/rust/RustProgram";
 import { ArgDef } from "../../analysis/ArgDef";
 import * as os from "os";
 import * as path from "path";
@@ -42,6 +44,61 @@ export class CargoTestAdapter extends AbstractTestAdapter {
     const rustData: string[] = [];
     const baseFilename = path.basename(this._module);
 
+    let pgm: AbstractProgram | undefined;
+    try {
+      pgm = ProgramFactory.fromFile(this._module, "rust");
+    } catch {
+      // ignore if AST parsing fails
+    }
+
+    const shims: string[] = [];
+    const fnShimNames: Record<string, string> = {};
+
+    const fnNames = Object.keys(this._testSet.functions);
+    const unexportedFns = fnNames.filter((fn) => {
+      const fnObj = pgm?.functions[fn];
+      return fnObj ? !fnObj.isExported() : false;
+    });
+
+    for (const fn of unexportedFns) {
+      const fnObj = pgm?.functions[fn];
+      if (!fnObj) continue;
+      const shimName =
+        unexportedFns.length <= 1
+          ? "__nanofuzz_get__"
+          : `__nanofuzz_get_${fn}__`;
+      fnShimNames[fn] = shimName;
+
+      const argDefs = fnObj.getArgDefs();
+      const isVoid = fnObj.isVoid();
+      const isAsync = fnObj.isAsync();
+      const shimParams: string[] = [];
+      const shimCallArgs: string[] = [];
+
+      for (let i = 0; i < argDefs.length; i++) {
+        const arg = argDefs[i];
+        const typeAnnot = RustProgram.getTypeAnnotation(arg);
+        shimParams.push(`arg_${i}: ${typeAnnot}`);
+        shimCallArgs.push(`arg_${i}`);
+      }
+
+      const retArg = fnObj.getReturnArg();
+      const retAnnot = isVoid
+        ? ""
+        : retArg
+          ? ` -> ${RustProgram.getTypeAnnotation(retArg)}`
+          : fnObj.getReturnType()?.name
+            ? ` -> ${fnObj.getReturnType()?.name}`
+            : "";
+      const asyncKw = isAsync ? "async " : "";
+      const awaitSuffix = isAsync ? ".await" : "";
+      shims.push(
+        `    pub ${asyncKw}fn ${shimName}(${shimParams.join(", ")})${retAnnot} {`,
+        `        ${fn}(${shimCallArgs.join(", ")})${awaitSuffix}`,
+        `    }`
+      );
+    }
+
     // Auto-generated warning comment
     rustData.push(
       `//`,
@@ -52,13 +109,14 @@ export class CargoTestAdapter extends AbstractTestAdapter {
       `//`,
       `// ${nanofuzzName} test file version: ${this._testSet.version}`,
       `//`,
-      `#![allow(dead_code, unused_imports, unused_variables, non_snake_case)]`,
+      `#![allow(dead_code, unused_imports, unused_variables, unused_mut, non_snake_case)]`,
       ``,
       `extern crate nanofuzz_runtime;`,
       `use nanofuzz_runtime::{FuzzTestResult, ValidatorResult};`,
       ``,
       `mod target {`,
       `    include!("./${baseFilename}");`,
+      ...(shims.length > 0 ? shims : []),
       `}`,
       ``
     );
@@ -70,8 +128,7 @@ export class CargoTestAdapter extends AbstractTestAdapter {
       let returnArg: ArgDef | undefined;
       let isAsync = thisFn.isAsync === true;
       try {
-        const pgm = ProgramFactory.fromFile(this._module, "rust");
-        if (fn in pgm.functions) {
+        if (pgm && fn in pgm.functions) {
           const fnObj = pgm.functions[fn];
           argDefs = fnObj.getArgDefs();
           returnArg = fnObj.getReturnArg();
@@ -94,7 +151,8 @@ export class CargoTestAdapter extends AbstractTestAdapter {
         const inputStr = thisTest.input
           .map((e, idx) => ValueMapper.toLang("rust", e.value, argDefs[idx]))
           .join(", ");
-        const rawCall = `target::${fn}(${inputStr})`;
+        const targetCallName = fnShimNames[fn] ?? fn;
+        const rawCall = `target::${targetCallName}(${inputStr})`;
         const callStr = isAsync
           ? `nanofuzz_runtime::block_on(${rawCall})`
           : rawCall;
@@ -131,14 +189,25 @@ export class CargoTestAdapter extends AbstractTestAdapter {
             typeof expectedOutput[0].value === "number" &&
             Number.isNaN(expectedOutput[0].value)
           ) {
-            rustData.push(
-              `#[test]`,
-              `fn test_${fn}_${i}_expect() {`,
-              `    let actual = ${callStr};`,
-              `    assert!(actual.is_nan());`,
-              `}`,
-              ``
-            );
+            if (returnArg?.isOptional()) {
+              rustData.push(
+                `#[test]`,
+                `fn test_${fn}_${i}_expect() {`,
+                `    let actual = ${callStr};`,
+                `    assert!(actual.map_or(false, |v| v.is_nan()));`,
+                `}`,
+                ``
+              );
+            } else {
+              rustData.push(
+                `#[test]`,
+                `fn test_${fn}_${i}_expect() {`,
+                `    let actual = ${callStr};`,
+                `    assert!(actual.is_nan());`,
+                `}`,
+                ``
+              );
+            }
           } else {
             const expectedStr = ValueMapper.toLang(
               "rust",

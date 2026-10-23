@@ -642,7 +642,10 @@ export class RustProgram extends AbstractProgram {
       }
       case "generic_type": {
         const baseTypeNode = node.childForFieldName("type");
-        const baseName = baseTypeNode?.text ?? "";
+        const rawBaseName = baseTypeNode?.text ?? "";
+        const baseName = rawBaseName.includes("::")
+          ? rawBaseName.slice(rawBaseName.lastIndexOf("::") + 2)
+          : rawBaseName;
         const typeArgsNode = node.childForFieldName("type_arguments");
         const argNodes = typeArgsNode
           ? Parser.getNamedChildrenNoComments(typeArgsNode)
