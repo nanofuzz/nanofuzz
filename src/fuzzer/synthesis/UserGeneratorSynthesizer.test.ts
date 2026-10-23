@@ -39,11 +39,11 @@ describe("src/fuzzer/synthesis/UserGeneratorSynthesizer", () => {
     expect(fnDef).toBeDefined();
 
     const result = synthesizeUserGenerator(fnDef, "python");
-    expect(result.name).toBe("py_user_genGenerator");
+    expect(result.name).toBe("py_user_gen_generator");
     expect(result.imports.length).toBe(1);
     expect(result.imports[0].stmt).toContain("from typing import Callable");
     expect(result.skeleton).toContain(
-      "def py_user_genGenerator(prng: Callable[[], float]) -> tuple[int, str] | None:"
+      "def py_user_gen_generator(prng: Callable[[], float]) -> tuple[int, str] | None:"
     );
     expect(result.skeleton).toContain("return (");
     expect(result.fullTemplate).toContain("from typing import Callable");
@@ -56,12 +56,12 @@ describe("src/fuzzer/synthesis/UserGeneratorSynthesizer", () => {
     expect(fnDef).toBeDefined();
 
     const result = synthesizeUserGenerator(fnDef, "rust");
-    expect(result.name).toBe("addGenerator");
+    expect(result.name).toBe("add_generator");
     expect(result.skeleton).toContain(
-      "pub fn addGenerator(mut _prng: impl FnMut() -> f64) -> Option<(i32, f64)> {"
+      "pub fn add_generator(mut _prng: impl FnMut() -> f64) -> Option<(i32, f64)> {"
     );
     expect(result.skeleton).toContain("Some(");
-    expect(result.fullTemplate).toContain("pub fn addGenerator");
+    expect(result.fullTemplate).toContain("pub fn add_generator");
   });
 
   it("disambiguates generator name when existing names conflict", () => {

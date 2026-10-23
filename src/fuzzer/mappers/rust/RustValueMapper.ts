@@ -1,8 +1,8 @@
 import * as JSONN from "../../../Jsonn";
 import { isBufferOrUint8Array, isKeyedObject } from "../../../Util";
 import * as Parser from "../../adapters/ParserAdapter";
-import { ArgDef } from "../../analysis/ArgDef";
-import { ArgTag } from "../../analysis/Types";
+import type { ArgDef } from "../../analysis/ArgDef";
+import { ArgOptions, ArgTag } from "../../analysis/Types";
 
 /**
  * Accepts an arbitrary JavaScript value and returns a string representing
@@ -12,7 +12,10 @@ import { ArgTag } from "../../analysis/Types";
  * @param `argDef` Optional argument definition for type-directed formatting
  * @returns A string formatted as a valid Rust expression
  */
-export function toRust(jsValue: unknown, argDef?: ArgDef): string {
+export function toRust(
+  jsValue: unknown,
+  argDef?: ArgDef | ArgDefContext
+): string {
   return toRustFormat(jsValue, argDef);
 } // fn: toRust
 
@@ -34,9 +37,22 @@ export function fromRust<T>(text: string): T {
 
 // ----------------- From JavaScript value to Rust string ----------------- //
 
-function toRustFormat(val: unknown, argDef?: ArgDef): string {
+function toRustFormat(val: unknown, argDef?: ArgDefContext): string {
   if (val === undefined || val === null) {
     return "None";
+  }
+
+  if (argDef?.isOptional()) {
+    const innerArgDef: ArgDefContext = {
+      isOptional: () => false,
+      getTypeRef: () => argDef.getTypeRef(),
+      getBaseTypeRef: () => argDef.getBaseTypeRef(),
+      getOptions: () => argDef.getOptions(),
+      getType: () => argDef.getType(),
+      getChildren: () => argDef.getChildren(),
+      getDim: () => argDef.getDim(),
+    };
+    return `Some(${toRustFormat(val, innerArgDef)})`;
   }
 
   if (typeof val === "boolean") {
@@ -44,9 +60,12 @@ function toRustFormat(val: unknown, argDef?: ArgDef): string {
   }
 
   if (typeof val === "number") {
-    if (Object.is(val, NaN)) return "f64::NAN";
-    if (Object.is(val, Infinity)) return "f64::INFINITY";
-    if (Object.is(val, -Infinity)) return "-f64::INFINITY";
+    const isF32 = argDef?.getTypeRef() === "f32";
+    if (Object.is(val, NaN)) return isF32 ? "f32::NAN" : "f64::NAN";
+    if (Object.is(val, Infinity))
+      return isF32 ? "f32::INFINITY" : "f64::INFINITY";
+    if (Object.is(val, -Infinity))
+      return isF32 ? "-f32::INFINITY" : "-f64::INFINITY";
 
     if (argDef) {
       const typeRef = argDef.getTypeRef();
@@ -57,6 +76,10 @@ function toRustFormat(val: unknown, argDef?: ArgDef): string {
         typeRef === "i16" ||
         typeRef === "u32" ||
         typeRef === "i32" ||
+        typeRef === "u64" ||
+        typeRef === "i64" ||
+        typeRef === "u128" ||
+        typeRef === "i128" ||
         typeRef === "usize" ||
         typeRef === "isize"
       ) {
@@ -77,10 +100,18 @@ function toRustFormat(val: unknown, argDef?: ArgDef): string {
     if (argDef) {
       const typeRef = argDef.getTypeRef();
       if (
+        typeRef === "u8" ||
+        typeRef === "i8" ||
+        typeRef === "u16" ||
+        typeRef === "i16" ||
+        typeRef === "u32" ||
+        typeRef === "i32" ||
         typeRef === "u64" ||
         typeRef === "i64" ||
         typeRef === "u128" ||
-        typeRef === "i128"
+        typeRef === "i128" ||
+        typeRef === "usize" ||
+        typeRef === "isize"
       ) {
         return `${val}${typeRef}`;
       }
@@ -93,8 +124,22 @@ function toRustFormat(val: unknown, argDef?: ArgDef): string {
       return JSON.stringify(val);
     }
     if (argDef?.getTypeRef() === "char") {
-      if (val.length === 1) {
-        return val === "'" ? "'\\''" : `'${val}'`;
+      const ch = val.length > 0 ? val[0] : "\0";
+      switch (ch) {
+        case "'":
+          return "'\\''";
+        case "\\":
+          return "'\\\\'";
+        case "\n":
+          return "'\\n'";
+        case "\r":
+          return "'\\r'";
+        case "\t":
+          return "'\\t'";
+        case "\0":
+          return "'\\0'";
+        default:
+          return `'${ch}'`;
       }
     }
     return `String::from(${JSON.stringify(val)})`;
@@ -112,6 +157,8 @@ function toRustFormat(val: unknown, argDef?: ArgDef): string {
     (argDef && argDef.getType() === ArgTag.SET && Array.isArray(val))
   ) {
     const elemDef = argDef?.getChildren()[0];
+    const isBTree = argDef?.getTypeRef() === "BTreeSet";
+    const collName = isBTree ? "BTreeSet" : "HashSet";
     const rawItems =
       val instanceof Set
         ? Array.from(val.values())
@@ -119,10 +166,10 @@ function toRustFormat(val: unknown, argDef?: ArgDef): string {
           ? val
           : [];
     if (rawItems.length === 0) {
-      return "std::collections::HashSet::new()";
+      return `std::collections::${collName}::new()`;
     }
     const items = rawItems.map((item) => toRustFormat(item, elemDef));
-    return `std::collections::HashSet::from([${items.join(", ")}])`;
+    return `std::collections::${collName}::from([${items.join(", ")}])`;
   }
 
   if (
@@ -138,6 +185,8 @@ function toRustFormat(val: unknown, argDef?: ArgDef): string {
   ) {
     const keyDef = argDef?.getChildren()[0];
     const valDef = argDef?.getChildren()[1];
+    const isBTree = argDef?.getTypeRef() === "BTreeMap";
+    const collName = isBTree ? "BTreeMap" : "HashMap";
     const entries: string[] = [];
 
     if (val instanceof Map) {
@@ -155,9 +204,9 @@ function toRustFormat(val: unknown, argDef?: ArgDef): string {
     }
 
     if (entries.length === 0) {
-      return "std::collections::HashMap::new()";
+      return `std::collections::${collName}::new()`;
     }
-    return `std::collections::HashMap::from([${entries.join(", ")}])`;
+    return `std::collections::${collName}::from([${entries.join(", ")}])`;
   }
 
   if (Array.isArray(val)) {
@@ -167,7 +216,19 @@ function toRustFormat(val: unknown, argDef?: ArgDef): string {
       return `(${items.join(", ")}${val.length === 1 ? "," : ""})`;
     }
 
-    const elemDef = argDef?.getChildren()[0];
+    const elemDef: ArgDefContext | undefined =
+      argDef?.getChildren()[0] ??
+      (argDef && argDef.getDim() > 0
+        ? {
+            isOptional: () => false,
+            getTypeRef: () => argDef.getTypeRef(),
+            getBaseTypeRef: () => argDef.getBaseTypeRef(),
+            getOptions: () => argDef.getOptions(),
+            getType: () => argDef.getType(),
+            getChildren: () => [],
+            getDim: () => argDef.getDim() - 1,
+          }
+        : undefined);
     const items = val.map((item) => toRustFormat(item, elemDef));
 
     if (argDef?.getTypeRef()?.startsWith("&[")) {
@@ -849,3 +910,13 @@ function parseRustCharLiteral(text: string): string {
   }
   return text;
 } // fn: parseRustCharLiteral
+
+export type ArgDefContext = {
+  isOptional(): boolean;
+  getTypeRef(): string | undefined;
+  getBaseTypeRef(): string | undefined;
+  getOptions(): ArgOptions;
+  getType(): ArgTag;
+  getChildren(): ArgDefContext[];
+  getDim(): number;
+};

@@ -267,6 +267,68 @@ pub fn add_heuristic(a: i32, b: i32) -> i32 {
     a + b
 }
 
+pub fn divide(a: f64, b: f64) -> f64 {
+    a / b
+}
+
+pub fn sqrt(a: f64) -> f64 {
+    a.sqrt()
+}
+
+pub fn divide_f32(a: f32, b: f32) -> f32 {
+    a / b
+}
+
+pub fn opt_inc(x: Option<i32>) -> Option<i32> {
+    x.map(|n| n + 1)
+}
+
+pub fn opt_msg(s: Option<String>) -> Option<String> {
+    s.map(|v| format!("msg: {}", v))
+}
+
+pub fn opt_sqrt(x: f64) -> Option<f64> {
+    if x < 0.0 {
+        Some(f64::NAN)
+    } else if x == 0.0 {
+        None
+    } else {
+        Some(x.sqrt())
+    }
+}
+
+pub fn next_char(c: char) -> char {
+    if c == 'z' {
+        'a'
+    } else {
+        ((c as u8) + 1) as char
+    }
+}
+
+pub fn add_u64(a: u64, b: u64) -> u64 {
+    a + b
+}
+
+pub fn scale_vec(v: Vec<f64>, factor: f64) -> Vec<f64> {
+    v.into_iter().map(|x| x * factor).collect()
+}
+
+pub fn swap_pair(pair: (i32, f64)) -> (f64, i32) {
+    (pair.1, pair.0)
+}
+
+pub fn greet_slice(name: &str) -> String {
+    format!("Hello, {}!", name)
+}
+
+pub fn word_counts(words: Vec<String>) -> std::collections::HashMap<String, i32> {
+    let mut map = std::collections::HashMap::new();
+    for w in words {
+        *map.entry(w).or_insert(0) += 1;
+    }
+    map
+}
+
 pub fn reset_all() {
 }
 `
@@ -328,6 +390,417 @@ pub fn reset_all() {
                   offset: 0,
                   isException: true,
                   value: undefined,
+                  origin: { type: "user" },
+                },
+              ],
+            },
+          },
+          isVoid: false,
+        },
+        divide: {
+          options: makeOptions({ useHuman: true }),
+          validators: [],
+          tests: {
+            "0": {
+              input: [
+                {
+                  name: "a",
+                  offset: 0,
+                  value: 6.0,
+                  origin: { type: "user" },
+                },
+                {
+                  name: "b",
+                  offset: 1,
+                  value: 2.0,
+                  origin: { type: "user" },
+                },
+              ],
+              output: [],
+              pinned: true,
+              expectedOutput: [
+                {
+                  name: "out",
+                  offset: 0,
+                  value: 3,
+                  origin: { type: "user" },
+                },
+              ],
+            },
+          },
+          isVoid: false,
+        },
+        sqrt: {
+          options: makeOptions({ useHuman: true }),
+          validators: [],
+          tests: {
+            "0": {
+              input: [
+                {
+                  name: "a",
+                  offset: 0,
+                  value: -1.0,
+                  origin: { type: "user" },
+                },
+              ],
+              output: [],
+              pinned: true,
+              expectedOutput: [
+                {
+                  name: "out",
+                  offset: 0,
+                  value: NaN,
+                  origin: { type: "user" },
+                },
+              ],
+            },
+          },
+          isVoid: false,
+        },
+        divide_f32: {
+          options: makeOptions({ useHuman: true }),
+          validators: [],
+          tests: {
+            "0": {
+              input: [
+                {
+                  name: "a",
+                  offset: 0,
+                  value: 6.0,
+                  origin: { type: "user" },
+                },
+                {
+                  name: "b",
+                  offset: 1,
+                  value: 2.0,
+                  origin: { type: "user" },
+                },
+              ],
+              output: [],
+              pinned: true,
+              expectedOutput: [
+                {
+                  name: "out",
+                  offset: 0,
+                  value: 3,
+                  origin: { type: "user" },
+                },
+              ],
+            },
+          },
+          isVoid: false,
+        },
+        opt_inc: {
+          options: makeOptions({ useHuman: true }),
+          validators: [],
+          tests: {
+            "0": {
+              input: [
+                {
+                  name: "x",
+                  offset: 0,
+                  value: 42,
+                  origin: { type: "user" },
+                },
+              ],
+              output: [],
+              pinned: true,
+              expectedOutput: [
+                {
+                  name: "out",
+                  offset: 0,
+                  value: 43,
+                  origin: { type: "user" },
+                },
+              ],
+            },
+            "1": {
+              input: [
+                {
+                  name: "x",
+                  offset: 0,
+                  value: null,
+                  origin: { type: "user" },
+                },
+              ],
+              output: [],
+              pinned: true,
+              expectedOutput: [
+                {
+                  name: "out",
+                  offset: 0,
+                  value: null,
+                  origin: { type: "user" },
+                },
+              ],
+            },
+          },
+          isVoid: false,
+        },
+        opt_msg: {
+          options: makeOptions({ useHuman: true }),
+          validators: [],
+          tests: {
+            "0": {
+              input: [
+                {
+                  name: "s",
+                  offset: 0,
+                  value: "world",
+                  origin: { type: "user" },
+                },
+              ],
+              output: [],
+              pinned: true,
+              expectedOutput: [
+                {
+                  name: "out",
+                  offset: 0,
+                  value: "msg: world",
+                  origin: { type: "user" },
+                },
+              ],
+            },
+            "1": {
+              input: [
+                {
+                  name: "s",
+                  offset: 0,
+                  value: null,
+                  origin: { type: "user" },
+                },
+              ],
+              output: [],
+              pinned: true,
+              expectedOutput: [
+                {
+                  name: "out",
+                  offset: 0,
+                  value: null,
+                  origin: { type: "user" },
+                },
+              ],
+            },
+          },
+          isVoid: false,
+        },
+        opt_sqrt: {
+          options: makeOptions({ useHuman: true }),
+          validators: [],
+          tests: {
+            "0": {
+              input: [
+                {
+                  name: "x",
+                  offset: 0,
+                  value: -1.0,
+                  origin: { type: "user" },
+                },
+              ],
+              output: [],
+              pinned: true,
+              expectedOutput: [
+                {
+                  name: "out",
+                  offset: 0,
+                  value: NaN,
+                  origin: { type: "user" },
+                },
+              ],
+            },
+            "1": {
+              input: [
+                {
+                  name: "x",
+                  offset: 0,
+                  value: 4.0,
+                  origin: { type: "user" },
+                },
+              ],
+              output: [],
+              pinned: true,
+              expectedOutput: [
+                {
+                  name: "out",
+                  offset: 0,
+                  value: 2.0,
+                  origin: { type: "user" },
+                },
+              ],
+            },
+          },
+          isVoid: false,
+        },
+        next_char: {
+          options: makeOptions({ useHuman: true }),
+          validators: [],
+          tests: {
+            "0": {
+              input: [
+                {
+                  name: "c",
+                  offset: 0,
+                  value: "a",
+                  origin: { type: "user" },
+                },
+              ],
+              output: [],
+              pinned: true,
+              expectedOutput: [
+                {
+                  name: "out",
+                  offset: 0,
+                  value: "b",
+                  origin: { type: "user" },
+                },
+              ],
+            },
+          },
+          isVoid: false,
+        },
+        add_u64: {
+          options: makeOptions({ useHuman: true }),
+          validators: [],
+          tests: {
+            "0": {
+              input: [
+                {
+                  name: "a",
+                  offset: 0,
+                  value: 100,
+                  origin: { type: "user" },
+                },
+                {
+                  name: "b",
+                  offset: 1,
+                  value: 200,
+                  origin: { type: "user" },
+                },
+              ],
+              output: [],
+              pinned: true,
+              expectedOutput: [
+                {
+                  name: "out",
+                  offset: 0,
+                  value: 300,
+                  origin: { type: "user" },
+                },
+              ],
+            },
+          },
+          isVoid: false,
+        },
+        scale_vec: {
+          options: makeOptions({ useHuman: true }),
+          validators: [],
+          tests: {
+            "0": {
+              input: [
+                {
+                  name: "v",
+                  offset: 0,
+                  value: [1.0, 2.0],
+                  origin: { type: "user" },
+                },
+                {
+                  name: "factor",
+                  offset: 1,
+                  value: 3.0,
+                  origin: { type: "user" },
+                },
+              ],
+              output: [],
+              pinned: true,
+              expectedOutput: [
+                {
+                  name: "out",
+                  offset: 0,
+                  value: [3.0, 6.0],
+                  origin: { type: "user" },
+                },
+              ],
+            },
+          },
+          isVoid: false,
+        },
+        swap_pair: {
+          options: makeOptions({ useHuman: true }),
+          validators: [],
+          tests: {
+            "0": {
+              input: [
+                {
+                  name: "pair",
+                  offset: 0,
+                  value: [42, 3.5],
+                  origin: { type: "user" },
+                },
+              ],
+              output: [],
+              pinned: true,
+              expectedOutput: [
+                {
+                  name: "out",
+                  offset: 0,
+                  value: [3.5, 42],
+                  origin: { type: "user" },
+                },
+              ],
+            },
+          },
+          isVoid: false,
+        },
+        greet_slice: {
+          options: makeOptions({ useHuman: true }),
+          validators: [],
+          tests: {
+            "0": {
+              input: [
+                {
+                  name: "name",
+                  offset: 0,
+                  value: "Alice",
+                  origin: { type: "user" },
+                },
+              ],
+              output: [],
+              pinned: true,
+              expectedOutput: [
+                {
+                  name: "out",
+                  offset: 0,
+                  value: "Hello, Alice!",
+                  origin: { type: "user" },
+                },
+              ],
+            },
+          },
+          isVoid: false,
+        },
+        word_counts: {
+          options: makeOptions({ useHuman: true }),
+          validators: [],
+          tests: {
+            "0": {
+              input: [
+                {
+                  name: "words",
+                  offset: 0,
+                  value: ["apple", "banana", "apple"],
+                  origin: { type: "user" },
+                },
+              ],
+              output: [],
+              pinned: true,
+              expectedOutput: [
+                {
+                  name: "out",
+                  offset: 0,
+                  value: {
+                    apple: 2,
+                    banana: 1,
+                  },
                   origin: { type: "user" },
                 },
               ],
@@ -405,6 +878,25 @@ pub fn reset_all() {
     const testPath = adapter.filename;
     fs.writeFileSync(testPath, testCode);
 
+    expect(testCode).toContain("assert_eq!(actual, 3.0f64);");
+    expect(testCode).toContain("assert!(actual.is_nan());");
+    expect(testCode).toContain("assert_eq!(actual, 3.0f32);");
+    expect(testCode).toContain("assert_eq!(actual, Some(43i32));");
+    expect(testCode).toContain("assert_eq!(actual, None);");
+    expect(testCode).toContain(
+      'assert_eq!(actual, Some(String::from("msg: world")));'
+    );
+    expect(testCode).toContain(
+      "assert!(actual.map_or(false, |v| v.is_nan()));"
+    );
+    expect(testCode).toContain("assert_eq!(actual, 'b');");
+    expect(testCode).toContain("assert_eq!(actual, 300u64);");
+    expect(testCode).toContain("assert_eq!(actual, vec![3.0f64, 6.0f64]);");
+    expect(testCode).toContain("assert_eq!(actual, (3.5f64, 42i32));");
+    expect(testCode).toContain(
+      'assert_eq!(actual, String::from("Hello, Alice!"));'
+    );
+
     // Run cargo test in the temp crate
     const res = spawnSync(
       "cargo",
@@ -424,6 +916,111 @@ pub fn reset_all() {
     expect(res.status)
       .withContext(`stdout: ${res.stdout}\nstderr: ${res.stderr}`)
       .toBe(0);
-    expect(res.stdout).toContain("5 passed");
+    expect(res.stdout).toContain("20 passed");
+  });
+
+  it("emits __nanofuzz_get__ shim for unexported function and passes cargo test", () => {
+    // Setup a cargo project with an unexported function in tests/private_lib.rs
+    const srcDir = path.join(tempDir, "src");
+    const testsDir = path.join(tempDir, "tests");
+    fs.mkdirSync(srcDir, { recursive: true });
+    fs.mkdirSync(testsDir, { recursive: true });
+
+    const runtimePath = path
+      .resolve("./packages/runtime/rust")
+      .replace(/\\/g, "/");
+    fs.writeFileSync(
+      path.join(tempDir, "Cargo.toml"),
+      `[package]
+name = "unexport_test_crate"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+nanofuzz-runtime = { path = "${runtimePath}" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+`
+    );
+
+    const modPath = path.join(testsDir, "private_lib.rs");
+    fs.writeFileSync(
+      modPath,
+      `
+fn private_multiply(x: i32, factor: i32) -> i32 {
+    x * factor
+}
+`
+    );
+
+    const tests: FuzzTests = {
+      version: "0.4.0",
+      functions: {
+        private_multiply: {
+          options: makeOptions({ useHuman: true }),
+          validators: [],
+          tests: {
+            "0": {
+              input: [
+                {
+                  name: "x",
+                  offset: 0,
+                  value: 6,
+                  origin: { type: "user" },
+                },
+                {
+                  name: "factor",
+                  offset: 1,
+                  value: 7,
+                  origin: { type: "user" },
+                },
+              ],
+              output: [],
+              pinned: true,
+              expectedOutput: [
+                {
+                  name: "out",
+                  offset: 0,
+                  value: 42,
+                  origin: { type: "user" },
+                },
+              ],
+            },
+          },
+          isVoid: false,
+        },
+      },
+    };
+
+    const adapter = new CargoTestAdapter(tests, modPath);
+    const testCode = adapter.toString();
+    const testPath = adapter.filename;
+    fs.writeFileSync(testPath, testCode);
+
+    expect(testCode).toContain(
+      "pub fn __nanofuzz_get__(arg_0: i32, arg_1: i32) -> i32"
+    );
+    expect(testCode).toContain("private_multiply(arg_0, arg_1)");
+    expect(testCode).toContain("target::__nanofuzz_get__(6i32, 7i32)");
+
+    const res = spawnSync(
+      "cargo",
+      [
+        "test",
+        "--manifest-path",
+        path.join(tempDir, "Cargo.toml"),
+        "--test",
+        "private_lib_nano_test",
+      ],
+      {
+        cwd: tempDir,
+        encoding: "utf8",
+      }
+    );
+
+    expect(res.status)
+      .withContext(`stdout: ${res.stdout}\nstderr: ${res.stderr}`)
+      .toBe(0);
+    expect(res.stdout).toContain("1 passed");
   });
 });

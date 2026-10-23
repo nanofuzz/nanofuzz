@@ -27,12 +27,8 @@ import {
   InputAndSource,
   TransformedInputAndSource,
 } from "./Types";
-import {
-  getTransformers,
-  getUserGenerators,
-  getValidators,
-  isOptionValid,
-} from "./analysis/Util";
+import { isOptionValid } from "./analysis/Util";
+import { CompanionManager } from "./analysis/CompanionManager";
 import { MeasureFactory } from "./measures/MeasureFactory";
 import { RunnerFactory } from "./runners/RunnerFactory";
 import { Leaderboard } from "./generators/Leaderboard";
@@ -139,9 +135,18 @@ export class FuzzerV3 {
     }
     this._function = fnList[this._fnName];
 
-    this._validators = getValidators(this._program, this._function);
-    this._transformers = getTransformers(this._program, this._function);
-    this._userGenerators = getUserGenerators(this._program, this._function);
+    this._validators = CompanionManager.getValidators(
+      this._program,
+      this._function
+    );
+    this._transformers = CompanionManager.getTransformers(
+      this._program,
+      this._function
+    );
+    this._userGenerators = CompanionManager.getUserGenerators(
+      this._program,
+      this._function
+    );
 
     if (!isOptionValid(normalizedOptions)) {
       throw new Error(

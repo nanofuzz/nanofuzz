@@ -138,9 +138,12 @@ export class PytestAdapter extends AbstractTestAdapter {
         // Property validators
         if (thisFn.options.useProperty) {
           for (const validator of thisFn.validators) {
+            const validatorSuffix = (
+              validator.startsWith(fn) ? validator.slice(fn.length) : validator
+            ).replace(/^_+/, "");
             pytestData.push(
               `@pytest.mark.timeout(${timeout} / 1000)`,
-              `def test_${fn}_${i}_prop_${validator.slice(fn.length)}():`,
+              `def test_${fn}_${i}_prop_${validatorSuffix}():`,
               `  # Expect property validator to not return "fail"`,
               `  input = ${inputArrStr}`,
               `  assert run_property_validator( input, lambda: themodule.${fn}(*input), themodule.${validator}, ${thisFn.options.fnTimeout}) != "fail"`,

@@ -15,7 +15,7 @@ import * as Config from "../../../Config";
 import { parseCoverageScope } from "../../measures/Util";
 import { CoverageScopeConfig } from "../../measures/Types";
 
-const HARNESS_TEMPLATE_VER = "RustHarness-0.4.7";
+const HARNESS_TEMPLATE_VER = "RustHarness-0.4.8";
 
 /**
  * Builds and returns the compiled Rust harness binary for testing a target function.
@@ -437,6 +437,30 @@ function generateHarnessSource(
   const argDefs = targetFnDef ? targetFnDef.getArgDefs() : [];
   const isVoid = targetFnDef ? targetFnDef.isVoid() : false;
   const isAsync = targetFnDef ? targetFnDef.isAsync() : false;
+  const isExported = targetFnDef ? targetFnDef.isExported() : true;
+
+  let shimDef = "";
+  if (!isExported) {
+    const shimParams: string[] = [];
+    const shimCallArgs: string[] = [];
+    for (let i = 0; i < argDefs.length; i++) {
+      const arg = argDefs[i];
+      const typeAnnot = RustProgram.getTypeAnnotation(arg);
+      shimParams.push(`arg_${i}: ${typeAnnot}`);
+      shimCallArgs.push(`arg_${i}`);
+    }
+    const retArg = targetFnDef?.getReturnArg();
+    const retAnnot = isVoid
+      ? ""
+      : retArg
+        ? ` -> ${RustProgram.getTypeAnnotation(retArg)}`
+        : targetFnDef?.getReturnType()?.name
+          ? ` -> ${targetFnDef.getReturnType()?.name}`
+          : "";
+    const asyncKw = isAsync ? "async " : "";
+    const awaitSuffix = isAsync ? ".await" : "";
+    shimDef = `\n    pub ${asyncKw}fn __nanofuzz_get__(${shimParams.join(", ")})${retAnnot} {\n        ${fnName}(${shimCallArgs.join(", ")})${awaitSuffix}\n    }\n`;
+  }
 
   const argConversions: string[] = [];
   const callArgs: string[] = [];
@@ -498,7 +522,10 @@ function generateHarnessSource(
     callArgs.push(deserInfo.callPrefix + `arg_${i}`);
   }
 
-  const callInvocation = `target::${fnName}(${callArgs.join(", ")})`;
+  const callTarget = isExported
+    ? `target::${fnName}`
+    : `target::__nanofuzz_get__`;
+  const callInvocation = `${callTarget}(${callArgs.join(", ")})`;
   const actualCall = isAsync ? `block_on(${callInvocation})` : callInvocation;
 
   const fnCallExpr = isVoid
@@ -558,11 +585,12 @@ ${validatorBlocks.join("\n")}
     )
     .join(",\n    ");
 
-  return template
+  let rendered = template
     .replaceAll(
       "/* __NANOFUZZ_TARGET_PATH__ */",
       (instTargetPath ?? targetFile).replace(/\\/g, "/")
     )
+    .replaceAll("/* __NANOFUZZ_SHIM__ */", shimDef)
     .replaceAll("/* __NANOFUZZ_COVERAGE_MANIFEST__ */", manifestPayload)
     .replaceAll("/* __NANOFUZZ_STATIC_COV_JSON__ */", staticCovPayload)
     .replaceAll(
@@ -571,6 +599,12 @@ ${validatorBlocks.join("\n")}
     )
     .replaceAll("/* __NANOFUZZ_FN_CALL__ */", fnCallExpr)
     .replaceAll("/* __NANOFUZZ_VALIDATORS__ */", validatorExecution);
+
+  if (shimDef && !template.includes("/* __NANOFUZZ_SHIM__ */")) {
+    rendered = rendered.replace(/include!\("[^"]*"\);/, `$&\n${shimDef}`);
+  }
+
+  return rendered;
 } // fn: generateHarnessSource
 
 /**

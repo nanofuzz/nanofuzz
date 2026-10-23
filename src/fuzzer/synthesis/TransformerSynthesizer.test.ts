@@ -44,13 +44,13 @@ describe("src/fuzzer/synthesis/TransformerSynthesizer", () => {
     expect(fnDef).toBeDefined();
 
     const result = synthesizeTransformer(fnDef, "python");
-    expect(result.name).toBe("greetingTransformer");
+    expect(result.name).toBe("greeting_transformer");
     expect(result.imports.length).toBe(1);
     expect(result.imports[0].stmt).toContain(
       "from nanofuzz_runtime import UnsatisfiedAssumption, assume"
     );
     expect(result.skeleton).toContain(
-      "def greetingTransformer(name: a) -> tuple[a]:"
+      "def greeting_transformer(name: a) -> tuple[a]:"
     );
     expect(result.skeleton).toContain("return (name,)");
     expect(result.fullTemplate).toContain(
@@ -65,11 +65,11 @@ describe("src/fuzzer/synthesis/TransformerSynthesizer", () => {
     expect(fnDef).toBeDefined();
 
     const result = synthesizeTransformer(fnDef, "rust");
-    expect(result.name).toBe("addTransformer");
+    expect(result.name).toBe("add_transformer");
     expect(result.imports.length).toBe(1);
     expect(result.imports[0].stmt).toContain("use nanofuzz_runtime::{assume,");
     expect(result.skeleton).toContain(
-      "pub fn addTransformer(a: i32, b: f64) -> (i32, f64) {"
+      "pub fn add_transformer(a: i32, b: f64) -> (i32, f64) {"
     );
     expect(result.skeleton).toContain("(a, b)");
     expect(result.fullTemplate).toContain("use nanofuzz_runtime::{assume,");

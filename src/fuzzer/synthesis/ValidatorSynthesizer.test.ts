@@ -42,10 +42,10 @@ describe("src/fuzzer/synthesis/ValidatorSynthesizer", () => {
     expect(fnDef).toBeDefined();
 
     const result = synthesizeValidator(fnDef, "python");
-    expect(result.name).toBe("greetingValidator");
+    expect(result.name).toBe("greeting_validator");
     expect(result.imports.length).toBe(2);
     expect(result.skeleton).toContain(
-      'def greetingValidator(r: FuzzTestResult) -> Literal["pass", "fail", "unknown"]:'
+      'def greeting_validator(r: FuzzTestResult) -> Literal["pass", "fail", "unknown"]:'
     );
     expect(result.skeleton).toContain("name: a = r['in'][0]");
     expect(result.skeleton).toContain("out: a = r['out']");
@@ -62,12 +62,12 @@ describe("src/fuzzer/synthesis/ValidatorSynthesizer", () => {
     expect(fnDef).toBeDefined();
 
     const result = synthesizeValidator(fnDef, "rust");
-    expect(result.name).toBe("addValidator");
+    expect(result.name).toBe("add_validator");
     expect(result.imports.length).toBe(2);
     expect(result.imports[0].name).toBe("FuzzTestResult");
     expect(result.imports[1].name).toBe("ValidatorResult");
     expect(result.skeleton).toContain(
-      "pub fn addValidator(r: &FuzzTestResult) -> ValidatorResult {"
+      "pub fn add_validator(r: &FuzzTestResult) -> ValidatorResult {"
     );
     expect(result.skeleton).toContain("let a: i32 = r.get_in(0).unwrap();");
     expect(result.skeleton).toContain("let b: f64 = r.get_in(1).unwrap();");

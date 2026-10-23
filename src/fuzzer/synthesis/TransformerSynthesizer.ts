@@ -2,8 +2,8 @@ import { FunctionDef } from "../analysis/FunctionDef";
 import { PythonProgram } from "../analysis/python/PythonProgram";
 import { RustProgram } from "../analysis/rust/RustProgram";
 import { ProgramLanguage } from "../analysis/Types";
+import { CompanionManager } from "../analysis/CompanionManager";
 import { FuzzerCodeSnippet } from "./Types";
-import { getNextAvailableFnNumber } from "./Util";
 
 /**
  * Synthesizes a complete input transformer code skeleton for a function definition.
@@ -21,15 +21,14 @@ export function synthesizeTransformer(
   transformerNameOverride?: string
 ): FuzzerCodeSnippet {
   const targetLang = lang ?? fn.getLang();
-  const transformerPrefix = fn.getName() + "Transformer";
-
-  let transformerName = transformerNameOverride;
-  if (!transformerName) {
-    const fnCounter = existingFnNames
-      ? getNextAvailableFnNumber(existingFnNames, transformerPrefix)
-      : 0;
-    transformerName = `${transformerPrefix}${fnCounter === 0 ? "" : fnCounter}`;
-  }
+  const transformerName =
+    transformerNameOverride ??
+    CompanionManager.getNextAvailableName(
+      existingFnNames ?? [],
+      fn.getName(),
+      "transformer",
+      targetLang
+    );
 
   const inArgs = fn.getArgDefs();
   const inputsTypeName = `${fn.getName()}Inputs`;

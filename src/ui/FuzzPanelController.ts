@@ -12,12 +12,8 @@ import {
   FunctionRef,
   ProgramLanguage,
 } from "../fuzzer/analysis/Types";
-import {
-  bigIntOrThrow,
-  getTransformers,
-  getUserGenerators,
-  getValidators,
-} from "../fuzzer/analysis/Util";
+import { bigIntOrThrow } from "../fuzzer/analysis/Util";
+import { CompanionManager } from "../fuzzer/analysis/CompanionManager";
 import { getIoKey } from "../fuzzer/Util";
 import * as fs from "fs";
 import { htmlEscape } from "escape-goat";
@@ -898,7 +894,7 @@ export class FuzzPanel {
     }
 
     // If a transformer already exists, navigate to it rather than creating a new one
-    const existingTransformers = getTransformers(program, fn);
+    const existingTransformers = CompanionManager.getTransformers(program, fn);
     if (existingTransformers.length > 0) {
       this._fuzzEnv.transformers = existingTransformers;
       const fnDef = program.functions[existingTransformers[0].name];
@@ -1047,7 +1043,7 @@ export class FuzzPanel {
       // Change focus to the generated user generator
       try {
         const pgm = ProgramFactory.fromFile(module);
-        const userGens = getUserGenerators(pgm, fn);
+        const userGens = CompanionManager.getUserGenerators(pgm, fn);
         const targetGen =
           userGens.find((g) => g.name === userGenName) ?? userGens[0];
         if (targetGen && targetGen.startOffset !== undefined) {
@@ -1094,7 +1090,10 @@ export class FuzzPanel {
       return;
     }
 
-    const existingUserGenerators = getUserGenerators(program, fn);
+    const existingUserGenerators = CompanionManager.getUserGenerators(
+      program,
+      fn
+    );
     if (existingUserGenerators.length > 0) {
       this._fuzzEnv.userGenerators = existingUserGenerators;
       const targetGen = existingUserGenerators[0];
@@ -1144,13 +1143,13 @@ export class FuzzPanel {
     const oldValidatorNames = JSONN.stringify(
       this._fuzzEnv.validators.map((e) => e.name)
     );
-    const newValidators = getValidators(program, fn);
+    const newValidators = CompanionManager.getValidators(program, fn);
     const newValidatorNames = JSONN.stringify(newValidators.map((e) => e.name));
 
     // Only send the validators message if there has been a change
     if (oldValidatorNames !== newValidatorNames) {
       // Update the Fuzzer Environment
-      this._fuzzEnv.validators = getValidators(program, fn);
+      this._fuzzEnv.validators = CompanionManager.getValidators(program, fn);
 
       // Notify webview about the change
       const message: FuzzPanelMessageToWebView = {
@@ -1164,7 +1163,7 @@ export class FuzzPanel {
     const oldTransformerNames = JSONN.stringify(
       this._fuzzEnv.transformers.map((e) => e.name)
     );
-    const newTransformers = getTransformers(program, fn);
+    const newTransformers = CompanionManager.getTransformers(program, fn);
     const newTransformerNames = JSONN.stringify(
       newTransformers.map((e) => e.name)
     );
@@ -1186,7 +1185,7 @@ export class FuzzPanel {
     const oldUserGeneratorNames = JSONN.stringify(
       this._fuzzEnv.userGenerators.map((e) => e.name)
     );
-    const newUserGenerators = getUserGenerators(program, fn);
+    const newUserGenerators = CompanionManager.getUserGenerators(program, fn);
     const newUserGeneratorNames = JSONN.stringify(
       newUserGenerators.map((e) => e.name)
     );
