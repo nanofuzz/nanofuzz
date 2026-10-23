@@ -40,6 +40,16 @@ copyfiles(
   () => console.log("copied .rs runner template")
 );
 
+// Copy OCaml assets
+copyfiles(
+  [
+    "./src/fuzzer/runners/oxcaml/OxcamlRunnerHost.template.ml",
+    "./build/extension",
+  ],
+  true,
+  () => console.log("copied .ml runner template")
+);
+
 // Copy Python runtime package (nanofuzz_runtime)
 const pyRuntimeSrc = path.resolve(
   "./packages/runtime/python/src/nanofuzz_runtime"

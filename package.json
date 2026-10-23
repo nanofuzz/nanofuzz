@@ -303,6 +303,24 @@
             "tags": [
               "experimental"
             ]
+          },
+          "nanofuzz.oxcaml.dunePath": {
+            "title": "Path to dune executable",
+            "type": "string",
+            "default": "dune",
+            "description": "Path to the dune executable for compiling and testing OCaml/OxCaml projects.",
+            "tags": [
+              "experimental"
+            ]
+          },
+          "nanofuzz.oxcaml.ocamloptPath": {
+            "title": "Path to ocamlopt executable",
+            "type": "string",
+            "default": "ocamlopt",
+            "description": "Path to the ocamlopt executable for compiling OCaml/OxCaml files.",
+            "tags": [
+              "experimental"
+            ]
           }
         }
       },

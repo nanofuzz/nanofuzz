@@ -40,6 +40,20 @@ export class RustCompilerError extends CompilerError<RustCompilerErrorDetails> {
   }
 }
 
+/**
+ * Exception class for OCaml / OxCaml compiler errors.
+ */
+export class OxcamlCompilerError extends CompilerError<OxcamlCompilerErrorDetails> {
+  constructor(message: string, details: OxcamlCompilerErrorDetails) {
+    if (!details.cli && details.commandCli) details.cli = details.commandCli;
+    if (!details.configFilename && details.duneProjectPath) {
+      details.configFilename = details.duneProjectPath;
+    }
+    super(message, details);
+    this.name = "OxcamlCompilerError";
+  }
+}
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -93,6 +107,31 @@ export type RustCompilerErrorDetails = CompilerErrorDetails & {
     level: string;
     code?: string;
     span?: RustCompilerDiagnosticSpan;
+    rendered?: string;
+  }>;
+};
+
+/**
+ * Diagnostic source span reported by the OCaml / OxCaml compiler
+ */
+export type OxcamlCompilerDiagnosticSpan = {
+  file: string;
+  lineStart: number;
+  lineEnd: number;
+  colStart: number;
+  colEnd: number;
+};
+
+/**
+ * OCaml / OxCaml compiler error details
+ */
+export type OxcamlCompilerErrorDetails = CompilerErrorDetails & {
+  duneProjectPath?: string;
+  commandCli?: string;
+  diagnostics?: Array<{
+    message: string;
+    level?: string;
+    span?: OxcamlCompilerDiagnosticSpan;
     rendered?: string;
   }>;
 };
