@@ -67,23 +67,28 @@ function findTestFiles(dir) {
 }
 
 // Prioritize known longer running test files to run early in the queue.
-// Interleave TypeScript-heavy and Python-heavy suites so workers do not
-// all contend for Python runner host process spawns simultaneously at t=0.
+// Interleave TypeScript-heavy and Python/Rust-heavy suites so workers do not
+// all contend for subprocess spawns or multi-worker campaigns simultaneously at t=0.
 function sortTestFiles(files) {
   const priority = [
     "FuzzerCoverageOneFile.test.ts",
     "PythonRunner.test.ts",
-    "RustRunner.test.ts",
     "FuzzerExamples2.test.ts",
-    "CommandLine.test.ts",
-    "FuzzerExamples1.test.ts",
     "PytestAdapter.test.ts",
-    "FuzzerTypescript.test.ts",
-    "Fuzzer.test.ts",
-    "FuzzerCoverageMultiFile.test.ts",
     "FuzzerPython.test.ts",
+    "RustRunner.test.ts",
+    "Fuzzer.test.ts",
+    "CoverageMeasureRust.test.ts",
+    "FuzzerExamples1.test.ts",
+    "CargoTestAdapter.test.ts",
+    "CommandLine.test.ts",
     "CommandLineAiCache.test.ts",
+    "FuzzerRust.test.ts",
+    "FuzzerTypescript.test.ts",
+    "RustCompiler.test.ts",
     "Agent.test.ts",
+    "FuzzerCoverageMultiFile.test.ts",
+    "TypescriptCompiler.test.ts",
   ];
 
   return [...files].sort((a, b) => {
@@ -100,18 +105,21 @@ function sortTestFiles(files) {
 // This prevents multiple heavy subprocess or fuzzer workloads from thrashing CPU and
 // starving sub-second timeouts.
 const disaffinityGroups = [
-  // Group 1: Subprocess-heavy Python and Rust runner & adapter suites
+  // Group 1: Subprocess-heavy Python, Rust, and CLI runner & adapter suites
   // No two of these may run at the same time.
   [
     "PythonRunner.test.ts",
     "RustRunner.test.ts",
+    "CoverageMeasureRust.test.ts",
     "CargoTestAdapter.test.ts",
+    "RustCompiler.test.ts",
     "PytestAdapter.test.ts",
     "CommandLine.test.ts",
-    "FuzzerPython.test.ts",
     "CommandLineAiCache.test.ts",
+    "FuzzerPython.test.ts",
+    "FuzzerRust.test.ts",
   ],
-  // Group 2: Heavy multi-worker fuzzing campaigns
+  // Group 2: Heavy multi-worker fuzzing campaigns & shared TypeScript compiler fixtures
   // No two of these may run at the same time.
   [
     "FuzzerCoverageOneFile.test.ts",
@@ -119,8 +127,11 @@ const disaffinityGroups = [
     "FuzzerExamples1.test.ts",
     "FuzzerExamples2.test.ts",
     "CommandLine.test.ts",
+    "CommandLineAiCache.test.ts",
+    "TypescriptCompiler.test.ts",
     "FuzzerTypescript.test.ts",
     "Fuzzer.test.ts",
+    "FuzzerRust.test.ts",
     "Agent.test.ts",
     "VscodeLmAdapter.test.ts",
   ],
