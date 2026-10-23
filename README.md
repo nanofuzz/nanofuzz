@@ -35,6 +35,7 @@ To export a NaNofuzz test to CI, click the pin button beside an example. NaNofuz
 
 ## What's new in v0.4
 
+- **Command-line interface**: Run NaNofuzz directly from your terminal or CI pipelines via `npx @nanofuzz/cli <filename>::<function>` (see [CLI documentation](docs/CLI.md)).
 - **Python**: Test Python functions and export the saved tests to `pytest` for use in CI.
 - **Rust**: (experimental) Test Rust functions and export the saved tests to `cargo test` for use in CI.
 - **Custom input generators**: Programatically generate, modify, or skip inputs before they are dispatched for test execution.

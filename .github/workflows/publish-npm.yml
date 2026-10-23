@@ -43,8 +43,10 @@ jobs:
 
       # Set package name to @nanofuzz/cli (vsce requires unscoped name in git)
       # Point @nanofuzz/runtime to npm (link: protocol not allowed by npm publish)
+      # Use distinct CLI README for the npm package page
       - name: Prepare package.json for CLI publication
         run: |
+          cp docs/CLI.md README.md
           node -e '
             const pkg = require("./package.json");
             const rtVersion = require("./packages/runtime/typescript/package.json").version;
