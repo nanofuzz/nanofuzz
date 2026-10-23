@@ -1,0 +1,43 @@
+name: Publish npm Runtime Package
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  publish-npm-runtime:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Upgrade npm CLI to support Trusted Publishing (OIDC)
+        run: npm install -g npm@latest
+
+      - name: Install root dependencies
+        run: yarn --frozen-lockfile
+
+      - name: Install runtime package dependencies
+        working-directory: packages/runtime/typescript
+        run: yarn --frozen-lockfile
+
+      - name: Build and test runtime package
+        working-directory: packages/runtime/typescript
+        run: |
+          yarn build
+          yarn test
+          yarn package
+
+      - name: Publish runtime package to npm
+        working-directory: packages/runtime/typescript
+        run: npm publish --access public
