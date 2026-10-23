@@ -2,7 +2,7 @@
 
 NaNofuzz is a fast and easy-to-use Automatic Test sUite Generator (ATUG) for TypeScript, Python, and Rust that combines human insight, heuristics, and property checking to help you quickly reach working code nirvana. NaNofuzz is intended to be used during testing and development and is available in the [the VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=penrose.nanofuzz).
 
-<img width="1329" height="750" alt="image" src="https://github.com/user-attachments/assets/33a5fcda-19ac-459c-a50a-20cc0d8502c1" />
+![NaNofuzz Screenshot](https://github.com/user-attachments/assets/33a5fcda-19ac-459c-a50a-20cc0d8502c1)
 
 NaNofuzz proposes an initial set of tests with a single button click. Refine these tests with correctness annotations and/or by writing property validators that evaluate correctness at scale. NaNofuzz coherently organizes test results on a single screen so that you can see at a glance what you are actually testing---and what you may be missing.
 
