@@ -1,0 +1,10 @@
+*
+.*
+!build/cli/**
+!build/workers/**
+!build/extension/**
+build/extension/extension.js
+build/extension/extension.js.map
+!README.md
+!LICENSE
+!package.json
