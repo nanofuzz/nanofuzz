@@ -720,7 +720,7 @@ function parseJavaCompilerOutput(
  * @param userProjectPath Project directory being compiled
  * @returns Path to nanofuzz-runtime JAR if found, undefined otherwise
  */
-function findRuntimeJar(userProjectPath?: string): string | undefined {
+export function findRuntimeJar(userProjectPath?: string): string | undefined {
   const currModuleDir = path.dirname(path.resolve(module.filename));
   const projectRoot = findInAncestor(currModuleDir, "package.json");
   const candidates: string[] = [];

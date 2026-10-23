@@ -283,6 +283,63 @@ export class JavaProgram extends AbstractProgram {
   } // fn: findLocalSourceFiles
 
   /**
+   * Returns the package name declared in this Java program, or empty string if default package.
+   */
+  public getPackageName(): string {
+    if (!this._ast) return "";
+    const pkgNode = this._ast.rootNode.descendantsOfType(
+      "package_declaration"
+    )[0];
+    if (!pkgNode) return "";
+    const nameNode = pkgNode.children.find(
+      (c) => c.type === "scoped_identifier" || c.type === "identifier"
+    );
+    return nameNode?.text ?? "";
+  } // fn: getPackageName
+
+  /**
+   * Returns the fully qualified class name containing the specified function.
+   *
+   * @param fnName Optional name of method to locate
+   * @returns Fully qualified class name
+   */
+  public getFqClassName(fnName?: string): string {
+    const pkg = this.getPackageName();
+    let className = "";
+    if (this._ast && fnName) {
+      const q = Parser.query(
+        "java",
+        `(method_declaration name: (identifier) @m.name) @m.item`
+      );
+      const matches = q.matches(this._ast.rootNode);
+      for (const m of matches) {
+        const nameCap = m.captures.find((c) => c.name === "m.name");
+        if (nameCap && nameCap.node.text === fnName) {
+          const itemCap = m.captures.find((c) => c.name === "m.item");
+          let p = itemCap?.node.parent;
+          while (
+            p &&
+            p.type !== "class_declaration" &&
+            p.type !== "record_declaration" &&
+            p.type !== "interface_declaration"
+          ) {
+            p = p.parent;
+          }
+          if (p) {
+            className = p.childForFieldName("name")?.text ?? "";
+            break;
+          }
+        }
+      }
+    }
+    if (!className) {
+      const base = path.basename(this._filename, ".java");
+      className = base;
+    }
+    return pkg ? `${pkg}.${className}` : className;
+  } // fn: getFqClassName
+
+  /**
    * Resolves a TypeRef against local types, Java primitives, and imported programs.
    *
    * @param typeRef The TypeRef to resolve

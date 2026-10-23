@@ -6,6 +6,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
  * In-process coverage tracking module for NaNofuzz.
@@ -168,95 +169,19 @@ public final class CoverageTracker {
     return result;
   }
 
+  private static final ObjectMapper MAPPER = new ObjectMapper();
+
   /**
-   * Serializes a map of FileCoverage data to an Istanbul-compatible JSON string
-   * without external dependencies.
+   * Serializes a map of FileCoverage data to an Istanbul-compatible JSON string.
    *
    * @param coverageMap Map of file path to FileCoverage data
    * @return Istanbul-compatible JSON string
    */
   public static String toJson(Map<String, FileCoverage> coverageMap) {
-    StringBuilder sb = new StringBuilder("{");
-    boolean firstFile = true;
-    for (Map.Entry<String, FileCoverage> entry : coverageMap.entrySet()) {
-      if (!firstFile)
-        sb.append(",");
-      firstFile = false;
-      sb.append(quote(entry.getKey())).append(":");
-      FileCoverage cov = entry.getValue();
-      sb.append("{");
-      sb.append("\"path\":").append(quote(cov.path)).append(",");
-
-      // s
-      sb.append("\"s\":{");
-      boolean firstS = true;
-      for (Map.Entry<String, Integer> sEntry : cov.s.entrySet()) {
-        if (!firstS)
-          sb.append(",");
-        firstS = false;
-        sb.append(quote(sEntry.getKey())).append(":").append(sEntry.getValue());
-      }
-      sb.append("},");
-
-      // f
-      sb.append("\"f\":{");
-      boolean firstF = true;
-      for (Map.Entry<String, Integer> fEntry : cov.f.entrySet()) {
-        if (!firstF)
-          sb.append(",");
-        firstF = false;
-        sb.append(quote(fEntry.getKey())).append(":").append(fEntry.getValue());
-      }
-      sb.append("},");
-
-      // b
-      sb.append("\"b\":{");
-      boolean firstB = true;
-      for (Map.Entry<String, List<Integer>> bEntry : cov.b.entrySet()) {
-        if (!firstB)
-          sb.append(",");
-        firstB = false;
-        sb.append(quote(bEntry.getKey())).append(":[");
-        List<Integer> arms = bEntry.getValue();
-        for (int i = 0; i < arms.size(); i++) {
-          if (i > 0)
-            sb.append(",");
-          sb.append(arms.get(i));
-        }
-        sb.append("]");
-      }
-      sb.append("}");
-
-      sb.append("}");
+    try {
+      return MAPPER.writeValueAsString(coverageMap);
+    } catch (Exception e) {
+      throw new RuntimeException("Failed to serialize coverage map to JSON", e);
     }
-    sb.append("}");
-    return sb.toString();
-  }
-
-  private static String quote(String s) {
-    if (s == null)
-      return "null";
-    StringBuilder sb = new StringBuilder("\"");
-    for (int i = 0; i < s.length(); i++) {
-      char c = s.charAt(i);
-      switch (c) {
-        case '"' -> sb.append("\\\"");
-        case '\\' -> sb.append("\\\\");
-        case '\b' -> sb.append("\\b");
-        case '\f' -> sb.append("\\f");
-        case '\n' -> sb.append("\\n");
-        case '\r' -> sb.append("\\r");
-        case '\t' -> sb.append("\\t");
-        default -> {
-          if (c < 32) {
-            sb.append(String.format("\\u%04x", (int) c));
-          } else {
-            sb.append(c);
-          }
-        }
-      }
-    }
-    sb.append("\"");
-    return sb.toString();
   }
 }
