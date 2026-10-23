@@ -593,7 +593,16 @@ describe("Agent", () => {
       expect(res.primaryCounterexample?.input[1].value === 99).toBe(true);
     } finally {
       if (fs.existsSync(tmpDir)) {
-        fs.rmSync(tmpDir, { recursive: true, force: true });
+        try {
+          fs.rmSync(tmpDir, {
+            recursive: true,
+            force: true,
+            maxRetries: 10,
+            retryDelay: 100,
+          });
+        } catch {
+          // Ignore residual file lock cleanup errors on Windows
+        }
       }
     }
   });
@@ -628,7 +637,16 @@ def py_double(x: int) -> int:
       expect(res.rawResults?.env.options.fnTimeout).toBe(250);
     } finally {
       if (fs.existsSync(tmpDir)) {
-        fs.rmSync(tmpDir, { recursive: true, force: true });
+        try {
+          fs.rmSync(tmpDir, {
+            recursive: true,
+            force: true,
+            maxRetries: 10,
+            retryDelay: 100,
+          });
+        } catch {
+          // Ignore residual file lock cleanup errors on Windows
+        }
       }
     }
   });
@@ -680,7 +698,16 @@ def py_double(x: int) -> int:
       expect(res.rawResults?.env.options.maxTests).toBe(4);
     } finally {
       if (fs.existsSync(tmpDir)) {
-        fs.rmSync(tmpDir, { recursive: true, force: true });
+        try {
+          fs.rmSync(tmpDir, {
+            recursive: true,
+            force: true,
+            maxRetries: 10,
+            retryDelay: 100,
+          });
+        } catch {
+          // Ignore residual file lock cleanup errors on Windows
+        }
       }
     }
   });
@@ -733,7 +760,16 @@ def py_double(x: int) -> int:
       expect(res.rawResults?.env.options.maxTests).toBe(2);
     } finally {
       if (fs.existsSync(tmpDir)) {
-        fs.rmSync(tmpDir, { recursive: true, force: true });
+        try {
+          fs.rmSync(tmpDir, {
+            recursive: true,
+            force: true,
+            maxRetries: 10,
+            retryDelay: 100,
+          });
+        } catch {
+          // Ignore residual file lock cleanup errors on Windows
+        }
       }
     }
   });
@@ -775,7 +811,16 @@ def py_double(x: int) -> int:
       expect(result.summaryText).toContain(outTestFile);
     } finally {
       if (fs.existsSync(tmpDir)) {
-        fs.rmSync(tmpDir, { recursive: true, force: true });
+        try {
+          fs.rmSync(tmpDir, {
+            recursive: true,
+            force: true,
+            maxRetries: 10,
+            retryDelay: 100,
+          });
+        } catch {
+          // Ignore residual file lock cleanup errors on Windows
+        }
       }
     }
   });
