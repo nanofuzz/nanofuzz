@@ -598,6 +598,140 @@ describe("Agent", () => {
     }
   });
 
+  it("runFuzz: honors in-source @settings when not overridden by .nano.json5 or caller", async () => {
+    const tmpDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agent-settings-test-")
+    );
+    try {
+      const pyFile = path.join(tmpDir, "settings_test.py");
+      fs.writeFileSync(
+        pyFile,
+        `from hypothesis import given, settings, strategies as st
+
+@settings(max_examples=3, deadline=250)
+@given(x=st.integers())
+def py_double(x: int) -> int:
+    return x * 2
+`
+      );
+
+      const res = await runFuzz({
+        filePath: pyFile,
+        functionName: "py_double",
+      });
+
+      expect(res.status).toBe("success");
+      expect(res.totalTests).toBe(3);
+      expect(res.rawResults?.env.options.maxTests).toBe(3);
+      expect(res.rawResults?.env.options.fnTimeout).toBe(250);
+    } finally {
+      if (fs.existsSync(tmpDir)) {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it("runFuzz: .nano.json5 options take precedence over in-source @settings", async () => {
+    const tmpDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agent-nano-precedence-")
+    );
+    try {
+      const pyFile = path.join(tmpDir, "settings_override.py");
+      const jsonFile = path.join(tmpDir, "settings_override.py.nano.json5");
+      fs.writeFileSync(
+        pyFile,
+        `from hypothesis import given, settings, strategies as st
+
+@settings(max_examples=50)
+@given(x=st.integers())
+def py_double(x: int) -> int:
+    return x * 2
+`
+      );
+
+      fs.writeFileSync(
+        jsonFile,
+        JSON.stringify({
+          version: "0.4.0",
+          functions: {
+            py_double: {
+              options: {
+                maxTests: 4,
+              },
+              validators: [],
+              isVoid: false,
+              tests: {},
+            },
+          },
+        })
+      );
+
+      const res = await runFuzz({
+        filePath: pyFile,
+        functionName: "py_double",
+      });
+
+      expect(res.status).toBe("success");
+      expect(res.totalTests).toBe(4);
+      expect(res.rawResults?.env.options.maxTests).toBe(4);
+    } finally {
+      if (fs.existsSync(tmpDir)) {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it("runFuzz: tool call options take precedence over both .nano.json5 and in-source @settings", async () => {
+    const tmpDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agent-caller-precedence-")
+    );
+    try {
+      const pyFile = path.join(tmpDir, "caller_override.py");
+      const jsonFile = path.join(tmpDir, "caller_override.py.nano.json5");
+      fs.writeFileSync(
+        pyFile,
+        `from hypothesis import given, settings, strategies as st
+
+@settings(max_examples=50)
+@given(x=st.integers())
+def py_double(x: int) -> int:
+    return x * 2
+`
+      );
+
+      fs.writeFileSync(
+        jsonFile,
+        JSON.stringify({
+          version: "0.4.0",
+          functions: {
+            py_double: {
+              options: {
+                maxTests: 20,
+              },
+              validators: [],
+              isVoid: false,
+              tests: {},
+            },
+          },
+        })
+      );
+
+      const res = await runFuzz({
+        filePath: pyFile,
+        functionName: "py_double",
+        maxTests: 2,
+      });
+
+      expect(res.status).toBe("success");
+      expect(res.totalTests).toBe(2);
+      expect(res.rawResults?.env.options.maxTests).toBe(2);
+    } finally {
+      if (fs.existsSync(tmpDir)) {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    }
+  });
+
   it("runFuzz: exportSuite generates synthesized test suite with covering inputs", async () => {
     const result = await runFuzz({
       filePath: tsFixture,

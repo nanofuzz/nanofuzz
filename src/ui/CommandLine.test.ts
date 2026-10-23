@@ -2267,6 +2267,58 @@ export function calc(x: number): number {
     expect(data.env.options.maxFailures).toBe(1);
   });
 
+  it("options in .nano.json5 take precedence over in-source @settings", async () => {
+    const pyFile = path.join(tmpDir, "precedence_settings.py");
+    const jsonFile = path.join(tmpDir, "precedence_settings.py.nano.json5");
+    const outFile = path.join(tmpDir, "precedence_settings_out.json5");
+    fs.writeFileSync(
+      pyFile,
+      `
+from hypothesis import given, settings, strategies as st
+
+@settings(max_examples=100)
+@given(x=st.integers())
+def py_fn(x: int) -> int:
+    return x * 2
+`,
+      "utf8"
+    );
+    // Config file specifies maxTests: 4, overriding the in-source @settings(max_examples=100)
+    fs.writeFileSync(
+      jsonFile,
+      JSON.stringify({
+        version: "0.4.0",
+        functions: {
+          py_fn: {
+            options: {
+              maxTests: 4,
+            },
+            validators: [],
+            isVoid: false,
+            tests: {},
+          },
+        },
+      }),
+      "utf8"
+    );
+
+    const res = await runCli([
+      pyFile,
+      "py_fn",
+      "--output-file",
+      outFile,
+      "--seed",
+      "cli_seed_settings_precedence",
+    ]);
+
+    expect(res.status).toBe(0);
+    expect(fs.existsSync(outFile)).toBeTrue();
+    const data = JSON5.parse<FuzzTestResults>(fs.readFileSync(outFile, "utf8"));
+    // maxTests came from .nano.json5 (4), overriding in-source @settings (100)
+    expect(data.env.options.maxTests).toBe(4);
+    expect(data.stats.outcomes.total).toBe(4);
+  });
+
   it("--max-failures 1: exception via PUT exception with shrinking", async () => {
     const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
     const targetFn = "testStandardVoidReturnException";

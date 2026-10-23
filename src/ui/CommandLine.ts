@@ -753,15 +753,7 @@ export async function runCliInProcess(
       ): FuzzOptions[K] {
         const isDefault =
           program.getOptionValueSource(cliOptionName) === "default";
-        // In-source options (e.g. annotations) override file and CLI defaults
-        if (
-          isDefault &&
-          fnFuzzOptions &&
-          fnFuzzOptions[fuzzOptKey] !== undefined
-        ) {
-          return fnFuzzOptions[fuzzOptKey]!;
-        }
-        // Options explicitly saved in companion .nano.json5 file override CLI defaults
+        // Options explicitly saved in companion .nano.json5 file override in-source annotations and CLI defaults
         if (
           useConfigFile &&
           isDefault &&
@@ -769,6 +761,14 @@ export async function runCliInProcess(
           fnConfig.options[fuzzOptKey] !== undefined
         ) {
           return fnConfig.options[fuzzOptKey]!;
+        }
+        // In-source options (e.g. annotations) override CLI defaults
+        if (
+          isDefault &&
+          fnFuzzOptions &&
+          fnFuzzOptions[fuzzOptKey] !== undefined
+        ) {
+          return fnFuzzOptions[fuzzOptKey]!;
         }
         // CLI default value
         return cliValue;
