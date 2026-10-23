@@ -7,7 +7,7 @@ import {
   RunnerResult,
   ValidatorResult,
 } from "../AbstractRunner";
-import { CoverageMapData } from "istanbul-lib-coverage";
+import { CoverageMapData, FileCoverageData } from "istanbul-lib-coverage";
 import { isRecordOfFileCoverageData } from "../../measures/CoverageMeasure";
 import { FuzzEnv } from "../../Types";
 import { normalizePathForKey } from "../../Util";
@@ -19,6 +19,12 @@ import {
   findRuntimeJar,
 } from "../../compilers/java/JavaCompiler";
 import { JavaHost } from "./JavaHost";
+import {
+  buildJavaHarness,
+  mapDynamicCoverage,
+  JavaBranchSpec,
+  JacocoClassCoverage,
+} from "./JavaHarness";
 
 /**
  * Test runner for compiled Java targets executed in a persistent JVM host process.
@@ -36,6 +42,7 @@ export class JavaRunner extends AbstractRunner {
   protected _coverageInfo?: CoverageMapData = undefined;
   protected _staticCoverage?: CoverageMapData = undefined;
   protected _lastRunCoverage?: CoverageMapData = undefined;
+  protected _branchSpecsMap?: Record<string, JavaBranchSpec[]> = undefined;
   protected _pgmFiles: string[] = [];
   protected _coverageEnabled = true;
   protected _coverageCallback?: (covData: unknown) => void;
@@ -107,6 +114,23 @@ export class JavaRunner extends AbstractRunner {
       this._fqClassName = path.basename(this._filename, ".java");
     }
 
+    const { staticCov, staticCovMap, branchSpecsMap } = buildJavaHarness(
+      this._filename,
+      this._fn,
+      this._env
+    );
+    this._branchSpecsMap = branchSpecsMap;
+    const allStaticCov = staticCovMap ?? { [this._filename]: staticCov };
+    this._coverageInfo = { ...allStaticCov };
+    for (const [fPath, sCov] of Object.entries(allStaticCov)) {
+      const normKey = normalizePathForKey(fPath);
+      if (normKey !== fPath) {
+        this._coverageInfo[normKey] = sCov;
+      }
+    }
+    this._staticCoverage = structuredClone(this._coverageInfo);
+    this._pgmFiles = Object.keys(allStaticCov);
+
     await this._getHost();
   } // fn: onRunStart
 
@@ -148,47 +172,60 @@ export class JavaRunner extends AbstractRunner {
       const rawResBuf = await host.getResponseBuffer(hostTimeout);
       const hostPayload: JavaHostResponse = JSONN.unpack(rawResBuf);
 
+      if (this._coverageEnabled && hostPayload.coverageError) {
+        throw new Error(
+          `JavaRunnerHost coverage collection error: ${hostPayload.coverageError}`
+        );
+      }
+
       // Ingest dynamic coverage data if present
-      if (
-        this._coverageEnabled &&
-        this._coverageInfo &&
-        hostPayload.coverageData
+      let dynamicCoverage: Record<string, FileCoverageData> | undefined;
+      if (hostPayload.jacocoCoverage && this._staticCoverage) {
+        dynamicCoverage = mapDynamicCoverage(
+          this._staticCoverage,
+          hostPayload.jacocoCoverage,
+          this._branchSpecsMap
+        );
+      } else if (
+        hostPayload.coverageData &&
+        isRecordOfFileCoverageData(hostPayload.coverageData)
       ) {
-        const rawCovData = hostPayload.coverageData;
-        if (isRecordOfFileCoverageData(rawCovData)) {
-          this._lastRunCoverage = rawCovData;
-          for (const fileKey of Object.keys(rawCovData)) {
-            const fileCov = rawCovData[fileKey];
-            const normKey = normalizePathForKey(fileKey);
-            const target =
-              this._coverageInfo[normKey] ?? this._coverageInfo[fileKey];
-            if (target) {
-              if (fileCov.s && target.s) {
-                for (const sk of Object.keys(fileCov.s)) {
-                  target.s[sk] = (target.s[sk] ?? 0) + (fileCov.s[sk] ?? 0);
-                }
+        dynamicCoverage = hostPayload.coverageData;
+      }
+
+      if (this._coverageEnabled && this._coverageInfo && dynamicCoverage) {
+        this._lastRunCoverage = dynamicCoverage;
+        for (const fileKey of Object.keys(dynamicCoverage)) {
+          const fileCov = dynamicCoverage[fileKey];
+          const normKey = normalizePathForKey(fileKey);
+          const target =
+            this._coverageInfo[normKey] ?? this._coverageInfo[fileKey];
+          if (target) {
+            if (fileCov.s && target.s) {
+              for (const sk of Object.keys(fileCov.s)) {
+                target.s[sk] = (target.s[sk] ?? 0) + (fileCov.s[sk] ?? 0);
               }
-              if (fileCov.f && target.f) {
-                for (const fk of Object.keys(fileCov.f)) {
-                  target.f[fk] = (target.f[fk] ?? 0) + (fileCov.f[fk] ?? 0);
-                }
+            }
+            if (fileCov.f && target.f) {
+              for (const fk of Object.keys(fileCov.f)) {
+                target.f[fk] = (target.f[fk] ?? 0) + (fileCov.f[fk] ?? 0);
               }
-              if (fileCov.b && target.b) {
-                for (const bk of Object.keys(fileCov.b)) {
-                  if (!target.b[bk]) {
-                    target.b[bk] = [...(fileCov.b[bk] ?? [])];
-                  } else if (Array.isArray(fileCov.b[bk])) {
-                    for (let i = 0; i < fileCov.b[bk].length; i++) {
-                      target.b[bk][i] =
-                        (target.b[bk][i] ?? 0) + (fileCov.b[bk][i] ?? 0);
-                    }
+            }
+            if (fileCov.b && target.b) {
+              for (const bk of Object.keys(fileCov.b)) {
+                if (!target.b[bk]) {
+                  target.b[bk] = [...(fileCov.b[bk] ?? [])];
+                } else if (Array.isArray(fileCov.b[bk])) {
+                  for (let i = 0; i < fileCov.b[bk].length; i++) {
+                    target.b[bk][i] =
+                      (target.b[bk][i] ?? 0) + (fileCov.b[bk][i] ?? 0);
                   }
                 }
               }
             }
           }
-          this._coverageCallback?.(rawCovData);
         }
+        this._coverageCallback?.(dynamicCoverage);
       }
 
       const seq =
@@ -370,4 +407,6 @@ type JavaHostResponse = {
   source?: "put" | "host";
   validators?: Record<string, ValidatorResult>;
   coverageData?: unknown;
+  jacocoCoverage?: Record<string, JacocoClassCoverage>;
+  coverageError?: string;
 };

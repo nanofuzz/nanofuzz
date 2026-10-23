@@ -4,6 +4,18 @@ import com.nanofuzz.runtime.CoverageTracker;
 import com.nanofuzz.runtime.FuzzTestResult;
 import com.nanofuzz.runtime.UnsatisfiedAssumptionException;
 import com.nanofuzz.runtime.ValidatorResult;
+import org.jacoco.core.analysis.Analyzer;
+import org.jacoco.core.analysis.CoverageBuilder;
+import org.jacoco.core.analysis.IClassCoverage;
+import org.jacoco.core.analysis.ICounter;
+import org.jacoco.core.analysis.ILine;
+import org.jacoco.core.analysis.IMethodCoverage;
+import org.jacoco.core.data.ExecutionDataStore;
+import org.jacoco.core.data.SessionInfoStore;
+import org.jacoco.core.instr.Instrumenter;
+import org.jacoco.core.runtime.IRuntime;
+import org.jacoco.core.runtime.LoggerRuntime;
+import org.jacoco.core.runtime.RuntimeData;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.msgpack.jackson.dataformat.MessagePackFactory;
 
@@ -12,6 +24,7 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.PrintStream;
 import java.io.PrintWriter;
@@ -69,9 +82,12 @@ public class JavaRunnerHost {
   private final String defaultMethodName;
   private final String classesDir;
   private final DataOutputStream protocolOut;
-  private URLClassLoader classLoader;
+  private InstrumentingClassLoader classLoader;
   private long lastClassLoaderMtime = 0;
   private ExecutorService executor;
+  private RuntimeData runtimeData;
+  private Instrumenter instrumenter;
+  private final Map<String, byte[]> originalBytecode = new java.util.concurrent.ConcurrentHashMap<>();
 
   /**
    * Constructs a new JavaRunnerHost daemon instance.
@@ -110,11 +126,18 @@ public class JavaRunnerHost {
   } // fn: createExecutor
 
   /**
-   * Initializes the URLClassLoader pointing to the compiled target classes
-   * directory.
+   * Initializes the InstrumentingClassLoader pointing to the compiled target
+   * classes directory.
    */
   private void initClassLoader() {
     try {
+      if (runtimeData == null) {
+        runtimeData = new RuntimeData();
+        IRuntime runtime = new LoggerRuntime();
+        runtime.startup(runtimeData);
+        instrumenter = new Instrumenter(runtime);
+      }
+      originalBytecode.clear();
       List<URL> urls = new ArrayList<>();
       if (classesDir != null && !classesDir.isEmpty()) {
         File cDir = new File(classesDir);
@@ -123,11 +146,17 @@ public class JavaRunnerHost {
           lastClassLoaderMtime = cDir.lastModified();
         }
       }
-      this.classLoader = new URLClassLoader(
+      this.classLoader = new InstrumentingClassLoader(
           urls.toArray(new URL[0]),
-          getClass().getClassLoader());
+          getClass().getClassLoader(),
+          instrumenter,
+          originalBytecode);
     } catch (Exception e) {
-      this.classLoader = (URLClassLoader) getClass().getClassLoader();
+      this.classLoader = new InstrumentingClassLoader(
+          new URL[0],
+          getClass().getClassLoader(),
+          null,
+          originalBytecode);
     }
   } // fn: initClassLoader
 
@@ -265,6 +294,10 @@ public class JavaRunnerHost {
     final Method finalMethod = targetMethod;
     final Object[] finalArgs = convertedArgs;
 
+    if (runtimeData != null) {
+      runtimeData.reset();
+    }
+
     Callable<Object> task = () -> finalMethod.invoke(finalInstance, finalArgs);
     Future<Object> future = executor.submit(task);
 
@@ -330,6 +363,65 @@ public class JavaRunnerHost {
         valMap.put(vName, executeValidator(targetClass, finalInstance, vName, resultObj));
       }
       response.put("validators", valMap);
+    }
+
+    // Collect coverage data if requested
+    boolean collectCoverage = req.get("coverage") == null || Boolean.TRUE.equals(req.get("coverage"));
+    if (collectCoverage && runtimeData != null) {
+      try {
+        ExecutionDataStore execData = new ExecutionDataStore();
+        SessionInfoStore sessionInfos = new SessionInfoStore();
+        runtimeData.collect(execData, sessionInfos, false);
+
+        CoverageBuilder builder = new CoverageBuilder();
+        Analyzer analyzer = new Analyzer(execData, builder);
+        for (Map.Entry<String, byte[]> entry : originalBytecode.entrySet()) {
+          analyzer.analyzeClass(entry.getValue(), entry.getKey());
+        }
+
+        Map<String, Object> jacocoCoverage = new LinkedHashMap<>();
+        for (IClassCoverage cc : builder.getClasses()) {
+          Map<String, Object> classData = new LinkedHashMap<>();
+          classData.put("name", cc.getName());
+          classData.put("sourceFileName", cc.getSourceFileName());
+
+          Map<String, Object> linesMap = new LinkedHashMap<>();
+          for (int l = cc.getFirstLine(); l <= cc.getLastLine(); l++) {
+            ILine line = cc.getLine(l);
+            if (line.getStatus() != ICounter.EMPTY) {
+              Map<String, Object> lineData = new LinkedHashMap<>();
+              lineData.put("status", line.getStatus());
+              lineData.put("coveredInstructions", line.getInstructionCounter().getCoveredCount());
+              lineData.put("totalInstructions", line.getInstructionCounter().getTotalCount());
+              lineData.put("coveredBranches", line.getBranchCounter().getCoveredCount());
+              lineData.put("totalBranches", line.getBranchCounter().getTotalCount());
+              linesMap.put(String.valueOf(l), lineData);
+            }
+          }
+          classData.put("lines", linesMap);
+
+          Map<String, Object> methodsMap = new LinkedHashMap<>();
+          for (IMethodCoverage mc : cc.getMethods()) {
+            Map<String, Object> methodData = new LinkedHashMap<>();
+            methodData.put("name", mc.getName());
+            methodData.put("desc", mc.getDesc());
+            methodData.put("coveredInstructions", mc.getInstructionCounter().getCoveredCount());
+            methodData.put("totalInstructions", mc.getInstructionCounter().getTotalCount());
+            methodsMap.put(mc.getName(), methodData);
+          }
+          classData.put("methods", methodsMap);
+
+          jacocoCoverage.put(cc.getName(), classData);
+        }
+
+        response.put("jacocoCoverage", jacocoCoverage);
+        runtimeData.reset();
+      } catch (Exception e) {
+        System.err.println("Nanofuzz Coverage Collection Error: " + e.getMessage());
+        e.printStackTrace(System.err);
+        response.put("coverageError",
+            e.getClass().getName() + ": " + (e.getMessage() != null ? e.getMessage() : e.toString()));
+      }
     }
 
     return response;
@@ -727,4 +819,61 @@ public class JavaRunnerHost {
       System.err.println("JavaRunnerHost exited: " + e.getMessage());
     }
   } // fn: main
+
+  /**
+   * Custom URLClassLoader that instruments classes loaded from target classpaths
+   * using JaCoCo bytecode instrumentation for coverage measurement.
+   */
+  public static class InstrumentingClassLoader extends URLClassLoader {
+    private final Instrumenter instrumenter;
+    private final Map<String, byte[]> originalBytecode;
+
+    public InstrumentingClassLoader(
+        URL[] urls,
+        ClassLoader parent,
+        Instrumenter instrumenter,
+        Map<String, byte[]> originalBytecode) {
+      super(urls, parent);
+      this.instrumenter = instrumenter;
+      this.originalBytecode = originalBytecode;
+    } // fn: InstrumentingClassLoader
+
+    @Override
+    public Class<?> loadClass(String name) throws ClassNotFoundException {
+      return loadClass(name, false);
+    } // fn: loadClass
+
+    @Override
+    protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
+      synchronized (getClassLoadingLock(name)) {
+        Class<?> c = findLoadedClass(name);
+        if (c == null) {
+          if (instrumenter != null && !name.startsWith("java.") && !name.startsWith("javax.")
+              && !name.startsWith("com.nanofuzz.runtime.")) {
+            URL res = findResource(name.replace('.', '/') + ".class");
+            if (res != null) {
+              try (InputStream is = res.openStream()) {
+                byte[] orig = is.readAllBytes();
+                originalBytecode.put(name, orig);
+                byte[] inst = instrumenter.instrument(orig, name);
+                c = defineClass(name, inst, 0, inst.length);
+              } catch (Exception e) {
+                System.err.println(
+                    "Nanofuzz Instrumentation Error: Failed to instrument class " + name + ": " + e.getMessage());
+                e.printStackTrace(System.err);
+                throw new ClassFormatError("Failed to instrument class " + name + ": " + e.getMessage());
+              }
+            }
+          }
+          if (c == null) {
+            c = super.loadClass(name, false);
+          }
+        }
+        if (resolve) {
+          resolveClass(c);
+        }
+        return c;
+      }
+    } // fn: loadClass
+  } // class: InstrumentingClassLoader
 } // class: JavaRunnerHost

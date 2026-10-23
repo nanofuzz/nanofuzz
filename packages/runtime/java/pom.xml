@@ -35,6 +35,7 @@
     <junit.jupiter.version>5.10.2</junit.jupiter.version>
     <jackson.version>2.16.1</jackson.version>
     <msgpack.version>0.9.8</msgpack.version>
+    <jacoco.version>0.8.11</jacoco.version>
   </properties>
 
   <dependencies>
@@ -47,6 +48,11 @@
       <groupId>org.msgpack</groupId>
       <artifactId>jackson-dataformat-msgpack</artifactId>
       <version>${msgpack.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.jacoco</groupId>
+      <artifactId>org.jacoco.core</artifactId>
+      <version>${jacoco.version}</version>
     </dependency>
     <dependency>
       <groupId>org.junit.jupiter</groupId>
@@ -91,6 +97,14 @@
                 <relocation>
                   <pattern>org.msgpack</pattern>
                   <shadedPattern>com.nanofuzz.runtime.shaded.msgpack</shadedPattern>
+                </relocation>
+                <relocation>
+                  <pattern>org.jacoco</pattern>
+                  <shadedPattern>com.nanofuzz.runtime.shaded.jacoco</shadedPattern>
+                </relocation>
+                <relocation>
+                  <pattern>org.objectweb.asm</pattern>
+                  <shadedPattern>com.nanofuzz.runtime.shaded.asm</shadedPattern>
                 </relocation>
               </relocations>
               <filters>
