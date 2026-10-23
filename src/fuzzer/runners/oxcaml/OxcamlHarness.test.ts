@@ -79,6 +79,54 @@ let max_val (a : int) (b : int) : int =
     expect(branchArms[0]).toEqual([0, 2]);
   });
 
+  it("instruments match and function expression pattern arms", () => {
+    const src = `
+let classify n =
+  match n with
+  | 0 -> "zero"
+  | 1 -> "one"
+  | _ -> "other"
+`;
+    const { instrumentedSrc, staticCov, branchArms } = instrumentOxcamlSource(
+      src,
+      "classify.ml",
+      0
+    );
+
+    expect(instrumentedSrc).toContain(
+      "Nanofuzz_runtime.Coverage.hit_branch 0 0 0"
+    );
+    expect(instrumentedSrc).toContain(
+      "Nanofuzz_runtime.Coverage.hit_branch 0 0 1"
+    );
+    expect(instrumentedSrc).toContain(
+      "Nanofuzz_runtime.Coverage.hit_branch 0 0 2"
+    );
+
+    expect(Object.keys(staticCov.branchMap).length).toBe(1);
+    expect(branchArms.length).toBe(1);
+    expect(branchArms[0]).toEqual([0, 3]);
+  });
+
+  it("instruments source with a specified fileId for multi-file coverage", () => {
+    const src = `
+let helper x =
+  if x > 0 then x + 1 else x - 1
+`;
+    const { instrumentedSrc } = instrumentOxcamlSource(src, "helper.ml", 42);
+
+    expect(instrumentedSrc).toContain("Nanofuzz_runtime.Coverage.hit_fn 42 0");
+    expect(instrumentedSrc).toContain(
+      "Nanofuzz_runtime.Coverage.hit_stmt 42 0"
+    );
+    expect(instrumentedSrc).toContain(
+      "Nanofuzz_runtime.Coverage.hit_branch 42 0 0"
+    );
+    expect(instrumentedSrc).toContain(
+      "Nanofuzz_runtime.Coverage.hit_branch 42 0 1"
+    );
+  });
+
   it("builds a functional harness executable and reuses cache", () => {
     const duneBin = OxcamlCompiler.resolveDune();
     if (!duneBin) {

@@ -847,6 +847,70 @@ export class OxcamlProgram extends AbstractProgram {
       return undefined;
     }
   } // fn: _getMliExports
+
+  /**
+   * Recursively discovers all local module files imported or referenced by an OCaml source file.
+   *
+   * @param sourceFile Path to the root OCaml file
+   * @param visited Set of already visited file paths to prevent cycles
+   * @returns Array of unique resolved module file paths
+   */
+  public static findLocalModules(
+    sourceFile: string,
+    visited: Set<string> = new Set()
+  ): string[] {
+    const norm = fs.existsSync(sourceFile)
+      ? fs.realpathSync(path.resolve(sourceFile))
+      : path.resolve(sourceFile);
+    if (visited.has(norm)) return [];
+    visited.add(norm);
+
+    if (!fs.existsSync(norm)) return [];
+    const dir = path.dirname(norm);
+    const src = fs.readFileSync(norm, "utf8");
+    const tree = Parser.parse("oxcaml", src);
+    if (!tree) return [];
+
+    const query = Parser.query(
+      "oxcaml",
+      `
+[
+  (open_module (module_path) @mod.name)
+  (value_path (module_path) @mod.name)
+]
+`
+    );
+    const matches = query.matches(tree.rootNode);
+    const results: string[] = [];
+
+    for (const m of matches) {
+      const node = m.captures.find((c) => c.name === "mod.name")?.node;
+      if (!node) continue;
+      const rootMod = node.text.split(".")[0];
+      const candidate = path.join(dir, `${rootMod.toLowerCase()}.ml`);
+      if (fs.existsSync(candidate)) {
+        const realCandidate = fs.realpathSync(candidate);
+        if (!visited.has(realCandidate)) {
+          results.push(realCandidate);
+          results.push(
+            ...OxcamlProgram.findLocalModules(realCandidate, visited)
+          );
+        }
+      }
+    }
+
+    return results;
+  } // fn: findLocalModules
+
+  /**
+   * Identifies all direct external library dependencies referenced by an OCaml source file.
+   *
+   * @param sourceFile Path to the target source file
+   * @returns Array of external library names
+   */
+  public static findDirectLibraries(sourceFile: string): string[] {
+    return findDirectLibraries(sourceFile);
+  } // fn: findDirectLibraries
 } // class: OxcamlProgram
 
 /**
@@ -989,3 +1053,93 @@ function extractLeadingDocComment(node: Parser.SyntaxNode): string | undefined {
   }
   return undefined;
 } // fn: extractLeadingDocComment
+
+const BUILTIN_OCAML_MODULES = new Set([
+  "Stdlib",
+  "List",
+  "Array",
+  "String",
+  "Char",
+  "Bytes",
+  "Int",
+  "Int32",
+  "Int64",
+  "Nativeint",
+  "Float",
+  "Bool",
+  "Unit",
+  "Printf",
+  "Format",
+  "Scanf",
+  "Sys",
+  "Printexc",
+  "Pervasives",
+  "Gc",
+  "Random",
+  "Hashtbl",
+  "Map",
+  "Set",
+  "Queue",
+  "Stack",
+  "Buffer",
+  "Option",
+  "Result",
+  "Seq",
+  "Uchar",
+  "Digest",
+  "Nanofuzz_runtime",
+  "Yojson",
+]);
+
+/**
+ * Discovers direct external library references in an OCaml source file.
+ *
+ * @param sourceFile Path to target OCaml file
+ * @returns Array of external library name candidates
+ */
+function findDirectLibraries(sourceFile: string): string[] {
+  const norm = fs.existsSync(sourceFile)
+    ? fs.realpathSync(path.resolve(sourceFile))
+    : path.resolve(sourceFile);
+  if (!fs.existsSync(norm)) {
+    return [];
+  }
+
+  const libs = new Set<string>();
+  const src = fs.readFileSync(norm, "utf8");
+  const tree = Parser.parse("oxcaml", src);
+  if (!tree) return [];
+
+  const query = Parser.query(
+    "oxcaml",
+    `
+[
+  (open_module (module_path) @mod.name)
+  (value_path (module_path) @mod.name)
+]
+`
+  );
+  const matches = query.matches(tree.rootNode);
+
+  const localFileStems = new Set(
+    OxcamlProgram.findLocalModules(norm).map((f) =>
+      path.basename(f, path.extname(f)).toLowerCase()
+    )
+  );
+  localFileStems.add(path.basename(norm, path.extname(norm)).toLowerCase());
+
+  for (const m of matches) {
+    const node = m.captures.find((c) => c.name === "mod.name")?.node;
+    if (!node) continue;
+    const rootMod = node.text.split(".")[0].trim();
+    if (
+      rootMod &&
+      !BUILTIN_OCAML_MODULES.has(rootMod) &&
+      !localFileStems.has(rootMod.toLowerCase())
+    ) {
+      libs.add(rootMod.toLowerCase());
+    }
+  }
+
+  return Array.from(libs);
+} // fn: findDirectLibraries
