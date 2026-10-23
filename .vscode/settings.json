@@ -23,5 +23,8 @@
   // insert spaces when pressing Tab
   "editor.insertSpaces": true,
   "editor.detectIndentation": true,
-  "python.analysis.extraPaths": ["./build/extension/_nanofuzz_python"]
+  "python.analysis.extraPaths": ["./build/extension/_nanofuzz_python"],
+  "yaml.schemas": {
+    "https://json.schemastore.org/github-action.json": ".github/actions/**/action.{yml,yaml}"
+  }
 }
