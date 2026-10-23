@@ -15,6 +15,7 @@ const grammarsToLoad = [
   "tree-sitter-typescript",
   "tree-sitter-python",
   "tree-sitter-rust",
+  "tree-sitter-java",
 ];
 let loaded: "no" | "pending" | "yes" = "no";
 let initPromise: Promise<void> | undefined; // init only once

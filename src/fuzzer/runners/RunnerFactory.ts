@@ -35,6 +35,7 @@ export function RunnerFactory(
       return new PythonRunner(module, fn, env, overrides);
     case "rust":
       return new RustRunner(module, fn, env, overrides);
+    case "java":
     case "typescript":
     case "*":
     default:

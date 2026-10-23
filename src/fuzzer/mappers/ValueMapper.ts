@@ -16,6 +16,8 @@ export function toLang(
       return TypescriptValueMapper.toTypescript(val, argDef);
     case "rust":
       return RustValueMapper.toRust(val, argDef);
+    case "java":
+      throw new Error(`Java value mapping not yet implemented`);
   }
   throw new Error(`Unknown language: ${lang}`);
 }
@@ -28,6 +30,8 @@ export function fromLang<T>(lang: Omit<ProgramLanguage, "*">, text: string): T {
       return TypescriptValueMapper.fromTypescript(text);
     case "rust":
       return RustValueMapper.fromRust(text);
+    case "java":
+      throw new Error(`Java value mapping not yet implemented`);
   }
   throw new Error(`Unknown language: ${lang}`);
 }

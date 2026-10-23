@@ -173,6 +173,7 @@ await esbuild.build({
     "tree-sitter-typescript",
     "tree-sitter-javascript",
     "tree-sitter-rust",
+    "tree-sitter-java",
     "web-tree-sitter",
   ],
   define: {
@@ -222,6 +223,7 @@ await esbuild.build({
     "tree-sitter-typescript",
     "tree-sitter-javascript",
     "tree-sitter-rust",
+    "tree-sitter-java",
     "web-tree-sitter",
   ],
   plugins: [
@@ -297,6 +299,7 @@ await esbuild.build({
     "tree-sitter-typescript",
     "tree-sitter-javascript",
     "tree-sitter-rust",
+    "tree-sitter-java",
     "web-tree-sitter",
   ],
   define: {

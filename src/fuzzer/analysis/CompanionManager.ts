@@ -401,6 +401,32 @@ const RULES: Record<
       patterns: GENERATOR_PATTERNS,
     },
   },
+  java: {
+    validator: {
+      canonicalSuffix: "Validator",
+      indexDelimiter: "",
+      patterns: [
+        /^(?<target>.+?)Validator(?<idx>\d+)?$/,
+        /^(?<target>.+?)_validator(?:_(?<idx>\d+))?$/,
+      ],
+    },
+    transformer: {
+      canonicalSuffix: "Transformer",
+      indexDelimiter: "",
+      patterns: [
+        /^(?<target>.+?)Transformer(?<idx>\d+)?$/,
+        /^(?<target>.+?)_transformer(?:_(?<idx>\d+))?$/,
+      ],
+    },
+    generator: {
+      canonicalSuffix: "Generator",
+      indexDelimiter: "",
+      patterns: [
+        /^(?<target>.+?)Generator(?<idx>\d+)?$/,
+        /^(?<target>.+?)_generator(?:_(?<idx>\d+))?$/,
+      ],
+    },
+  },
   "*": {
     validator: {
       canonicalSuffix: "Validator",

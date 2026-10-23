@@ -102,6 +102,8 @@ function factory(
       return new PythonProgram(getSource, filename, options, parent);
     case "rust":
       return new RustProgram(getSource, filename, options, parent);
+    case "java":
+      throw new Error(`JavaProgram not yet implemented: ${filename}`);
     case "typescript":
     case "*":
     default:

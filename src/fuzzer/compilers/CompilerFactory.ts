@@ -12,6 +12,7 @@ export function fromSourcefile(fqSrcFile: string): Compiler | undefined {
       return new TypescriptCompiler(fqSrcFile);
     case "rust":
       return new RustCompiler(fqSrcFile);
+    case "java":
     case "python":
     case "*":
     default:
