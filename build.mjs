@@ -104,6 +104,66 @@ if (fs.existsSync(rustRuntimeDir)) {
   console.log("copied nanofuzz-runtime");
 }
 
+// Build and copy Java runtime package (nanofuzz-runtime)
+const javaRuntimeDir = path.resolve("./packages/runtime/java");
+if (fs.existsSync(javaRuntimeDir)) {
+  const javaTargetJar = path.join(
+    javaRuntimeDir,
+    "target",
+    "nanofuzz-runtime-0.4.0.jar"
+  );
+  if (!fs.existsSync(javaTargetJar)) {
+    const classesDir = path.join(javaRuntimeDir, "target", "classes");
+    fs.mkdirSync(classesDir, { recursive: true });
+    const srcDir = path.join(
+      javaRuntimeDir,
+      "src",
+      "main",
+      "java",
+      "com",
+      "nanofuzz",
+      "runtime"
+    );
+    if (fs.existsSync(srcDir)) {
+      const srcFiles = fs
+        .readdirSync(srcDir)
+        .filter((f) => f.endsWith(".java"))
+        .map((f) => path.join(srcDir, f));
+
+      try {
+        ChildProcess.execFileSync(
+          "javac",
+          ["-d", classesDir, "--release", "17", ...srcFiles],
+          { stdio: "inherit" }
+        );
+        ChildProcess.execFileSync(
+          "jar",
+          ["cf", javaTargetJar, "-C", classesDir, "."],
+          { stdio: "inherit" }
+        );
+      } catch {
+        console.warn("WARNING: javac/jar failed to prebuild Java runtime JAR");
+      }
+    }
+  }
+
+  const destJavaRuntime = path.resolve(
+    "./build/extension/nanofuzz-runtime-java"
+  );
+  fs.mkdirSync(destJavaRuntime, { recursive: true });
+  fs.cpSync(javaRuntimeDir, destJavaRuntime, {
+    recursive: true,
+    filter: (src) => !src.includes(`${path.sep}target`),
+  });
+  if (fs.existsSync(javaTargetJar)) {
+    fs.copyFileSync(
+      javaTargetJar,
+      path.join(destJavaRuntime, "nanofuzz-runtime.jar")
+    );
+  }
+  console.log("copied nanofuzz-runtime (java)");
+}
+
 // Copy Python imports
 let interpreter = "python";
 if (!fs.existsSync(path.resolve(path.join(".", ".venv")))) {
