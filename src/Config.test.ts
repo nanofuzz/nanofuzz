@@ -17,9 +17,10 @@ describe("Config", () => {
     );
   });
 
-  it("registers rust in supported languages for FuzzPanelController", () => {
+  it("registers rust and oxcaml in supported languages for FuzzPanelController", () => {
     expect(languages).toContain("rust");
     expect(languages).toContain("typescript");
     expect(languages).toContain("python");
+    expect(languages).toContain("oxcaml");
   });
 });

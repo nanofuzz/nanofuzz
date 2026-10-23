@@ -30,6 +30,8 @@
     "onLanguage:typescript",
     "onLanguage:python",
     "onLanguage:rust",
+    "onLanguage:ocaml",
+    "onLanguage:oxcaml",
     "onLanguage:typescriptreact",
     "onWebviewPanel:FuzzPanel"
   ],
@@ -821,6 +823,7 @@
     "@vscode/codicons": "^0.0.46-37",
     "@vscode/webview-ui-toolkit": "^1.2.2",
     "pidusage": "^4.0.1",
+    "tree-sitter-ocaml": "^0.24.2",
     "tree-sitter-python": "^0.25.0",
     "tree-sitter-rust": "^0.23.2",
     "tree-sitter-typescript": "^0.23.2",

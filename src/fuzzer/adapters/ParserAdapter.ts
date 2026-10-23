@@ -15,6 +15,7 @@ const grammarsToLoad = [
   "tree-sitter-typescript",
   "tree-sitter-python",
   "tree-sitter-rust",
+  "tree-sitter-ocaml",
 ];
 let loaded: "no" | "pending" | "yes" = "no";
 let initPromise: Promise<void> | undefined; // init only once
@@ -203,7 +204,15 @@ function _getGrammarOrThrow(grammarName: string): GrammarData {
  * @returns internal grammar name
  */
 function _langToGrammarName(lang: ProgramLanguage): string {
-  return `tree-sitter-${lang}`;
+  switch (lang) {
+    case "oxcaml":
+      return "tree-sitter-ocaml";
+    case "typescript":
+    case "python":
+    case "rust":
+    case "*":
+      return `tree-sitter-${lang}`;
+  }
 } // fn: _langToGrammarName()
 
 type Parser = TSWeb.Parser;

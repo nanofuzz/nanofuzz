@@ -3932,7 +3932,14 @@ export const toolName = Config.get("nanofuzz.name", "NaNofuzz");
 /**
  * Languages supported by this module
  */
-export const languages = ["typescript", "typescriptreact", "python", "rust"];
+export const languages = [
+  "typescript",
+  "typescriptreact",
+  "python",
+  "rust",
+  "ocaml",
+  "oxcaml",
+];
 
 /**
  * The Fuzzer State Version we currently support.

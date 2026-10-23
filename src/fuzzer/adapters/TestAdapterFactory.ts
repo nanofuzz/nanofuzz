@@ -17,6 +17,7 @@ export function fromSourceFilename(
       return new PytestAdapter(testSet, filename);
     case "rust":
       return new CargoTestAdapter(testSet, filename);
+    case "oxcaml":
     case "*":
     default:
       throw new Error(`Unsupported program type: ${filename}`);

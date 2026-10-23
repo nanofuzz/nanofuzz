@@ -13,6 +13,7 @@ export function fromSourcefile(fqSrcFile: string): Compiler | undefined {
     case "rust":
       return new RustCompiler(fqSrcFile);
     case "python":
+    case "oxcaml":
     case "*":
     default:
       return undefined;
