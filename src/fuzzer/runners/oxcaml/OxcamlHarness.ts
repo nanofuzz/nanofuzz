@@ -12,7 +12,7 @@ import { findInAncestor } from "../../Util";
 import * as Parser from "../../adapters/ParserAdapter";
 import * as ProgramFactory from "../../analysis/ProgramFactory";
 
-const HARNESS_TEMPLATE_VER = "OxcamlHarness-0.4.0";
+const HARNESS_TEMPLATE_VER = "OxcamlHarness-0.4.2";
 
 /**
  * Builds and returns the compiled OCaml harness executable for testing a target function.
@@ -121,14 +121,15 @@ export function buildOxcamlHarness(
   // Write dune
   const duneContent = `(executable
  (name harness)
- (flags (:standard -w -33-26-27-32-34-37-39))
+ (flags (:standard -g -w -33-26-27-32-34-37-39))
+ (ocamlopt_flags (:standard -g))
  (libraries ${allLibs.join(" ")}))
 `;
   fs.writeFileSync(path.join(harnessDir, "dune"), duneContent, "utf8");
 
-  // Write target_module.ml (with shim if needed)
+  // Write target_module.ml (with line directive to map backtraces to original source)
   const isExported = env?.function?.isExported() ?? true;
-  let finalTargetSrc = targetCov.instrumentedSrc;
+  let finalTargetSrc = `# 1 "${normTarget.replace(/\\/g, "/")}"\n${targetCov.instrumentedSrc}`;
   if (!isExported) {
     finalTargetSrc += `\n\nlet __nanofuzz_get__ = ${fnName}\n`;
   }

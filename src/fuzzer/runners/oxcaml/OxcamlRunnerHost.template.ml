@@ -127,7 +127,9 @@ let () =
               /* __NANOFUZZ_FN_CALL__ */
             with
             | Unsatisfied_assumption msg -> Error (`Skip msg)
-            | exn -> Error (`Exn (Printexc.to_string exn))
+            | exn ->
+              let bt = Printexc.get_backtrace () in
+              Error (`Exn (Printexc.to_string exn, bt))
           in
 
           let response =
@@ -139,11 +141,12 @@ let () =
                 ("seq", `Int seq);
                 ("coverageData", cov_to_json ());
               ]
-            | Error (`Exn msg) ->
+            | Error (`Exn (msg, bt)) ->
               `Assoc [
                 ("tag", `String "error");
                 ("name", `String "Exception");
                 ("message", `String msg);
+                ("stack", `String bt);
                 ("source", `String "put");
                 ("seq", `Int seq);
                 ("coverageData", cov_to_json ());
