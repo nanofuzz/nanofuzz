@@ -13,6 +13,16 @@
   },
   "license": "MIT",
   "main": "build/extension/extension.js",
+  "bin": {
+    "nanofuzz": "./build/cli/cli.cjs"
+  },
+  "files": [
+    "build/cli",
+    "build/workers",
+    "build/extension",
+    "!build/extension/extension.js",
+    "!build/extension/extension.js.map"
+  ],
   "engines": {
     "vscode": "^1.93.0",
     "node": "22"

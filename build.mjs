@@ -64,7 +64,10 @@ if (fs.existsSync(tsRuntimeDir)) {
     "./build/extension/node_modules/@nanofuzz/runtime"
   );
   fs.mkdirSync(path.dirname(destTsRuntime), { recursive: true });
-  fs.cpSync(tsRuntimeDir, destTsRuntime, { recursive: true });
+  fs.cpSync(tsRuntimeDir, destTsRuntime, {
+    recursive: true,
+    filter: (src) => !src.includes(`${path.sep}node_modules`),
+  });
   console.log("copied @nanofuzz/runtime");
 }
 
@@ -206,6 +209,9 @@ await esbuild.build({
   minify: false,
   format: "cjs",
   sourcemap: "both",
+  banner: {
+    js: "#!/usr/bin/env node",
+  },
   tsconfig: "./tsconfig.json",
   external: [
     "path",
@@ -228,6 +234,7 @@ await esbuild.build({
     "process.env.NANOFUZZ_VERSION": version,
   },
 });
+fs.chmodSync("./build/cli/cli.cjs", 0o755);
 
 // CompilerWorker
 await esbuild.build({
