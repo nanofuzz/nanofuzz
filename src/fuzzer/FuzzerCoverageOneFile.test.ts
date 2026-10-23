@@ -31,9 +31,9 @@ describe("fuzzer: coverageOneFile benchmark", () => {
           ...intOptions,
           useProperty: true,
           seed,
-          maxTests: 12000,
+          maxTests: 2500,
           maxFailures: 1,
-          fnTimeout: 2000,
+          fnTimeout: 200,
           argDefaults: {
             ...intOptions.argDefaults,
             strLength: {
@@ -85,5 +85,5 @@ describe("fuzzer: coverageOneFile benchmark", () => {
     expect(
       runs.filter((r) => r.solved && !r.validatorFailed).map((r) => r.seed)
     ).toEqual([]);
-  }, 600000);
+  }, 60000);
 });

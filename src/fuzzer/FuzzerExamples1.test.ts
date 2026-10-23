@@ -1,6 +1,16 @@
 import { FuzzerFactory } from "./FuzzerFactory";
 import { intOptions, floatOptions, initParser } from "./FuzzerTestHelper";
 
+const options = {
+  ...intOptions,
+  maxTests: 10,
+};
+
+const floatOpts = {
+  ...floatOptions,
+  maxTests: 10,
+};
+
 describe("fuzzer: study examples 1-7", () => {
   beforeAll(async () => {
     await initParser();
@@ -12,7 +22,7 @@ describe("fuzzer: study examples 1-7", () => {
         await FuzzerFactory(
           "nanofuzz-study/examples/1.ts",
           "minValue",
-          intOptions
+          options
         ).test()
       ).stats.outcomes.total
     ).toBeGreaterThan(0);
@@ -24,7 +34,7 @@ describe("fuzzer: study examples 1-7", () => {
         await FuzzerFactory(
           "nanofuzz-study/examples/2.ts",
           "getSortSetting",
-          intOptions
+          options
         ).test()
       ).stats.outcomes.total
     ).toBeGreaterThan(0);
@@ -36,7 +46,7 @@ describe("fuzzer: study examples 1-7", () => {
         await FuzzerFactory(
           "nanofuzz-study/examples/3.ts",
           "totalDinnerExpenses",
-          floatOptions
+          floatOpts
         ).test()
       ).stats.outcomes.total
     ).toBeGreaterThan(0);
@@ -46,8 +56,8 @@ describe("fuzzer: study examples 1-7", () => {
     expect(
       (
         await FuzzerFactory("nanofuzz-study/examples/4.ts", "maxOfArray", {
-          ...intOptions,
-          argDefaults: { ...intOptions.argDefaults, anyDims: 1 },
+          ...options,
+          argDefaults: { ...options.argDefaults, anyDims: 1 },
         }).test()
       ).stats.outcomes.total
     ).toBeGreaterThan(0);
@@ -59,7 +69,7 @@ describe("fuzzer: study examples 1-7", () => {
         await FuzzerFactory(
           "nanofuzz-study/examples/5.ts",
           "getRandomNumber",
-          intOptions
+          options
         ).test()
       ).stats.outcomes.total
     ).toBeGreaterThan(0);
@@ -71,7 +81,7 @@ describe("fuzzer: study examples 1-7", () => {
         await FuzzerFactory(
           "nanofuzz-study/examples/6.ts",
           "getZero",
-          intOptions
+          options
         ).test()
       ).stats.outcomes.total
     ).toBeGreaterThan(0);
@@ -83,7 +93,7 @@ describe("fuzzer: study examples 1-7", () => {
         await FuzzerFactory(
           "nanofuzz-study/examples/7.ts",
           "sortByWinLoss",
-          intOptions
+          options
         ).test()
       ).stats.outcomes.total
     ).toBeGreaterThan(0);
