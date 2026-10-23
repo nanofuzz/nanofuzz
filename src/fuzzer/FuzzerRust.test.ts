@@ -307,4 +307,50 @@ describe("fuzzer: rust targets", () => {
       ).toBeTrue();
     }
   });
+
+  it("Rust unexported function fuzzing via __nanofuzz_get__ shim", async () => {
+    const results: FuzzTestResult[] = [];
+    const fuzzResult = await FuzzerFactory(
+      "./test_fixtures/Fuzzer.testfixtures.rs",
+      "unexported_helper",
+      {
+        ...intOptions,
+        maxTests: 10,
+        suiteTimeout: 10000,
+      }
+    ).test(
+      [
+        {
+          input: [
+            { name: "x", offset: 0, value: 21, origin: { type: "user" } },
+          ],
+          output: [],
+          pinned: true,
+        },
+      ],
+      { gen: true },
+      undefined,
+      undefined,
+      (r) => results.push(r)
+    );
+
+    expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
+    expect(results.length).toBeGreaterThan(0);
+    const pinnedResult = results.find(
+      (r) => r.input.length > 0 && r.input[0].origin.type === "user"
+    );
+    expect(pinnedResult).toBeDefined();
+    const outputVal: unknown = pinnedResult?.output[0]?.value;
+    expect(outputVal).toBe(42);
+
+    const covStats = await fuzzResult.stats.measures.CodeCoverageMeasure?.();
+    expect(covStats).toBeDefined();
+    if (covStats && covStats.files.length) {
+      const fileStats = covStats.files[0];
+      const coveredFnNames = Object.keys(fileStats.fileMap.f).map(
+        (idx) => fileStats.fileMap.fnMap[idx]?.name
+      );
+      expect(coveredFnNames).toContain("unexported_helper");
+    }
+  });
 });

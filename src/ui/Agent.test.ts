@@ -129,7 +129,7 @@ describe("Agent", () => {
       "from nanofuzz_runtime import FuzzTestResult"
     );
     expect(greetingFn.validatorTemplate).toContain(
-      'def greetingValidator1(r: FuzzTestResult) -> Literal["pass", "fail", "unknown"]:'
+      'def greeting_validator_1(r: FuzzTestResult) -> Literal["pass", "fail", "unknown"]:'
     );
     expect(greetingFn.validatorTemplate).toContain("name: a = r['in'][0]");
 
@@ -137,14 +137,16 @@ describe("Agent", () => {
     expect(greetingFn.transformerTemplate).toContain(
       "from nanofuzz_runtime import UnsatisfiedAssumption, assume"
     );
-    expect(greetingFn.transformerTemplate).toContain("def greetingTransformer");
+    expect(greetingFn.transformerTemplate).toContain(
+      "def greeting_transformer"
+    );
 
     expect(greetingFn.generatorTemplate).toBeDefined();
     expect(greetingFn.generatorTemplate).toContain(
       "from typing import Callable"
     );
     expect(greetingFn.generatorTemplate).toContain(
-      "def greetingGenerator(prng: Callable[[], float]) -> tuple["
+      "def greeting_generator(prng: Callable[[], float]) -> tuple["
     );
 
     const asyncFn = fnMap.get("async_greeting");
@@ -176,7 +178,7 @@ describe("Agent", () => {
       "use nanofuzz_runtime::ValidatorResult;"
     );
     expect(greetingFn.validatorTemplate).toContain(
-      "pub fn greetingValidator1(r: &FuzzTestResult) -> ValidatorResult {"
+      "pub fn greeting_validator_1(r: &FuzzTestResult) -> ValidatorResult {"
     );
 
     expect(greetingFn.transformerTemplate).toBeDefined();
@@ -184,11 +186,11 @@ describe("Agent", () => {
       "use nanofuzz_runtime::{assume, UnsatisfiedAssumption};"
     );
     expect(greetingFn.transformerTemplate).toContain(
-      "pub fn greetingTransformer"
+      "pub fn greeting_transformer"
     );
 
     expect(greetingFn.generatorTemplate).toBeDefined();
-    expect(greetingFn.generatorTemplate).toContain("pub fn greetingGenerator");
+    expect(greetingFn.generatorTemplate).toContain("pub fn greeting_generator");
 
     const asyncFn = fnMap.get("async_greeting");
     expect(asyncFn).toBeDefined();

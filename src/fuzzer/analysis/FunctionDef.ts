@@ -1,6 +1,7 @@
 import { ArgDef } from "./ArgDef";
 import { FunctionRef, ArgOptionOverrides, ArgOptions, TypeRef } from "./Types";
 import { ProgramLanguage } from "./Types";
+import { CompanionManager } from "./CompanionManager";
 
 /**
  * The FunctionDef class represents a function definition in a Typescript source
@@ -221,7 +222,7 @@ export class FunctionDef {
     return (
       this._argDefs.length === 1 &&
       this._argDefs[0].getTypeRef() === "FuzzTestResult" &&
-      this._ref.name.includes("Validator", 1)
+      CompanionManager.isValidator(this._ref.name, this.getLang())
     );
   } // fn: isValidator()
 
@@ -231,7 +232,7 @@ export class FunctionDef {
    * @returns true if the function is an input transformer; false, otherwise.
    */
   public isTransformer(): boolean {
-    return this._ref.name.endsWith("Transformer");
+    return CompanionManager.isTransformer(this._ref.name, this.getLang());
   } // fn: isTransformer()
 
   /**
@@ -240,7 +241,7 @@ export class FunctionDef {
    * @returns true if the function is a user input generator; false, otherwise.
    */
   public isUserGenerator(): boolean {
-    return this._ref.name.endsWith("Generator");
+    return CompanionManager.isUserGenerator(this._ref.name, this.getLang());
   } // fn: isUserGenerator()
 
   /*
@@ -255,8 +256,41 @@ export class FunctionDef {
       throw new Error(
         `Function ${this.getName()} is not a validator and, therefore, does not have a validation target`
       );
-    return this._ref.name.substring(0, this._ref.name.lastIndexOf("Validator"));
+    const target = CompanionManager.getValidatorTarget(
+      this._ref.name,
+      this.getLang()
+    );
+    if (target === undefined) {
+      throw new Error(
+        `Function ${this.getName()} is not a validator and, therefore, does not have a validation target`
+      );
+    }
+    return target;
   } // fn: getValidatorTargetName()
+
+  /*
+   * Returns the transformer's target function name if isTransformer()===true
+   *
+   * Throws an exception if the function is not an input transformer.
+   *
+   * @returns the name of the input transformer's target function.
+   */
+  public getTransformerTargetName(): string {
+    if (!this.isTransformer())
+      throw new Error(
+        `Function ${this.getName()} is not an input transformer and, therefore, does not have a transformer target`
+      );
+    const target = CompanionManager.getTransformerTarget(
+      this._ref.name,
+      this.getLang()
+    );
+    if (target === undefined) {
+      throw new Error(
+        `Function ${this.getName()} is not an input transformer and, therefore, does not have a transformer target`
+      );
+    }
+    return target;
+  } // fn: getTransformerTargetName()
 
   /*
    * Returns the user generator's target function name if isUserGenerator()===true
@@ -270,7 +304,16 @@ export class FunctionDef {
       throw new Error(
         `Function ${this.getName()} is not a user generator and, therefore, does not have a generator target`
       );
-    return this._ref.name.substring(0, this._ref.name.lastIndexOf("Generator"));
+    const target = CompanionManager.getUserGeneratorTarget(
+      this._ref.name,
+      this.getLang()
+    );
+    if (target === undefined) {
+      throw new Error(
+        `Function ${this.getName()} is not a user generator and, therefore, does not have a generator target`
+      );
+    }
+    return target;
   } // fn: getUserGeneratorTargetName()
 
   /**

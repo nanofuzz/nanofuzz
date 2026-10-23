@@ -321,6 +321,15 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
   } // fn: getBaseTypeRef()
 
   /**
+   * Sets the terminal concrete type reference name (e.g., Map, Set).
+   *
+   * @param baseTypeRef The terminal base type reference name
+   */
+  public setBaseTypeRef(baseTypeRef: string | undefined): void {
+    this.baseTypeRef = baseTypeRef;
+  } // fn: setBaseTypeRef()
+
+  /**
    * Returns the outer dimensions attached to the type reference.
    *
    * @returns The outer dimensions of the type reference, if it exists; `undefined` otherwise

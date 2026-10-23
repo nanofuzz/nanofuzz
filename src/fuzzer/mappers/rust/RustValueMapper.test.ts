@@ -1,6 +1,8 @@
 import * as RustValueMapper from "./RustValueMapper";
 import * as ValueMapper from "../ValueMapper";
 import * as Parser from "../../adapters/ParserAdapter";
+import { ArgDef } from "../../analysis/ArgDef";
+import { ArgOptions, ArgTag } from "../../analysis/Types";
 
 describe("fuzzer/mappers/rust/RustValueMapper: ", () => {
   beforeAll(async () => {
@@ -155,5 +157,182 @@ describe("fuzzer/mappers/rust/RustValueMapper: ", () => {
     expect(ValueMapper.toLang("rust", "hi")).toBe('String::from("hi")');
     expect(ValueMapper.fromLang("rust", "42i32")).toBe(42);
     expect(ValueMapper.fromLang("rust", "vec![1, 2, 3]")).toEqual([1, 2, 3]);
+  });
+
+  it("formats type-directed Rust values for Option, floats, char, collections, and integer widths", () => {
+    const baseOpt: ArgOptions = {
+      strCharset: "abc",
+      strLength: { min: 0, max: 3 },
+      byteLength: { min: 0, max: 3 },
+      dictLength: { min: 0, max: 3 },
+      setLength: { min: 0, max: 3 },
+      strRegex: undefined,
+      numInteger: true,
+      anyType: ArgTag.NUMBER,
+      anyDims: 0,
+      dftDimLength: { min: 0, max: 1 },
+      dimLength: [],
+      dimsUnique: false,
+    };
+
+    const optI32 = new ArgDef(
+      "x",
+      0,
+      ArgTag.NUMBER,
+      baseOpt,
+      0,
+      true,
+      undefined,
+      [],
+      "i32"
+    );
+    expect(RustValueMapper.toRust(42, optI32)).toBe("Some(42i32)");
+    expect(RustValueMapper.toRust(null, optI32)).toBe("None");
+    expect(RustValueMapper.toRust(undefined, optI32)).toBe("None");
+
+    const optStr = new ArgDef(
+      "s",
+      0,
+      ArgTag.STRING,
+      baseOpt,
+      0,
+      true,
+      undefined,
+      [],
+      "String"
+    );
+    expect(RustValueMapper.toRust("hello", optStr)).toBe(
+      'Some(String::from("hello"))'
+    );
+    expect(RustValueMapper.toRust(null, optStr)).toBe("None");
+
+    const charDef = new ArgDef(
+      "c",
+      0,
+      ArgTag.STRING,
+      baseOpt,
+      0,
+      false,
+      undefined,
+      [],
+      "char"
+    );
+    expect(RustValueMapper.toRust("a", charDef)).toBe("'a'");
+    expect(RustValueMapper.toRust("\n", charDef)).toBe("'\\n'");
+    expect(RustValueMapper.toRust("\\", charDef)).toBe("'\\\\'");
+    expect(RustValueMapper.toRust("'", charDef)).toBe("'\\''");
+
+    const f32Def = new ArgDef(
+      "f",
+      0,
+      ArgTag.NUMBER,
+      { ...baseOpt, numInteger: false },
+      0,
+      false,
+      undefined,
+      [],
+      "f32"
+    );
+    expect(RustValueMapper.toRust(3, f32Def)).toBe("3.0f32");
+    expect(RustValueMapper.toRust(3.5, f32Def)).toBe("3.5f32");
+    expect(RustValueMapper.toRust(Infinity, f32Def)).toBe("f32::INFINITY");
+    expect(RustValueMapper.toRust(-Infinity, f32Def)).toBe("-f32::INFINITY");
+    expect(RustValueMapper.toRust(NaN, f32Def)).toBe("f32::NAN");
+
+    const f64Def = new ArgDef(
+      "f",
+      0,
+      ArgTag.NUMBER,
+      { ...baseOpt, numInteger: false },
+      0,
+      false,
+      undefined,
+      [],
+      "f64"
+    );
+    expect(RustValueMapper.toRust(3, f64Def)).toBe("3.0f64");
+    expect(RustValueMapper.toRust(3.5, f64Def)).toBe("3.5f64");
+    expect(RustValueMapper.toRust(Infinity, f64Def)).toBe("f64::INFINITY");
+    expect(RustValueMapper.toRust(-Infinity, f64Def)).toBe("-f64::INFINITY");
+    expect(RustValueMapper.toRust(NaN, f64Def)).toBe("f64::NAN");
+
+    const u64Def = new ArgDef(
+      "u",
+      0,
+      ArgTag.NUMBER,
+      baseOpt,
+      0,
+      false,
+      undefined,
+      [],
+      "u64"
+    );
+    expect(RustValueMapper.toRust(42, u64Def)).toBe("42u64");
+    expect(RustValueMapper.toRust(42n, u64Def)).toBe("42u64");
+
+    const usizeDef = new ArgDef(
+      "u",
+      0,
+      ArgTag.NUMBER,
+      baseOpt,
+      0,
+      false,
+      undefined,
+      [],
+      "usize"
+    );
+    expect(RustValueMapper.toRust(10, usizeDef)).toBe("10usize");
+
+    const vecF64Def = new ArgDef(
+      "v",
+      0,
+      ArgTag.NUMBER,
+      { ...baseOpt, numInteger: false },
+      1,
+      false,
+      undefined,
+      [],
+      "f64"
+    );
+    expect(RustValueMapper.toRust([1, 2.5], vecF64Def)).toBe(
+      "vec![1.0f64, 2.5f64]"
+    );
+
+    const btreeSetDef = new ArgDef(
+      "s",
+      0,
+      ArgTag.SET,
+      baseOpt,
+      0,
+      false,
+      undefined,
+      [],
+      "BTreeSet"
+    );
+    expect(RustValueMapper.toRust(new Set([1, 2]), btreeSetDef)).toBe(
+      "std::collections::BTreeSet::from([1, 2])"
+    );
+    expect(RustValueMapper.toRust(new Set(), btreeSetDef)).toBe(
+      "std::collections::BTreeSet::new()"
+    );
+
+    const btreeMapDef = new ArgDef(
+      "m",
+      0,
+      ArgTag.DICTIONARY,
+      baseOpt,
+      0,
+      false,
+      undefined,
+      [],
+      "BTreeMap"
+    );
+    btreeMapDef.setBaseTypeRef("Map");
+    expect(RustValueMapper.toRust(new Map([["a", 1]]), btreeMapDef)).toBe(
+      'std::collections::BTreeMap::from([(String::from("a"), 1)])'
+    );
+    expect(RustValueMapper.toRust(new Map(), btreeMapDef)).toBe(
+      "std::collections::BTreeMap::new()"
+    );
   });
 });

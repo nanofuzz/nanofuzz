@@ -3,11 +3,9 @@ import { TypescriptProgram } from "../analysis/typescript/TypescriptProgram";
 import { PythonProgram } from "../analysis/python/PythonProgram";
 import { RustProgram } from "../analysis/rust/RustProgram";
 import { ProgramLanguage } from "../analysis/Types";
+import { CompanionManager } from "../analysis/CompanionManager";
 import { FuzzerCodeSnippet } from "./Types";
-import {
-  getNextAvailableFnNumber,
-  getIdentifierNameAvoidingConflicts,
-} from "./Util";
+import { getIdentifierNameAvoidingConflicts } from "./Util";
 
 // Candidate names for the validator result argument to avoid parameter name clashes
 const resultArgCandidateNames = ["r", "result", "_r", "_result"];
@@ -57,15 +55,14 @@ export function synthesizeValidator(
   validatorNameOverride?: string
 ): FuzzerCodeSnippet {
   const targetLang = lang ?? fn.getLang();
-  const validatorPrefix = fn.getName() + "Validator";
-
-  let validatorName = validatorNameOverride;
-  if (!validatorName) {
-    const fnCounter = existingFnNames
-      ? getNextAvailableFnNumber(existingFnNames, validatorPrefix)
-      : 0;
-    validatorName = `${validatorPrefix}${fnCounter === 0 ? "" : fnCounter}`;
-  }
+  const validatorName =
+    validatorNameOverride ??
+    CompanionManager.getNextAvailableName(
+      existingFnNames ?? [],
+      fn.getName(),
+      "validator",
+      targetLang
+    );
 
   const inArgs = fn.getArgDefs();
   const validatorArgs = getValidatorArgs(inArgs);
