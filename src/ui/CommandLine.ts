@@ -98,7 +98,7 @@ function createProgram(): Commander.Command {
       `--max-failures <integer>`,
       `Max test failures (0=no limit)`,
       parseIntArgGeZero,
-      0
+      1
     )
     .option(
       `--fn-timeout <integer>`,
@@ -742,7 +742,7 @@ export async function runCliInProcess(
       // Load companion .nano.json5 configuration and pinned tests (with version upgrade and migration)
       const useConfigFile = options["configFile"] !== false;
       const fnConfig = useConfigFile
-        ? FuzzConfigStore.loadForFunction(filename, fnname)
+        ? FuzzConfigStore.loadForFunction(filename, fnname, undefined, false)
         : FuzzConfigStore.createDefaultFunctionConfig(fnname);
       const injectTests: FuzzPinnedTest[] = Object.values(fnConfig.tests ?? {});
 
@@ -753,6 +753,7 @@ export async function runCliInProcess(
       ): FuzzOptions[K] {
         const isDefault =
           program.getOptionValueSource(cliOptionName) === "default";
+        // In-source options (e.g. annotations) override file and CLI defaults
         if (
           isDefault &&
           fnFuzzOptions &&
@@ -760,6 +761,7 @@ export async function runCliInProcess(
         ) {
           return fnFuzzOptions[fuzzOptKey]!;
         }
+        // Options explicitly saved in companion .nano.json5 file override CLI defaults
         if (
           useConfigFile &&
           isDefault &&
@@ -768,8 +770,9 @@ export async function runCliInProcess(
         ) {
           return fnConfig.options[fuzzOptKey]!;
         }
+        // CLI default value
         return cliValue;
-      }
+      } // fn: getEffectiveOption
 
       const executionOptions: FuzzExecutionOptions = {
         engine: options["engine"],

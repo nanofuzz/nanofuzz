@@ -499,27 +499,33 @@ export class FuzzConfigStore {
    * @param sourcePath Path to the source file
    * @param fnName Name of the function
    * @param defaultOptions Optional default options to use if function is not yet configured
+   * @param normalizeOptions Whether to normalize options with defaults (default: true)
    * @returns FuzzTestsFunction configuration
    */
   public static loadForFunction(
     sourcePath: string,
     fnName: string,
-    defaultOptions?: Partial<FuzzOptions>
+    defaultOptions?: Partial<FuzzOptions>,
+    normalizeOptions: boolean = true
   ): FuzzTestsFunction {
     const moduleSet = FuzzConfigStore.loadForModule(sourcePath);
 
     if (fnName in moduleSet.functions) {
       const fnSet = moduleSet.functions[fnName];
-      if (fnSet.options) {
+      if (fnSet.options && normalizeOptions) {
         fnSet.options = FuzzConfigStore.normalizeFuzzOptions(fnSet.options);
       }
       return fnSet;
     }
 
     return FuzzConfigStore.createDefaultFunctionConfig(fnName, {
-      options: defaultOptions
-        ? FuzzConfigStore.normalizeFuzzOptions(defaultOptions)
-        : FuzzConfigStore.getDefaultFuzzOptions(),
+      options: normalizeOptions
+        ? defaultOptions
+          ? FuzzConfigStore.normalizeFuzzOptions(defaultOptions)
+          : FuzzConfigStore.getDefaultFuzzOptions()
+        : defaultOptions
+          ? cast<FuzzOptions>(defaultOptions)
+          : cast<FuzzOptions>({}),
     });
   } // fn: loadForFunction
 
