@@ -107,7 +107,10 @@ describe("ui/FuzzTextFormatter", () => {
 
     const summary = formatRunSummary(mockResults);
     expect(summary).toContain(
-      " - Executed 85, skipped 5, interrupted 3 in-flight tests in 1240 ms this run. Stopped for reason: interrupted."
+      " - Executed 85, skipped 5, interrupted 3 in-flight tests in 1240 ms"
+    );
+    expect(summary).toContain(
+      "Testing finished. Stopped for reason: interrupted."
     );
   });
 
@@ -120,9 +123,135 @@ describe("ui/FuzzTextFormatter", () => {
     mockResults.stats.outcomes.total = 9;
 
     const summary = formatRunSummary(mockResults);
+    expect(summary).toContain(" - Executed 9 and skipped 1 tests in 1240 ms");
     expect(summary).toContain(
-      " - Executed 9 and skipped 1 tests in 1240 ms this run. Stopped for reason: maxTests."
+      "Testing finished. Stopped for reason: maxTests."
     );
+  });
+
+  it("formatRunSummary hides injected count when 0 and shows when greater than 0", () => {
+    const mockResultsZero = createMockResults(FuzzStopReason.MAXTESTS);
+    mockResultsZero.stats.counters.inputsInjected = 0;
+    mockResultsZero.stats.counters.inputsGenerated = 53;
+    mockResultsZero.stats.counters.dupesGenerated = 0;
+
+    const summaryZero = formatRunSummary(mockResultsZero);
+    expect(summaryZero).toContain(" - Generated 53 inputs");
+    expect(summaryZero).not.toContain("Injected");
+    expect(summaryZero).not.toContain("dupes");
+
+    const mockResultsNonZero = createMockResults(FuzzStopReason.MAXTESTS);
+    mockResultsNonZero.stats.counters.inputsInjected = 4;
+    mockResultsNonZero.stats.counters.inputsGenerated = 53;
+    mockResultsNonZero.stats.counters.dupesGenerated = 3;
+
+    const summaryNonZero = formatRunSummary(mockResultsNonZero);
+    expect(summaryNonZero).toContain(
+      " - Injected 4 and generated 53 inputs (3 were dupes)"
+    );
+  });
+
+  it("formatRunSummary omits (0 were dupes) and omits and skipped 0 when none skipped or duped", () => {
+    const mockResults = createMockResults(FuzzStopReason.MAXTESTS);
+    mockResults.stats.counters.inputsInjected = 0;
+    mockResults.stats.counters.inputsGenerated = 50;
+    mockResults.stats.counters.dupesGenerated = 0;
+    mockResults.stats.counters.inputsSkipped = 0;
+    mockResults.stats.outcomes.total = 50;
+
+    const summary = formatRunSummary(mockResults);
+    expect(summary).toContain(" - Generated 50 inputs");
+    expect(summary).not.toContain("dupes");
+    expect(summary).toContain(" - Executed 50 tests in 1240 ms");
+    expect(summary).not.toContain("skipped");
+    expect(summary).not.toContain("this run");
+  });
+
+  it("formatRunSummary conditionally displays validator lines based on active status and presence", () => {
+    const mockResults = createMockResults(FuzzStopReason.MAXTESTS);
+    mockResults.stats.counters.inputsInjected = 0;
+    mockResults.stats.counters.inputsGenerated = 53;
+    mockResults.stats.counters.dupesGenerated = 3;
+    mockResults.stats.counters.inputsSkipped = 0;
+    mockResults.stats.outcomes.total = 50;
+    mockResults.stats.outcomes.exceptions = 49;
+    mockResults.stats.outcomes.timeouts = 0;
+    mockResults.stats.counters.erroredTests = 0;
+    mockResults.stats.outcomes.oracles.heuristic = {
+      pass: 1,
+      fail: 49,
+      unknown: 0,
+    };
+    mockResults.stats.outcomes.oracles.human = { pass: 0, fail: 0, unknown: 0 };
+    mockResults.stats.outcomes.oracles.property = {
+      pass: 0,
+      fail: 0,
+      unknown: 0,
+    };
+    mockResults.env.validators = [];
+    mockResults.env.options.useImplicit = true;
+    mockResults.env.options.useHuman = true;
+    mockResults.env.options.useProperty = true;
+
+    // Property and human have no validators / no outcomes, heuristic has outcomes
+    const summary1 = formatRunSummary(mockResults);
+    expect(summary1).toContain(" - Generated 53 inputs (3 were dupes)");
+    expect(summary1).toContain(" - Executed 50 tests in 1240 ms");
+    expect(summary1).not.toContain("skipped");
+    expect(summary1).not.toContain("this run");
+    expect(summary1).toContain(
+      "   - Tests with exceptions: 49, timeouts: 0, errors: 0"
+    );
+    expect(summary1).toContain(
+      "   - Heuristic validator passed: 1, failed: 49"
+    );
+    expect(summary1).not.toContain("Human validator");
+    expect(summary1).not.toContain("Property validator");
+    expect(summary1).toContain(
+      "Testing finished. Stopped for reason: maxTests."
+    );
+
+    // Activate property validators with validator ref and outcomes
+    mockResults.env.validators = [
+      {
+        module: "test.ts",
+        name: "myValidator",
+        src: "",
+        lang: "typescript",
+        startOffset: 0,
+        endOffset: 0,
+        isExported: true,
+        isVoid: false,
+        args: [],
+      },
+    ];
+    mockResults.stats.outcomes.oracles.property = {
+      pass: 10,
+      fail: 2,
+      unknown: 0,
+    };
+    const summary2 = formatRunSummary(mockResults);
+    expect(summary2).toContain("   - Property validator passed: 10, failed: 2");
+
+    // Deactivate property validator option
+    mockResults.env.options.useProperty = false;
+    const summary3 = formatRunSummary(mockResults);
+    expect(summary3).not.toContain("Property validator");
+
+    // Activate human validator with outcomes
+    mockResults.stats.outcomes.oracles.human = { pass: 5, fail: 1, unknown: 0 };
+    const summary4 = formatRunSummary(mockResults);
+    expect(summary4).toContain("   - Human validator passed: 5, failed: 1");
+
+    // Deactivate human validator option
+    mockResults.env.options.useHuman = false;
+    const summary5 = formatRunSummary(mockResults);
+    expect(summary5).not.toContain("Human validator");
+
+    // Deactivate heuristic validator option
+    mockResults.env.options.useImplicit = false;
+    const summary6 = formatRunSummary(mockResults);
+    expect(summary6).not.toContain("Heuristic validator");
   });
 
   it("formatTestingStatus formats input execution message", () => {
