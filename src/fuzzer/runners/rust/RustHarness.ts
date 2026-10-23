@@ -187,10 +187,11 @@ export function buildRustHarness(
     .digest("hex")
     .substring(0, 16);
 
+  const sharedTargetDir = path.join(baseTmp, "target");
+  const pkgName = `harness_${cacheHash}`;
+  const binName = process.platform === "win32" ? `${pkgName}.exe` : pkgName;
+  const binaryPath = path.join(sharedTargetDir, "debug", binName);
   const harnessDir = path.join(baseTmp, `harness-${cacheHash}`);
-  const binName =
-    process.platform === "win32" ? "nanofuzz_harness.exe" : "nanofuzz_harness";
-  const binaryPath = path.join(harnessDir, "target", "debug", binName);
 
   // Instrument target file (fileId = 0)
   const targetSrc = fs.readFileSync(normTarget, "utf8");
@@ -334,7 +335,7 @@ export function buildRustHarness(
 
   // Write Cargo.toml
   const cargoTomlContent = `[package]
-name = "nanofuzz_harness"
+name = "${pkgName}"
 version = "0.1.0"
 edition = "2021"
 
@@ -386,6 +387,8 @@ ${patchSection}
       "build",
       "--manifest-path",
       path.join(harnessDir, "Cargo.toml"),
+      "--target-dir",
+      sharedTargetDir,
       "--message-format=json",
     ],
     {
@@ -393,6 +396,10 @@ ${patchSection}
       encoding: "utf8",
       windowsHide: true,
       maxBuffer: 16 * 1024 * 1024,
+      env: {
+        ...process.env,
+        CARGO_TARGET_DIR: sharedTargetDir,
+      },
     }
   );
 
@@ -400,7 +407,7 @@ ${patchSection}
     throw new RustCompilerError("Failed to build Rust fuzzing harness", {
       inputFile: normTarget,
       cargoTomlPath: userCargoToml,
-      commandCli: `${cargoBin} build --manifest-path ${path.join(harnessDir, "Cargo.toml")}`,
+      commandCli: `${cargoBin} build --manifest-path ${path.join(harnessDir, "Cargo.toml")} --target-dir ${sharedTargetDir}`,
       output: [
         buildRes.stderr ||
           buildRes.stdout ||

@@ -191,16 +191,17 @@ Our repo uses [semantic versioning][] and maintains the same version number for 
 - Stage commit and push to the remote branch (`git add .`, `git commit -m "chore: update version to vX.Y.Z"`, and `git push`)
 - Open a new PR with title `chore: update version to vX.Y.Z` and merge after CI passes.
 - Create a new GitHub tag and [GitHub release][] in the format `vX.Y.Z`.
-- Push the new version to VSC Marketplace (`yarn run publish`)
-- If needed, publish the runtime packages.
-  - to npm: `cd packages/runtime/typescript`, `npm publish --access public`, `cd ../../..`)
-  - to pip: `cd packages/runtime/python`, `python -m twine upload dist/*`, `cd ../../..`)
-  - to crates.io: `cd packages/runtime/rust`, `cargo publish`, `cd ../../..`)
+- The following tasks are automated in GitHub Actions when the previous step is performed. Below are the manual steps we used to follow:
+  - Push the new version to VSC Marketplace (`yarn run publish`)
+  - If needed, publish the runtime packages.
+    - to npm: `cd packages/runtime/typescript`, `npm publish --access public`, `cd ../../..`)
+    - to pip: `cd packages/runtime/python`, `python -m twine upload dist/*`, `cd ../../..`)
+    - to crates.io: `cd packages/runtime/rust`, `cargo publish`, `cd ../../..`)
 - Clone the [NaNofuzz playground](https://github.com/nanofuzz/nanofuzz-examples)
   - If needed, upgrade the runtime packages: `yarn update @nanofuzz/runtime@X.Y.Z`, `pip install "nanofuzz-runtime==X.Y.Z"`, and update `nanofuzz-runtime = "X.Y.Z"` in `Cargo.toml`
   - Ensure the version of the NaNofuzz extension loaded is the new one
   - Stage, commit, and push the updated `package.json` and `yarn.lock`
-  - Make sure all the examples still work. (Note: running the examples will generate a lot of `.json` files you probably don't want to commit)
+  - Make sure all the examples still work. (Note: running the examples will generate a lot of new `.json` files; don't commit any new ones)
 
 [branch]: https://git-scm.com/book/en/v2/Git-Branching-Basic-Branching-and-Merging
 [ci]: https://docs.github.com/en/actions

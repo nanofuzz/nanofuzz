@@ -6,7 +6,7 @@
   "description": "Runtime support and types for NaNofuzz",
   "repository": {
     "type": "git",
-    "url": "https://github.com/nanofuzz/nanofuzz.git",
+    "url": "git+https://github.com/nanofuzz/nanofuzz.git",
     "directory": "packages/runtime/typescript"
   },
   "main": "build/cjs/index.js",
