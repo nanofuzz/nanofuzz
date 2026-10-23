@@ -3,6 +3,7 @@ import { ArgDef } from "../analysis/ArgDef";
 import * as PythonValueMapper from "./python/PythonValueMapper";
 import * as TypescriptValueMapper from "./typescript/TypescriptValueMapper";
 import * as RustValueMapper from "./rust/RustValueMapper";
+import * as JavaValueMapper from "./java/JavaValueMapper";
 
 export function toLang(
   lang: Omit<ProgramLanguage, "*">,
@@ -17,7 +18,7 @@ export function toLang(
     case "rust":
       return RustValueMapper.toRust(val, argDef);
     case "java":
-      throw new Error(`Java value mapping not yet implemented`);
+      return JavaValueMapper.toJava(val, argDef);
   }
   throw new Error(`Unknown language: ${lang}`);
 }
@@ -31,7 +32,7 @@ export function fromLang<T>(lang: Omit<ProgramLanguage, "*">, text: string): T {
     case "rust":
       return RustValueMapper.fromRust(text);
     case "java":
-      throw new Error(`Java value mapping not yet implemented`);
+      return JavaValueMapper.fromJava(text);
   }
   throw new Error(`Unknown language: ${lang}`);
 }
