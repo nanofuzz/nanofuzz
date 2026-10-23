@@ -21,6 +21,9 @@ jobs:
           node-version: 22
           registry-url: "https://registry.npmjs.org"
 
+      - name: Upgrade npm CLI to support Trusted Publishing (OIDC)
+        run: npm install -g npm@latest
+
       - name: Install root dependencies
         run: yarn --frozen-lockfile
 
