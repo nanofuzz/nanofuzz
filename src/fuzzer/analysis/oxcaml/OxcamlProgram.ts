@@ -688,7 +688,15 @@ export class OxcamlProgram extends AbstractProgram {
     switch (node.type) {
       case "type_constructor_path":
       case "type_constructor": {
-        const text = node.text;
+        let text = node.text;
+        if (
+          text === "fuzz_test_result" ||
+          text === "FuzzTestResult" ||
+          text.endsWith(".fuzz_test_result") ||
+          text.endsWith(".FuzzTestResult")
+        ) {
+          text = "FuzzTestResult";
+        }
         const primitive = resolveOxcamlPrimitive(text);
         if (primitive) {
           thisType.typeRefName = text;

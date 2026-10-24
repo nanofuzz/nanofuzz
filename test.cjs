@@ -86,6 +86,7 @@ function sortTestFiles(files) {
     "CommandLine.test.ts",
     "CommandLineAiCache.test.ts",
     "FuzzerRust.test.ts",
+    "FuzzerOxcaml.test.ts",
     "FuzzerTypescript.test.ts",
     "RustCompiler.test.ts",
     "OxcamlRunner.test.ts",
@@ -128,6 +129,7 @@ const disaffinityGroups = [
     "CommandLineAiCache.test.ts",
     "FuzzerPython.test.ts",
     "FuzzerRust.test.ts",
+    "FuzzerOxcaml.test.ts",
   ],
   // Group 2: Heavy multi-worker fuzzing campaigns & shared TypeScript compiler fixtures
   // No two of these may run at the same time.
@@ -142,6 +144,7 @@ const disaffinityGroups = [
     "FuzzerTypescript.test.ts",
     "Fuzzer.test.ts",
     "FuzzerRust.test.ts",
+    "FuzzerOxcaml.test.ts",
     "Agent.test.ts",
     "VscodeLmAdapter.test.ts",
   ],

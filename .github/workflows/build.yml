@@ -39,6 +39,14 @@ jobs:
           cache: yarn
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+      - name: Install OCaml
+        if: runner.os != 'Windows'
+        uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: 5.2.0
+      - name: Install OCaml packages
+        if: runner.os != 'Windows'
+        run: opam install dune yojson ounit2 -y
 
       # Visual Studio Code Extension
       - name: NaNofuzz vscode extension
@@ -71,3 +79,10 @@ jobs:
         working-directory: packages/runtime/rust
         run: |
           cargo test
+
+      # opam runtime library
+      - name: NaNofuzz runtime (oxcaml)
+        if: runner.os != 'Windows'
+        working-directory: packages/runtime/oxcaml
+        run: |
+          dune runtest

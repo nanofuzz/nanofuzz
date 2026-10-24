@@ -222,7 +222,6 @@ export class OxcamlCompiler {
     let cmd: string;
     let args: string[];
     let cwd: string;
-    const runtimeDir = findRuntimeDir();
     const spawnEnv: NodeJS.ProcessEnv = { ...process.env };
 
     const binDir = dune
@@ -245,8 +244,9 @@ export class OxcamlCompiler {
     } else if (ocamlopt) {
       cmd = ocamlopt;
       args = ["-c", "-w", "-33-26-27-32-34-37-39"];
-      if (runtimeDir) {
-        args.push("-I", runtimeDir);
+      const incDirs = findRuntimeIncludeDirs();
+      for (const inc of incDirs) {
+        args.push("-I", inc);
       }
       args.push(this._moduleFile);
       cwd = this._projectPath;
@@ -571,10 +571,23 @@ function parseOxcamlCompilerOutput(
 } // fn: parseOxcamlCompilerOutput
 
 /**
- * Searches for the local nanofuzz_runtime build output or package source directory.
+ * Searches for the local nanofuzz_runtime build output and opam library include directories.
  */
-function findRuntimeDir(): string | undefined {
+function findRuntimeIncludeDirs(): string[] {
+  const dirs: string[] = [];
   const candidates = [
+    path.resolve(
+      "./packages/runtime/oxcaml/_build/install/default/lib/nanofuzz_runtime"
+    ),
+    path.resolve(
+      "./build/extension/nanofuzz_runtime_oxcaml/_build/install/default/lib/nanofuzz_runtime"
+    ),
+    path.resolve(
+      "./packages/runtime/oxcaml/_build/default/src/.nanofuzz_runtime.objs/byte"
+    ),
+    path.resolve(
+      "./packages/runtime/oxcaml/_build/default/src/.nanofuzz_runtime.objs/native"
+    ),
     path.resolve("./packages/runtime/oxcaml/_build/default/src"),
     path.resolve(
       "./build/extension/nanofuzz_runtime_oxcaml/_build/default/src"
@@ -585,11 +598,50 @@ function findRuntimeDir(): string | undefined {
 
   for (const c of candidates) {
     if (fs.existsSync(c)) {
-      return c;
+      dirs.push(c);
     }
   }
-  return undefined;
-} // fn: findRuntimeDir
+
+  // Include opam switch libraries like yojson if available
+  const switchPrefix = process.env.OPAM_SWITCH_PREFIX;
+  if (switchPrefix) {
+    const opamLib = path.join(switchPrefix, "lib");
+    const subLibs = ["yojson", "biniou", "easy-format", "csexp"];
+    for (const sub of subLibs) {
+      const p = path.join(opamLib, sub);
+      if (fs.existsSync(p)) {
+        dirs.push(p);
+      }
+    }
+  } else {
+    const home = os.homedir();
+    if (home) {
+      const opamDir = path.join(home, ".opam");
+      if (fs.existsSync(opamDir)) {
+        try {
+          const switches = fs.readdirSync(opamDir);
+          for (const sw of switches) {
+            const opamLib = path.join(opamDir, sw, "lib");
+            if (fs.existsSync(path.join(opamLib, "yojson"))) {
+              dirs.push(path.join(opamLib, "yojson"));
+              if (fs.existsSync(path.join(opamLib, "biniou"))) {
+                dirs.push(path.join(opamLib, "biniou"));
+              }
+              if (fs.existsSync(path.join(opamLib, "easy-format"))) {
+                dirs.push(path.join(opamLib, "easy-format"));
+              }
+              break;
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
+    }
+  }
+
+  return dirs;
+} // fn: findRuntimeIncludeDirs
 
 export type OxcamlCompilerOptions = {
   tmpDir: string;

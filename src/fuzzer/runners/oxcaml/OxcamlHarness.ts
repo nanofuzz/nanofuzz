@@ -7,6 +7,7 @@ import { FileCoverageData } from "istanbul-lib-coverage";
 import { OxcamlCompiler } from "../../compilers/oxcaml/OxcamlCompiler";
 import { OxcamlCompilerError } from "../../compilers/Types";
 import { OxcamlProgram } from "../../analysis/oxcaml/OxcamlProgram";
+import { CompanionManager } from "../../analysis/CompanionManager";
 import { FuzzEnv } from "../../Types";
 import { findInAncestor } from "../../Util";
 import * as Parser from "../../adapters/ParserAdapter";
@@ -722,9 +723,40 @@ function generateHarnessSource(
   const callArgs: string[] = [];
   const callArgsPat: string[] = [];
 
+  const isTransformer = CompanionManager.isTransformer(fnName, "oxcaml");
+  const isGenerator = CompanionManager.isUserGenerator(fnName, "oxcaml");
+
   for (let i = 0; i < argDefs.length; i++) {
     const arg = argDefs[i];
     const typeAnnot = OxcamlProgram.getTypeAnnotation(arg);
+
+    if (
+      arg.getName() === "prng" ||
+      arg.getName() === "_prng" ||
+      typeAnnot.includes("->")
+    ) {
+      argConversions.push(
+        `let seed_val_${i} = ref (
+          let h = ref 0x811c9dc5 in
+          (match List.nth_opt args ${i} with
+           | Some (\`Assoc fields) ->
+             (match List.assoc_opt "seed" fields with
+              | Some (\`String s) ->
+                String.iter (fun c -> h := (!h * 0x1000193) lxor (Char.code c)) s
+              | _ -> ())
+           | _ -> ());
+          !h
+        ) in
+        let arg_${i} () : float =
+          seed_val_${i} := (!seed_val_${i} * 1103515245 + 12345) land 0x7FFFFFFF;
+          float_of_int (!seed_val_${i}) /. 2147483648.0
+        in`
+      );
+      callArgs.push(`arg_${i}`);
+      callArgsPat.push(`arg_${i}`);
+      continue;
+    }
+
     const deserExpr = buildDeserializer(typeAnnot, i);
 
     argConversions.push(`let arg_${i} = ${deserExpr} in`);
@@ -736,6 +768,15 @@ function generateHarnessSource(
   const callArgsPatStr = callArgsPat.length > 0 ? callArgsPat.join(", ") : "()";
 
   // Target function call and output serialization
+  const retArg = targetFnDef?.getReturnArg();
+  const retType = retArg ? OxcamlProgram.getTypeAnnotation(retArg) : "int";
+  const serExpr = buildSerializer(
+    retType,
+    "out_val",
+    isTransformer,
+    isGenerator
+  );
+
   let fnCallCode: string;
   if (isVoid || argDefs.length === 0) {
     const callInvocation =
@@ -745,15 +786,9 @@ function generateHarnessSource(
     if (isVoid) {
       fnCallCode = `let () = ${callInvocation} in let out_json = \`Null in Ok (out_json)`;
     } else {
-      const retArg = targetFnDef?.getReturnArg();
-      const retType = retArg ? OxcamlProgram.getTypeAnnotation(retArg) : "int";
-      const serExpr = buildSerializer(retType, "out_val");
       fnCallCode = `let out_val = ${callInvocation} in let out_json = ${serExpr} in Ok (out_json)`;
     }
   } else {
-    const retArg = targetFnDef?.getReturnArg();
-    const retType = retArg ? OxcamlProgram.getTypeAnnotation(retArg) : "int";
-    const serExpr = buildSerializer(retType, "out_val");
     fnCallCode = `let out_val = ${targetFnAccessor} ${callArgs.join(" ")} in let out_json = ${serExpr} in Ok (out_json)`;
   }
 
@@ -761,13 +796,26 @@ function generateHarnessSource(
   const validators = env?.validators ?? [];
   const validatorLines: string[] = [];
   for (const v of validators) {
+    const valDef = prog.functions[v.name];
+    const valRetArg = valDef?.getReturnArg();
+    const valRetType = valRetArg
+      ? OxcamlProgram.getTypeAnnotation(valRetArg).trim()
+      : "";
+
+    let convertRes = `Nanofuzz_runtime.validator_result_to_string res`;
+    if (valRetType === "string") {
+      convertRes = `res`;
+    } else if (valRetType === "bool") {
+      convertRes = `if res then "pass" else "fail"`;
+    }
+
     validatorLines.push(
       `if List.mem "${v.name}" validators then begin
         let ftr = Nanofuzz_runtime.make_fuzz_test_result ~inputs:args ~out:out_json ~exception_:false ~timeout:false in
         let vr =
           try
             let res = Target_module.${v.name} ftr in
-            let res_str = Nanofuzz_runtime.validator_result_to_string res in
+            let res_str = ${convertRes} in
             \`Assoc [("tag", \`String "value"); ("value", \`String res_str)]
           with
           | Unsatisfied_assumption msg ->
@@ -873,11 +921,79 @@ function buildSingleValDeserializer(typeAnnot: string, valVar: string): string {
 } // fn: buildSingleValDeserializer
 
 /**
+ * Splits an OCaml tuple type string into its constituent element types.
+ */
+function splitTupleType(typeStr: string): string[] {
+  let s = typeStr.trim();
+  if (s.startsWith("(") && s.endsWith(")")) {
+    s = s.slice(1, -1).trim();
+  }
+  const parts: string[] = [];
+  let depth = 0;
+  let cur = "";
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (ch === "(") depth++;
+    else if (ch === ")") depth--;
+    else if (ch === "*" && depth === 0) {
+      parts.push(cur.trim());
+      cur = "";
+      continue;
+    }
+    cur += ch;
+  }
+  if (cur.trim()) parts.push(cur.trim());
+  return parts;
+} // fn: splitTupleType
+
+/**
  * Builds an OCaml expression converting a return value `valVar` into a Yojson.Safe.t.
  */
-function buildSerializer(typeAnnot: string, valVar: string): string {
+function buildSerializer(
+  typeAnnot: string,
+  valVar: string,
+  isTransformer = false,
+  isGenerator = false
+): string {
   const cleanType = typeAnnot.trim();
   if (cleanType === "unit") return `\`Null`;
+
+  if (isGenerator) {
+    const elemType = cleanType.endsWith(" option")
+      ? cleanType.slice(0, -7).trim()
+      : cleanType;
+    const tupleParts = splitTupleType(elemType);
+    if (tupleParts.length > 1) {
+      const binders = tupleParts.map((_, i) => `t_${i}`).join(", ");
+      const elems = tupleParts
+        .map((t, i) => buildSerializer(t, `t_${i}`))
+        .join("; ");
+      return `(match ${valVar} with None -> \`Null | Some (${binders}) -> \`List [${elems}])`;
+    }
+    return `(match ${valVar} with None -> \`Null | Some v -> \`List [${buildSerializer(elemType, "v")}])`;
+  }
+
+  if (isTransformer) {
+    const tupleParts = splitTupleType(cleanType);
+    if (tupleParts.length > 1) {
+      const binders = tupleParts.map((_, i) => `t_${i}`).join(", ");
+      const elems = tupleParts
+        .map((t, i) => buildSerializer(t, `t_${i}`))
+        .join("; ");
+      return `(let (${binders}) = ${valVar} in \`List [${elems}])`;
+    }
+    return `\`List [${buildSerializer(cleanType, valVar)}]`;
+  }
+
+  const tupleParts = splitTupleType(cleanType);
+  if (tupleParts.length > 1) {
+    const binders = tupleParts.map((_, i) => `t_${i}`).join(", ");
+    const elems = tupleParts
+      .map((t, i) => buildSerializer(t, `t_${i}`))
+      .join("; ");
+    return `(let (${binders}) = ${valVar} in \`List [${elems}])`;
+  }
+
   if (
     cleanType === "int" ||
     cleanType === "#int" ||
