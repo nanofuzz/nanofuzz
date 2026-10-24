@@ -115,7 +115,8 @@ export class PythonRunner extends AbstractRunner {
 
     try {
       const host = await this._getHost();
-      const typeHints = this._env?.function.getArgDefs().map(getTypeHint) ?? [];
+      const typeHints =
+        this._env?.function?.getArgDefs().map(getTypeHint) ?? [];
 
       const debugEnabled = Config.get<boolean>("nanofuzz.debug.runners", false);
       const input: RunnerInput = {

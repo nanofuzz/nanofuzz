@@ -10,6 +10,7 @@ import { isRecordOfFileCoverageData } from "../../measures/CoverageMeasure";
 import { FuzzEnv } from "../../Types";
 import { isError, normalizePathForKey } from "../../Util";
 import * as Config from "../../../Config";
+import * as JSONN from "../../../Jsonn";
 import { PutTimeoutName } from "../AbstractHost";
 import { RustHost } from "./RustHost";
 import { buildRustHarness } from "./RustHarness";
@@ -100,18 +101,19 @@ export class RustRunner extends AbstractRunner {
         seq: thisSeq,
         args: inputs,
         timeout: timeout ?? 0,
-        validators: validators.length > 0 ? validators : undefined,
+        ...(validators.length > 0 ? { validators } : {}),
       };
 
-      host.sendMessage(JSON.stringify(input));
+      const encoded = JSONN.pack(input);
+      host.sendMessage(
+        Buffer.from(encoded.buffer, encoded.byteOffset, encoded.byteLength)
+      );
 
       const numFunctions = 1 + (validators?.length ?? 0);
       const hostTimeout =
         timeout && timeout > 0 ? timeout * numFunctions + 500 : Infinity;
       const rawResBuf = await host.getResponseBuffer(hostTimeout);
-      const hostPayload: RustHostResponse = JSON.parse(
-        rawResBuf.toString("utf8")
-      );
+      const hostPayload: RustHostResponse = JSONN.unpack(rawResBuf);
 
       // Ingest dynamic coverage data
       if (this._coverageEnabled && this._coverageInfo) {
@@ -250,21 +252,20 @@ export class RustRunner extends AbstractRunner {
     );
 
     const rawOkBuf = await host.getResponseBuffer(hostStartupTimeout);
-    const okcode = JSON.parse(rawOkBuf.toString("utf8"));
+    const okcode = JSONN.unpack<string>(rawOkBuf);
     if (okcode === "READY") {
       this._host = host;
       // Consume initial static coverage handshake message
       const rawCovBuf = await host.getResponseBuffer(hostStartupTimeout);
       try {
-        const rawCov = JSON.parse(rawCovBuf.toString("utf8"));
-        if (rawCov && typeof rawCov === "object") {
-          const covInfo = rawCov.covInfo ?? rawCov;
-          const files = rawCov.files ?? Object.keys(covInfo);
-          if (covInfo && Object.keys(covInfo).length > 0) {
-            this._coverageInfo = covInfo;
-            this._staticCoverage = structuredClone(covInfo);
-            this._pgmFiles = files;
-          }
+        const rawCov = JSONN.unpack<unknown>(rawCovBuf);
+        if (
+          isRecordOfFileCoverageData(rawCov) &&
+          Object.keys(rawCov).length > 0
+        ) {
+          this._coverageInfo = rawCov;
+          this._staticCoverage = structuredClone(rawCov);
+          this._pgmFiles = Object.keys(rawCov);
         }
       } catch {
         // Fall back to pre-calculated static coverage

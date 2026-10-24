@@ -175,8 +175,14 @@ export class UserInputGenerator extends AbstractInputGenerator {
     this._callsPending++;
     this._tickCount++;
 
-    const callSeed = `${this._rngSeed ?? ""}:${this._tickCount}:${this._prng()}`;
-    const prngArg = { __nanofuzz_type: "prng", seed: callSeed };
+    const callSeed =
+      this._rngSeed !== undefined && this._rngSeed.length > 0
+        ? `${this._rngSeed}:${this._tickCount}:${this._prng()}`
+        : undefined;
+    const prngArg =
+      callSeed !== undefined
+        ? { __nanofuzz_type: "prng", seed: callSeed }
+        : { __nanofuzz_type: "prng" };
 
     let resolvePending!: (hasInputs: boolean) => void;
     this._pendingPromise = new Promise<boolean>((resolve) => {
