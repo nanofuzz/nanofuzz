@@ -22,6 +22,6 @@ jobs:
         run: yarn test
 
       - name: Publish to Marketplace
-        run: yarn run publish
+        run: yarn run vscode:publish
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}

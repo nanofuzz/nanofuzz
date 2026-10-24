@@ -192,7 +192,7 @@ Our repo uses [semantic versioning][] and maintains the same version number for 
 - Open a new PR with title `chore: update version to vX.Y.Z` and merge after CI passes.
 - Create a new GitHub tag and [GitHub release][] in the format `vX.Y.Z`.
 - The following tasks are automated in GitHub Actions when the previous step is performed. Below are the manual steps we used to follow:
-  - Push the new version to VSC Marketplace (`yarn run publish`)
+  - Push the new version to VSC Marketplace (`yarn run vscode:publish`)
   - If needed, publish the runtime packages.
     - to npm: `cd packages/runtime/typescript`, `npm publish --access public`, `cd ../../..`)
     - to pip: `cd packages/runtime/python`, `python -m twine upload dist/*`, `cd ../../..`)
