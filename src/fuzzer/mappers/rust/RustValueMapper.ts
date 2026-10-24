@@ -38,10 +38,11 @@ export function fromRust<T>(text: string): T {
 // ----------------- From JavaScript value to Rust string ----------------- //
 
 function toRustFormat(val: unknown, argDef?: ArgDefContext): string {
-  if (
-    val === undefined ||
-    (val === null && argDef?.getBaseTypeRef() !== "Box")
-  ) {
+  const baseRef = argDef?.getBaseTypeRef();
+  const isPointerWrapper =
+    baseRef === "Box" || baseRef === "Rc" || baseRef === "Arc";
+
+  if (val === undefined || (val === null && !isPointerWrapper)) {
     return "None";
   }
 
@@ -58,7 +59,7 @@ function toRustFormat(val: unknown, argDef?: ArgDefContext): string {
     return `Some(${toRustFormat(val, innerArgDef)})`;
   }
 
-  if (argDef?.getBaseTypeRef() === "Box") {
+  if (argDef && isPointerWrapper) {
     const innerArgDef: ArgDefContext = argDef.getChildren()[0] ?? {
       isOptional: () => false,
       getTypeRef: () => argDef.getTypeRef(),
@@ -68,7 +69,13 @@ function toRustFormat(val: unknown, argDef?: ArgDefContext): string {
       getChildren: () => [],
       getDim: () => argDef.getDim(),
     };
-    return `Box::new(${toRustFormat(val, innerArgDef)})`;
+    const ctor =
+      baseRef === "Box"
+        ? "Box"
+        : baseRef === "Rc"
+          ? "std::rc::Rc"
+          : "std::sync::Arc";
+    return `${ctor}::new(${toRustFormat(val, innerArgDef)})`;
   }
 
   if (typeof val === "boolean") {
@@ -744,7 +751,14 @@ function toJavascriptValue(text: string): unknown {
           }
         }
 
-        if (fnText === "Box::new" || fnText === "std::boxed::Box::new") {
+        if (
+          fnText === "Box::new" ||
+          fnText === "std::boxed::Box::new" ||
+          fnText === "Rc::new" ||
+          fnText === "std::rc::Rc::new" ||
+          fnText === "Arc::new" ||
+          fnText === "std::sync::Arc::new"
+        ) {
           const innerArg = argsNode
             ? Parser.getFirstNamedChildNoComments(argsNode)
             : undefined;

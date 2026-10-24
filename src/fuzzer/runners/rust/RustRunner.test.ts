@@ -122,6 +122,35 @@ pub fn modify_containers(
     await runner.onRunEnd();
   });
 
+  it("executes functions with Rc and Arc through the runner", async () => {
+    const rsPath = path.join(tempDir, "shared_ptrs.rs");
+    fs.writeFileSync(
+      rsPath,
+      `use std::rc::Rc;
+use std::sync::Arc;
+
+pub fn shared_ptrs(r: Rc<i32>, a: Arc<String>) -> (i32, String) {
+    (*r + 1, format!("{}_arc", *a))
+}
+`
+    );
+
+    const program = ProgramFactory.fromFile(rsPath, "rust");
+    const fnDef = program.functionsExported["shared_ptrs"];
+    const env = createTestEnv(fnDef);
+
+    const runner = new RustRunner(rsPath, "shared_ptrs", env);
+    await runner.onRunStart();
+
+    const res = await runner.run([41, "nanofuzz"], 5000);
+    expect(res.result.tag).toBe("value");
+    if (res.result.tag === "value") {
+      expect(res.result.value).toEqual([42, "nanofuzz_arc"]);
+    }
+
+    await runner.onRunEnd();
+  });
+
   it("executes functions with Maps, Sets, Options, Tuples, Slices, and Fixed Arrays through the runner", async () => {
     const rsPath = path.join(tempDir, "all_collections.rs");
     fs.writeFileSync(

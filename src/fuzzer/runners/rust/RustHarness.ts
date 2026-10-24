@@ -342,7 +342,7 @@ edition = "2021"
 [dependencies]
 nanofuzz-runtime = { path = "${runtimeCratePath.replace(/\\/g, "/")}" }
 nanofuzz_prng = { package = "fastrand", version = "2" }
-serde = { version = "1.0", features = ["derive"] }
+serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
 rmp-serde = "1.3"
 ${extraDependencies}

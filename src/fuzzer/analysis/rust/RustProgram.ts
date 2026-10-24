@@ -54,15 +54,24 @@ export class RustProgram extends AbstractProgram {
     options: TypeAnnotationOptions = TypeAnnotationOptionDefaults
   ): string {
     const isBox = arg.getBaseTypeRef() === "Box";
+    const isRc = arg.getBaseTypeRef() === "Rc";
+    const isArc = arg.getBaseTypeRef() === "Arc";
+    const pointerWrapper = isBox
+      ? "Box"
+      : isRc
+        ? "std::rc::Rc"
+        : isArc
+          ? "std::sync::Arc"
+          : undefined;
     const isVecDeque = arg.getBaseTypeRef() === "VecDeque";
     const listPrefix = isVecDeque ? "std::collections::VecDeque<" : "Vec<";
 
-    if (isBox && arg.getChildren().length > 0) {
+    if (pointerWrapper && arg.getChildren().length > 0) {
       const innerAnnot = RustProgram.getTypeAnnotation(
         arg.getChildren()[0],
         options
       );
-      let type = `Box<${innerAnnot}>`;
+      let type = `${pointerWrapper}<${innerAnnot}>`;
       if (arg.isOptional()) {
         type = `Option<${type}>`;
       }
@@ -89,14 +98,16 @@ export class RustProgram extends AbstractProgram {
       typeRef === "Vec" ||
       typeRef === "VecDeque" ||
       typeRef === "Box" ||
+      typeRef === "Rc" ||
+      typeRef === "Arc" ||
       typeRef === "Option" ||
       typeRef === "Result";
 
     if (typeRef && options.useTypeRefs && !isBuiltInGeneric) {
       const outerDims = arg.getTypeRefDims() ?? 0;
       let type = `${listPrefix.repeat(outerDims)}${typeRef}${">".repeat(outerDims)}`;
-      if (isBox) {
-        type = `Box<${type}>`;
+      if (pointerWrapper) {
+        type = `${pointerWrapper}<${type}>`;
       }
       if (arg.isOptional()) {
         type = `Option<${type}>`;
@@ -107,8 +118,8 @@ export class RustProgram extends AbstractProgram {
     const baseType = RustProgram.getBaseType(arg, options);
     const dims = arg.getDim();
     let type = `${listPrefix.repeat(dims)}${baseType}${">".repeat(dims)}`;
-    if (isBox) {
-      type = `Box<${type}>`;
+    if (pointerWrapper) {
+      type = `${pointerWrapper}<${type}>`;
     }
 
     if (arg.isOptional()) {
@@ -1005,10 +1016,12 @@ export class RustProgram extends AbstractProgram {
             };
             return thisType;
           }
-          case "Box": {
+          case "Box":
+          case "Rc":
+          case "Arc": {
             if (argNodes.length === 0) {
               throw new Error(
-                `Missing type argument for Box in '${node.text}'`
+                `Missing type argument for ${baseName} in '${node.text}'`
               );
             }
             const inner = this._getTypeRefFromAstNode(argNodes[0]);
@@ -1017,14 +1030,14 @@ export class RustProgram extends AbstractProgram {
             thisType.typeRefName = inner.optional
               ? `Option<${inner.typeRefName}>`
               : inner.typeRefName;
-            thisType.baseTypeRef = "Box";
+            thisType.baseTypeRef = baseName;
             thisType.type = {
               type: inner.type?.type ?? ArgTag.UNRESOLVED,
               dims: inner.dims,
               children: inner.type?.children ?? [],
               ...(inner.type?.options ? { options: inner.type.options } : {}),
               resolved: inner.type?.resolved ?? false,
-              baseTypeRef: "Box",
+              baseTypeRef: baseName,
             };
             return thisType;
           }

@@ -119,4 +119,33 @@ pub fn shift_point(p: GeoPoint) -> GeoPoint {
     }
 }
 
+pub fn shift_pointValidator(r: &FuzzTestResult) -> &'static str {
+    let out_x = r.output()["x"].as_i64().unwrap_or(0);
+    let in_x = r
+        .input(0)
+        .and_then(|v| v.get("x"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    if out_x == in_x + 1 {
+        "pass"
+    } else {
+        "fail"
+    }
+}
+
+pub fn transform_point(p: GeoPoint) -> GeoPoint {
+    GeoPoint {
+        x: p.x + 1,
+        y: p.y - 1,
+    }
+}
+
+pub fn transform_point_transformer(p: GeoPoint) -> (GeoPoint,) {
+    assume!(p.x != 13, "x cannot be 13");
+    (GeoPoint {
+        x: p.x * 2,
+        y: p.y * 2,
+    },)
+}
+
 

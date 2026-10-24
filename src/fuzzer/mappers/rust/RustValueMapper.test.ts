@@ -147,6 +147,10 @@ describe("fuzzer/mappers/rust/RustValueMapper: ", () => {
   it("handles Box and VecDeque expressions with round-trip support", () => {
     expect(RustValueMapper.fromRust("Box::new(42)")).toBe(42);
     expect(RustValueMapper.fromRust("std::boxed::Box::new(42)")).toBe(42);
+    expect(RustValueMapper.fromRust("Rc::new(42)")).toBe(42);
+    expect(RustValueMapper.fromRust("std::rc::Rc::new(42)")).toBe(42);
+    expect(RustValueMapper.fromRust("Arc::new(42)")).toBe(42);
+    expect(RustValueMapper.fromRust("std::sync::Arc::new(42)")).toBe(42);
     expect(RustValueMapper.fromRust('Box::new("hello")')).toBe("hello");
     expect(RustValueMapper.fromRust("Box::new(vec![1, 2, 3])")).toEqual([
       1, 2, 3,
@@ -433,5 +437,41 @@ describe("fuzzer/mappers/rust/RustValueMapper: ", () => {
     expect(
       RustValueMapper.fromRust(RustValueMapper.toRust([], vecDequeDef))
     ).toEqual([]);
+
+    const rcDef = new ArgDef(
+      "r",
+      0,
+      ArgTag.NUMBER,
+      baseOpt,
+      0,
+      false,
+      undefined,
+      [],
+      "i32"
+    );
+    rcDef.setBaseTypeRef("Rc");
+    expect(RustValueMapper.toRust(42, rcDef)).toBe("std::rc::Rc::new(42i32)");
+    expect(RustValueMapper.fromRust(RustValueMapper.toRust(42, rcDef))).toBe(
+      42
+    );
+
+    const arcDef = new ArgDef(
+      "a",
+      0,
+      ArgTag.STRING,
+      baseOpt,
+      0,
+      false,
+      undefined,
+      [],
+      "String"
+    );
+    arcDef.setBaseTypeRef("Arc");
+    expect(RustValueMapper.toRust("hello", arcDef)).toBe(
+      'std::sync::Arc::new(String::from("hello"))'
+    );
+    expect(
+      RustValueMapper.fromRust(RustValueMapper.toRust("hello", arcDef))
+    ).toBe("hello");
   });
 });

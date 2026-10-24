@@ -159,12 +159,16 @@ pub fn complex_types(
   it("parses Box and VecDeque container types and generates annotations", () => {
     const src = `
 use std::collections::VecDeque;
+use std::rc::Rc;
+use std::sync::Arc;
 
 pub fn container_types(
     boxed_num: Box<i32>,
     queue_str: VecDeque<String>,
     opt_box: Option<Box<f64>>,
-    boxed_opt: Box<Option<bool>>
+    boxed_opt: Box<Option<bool>>,
+    rc_num: Rc<i32>,
+    arc_str: Arc<String>
 ) -> Box<i32> {
     boxed_num
 }
@@ -174,7 +178,7 @@ pub fn container_types(
     expect(fnDef).toBeDefined();
 
     const args = fnDef.getArgDefs();
-    expect(args.length).toBe(4);
+    expect(args.length).toBe(6);
 
     // Box<i32>
     expect(args[0].getName()).toBe("boxed_num");
@@ -202,6 +206,18 @@ pub fn container_types(
     expect(args[3].getName()).toBe("boxed_opt");
     expect(args[3].getBaseTypeRef()).toBe("Box");
     expect(RustProgram.getTypeAnnotation(args[3])).toBe("Box<Option<bool>>");
+
+    // Rc<i32>
+    expect(args[4].getName()).toBe("rc_num");
+    expect(args[4].getBaseTypeRef()).toBe("Rc");
+    expect(RustProgram.getTypeAnnotation(args[4])).toBe("std::rc::Rc<i32>");
+
+    // Arc<String>
+    expect(args[5].getName()).toBe("arc_str");
+    expect(args[5].getBaseTypeRef()).toBe("Arc");
+    expect(RustProgram.getTypeAnnotation(args[5])).toBe(
+      "std::sync::Arc<String>"
+    );
 
     const ret = fnDef.getReturnArg();
     expect(ret).toBeDefined();
