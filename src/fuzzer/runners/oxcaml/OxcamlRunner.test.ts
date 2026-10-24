@@ -236,6 +236,186 @@ let doubleValidator (result : Nanofuzz_runtime.fuzz_test_result) : Nanofuzz_runt
     await runner.onRunEnd();
   });
 
+  it("executes functions with record types over the IPC bridge", async () => {
+    const duneBin = OxcamlCompiler.resolveDune();
+    if (!duneBin) {
+      pending("Dune not found in environment");
+      return;
+    }
+
+    const mlPath = path.join(tempDir, "record_test.ml");
+    fs.writeFileSync(
+      mlPath,
+      `type user = { name : string; age : int }
+
+let birthday (u : user) : user =
+  { name = u.name; age = u.age + 1 }
+`
+    );
+
+    const program = ProgramFactory.fromFile(mlPath, "oxcaml");
+    const fnDef = program.functionsExported["birthday"];
+    const env = createTestEnv(fnDef);
+
+    const runner = new OxcamlRunner(mlPath, "birthday", env);
+    await runner.onRunStart();
+
+    const res = await runner.run([{ name: "Alice", age: 30 }], 5000);
+    expect(res.result.tag).toBe("value");
+    if (res.result.tag === "value") {
+      expect(res.result.value).toEqual({ name: "Alice", age: 31 });
+    }
+
+    await runner.onRunEnd();
+  });
+
+  it("executes functions with Hashtbl types over the IPC bridge", async () => {
+    const duneBin = OxcamlCompiler.resolveDune();
+    if (!duneBin) {
+      pending("Dune not found in environment");
+      return;
+    }
+
+    const mlPath = path.join(tempDir, "hashtbl_test.ml");
+    fs.writeFileSync(
+      mlPath,
+      `let scale_hashtbl (tbl : (string, int) Hashtbl.t) : (string, int) Hashtbl.t =
+  let out = Hashtbl.create (Hashtbl.length tbl) in
+  Hashtbl.iter (fun k v -> Hashtbl.add out k (v * 10)) tbl;
+  out
+`
+    );
+
+    const program = ProgramFactory.fromFile(mlPath, "oxcaml");
+    const fnDef = program.functionsExported["scale_hashtbl"];
+    const env = createTestEnv(fnDef);
+
+    const runner = new OxcamlRunner(mlPath, "scale_hashtbl", env);
+    await runner.onRunStart();
+
+    const inputMap = new Map([
+      ["apple", 2],
+      ["banana", 5],
+    ]);
+    const res = await runner.run([inputMap], 5000);
+    expect(res.result.tag).toBe("value");
+    if (res.result.tag === "value") {
+      expect(res.result.value).toEqual(
+        new Map([
+          ["apple", 20],
+          ["banana", 50],
+        ])
+      );
+    }
+
+    await runner.onRunEnd();
+  });
+
+  it("executes functions with Set and Map functor types over the IPC bridge", async () => {
+    const duneBin = OxcamlCompiler.resolveDune();
+    if (!duneBin) {
+      pending("Dune not found in environment");
+      return;
+    }
+
+    const mlPath = path.join(tempDir, "functors_test.ml");
+    fs.writeFileSync(
+      mlPath,
+      `module IntSet = Set.Make(Int)
+module StringMap = Map.Make(String)
+
+let double_set (s : IntSet.t) : IntSet.t =
+  IntSet.map (fun x -> x * 2) s
+
+let uppercase_map (m : int StringMap.t) : int StringMap.t =
+  StringMap.fold (fun k v acc -> StringMap.add (String.uppercase_ascii k) v acc) m StringMap.empty
+`
+    );
+
+    const program = ProgramFactory.fromFile(mlPath, "oxcaml");
+
+    // Test Set
+    const setDef = program.functionsExported["double_set"];
+    const setEnv = createTestEnv(setDef);
+    const setRunner = new OxcamlRunner(mlPath, "double_set", setEnv);
+    await setRunner.onRunStart();
+
+    const setRes = await setRunner.run([new Set([1, 2, 3])], 5000);
+    expect(setRes.result.tag).toBe("value");
+    if (setRes.result.tag === "value") {
+      expect(setRes.result.value).toEqual(new Set([2, 4, 6]));
+    }
+    await setRunner.onRunEnd();
+
+    // Test Map
+    const mapDef = program.functionsExported["uppercase_map"];
+    const mapEnv = createTestEnv(mapDef);
+    const mapRunner = new OxcamlRunner(mlPath, "uppercase_map", mapEnv);
+    await mapRunner.onRunStart();
+
+    const mapRes = await mapRunner.run(
+      [
+        new Map([
+          ["hello", 1],
+          ["world", 2],
+        ]),
+      ],
+      5000
+    );
+    expect(mapRes.result.tag).toBe("value");
+    if (mapRes.result.tag === "value") {
+      expect(mapRes.result.value).toEqual(
+        new Map([
+          ["HELLO", 1],
+          ["WORLD", 2],
+        ])
+      );
+    }
+    await mapRunner.onRunEnd();
+  });
+
+  it("executes functions with association lists over the IPC bridge", async () => {
+    const duneBin = OxcamlCompiler.resolveDune();
+    if (!duneBin) {
+      pending("Dune not found in environment");
+      return;
+    }
+
+    const mlPath = path.join(tempDir, "assoc_test.ml");
+    fs.writeFileSync(
+      mlPath,
+      `let inc_assoc (l : (string * int) list) : (string * int) list =
+  List.map (fun (k, v) -> (k, v + 1)) l
+`
+    );
+
+    const program = ProgramFactory.fromFile(mlPath, "oxcaml");
+    const fnDef = program.functionsExported["inc_assoc"];
+    const env = createTestEnv(fnDef);
+
+    const runner = new OxcamlRunner(mlPath, "inc_assoc", env);
+    await runner.onRunStart();
+
+    const res = await runner.run(
+      [
+        [
+          ["a", 10],
+          ["b", 20],
+        ],
+      ],
+      5000
+    );
+    expect(res.result.tag).toBe("value");
+    if (res.result.tag === "value") {
+      expect(res.result.value).toEqual([
+        ["a", 11],
+        ["b", 21],
+      ]);
+    }
+
+    await runner.onRunEnd();
+  });
+
   it("is instantiated correctly via RunnerFactory", () => {
     const mlPath = path.join(tempDir, "sample.ml");
     fs.writeFileSync(mlPath, "let add (a : int) : int = a");

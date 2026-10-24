@@ -9,6 +9,8 @@ import { OxcamlCompilerError } from "../../compilers/Types";
 import { OxcamlProgram } from "../../analysis/oxcaml/OxcamlProgram";
 import { CompanionManager } from "../../analysis/CompanionManager";
 import { FuzzEnv } from "../../Types";
+import { TypeRef, ArgTag } from "../../analysis/Types";
+import { ArgDef } from "../../analysis/ArgDef";
 import { findInAncestor } from "../../Util";
 import * as Parser from "../../adapters/ParserAdapter";
 import * as ProgramFactory from "../../analysis/ProgramFactory";
@@ -750,7 +752,7 @@ function generateHarnessSource(
     for (let i = 0; i < argDefs.length; i++) {
       const arg = argDefs[i];
       const typeAnnot = OxcamlProgram.getTypeAnnotation(arg);
-      const deserExpr = buildDeserializer(typeAnnot, i);
+      const deserExpr = buildDeserializer(typeAnnot, i, arg, prog.types);
 
       argConversions.push(`let arg_${i} = ${deserExpr} in`);
       callArgs.push(`arg_${i}`);
@@ -776,19 +778,31 @@ function generateHarnessSource(
       const binders = targetArgs.map((_, i) => `t_${i}`).join(", ");
       const elems = targetArgs
         .map((a, i) =>
-          buildSerializer(OxcamlProgram.getTypeAnnotation(a), `t_${i}`)
+          buildSerializer(
+            OxcamlProgram.getTypeAnnotation(a),
+            `t_${i}`,
+            a,
+            prog.types
+          )
         )
         .join("; ");
       serExpr = `(match out_val with None -> \`Null | Some (${binders}) -> \`List [${elems}])`;
     } else if (targetArgs.length === 1) {
-      serExpr = `(match out_val with None -> \`Null | Some v -> \`List [${buildSerializer(OxcamlProgram.getTypeAnnotation(targetArgs[0]), "v")}])`;
+      serExpr = `(match out_val with None -> \`Null | Some v -> \`List [${buildSerializer(OxcamlProgram.getTypeAnnotation(targetArgs[0]), "v", targetArgs[0], prog.types)}])`;
     } else {
       serExpr = `(match out_val with None -> \`Null | Some v -> \`List [\`Int (Obj.magic v)])`;
     }
   } else {
     const retArg = targetFnDef?.getReturnArg();
     const retType = retArg ? OxcamlProgram.getTypeAnnotation(retArg) : "int";
-    serExpr = buildSerializer(retType, "out_val", isTransformer, false);
+    serExpr = buildSerializer(
+      retType,
+      "out_val",
+      retArg,
+      prog.types,
+      isTransformer,
+      false
+    );
   }
 
   let fnCallCode: string;
@@ -871,8 +885,144 @@ function generateHarnessSource(
 /**
  * Builds an OCaml expression that deserializes argument at index `idx` according to type `typeAnnot`.
  */
-function buildDeserializer(typeAnnot: string, idx: number): string {
+function buildDeserializer(
+  typeAnnot: string,
+  idx: number,
+  argDef?: ArgDef,
+  progTypes: Record<string, TypeRef> = {}
+): string {
   const cleanType = typeAnnot.trim();
+
+  // Record types
+  const isRecord =
+    !cleanType.includes("Map") &&
+    !cleanType.includes("Set") &&
+    !cleanType.includes("Hashtbl") &&
+    ((argDef &&
+      argDef.getType() === ArgTag.OBJECT &&
+      argDef.getChildren().length > 0 &&
+      argDef.getChildren().every((c) => c.getName() !== "unknown")) ||
+      (cleanType in progTypes &&
+        (progTypes[cleanType]?.type?.children?.length ?? 0) > 0));
+  if (isRecord) {
+    const fields =
+      argDef && argDef.getChildren().length > 0
+        ? argDef.getChildren()
+        : (progTypes[cleanType]?.type?.children ?? []);
+    const fieldDesers = fields.map((f) => {
+      if (f instanceof ArgDef) {
+        const fieldName = f.getName();
+        const fieldType = OxcamlProgram.getTypeAnnotation(f);
+        return `${fieldName} = (match List.assoc_opt "${fieldName}" fields with Some v -> ${buildSingleValDeserializer(fieldType, "v", undefined, progTypes)} | _ -> failwith "missing field ${fieldName}")`;
+      } else {
+        const fieldName = f.name ?? "";
+        const fieldType = f.typeRefName ?? "int";
+        return `${fieldName} = (match List.assoc_opt "${fieldName}" fields with Some v -> ${buildSingleValDeserializer(fieldType, "v", undefined, progTypes)} | _ -> failwith "missing field ${fieldName}")`;
+      }
+    });
+    return `(match List.nth_opt args ${idx} with Some (\`Assoc fields) -> { Target_module. ${fieldDesers.join("; ")} } | _ -> failwith "arg ${idx}: expected record ${cleanType}")`;
+  }
+
+  // Tuples
+  const tupleParts = splitTupleType(cleanType);
+  if (tupleParts.length > 1) {
+    const tupleChildren = argDef?.getChildren() ?? [];
+    return `(match List.nth_opt args ${idx} with Some (\`List l) when List.length l >= ${tupleParts.length} -> (${tupleParts.map((t, i) => buildSingleValDeserializer(t, `(List.nth l ${i})`, tupleChildren[i], progTypes)).join(", ")}) | _ -> failwith "arg ${idx}: expected tuple")`;
+  }
+
+  // Set modules
+  const isSet =
+    (argDef && argDef.getType() === ArgTag.SET) ||
+    cleanType.endsWith("Set.t") ||
+    cleanType.includes(".Set.t") ||
+    cleanType === "Set.t";
+  if (isSet) {
+    const elemChild = argDef?.getChildren()[0];
+    const elemType = elemChild
+      ? OxcamlProgram.getTypeAnnotation(elemChild)
+      : cleanType.includes("Int")
+        ? "int"
+        : cleanType.includes("String")
+          ? "string"
+          : "int";
+    const bare = cleanType.replace(/\.t$/, "");
+    const setMod = cleanType.includes(".")
+      ? (bare.split(/\s+/).pop() ?? "Set")
+      : "Set";
+    return `(match List.nth_opt args ${idx} with
+      | Some (\`List l) -> Target_module.${setMod}.of_list (List.map (fun v -> ${buildSingleValDeserializer(elemType, "v", elemChild, progTypes)}) l)
+      | Some (\`Assoc [("__nanofuzz_set", \`List l)]) -> Target_module.${setMod}.of_list (List.map (fun v -> ${buildSingleValDeserializer(elemType, "v", elemChild, progTypes)}) l)
+      | _ -> Target_module.${setMod}.empty)`;
+  }
+
+  // Map and Hashtbl
+  const isHashtbl = cleanType.includes("Hashtbl");
+  const isMap =
+    (argDef && argDef.getType() === ArgTag.DICTIONARY && !isHashtbl) ||
+    cleanType.endsWith("Map.t") ||
+    cleanType.includes(".Map.t") ||
+    cleanType === "Map.t";
+
+  if (isHashtbl) {
+    const keyChild = argDef?.getChildren()[0];
+    const valChild = argDef?.getChildren()[1];
+    const keyType = keyChild
+      ? OxcamlProgram.getTypeAnnotation(keyChild)
+      : "string";
+    const valType = valChild
+      ? OxcamlProgram.getTypeAnnotation(valChild)
+      : "int";
+    return `(let tbl = Hashtbl.create 16 in
+      (match List.nth_opt args ${idx} with
+       | Some (\`Assoc [("__nanofuzz_map", \`List pairs)]) ->
+         List.iter (function
+           | \`List [k; v] -> Hashtbl.replace tbl (${buildSingleValDeserializer(keyType, "k", keyChild, progTypes)}) (${buildSingleValDeserializer(valType, "v", valChild, progTypes)})
+           | _ -> ()
+         ) pairs
+       | Some (\`Assoc pairs) ->
+         List.iter (fun (k, v) ->
+           Hashtbl.replace tbl (${buildSingleValDeserializer(keyType, "`String k", keyChild, progTypes)}) (${buildSingleValDeserializer(valType, "v", valChild, progTypes)})
+         ) pairs
+       | Some (\`List pairs) ->
+         List.iter (function
+           | \`List [k; v] -> Hashtbl.replace tbl (${buildSingleValDeserializer(keyType, "k", keyChild, progTypes)}) (${buildSingleValDeserializer(valType, "v", valChild, progTypes)})
+           | _ -> ()
+         ) pairs
+       | _ -> ());
+      tbl)`;
+  }
+
+  if (isMap) {
+    const bare = cleanType.replace(/\.t$/, "");
+    const mapMod = cleanType.includes(".")
+      ? (bare.split(/\s+/).pop() ?? "Map")
+      : "Map";
+    let keyType: string;
+    let valType: string;
+    const children = argDef?.getChildren() ?? [];
+    if (children.length === 1) {
+      valType = OxcamlProgram.getTypeAnnotation(children[0]);
+      keyType = mapMod.toLowerCase().includes("int") ? "int" : "string";
+    } else if (children.length >= 2) {
+      keyType = OxcamlProgram.getTypeAnnotation(children[0]);
+      valType = OxcamlProgram.getTypeAnnotation(children[1]);
+    } else {
+      keyType = mapMod.toLowerCase().includes("int") ? "int" : "string";
+      valType = "int";
+    }
+    const keyChild = children.length >= 2 ? children[0] : undefined;
+    const valChild = children.length === 1 ? children[0] : children[1];
+    return `(let pairs = match List.nth_opt args ${idx} with
+        | Some (\`List l) ->
+          List.filter_map (function \`List [k; v] -> Some (${buildSingleValDeserializer(keyType, "k", keyChild, progTypes)}, ${buildSingleValDeserializer(valType, "v", valChild, progTypes)}) | _ -> None) l
+        | Some (\`Assoc [("__nanofuzz_map", \`List l)]) ->
+          List.filter_map (function \`List [k; v] -> Some (${buildSingleValDeserializer(keyType, "k", keyChild, progTypes)}, ${buildSingleValDeserializer(valType, "v", valChild, progTypes)}) | _ -> None) l
+        | Some (\`Assoc l) ->
+          List.map (fun (k, v) -> (${buildSingleValDeserializer(keyType, "`String k", keyChild, progTypes)}, ${buildSingleValDeserializer(valType, "v", valChild, progTypes)})) l
+        | _ -> []
+      in
+      List.fold_left (fun acc (k, v) -> Target_module.${mapMod}.add k v acc) Target_module.${mapMod}.empty pairs)`;
+  }
 
   if (cleanType === "int" || cleanType === "#int") {
     return `(match List.nth_opt args ${idx} with Some (\`Int n) -> n | Some (\`Intlit s) -> int_of_string s | _ -> failwith "arg ${idx}: expected int")`;
@@ -903,15 +1053,21 @@ function buildDeserializer(typeAnnot: string, idx: number): string {
   }
   if (cleanType.endsWith(" option")) {
     const elemType = cleanType.slice(0, -7).trim();
-    return `(match List.nth_opt args ${idx} with None | Some \`Null -> None | Some v -> Some ${buildSingleValDeserializer(elemType, "v")})`;
+    const elemChild = argDef?.getChildren()[0];
+    return `(match List.nth_opt args ${idx} with None | Some \`Null -> None | Some v -> Some ${buildSingleValDeserializer(elemType, "v", elemChild, progTypes)})`;
   }
   if (cleanType.endsWith(" list")) {
     const elemType = cleanType.slice(0, -5).trim();
-    return `(match List.nth_opt args ${idx} with Some (\`List l) -> List.map (fun v -> ${buildSingleValDeserializer(elemType, "v")}) l | _ -> failwith "arg ${idx}: expected list")`;
+    const elemChild = argDef?.getChildren()[0];
+    return `(match List.nth_opt args ${idx} with
+      | Some (\`List l) -> List.map (fun v -> ${buildSingleValDeserializer(elemType, "v", elemChild, progTypes)}) l
+      | Some (\`Assoc [("__nanofuzz_set", \`List l)]) -> List.map (fun v -> ${buildSingleValDeserializer(elemType, "v", elemChild, progTypes)}) l
+      | _ -> failwith "arg ${idx}: expected list")`;
   }
   if (cleanType.endsWith(" array")) {
     const elemType = cleanType.slice(0, -6).trim();
-    return `(match List.nth_opt args ${idx} with Some (\`List l) -> Array.of_list (List.map (fun v -> ${buildSingleValDeserializer(elemType, "v")}) l) | _ -> failwith "arg ${idx}: expected array")`;
+    const elemChild = argDef?.getChildren()[0];
+    return `(match List.nth_opt args ${idx} with Some (\`List l) -> Array.of_list (List.map (fun v -> ${buildSingleValDeserializer(elemType, "v", elemChild, progTypes)}) l) | _ -> failwith "arg ${idx}: expected array")`;
   }
 
   // Fallback for int
@@ -921,27 +1077,78 @@ function buildDeserializer(typeAnnot: string, idx: number): string {
 /**
  * Builds an OCaml expression deserializing a single Yojson value.
  */
-function buildSingleValDeserializer(typeAnnot: string, valVar: string): string {
+function buildSingleValDeserializer(
+  typeAnnot: string,
+  valVar: string,
+  argDef?: ArgDef,
+  progTypes: Record<string, TypeRef> = {}
+): string {
   const cleanType = typeAnnot.trim();
-  if (cleanType === "int")
-    return `(match ${valVar} with \`Int n -> n | _ -> 0)`;
-  if (cleanType === "float")
+
+  // Tuples
+  const tupleParts = splitTupleType(cleanType);
+  if (tupleParts.length > 1) {
+    const tupleChildren = argDef?.getChildren() ?? [];
+    return `(match ${valVar} with
+      | \`List l when List.length l >= ${tupleParts.length} ->
+        (${tupleParts.map((t, i) => buildSingleValDeserializer(t, `(List.nth l ${i})`, tupleChildren[i], progTypes)).join(", ")})
+      | \`Tuple l when List.length l >= ${tupleParts.length} ->
+        (${tupleParts.map((t, i) => buildSingleValDeserializer(t, `(List.nth l ${i})`, tupleChildren[i], progTypes)).join(", ")})
+      | _ -> failwith "expected tuple")`;
+  }
+
+  if (cleanType === "int" || cleanType === "#int")
+    return `(match ${valVar} with \`Int n -> n | \`Intlit s -> int_of_string s | _ -> 0)`;
+  if (cleanType === "float" || cleanType === "#float")
     return `(match ${valVar} with \`Float f -> f | \`Int n -> float_of_int n | _ -> 0.0)`;
   if (cleanType === "string")
     return `(match ${valVar} with \`String s -> s | _ -> "")`;
   if (cleanType === "bool")
     return `(match ${valVar} with \`Bool b -> b | _ -> false)`;
+  if (cleanType === "int32")
+    return `(match ${valVar} with \`Int n -> Int32.of_int n | \`Intlit s -> Int32.of_string s | _ -> 0l)`;
+  if (cleanType === "int64")
+    return `(match ${valVar} with \`Intlit s -> Int64.of_string s | \`Int n -> Int64.of_int n | _ -> 0L)`;
+  if (cleanType === "nativeint")
+    return `(match ${valVar} with \`Int n -> Nativeint.of_int n | \`Intlit s -> Nativeint.of_string s | _ -> 0n)`;
+  if (cleanType === "char")
+    return `(match ${valVar} with \`String s when String.length s > 0 -> s.[0] | _ -> Char.chr 0)`;
+  if (cleanType === "bytes")
+    return `(match ${valVar} with \`String s -> Bytes.of_string s | _ -> Bytes.empty)`;
+  if (cleanType.endsWith(" option")) {
+    const elemType = cleanType.slice(0, -7).trim();
+    return `(match ${valVar} with \`Null -> None | v -> Some ${buildSingleValDeserializer(elemType, "v", undefined, progTypes)})`;
+  }
   return `(match ${valVar} with \`Int n -> n | _ -> 0)`;
 } // fn: buildSingleValDeserializer
+
+function stripOuterParens(s: string): string {
+  let str = s.trim();
+  while (str.startsWith("(") && str.endsWith(")")) {
+    let depth = 0;
+    let matchesEnd = true;
+    for (let i = 0; i < str.length - 1; i++) {
+      if (str[i] === "(") depth++;
+      else if (str[i] === ")") depth--;
+      if (depth === 0) {
+        matchesEnd = false;
+        break;
+      }
+    }
+    if (matchesEnd) {
+      str = str.slice(1, -1).trim();
+    } else {
+      break;
+    }
+  }
+  return str;
+} // fn: stripOuterParens
 
 /**
  * Splits an OCaml tuple type string into its constituent element types.
  */
 function splitTupleType(typeStr: string): string[] {
-  let s = typeStr.trim();
-  if (s.startsWith("(") && s.endsWith(")")) {
-    s = s.slice(1, -1).trim();
-  }
+  const s = stripOuterParens(typeStr);
   const parts: string[] = [];
   let depth = 0;
   let cur = "";
@@ -966,6 +1173,8 @@ function splitTupleType(typeStr: string): string[] {
 function buildSerializer(
   typeAnnot: string,
   valVar: string,
+  argDef?: ArgDef,
+  progTypes: Record<string, TypeRef> = {},
   isTransformer = false,
   isGenerator = false
 ): string {
@@ -980,11 +1189,11 @@ function buildSerializer(
     if (tupleParts.length > 1) {
       const binders = tupleParts.map((_, i) => `t_${i}`).join(", ");
       const elems = tupleParts
-        .map((t, i) => buildSerializer(t, `t_${i}`))
+        .map((t, i) => buildSerializer(t, `t_${i}`, undefined, progTypes))
         .join("; ");
       return `(match ${valVar} with None -> \`Null | Some (${binders}) -> \`List [${elems}])`;
     }
-    return `(match ${valVar} with None -> \`Null | Some v -> \`List [${buildSerializer(elemType, "v")}])`;
+    return `(match ${valVar} with None -> \`Null | Some v -> \`List [${buildSerializer(elemType, "v", undefined, progTypes)}])`;
   }
 
   if (isTransformer) {
@@ -992,20 +1201,117 @@ function buildSerializer(
     if (tupleParts.length > 1) {
       const binders = tupleParts.map((_, i) => `t_${i}`).join(", ");
       const elems = tupleParts
-        .map((t, i) => buildSerializer(t, `t_${i}`))
+        .map((t, i) => buildSerializer(t, `t_${i}`, undefined, progTypes))
         .join("; ");
       return `(let (${binders}) = ${valVar} in \`List [${elems}])`;
     }
-    return `\`List [${buildSerializer(cleanType, valVar)}]`;
+    return `\`List [${buildSerializer(cleanType, valVar, argDef, progTypes)}]`;
   }
 
+  // 1. Records
+  const isRecord =
+    !cleanType.includes("Map") &&
+    !cleanType.includes("Set") &&
+    !cleanType.includes("Hashtbl") &&
+    ((argDef &&
+      argDef.getType() === ArgTag.OBJECT &&
+      argDef.getChildren().length > 0 &&
+      argDef.getChildren().every((c) => c.getName() !== "unknown")) ||
+      (cleanType in progTypes &&
+        (progTypes[cleanType]?.type?.children?.length ?? 0) > 0));
+  if (isRecord) {
+    const fields =
+      argDef && argDef.getChildren().length > 0
+        ? argDef.getChildren()
+        : (progTypes[cleanType]?.type?.children ?? []);
+    const fieldSers = fields.map((f) => {
+      if (f instanceof ArgDef) {
+        const fieldName = f.getName();
+        const fieldType = OxcamlProgram.getTypeAnnotation(f);
+        return `("${fieldName}", ${buildSerializer(fieldType, `${valVar}.${fieldName}`, f, progTypes)})`;
+      } else {
+        const fieldName = f.name ?? "";
+        const fieldType = f.typeRefName ?? "int";
+        return `("${fieldName}", ${buildSerializer(fieldType, `${valVar}.${fieldName}`, undefined, progTypes)})`;
+      }
+    });
+    return `\`Assoc [ ${fieldSers.join("; ")} ]`;
+  }
+
+  // 2. Tuples
   const tupleParts = splitTupleType(cleanType);
   if (tupleParts.length > 1) {
+    const tupleChildren = argDef?.getChildren() ?? [];
     const binders = tupleParts.map((_, i) => `t_${i}`).join(", ");
     const elems = tupleParts
-      .map((t, i) => buildSerializer(t, `t_${i}`))
+      .map((t, i) => buildSerializer(t, `t_${i}`, tupleChildren[i], progTypes))
       .join("; ");
     return `(let (${binders}) = ${valVar} in \`List [${elems}])`;
+  }
+
+  // 3. Set modules
+  const isSet =
+    (argDef && argDef.getType() === ArgTag.SET) ||
+    cleanType.endsWith("Set.t") ||
+    cleanType.includes(".Set.t") ||
+    cleanType === "Set.t";
+  if (isSet) {
+    const elemChild = argDef?.getChildren()[0];
+    const elemType = elemChild
+      ? OxcamlProgram.getTypeAnnotation(elemChild)
+      : cleanType.includes("Int")
+        ? "int"
+        : cleanType.includes("String")
+          ? "string"
+          : "int";
+    const bare = cleanType.replace(/\.t$/, "");
+    const setMod = cleanType.includes(".")
+      ? (bare.split(/\s+/).pop() ?? "Set")
+      : "Set";
+    return `\`List (let module S = Target_module.${setMod} in List.map (fun v -> ${buildSerializer(elemType, "v", elemChild, progTypes)}) (S.elements ${valVar}))`;
+  }
+
+  // 4. Map and Hashtbl
+  const isHashtbl = cleanType.includes("Hashtbl");
+  const isMap =
+    (argDef && argDef.getType() === ArgTag.DICTIONARY && !isHashtbl) ||
+    cleanType.endsWith("Map.t") ||
+    cleanType.includes(".Map.t") ||
+    cleanType === "Map.t";
+
+  if (isHashtbl) {
+    const keyChild = argDef?.getChildren()[0];
+    const valChild = argDef?.getChildren()[1];
+    const keyType = keyChild
+      ? OxcamlProgram.getTypeAnnotation(keyChild)
+      : "string";
+    const valType = valChild
+      ? OxcamlProgram.getTypeAnnotation(valChild)
+      : "int";
+    return `\`List (Hashtbl.fold (fun k v acc -> \`List [${buildSerializer(keyType, "k", keyChild, progTypes)}; ${buildSerializer(valType, "v", valChild, progTypes)}] :: acc) ${valVar} [])`;
+  }
+
+  if (isMap) {
+    const bare = cleanType.replace(/\.t$/, "");
+    const mapMod = cleanType.includes(".")
+      ? (bare.split(/\s+/).pop() ?? "Map")
+      : "Map";
+    let keyType: string;
+    let valType: string;
+    const children = argDef?.getChildren() ?? [];
+    if (children.length === 1) {
+      valType = OxcamlProgram.getTypeAnnotation(children[0]);
+      keyType = mapMod.toLowerCase().includes("int") ? "int" : "string";
+    } else if (children.length >= 2) {
+      keyType = OxcamlProgram.getTypeAnnotation(children[0]);
+      valType = OxcamlProgram.getTypeAnnotation(children[1]);
+    } else {
+      keyType = mapMod.toLowerCase().includes("int") ? "int" : "string";
+      valType = "int";
+    }
+    const keyChild = children.length >= 2 ? children[0] : undefined;
+    const valChild = children.length === 1 ? children[0] : children[1];
+    return `\`List (let module M = Target_module.${mapMod} in List.map (fun (k, v) -> \`List [${buildSerializer(keyType, "k", keyChild, progTypes)}; ${buildSerializer(valType, "v", valChild, progTypes)}]) (M.bindings ${valVar}))`;
   }
 
   if (
@@ -1036,15 +1342,18 @@ function buildSerializer(
   }
   if (cleanType.endsWith(" list")) {
     const elemType = cleanType.slice(0, -5).trim();
-    return `\`List (List.map (fun v -> ${buildSerializer(elemType, "v")}) ${valVar})`;
+    const elemChild = argDef?.getChildren()[0];
+    return `\`List (List.map (fun v -> ${buildSerializer(elemType, "v", elemChild, progTypes)}) ${valVar})`;
   }
   if (cleanType.endsWith(" array")) {
     const elemType = cleanType.slice(0, -6).trim();
-    return `\`List (Array.to_list (Array.map (fun v -> ${buildSerializer(elemType, "v")}) ${valVar}))`;
+    const elemChild = argDef?.getChildren()[0];
+    return `\`List (Array.to_list (Array.map (fun v -> ${buildSerializer(elemType, "v", elemChild, progTypes)}) ${valVar}))`;
   }
   if (cleanType.endsWith(" option")) {
     const elemType = cleanType.slice(0, -7).trim();
-    return `(match ${valVar} with None -> \`Null | Some v -> ${buildSerializer(elemType, "v")})`;
+    const elemChild = argDef?.getChildren()[0];
+    return `(match ${valVar} with None -> \`Null | Some v -> ${buildSerializer(elemType, "v", elemChild, progTypes)})`;
   }
   return `\`Null`;
 } // fn: buildSerializer

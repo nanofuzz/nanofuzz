@@ -45,21 +45,21 @@ export function fromOxcaml<T>(text: string): T {
  */
 function toOxcamlFormat(val: unknown, argDef?: ArgDefContext): string {
   if (val === undefined || val === null) {
-    if (argDef?.getTypeRef() === "unit") {
+    if (argDef?.getTypeRef && argDef.getTypeRef() === "unit") {
       return "()";
     }
     return "None";
   }
 
-  if (argDef?.isOptional()) {
+  if (argDef?.isOptional && argDef.isOptional()) {
     const innerArgDef: ArgDefContext = {
       isOptional: () => false,
-      getTypeRef: () => argDef.getTypeRef(),
-      getBaseTypeRef: () => argDef.getBaseTypeRef(),
-      getOptions: () => argDef.getOptions(),
+      getTypeRef: () => argDef.getTypeRef?.(),
+      getBaseTypeRef: () => argDef.getBaseTypeRef?.(),
+      getOptions: () => argDef.getOptions?.() ?? {},
       getType: () => argDef.getType(),
-      getChildren: () => argDef.getChildren(),
-      getDim: () => argDef.getDim(),
+      getChildren: () => argDef.getChildren?.() ?? [],
+      getDim: () => argDef.getDim?.() ?? 0,
     };
     return `Some (${toOxcamlFormat(val, innerArgDef)})`;
   }
@@ -129,6 +129,73 @@ function toOxcamlFormat(val: unknown, argDef?: ArgDefContext): string {
 
   if (isBufferOrUint8Array(val)) {
     return `(Bytes.of_string ${bytesToOxcamlStringLiteral(val)})`;
+  }
+
+  if (
+    val instanceof Set ||
+    (argDef &&
+      argDef.getType() === ArgTag.SET &&
+      (val instanceof Set || Array.isArray(val)))
+  ) {
+    const elemDef = argDef?.getChildren()[0];
+    const rawItems =
+      val instanceof Set
+        ? Array.from(val.values())
+        : Array.isArray(val)
+          ? val
+          : [];
+    const items = rawItems.map((item) => toOxcamlFormat(item, elemDef));
+    const typeRef = argDef?.getTypeRef() ?? "";
+    const bare = typeRef.replace(/\.t$/, "");
+    const setMod =
+      typeRef && typeRef.includes(".")
+        ? (bare.split(/\s+/).pop() ?? "Set")
+        : "Set";
+    if (items.length === 0) {
+      return `${setMod}.empty`;
+    }
+    return `${setMod}.of_list [${items.join("; ")}]`;
+  }
+
+  if (
+    val instanceof Map ||
+    (argDef &&
+      argDef.getType() === ArgTag.DICTIONARY &&
+      (val instanceof Map ||
+        (val !== null && typeof val === "object" && !Array.isArray(val))))
+  ) {
+    const keyDef = argDef?.getChildren()[0];
+    const valDef = argDef?.getChildren()[1];
+    const typeRef = argDef?.getTypeRef() ?? "";
+    const isHashtbl = typeRef.includes("Hashtbl");
+    const isMap = typeRef.includes("Map");
+
+    const entries: string[] = [];
+    if (val instanceof Map) {
+      for (const [k, v] of val.entries()) {
+        entries.push(
+          `(${toOxcamlFormat(k, keyDef)}, ${toOxcamlFormat(v, valDef)})`
+        );
+      }
+    } else if (isKeyedObject(val)) {
+      for (const k of Object.keys(val)) {
+        entries.push(
+          `(${toOxcamlFormat(k, keyDef)}, ${toOxcamlFormat(val[k], valDef)})`
+        );
+      }
+    }
+
+    if (isHashtbl) {
+      if (entries.length === 0) return "(Hashtbl.create 0)";
+      return `(Hashtbl.of_seq (List.to_seq [${entries.join("; ")}]))`;
+    }
+    if (isMap) {
+      const bare = typeRef.replace(/\.t$/, "");
+      const mapMod = bare.split(/\s+/).pop() ?? "Map";
+      if (entries.length === 0) return `${mapMod}.empty`;
+      return `(${mapMod}.of_seq (List.to_seq [${entries.join("; ")}]))`;
+    }
+    return `[${entries.join("; ")}]`;
   }
 
   if (Array.isArray(val)) {
@@ -245,6 +312,9 @@ function toJavascriptValue(text: string): unknown {
   }
   if (trimmed === "[]") return [];
   if (trimmed === "[| |]" || trimmed === "[||]") return [];
+  if (trimmed === "(Hashtbl.create 0)" || trimmed === "Hashtbl.create 0") {
+    return new Map();
+  }
 
   const tree = Parser.parse("oxcaml", text);
   if (!tree) {
@@ -305,16 +375,68 @@ function astNodeToValue(node: Parser.SyntaxNode | undefined | null): unknown {
       return node.text;
     }
     case "application_expression": {
-      const fnNode = node.childForFieldName("function");
-      const argNode = node.childForFieldName("argument");
-      if (fnNode?.text === "Some") {
+      const fnNode =
+        node.childForFieldName("function") ?? node.namedChildren[0];
+      const argNode =
+        node.childForFieldName("argument") ?? node.namedChildren[1];
+      const fnText = fnNode ? fnNode.text : "";
+      if (fnText === "Some") {
         return astNodeToValue(argNode);
       }
-      if (fnNode?.text === "Bytes.of_string") {
+      if (fnText === "Bytes.of_string") {
         const str = astNodeToValue(argNode);
         if (typeof str === "string") {
           return new Uint8Array(Buffer.from(str, "binary"));
         }
+      }
+      if (fnText.endsWith(".of_list") || fnText === "Set.of_list") {
+        const argVal = astNodeToValue(argNode);
+        if (Array.isArray(argVal)) {
+          return new Set(argVal);
+        }
+      }
+      if (fnText === "Hashtbl.of_seq") {
+        const argVal = astNodeToValue(argNode);
+        if (Array.isArray(argVal)) {
+          const entries: [unknown, unknown][] = [];
+          for (const item of argVal) {
+            if (Array.isArray(item) && item.length >= 2) {
+              entries.push([item[0], item[1]]);
+            }
+          }
+          return new Map(entries);
+        }
+      }
+      if (fnText.endsWith(".of_seq") || fnText === "Map.of_seq") {
+        const argVal = astNodeToValue(argNode);
+        if (Array.isArray(argVal)) {
+          const entries: [unknown, unknown][] = [];
+          for (const item of argVal) {
+            if (Array.isArray(item) && item.length >= 2) {
+              entries.push([item[0], item[1]]);
+            }
+          }
+          return new Map(entries);
+        }
+      }
+      if (fnText === "List.to_seq") {
+        return astNodeToValue(argNode);
+      }
+      if (fnText === "List.fold_left") {
+        const lastChild = node.namedChildren[node.namedChildren.length - 1];
+        const pairs = astNodeToValue(lastChild);
+        if (Array.isArray(pairs)) {
+          const entries: [unknown, unknown][] = [];
+          for (const item of pairs) {
+            if (Array.isArray(item) && item.length >= 2) {
+              entries.push([item[0], item[1]]);
+            }
+          }
+          return new Map(entries);
+        }
+      }
+      if (argNode) {
+        return astNodeToValue(argNode);
       }
       return node.text;
     }
@@ -342,6 +464,10 @@ function astNodeToValue(node: Parser.SyntaxNode | undefined | null): unknown {
     }
     case "value_path":
     case "value_name": {
+      if (node.text.endsWith(".empty") || node.text === "empty") {
+        if (node.text.toLowerCase().includes("map")) return new Map();
+        return new Set();
+      }
       if (node.text === "nan") return NaN;
       if (node.text === "infinity") return Infinity;
       if (node.text === "neg_infinity") return -Infinity;

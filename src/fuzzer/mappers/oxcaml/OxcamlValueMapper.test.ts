@@ -249,4 +249,129 @@ describe("fuzzer/mappers/oxcaml/OxcamlValueMapper: ", () => {
     );
     expect(OxcamlValueMapper.toOxcaml([], arrayDef)).toBe("[| |]");
   });
+
+  it("formats and parses Set, Map, Hashtbl, and Record types with round-tripping", () => {
+    const baseOpt: ArgOptions = {
+      strCharset: "abc",
+      strLength: { min: 0, max: 3 },
+      byteLength: { min: 0, max: 3 },
+      dictLength: { min: 0, max: 3 },
+      setLength: { min: 0, max: 3 },
+      strRegex: undefined,
+      numInteger: true,
+      anyType: ArgTag.NUMBER,
+      anyDims: 0,
+      dftDimLength: { min: 0, max: 1 },
+      dimLength: [],
+      dimsUnique: false,
+    };
+
+    // 1. Set round-trip
+    const setDef = new ArgDef(
+      "s",
+      0,
+      ArgTag.SET,
+      baseOpt,
+      0,
+      false,
+      undefined,
+      [],
+      "IntSet.t"
+    );
+    const originalSet = new Set([10, 20, 30]);
+    const setFormatted = OxcamlValueMapper.toOxcaml(originalSet, setDef);
+    expect(setFormatted).toBe("IntSet.of_list [10; 20; 30]");
+    const setParsed = OxcamlValueMapper.fromOxcaml<Set<number>>(setFormatted);
+    expect(setParsed).toEqual(originalSet);
+
+    // Empty Set
+    const emptySetFormatted = OxcamlValueMapper.toOxcaml(new Set(), setDef);
+    expect(emptySetFormatted).toBe("IntSet.empty");
+    expect(
+      OxcamlValueMapper.fromOxcaml<Set<number>>(emptySetFormatted)
+    ).toEqual(new Set());
+
+    // 2. Hashtbl round-trip
+    const hashtblDef = new ArgDef(
+      "tbl",
+      0,
+      ArgTag.DICTIONARY,
+      baseOpt,
+      0,
+      false,
+      undefined,
+      [],
+      "(string, int) Hashtbl.t"
+    );
+    const originalMap = new Map([
+      ["apple", 5],
+      ["banana", 8],
+    ]);
+    const hashtblFormatted = OxcamlValueMapper.toOxcaml(
+      originalMap,
+      hashtblDef
+    );
+    expect(hashtblFormatted).toContain("Hashtbl.of_seq");
+    const hashtblParsed =
+      OxcamlValueMapper.fromOxcaml<Map<string, number>>(hashtblFormatted);
+    expect(hashtblParsed).toEqual(originalMap);
+
+    // 3. Functor Map round-trip
+    const mapDef = new ArgDef(
+      "m",
+      0,
+      ArgTag.DICTIONARY,
+      baseOpt,
+      0,
+      false,
+      undefined,
+      [],
+      "int StringMap.t"
+    );
+    const mapFormatted = OxcamlValueMapper.toOxcaml(originalMap, mapDef);
+    expect(mapFormatted).toBe(
+      '(StringMap.of_seq (List.to_seq [("apple", 5); ("banana", 8)]))'
+    );
+    const mapParsed =
+      OxcamlValueMapper.fromOxcaml<Map<string, number>>(mapFormatted);
+    expect(mapParsed).toEqual(originalMap);
+
+    // 4. Record round-trip
+    const userObj = { name: "Carol", age: 32 };
+    const userFormatted = OxcamlValueMapper.toOxcaml(userObj);
+    expect(userFormatted).toBe('{ name = "Carol"; age = 32 }');
+    const userParsed = OxcamlValueMapper.fromOxcaml(userFormatted);
+    expect(userParsed).toEqual(userObj);
+
+    // 5. Association list round-trip
+    const tupleDef = new ArgDef(
+      "item",
+      0,
+      ArgTag.TUPLE,
+      baseOpt,
+      0,
+      false,
+      undefined,
+      [],
+      "string * int"
+    );
+    const assocDef = new ArgDef(
+      "l",
+      0,
+      ArgTag.OBJECT,
+      baseOpt,
+      1,
+      false,
+      undefined,
+      [tupleDef],
+      "(string * int) list"
+    );
+    const assocPairs = [
+      ["k1", 100],
+      ["k2", 200],
+    ];
+    const assocFormatted = OxcamlValueMapper.toOxcaml(assocPairs, assocDef);
+    expect(assocFormatted).toBe('[("k1", 100); ("k2", 200)]');
+    expect(OxcamlValueMapper.fromOxcaml(assocFormatted)).toEqual(assocPairs);
+  });
 });

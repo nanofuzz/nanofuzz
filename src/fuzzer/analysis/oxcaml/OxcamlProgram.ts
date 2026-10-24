@@ -248,6 +248,83 @@ export class OxcamlProgram extends AbstractProgram {
       return typeRef;
     }
 
+    if (name.endsWith("Set.t") || name.includes(".Set.t") || name === "Set.t") {
+      const elemTypeRef = name.includes("Int")
+        ? "int"
+        : name.includes("String")
+          ? "string"
+          : "int";
+      const primitive = resolveOxcamlPrimitive(elemTypeRef);
+      typeRef.type = {
+        type: ArgTag.SET,
+        dims: 0,
+        children: primitive
+          ? [
+              {
+                module: this._filename,
+                typeRefName: elemTypeRef,
+                type: {
+                  type: primitive.tag,
+                  dims: 0,
+                  children: [],
+                  resolved: true,
+                },
+                dims: 0,
+                optional: false,
+                isExported: true,
+              },
+            ]
+          : [],
+        resolved: true,
+      };
+      return typeRef;
+    }
+
+    if (
+      name.endsWith("Map.t") ||
+      name.includes(".Map.t") ||
+      name.includes("Hashtbl.t")
+    ) {
+      const keyTypeRef = name.includes("Int") ? "int" : "string";
+      const valTypeRef = "int";
+      const keyPrim = resolveOxcamlPrimitive(keyTypeRef);
+      const valPrim = resolveOxcamlPrimitive(valTypeRef);
+      typeRef.type = {
+        type: ArgTag.DICTIONARY,
+        dims: 0,
+        children: [
+          {
+            module: this._filename,
+            typeRefName: keyTypeRef,
+            type: {
+              type: keyPrim?.tag ?? ArgTag.STRING,
+              dims: 0,
+              children: [],
+              resolved: true,
+            },
+            dims: 0,
+            optional: false,
+            isExported: true,
+          },
+          {
+            module: this._filename,
+            typeRefName: valTypeRef,
+            type: {
+              type: valPrim?.tag ?? ArgTag.NUMBER,
+              dims: 0,
+              children: [],
+              resolved: true,
+            },
+            dims: 0,
+            optional: false,
+            isExported: true,
+          },
+        ],
+        resolved: true,
+      };
+      return typeRef;
+    }
+
     if (name in this._imports.identifiers) {
       const imp = this._imports.identifiers[name];
       if (
@@ -844,6 +921,10 @@ export class OxcamlProgram extends AbstractProgram {
             return thisType;
           }
 
+          const typeArgs = children
+            .slice(0, -1)
+            .map((c) => this._getTypeRefFromAstNode(c));
+
           if (ctorName === "Hashtbl.t" || ctorName === "Map.t") {
             const keyRef = this._getTypeRefFromAstNode(children[0]);
             const valRef =
@@ -860,11 +941,30 @@ export class OxcamlProgram extends AbstractProgram {
             return thisType;
           }
 
+          if (ctorName.endsWith("Map.t") || ctorName.includes(".Map.t")) {
+            thisType.typeRefName = ctorName;
+            thisType.type = {
+              type: ArgTag.DICTIONARY,
+              dims: 0,
+              children: typeArgs,
+              resolved: true,
+            };
+            return thisType;
+          }
+
+          if (ctorName.endsWith("Set.t") || ctorName.includes(".Set.t")) {
+            thisType.typeRefName = ctorName;
+            thisType.type = {
+              type: ArgTag.SET,
+              dims: 0,
+              children: typeArgs,
+              resolved: true,
+            };
+            return thisType;
+          }
+
           // Generic custom type
           thisType.typeRefName = ctorName;
-          const typeArgs = children
-            .slice(0, -1)
-            .map((c) => this._getTypeRefFromAstNode(c));
           thisType.type = {
             type: ArgTag.OBJECT,
             dims: 0,

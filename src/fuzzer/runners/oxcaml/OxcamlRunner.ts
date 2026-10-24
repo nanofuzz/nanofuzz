@@ -4,12 +4,16 @@ import {
   RunnerOverrides,
   RunnerResult,
   ValidatorResult,
+  TypeHint,
+  RunnerInput,
 } from "../AbstractRunner";
 import { CoverageMapData } from "istanbul-lib-coverage";
 import { isRecordOfFileCoverageData } from "../../measures/CoverageMeasure";
 import { FuzzEnv } from "../../Types";
 import { isError, normalizePathForKey } from "../../Util";
 import * as Config from "../../../Config";
+import { ArgDef } from "../../analysis/ArgDef";
+import { ArgTag } from "../../analysis/Types";
 import { PutTimeoutName } from "../AbstractHost";
 import { OxcamlHost } from "./OxcamlHost";
 import { buildOxcamlHarness } from "./OxcamlHarness";
@@ -96,14 +100,30 @@ export class OxcamlRunner extends AbstractRunner {
     try {
       const host = await this._getHost();
 
-      const input = {
+      const typeHints =
+        this._env?.function?.getArgDefs().map(getTypeHint) ?? [];
+      const input: RunnerInput = {
         seq: thisSeq,
         args: inputs,
+        typeHints,
         timeout: timeout ?? 0,
         validators: validators.length > 0 ? validators : undefined,
       };
 
-      host.sendMessage(JSON.stringify(input));
+      const serialized = JSON.stringify(input, (_key, val) => {
+        if (val instanceof Set) {
+          return { __nanofuzz_set: Array.from(val.values()) };
+        }
+        if (val instanceof Map) {
+          return { __nanofuzz_map: Array.from(val.entries()) };
+        }
+        if (typeof val === "bigint") {
+          return val.toString();
+        }
+        return val;
+      });
+
+      host.sendMessage(serialized);
 
       const numFunctions = 1 + (validators?.length ?? 0);
       const hostTimeout =
@@ -181,9 +201,14 @@ export class OxcamlRunner extends AbstractRunner {
           ...(hostValidators ? { validators: hostValidators } : {}),
         };
       } else {
+        let val = hostPayload.value;
+        const retDef = this._env?.function?.getReturnArg();
+        if (retDef) {
+          val = transformHostResult(val, retDef);
+        }
         resultInner = {
           tag: "value",
-          value: hostPayload.value,
+          value: val,
           seq,
           ...(hostValidators ? { validators: hostValidators } : {}),
         };
@@ -334,3 +359,99 @@ type OxcamlHostResponse = {
   validators?: Record<string, ValidatorResult>;
   coverageData?: CoverageMapData;
 };
+
+/**
+ * Transforms the raw value returned from the OCaml host process back to JavaScript domain types.
+ */
+function transformHostResult(val: unknown, retArgDef?: ArgDef): unknown {
+  if (!retArgDef || val === null || val === undefined) return val;
+
+  const typeRef = retArgDef.getTypeRef() ?? "";
+  const isSet =
+    retArgDef.getType() === ArgTag.SET ||
+    typeRef.endsWith("Set.t") ||
+    typeRef.includes(".Set.t") ||
+    typeRef === "Set.t";
+  const isDict =
+    retArgDef.getType() === ArgTag.DICTIONARY ||
+    typeRef.includes("Map") ||
+    typeRef.includes("Hashtbl");
+
+  if (isSet) {
+    if (val instanceof Set) return val;
+    if (Array.isArray(val)) {
+      return new Set(val);
+    }
+  }
+
+  if (isDict) {
+    if (val instanceof Map) return val;
+    if (Array.isArray(val)) {
+      const entries: [unknown, unknown][] = [];
+      for (const item of val) {
+        if (Array.isArray(item) && item.length >= 2) {
+          entries.push([item[0], item[1]]);
+        }
+      }
+      return new Map(entries);
+    }
+    if (typeof val === "object" && val !== null) {
+      return new Map(Object.entries(val));
+    }
+  }
+
+  return val;
+} // fn: transformHostResult
+
+/**
+ * Derives a base TypeHint for an argument definition in OCaml.
+ */
+function getBaseTypeHint(arg: ArgDef): TypeHint {
+  if (arg.getType() === ArgTag.BYTES || arg.getTypeRef() === "bytes") {
+    return "bytes";
+  }
+
+  // eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check
+  switch (arg.getType()) {
+    case ArgTag.SET: {
+      const [elemChild] = arg.getChildren();
+      const elemHint = elemChild ? getTypeHint(elemChild) : "default";
+      return { kind: "set", element: elemHint };
+    }
+    case ArgTag.TUPLE:
+      return {
+        kind: "tuple",
+        elements: arg.getChildren().map(getTypeHint),
+      };
+    case ArgTag.OBJECT: {
+      const fields: Record<string, TypeHint> = {};
+      for (const child of arg.getChildren()) {
+        fields[child.getName()] = getTypeHint(child);
+      }
+      return { kind: "object", fields };
+    }
+    case ArgTag.DICTIONARY: {
+      const children = arg.getChildren();
+      const keyHint = children[0] ? getTypeHint(children[0]) : "default";
+      const valHint = children[1] ? getTypeHint(children[1]) : "default";
+      return { kind: "dictionary", key: keyHint, value: valHint };
+    }
+    case ArgTag.BIGINT:
+    case ArgTag.NUMBER:
+      return arg.getOptions().numInteger ? "int" : "float";
+    default:
+      return "default";
+  }
+} // fn: getBaseTypeHint
+
+/**
+ * Gets the structural TypeHint for an argument definition including array dimensions.
+ */
+function getTypeHint(arg: ArgDef): TypeHint {
+  const dims = arg.getDim();
+  let hint: TypeHint = getBaseTypeHint(arg);
+  for (let i = 0; i < dims; i++) {
+    hint = { kind: "array", element: hint };
+  }
+  return hint;
+} // fn: getTypeHint
