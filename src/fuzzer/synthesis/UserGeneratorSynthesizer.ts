@@ -157,6 +157,36 @@ export function synthesizeUserGenerator(
     const skeleton = `\n\nlet ${userGenName} (_prng : unit -> float) : ${oxcamlTupleType} =\n  (* Return an argument tuple for ${fn.getName()}, or return None when exhausted *)\n  (* Call _prng () to generate random float values in [0.0, 1.0) *)\n  Some (${oxcamlDefaultArgs})\n`;
     const importData = imports.map((i) => i.stmt).join("");
     const fullTemplate = `${importData}${skeleton.trimStart()}`;
+    return {
+      name: userGenName,
+      skeleton,
+      imports,
+      fullTemplate,
+    };
+  } else if (targetLang === "java") {
+    const javaDefaultArgs =
+      inArgs.length === 0
+        ? "new Object[0]"
+        : `new Object[] { ${inArgs
+            .map((a) =>
+              ValueMapper.toLang(
+                "java",
+                ArgDefGenerator.gen(a, seedrandom("skeleton")),
+                a
+              )
+            )
+            .join(", ")} }`;
+
+    const imports = [
+      {
+        name: "DoubleSupplier",
+        stmt: `import java.util.function.DoubleSupplier;\n`,
+      },
+    ];
+
+    const skeleton = `\n\npublic static Object[] ${userGenName}(DoubleSupplier prng) {\n  // Return an argument array for ${fn.getName()}, or return null when exhausted\n  // Call prng.getAsDouble() to generate random double values in [0.0, 1.0)\n  return ${javaDefaultArgs};\n}`;
+    const importData = imports.map((i) => i.stmt).join("");
+    const fullTemplate = `${importData}${skeleton.trimStart()}`;
 
     return {
       name: userGenName,

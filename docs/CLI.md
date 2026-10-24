@@ -1,6 +1,6 @@
 # @nanofuzz/cli
 
-Structure-aware fuzzer Property-based Fuzzing for **TypeScript**, **Python**, and **Rust** directly from your terminal!
+Structure-aware property-based Fuzzing for **TypeScript**, **Python**, **Rust**, and **Java** directly from your terminal!
 
 NaNofuzz tests functions (exported and unexported, synchronous and asynchronous) by combining coverage-guided mutation, grammar-based input generation, property validators, input transformers, and automated input shrinking to find edge cases, crashes, and minimal counterexamples.
 
@@ -19,6 +19,9 @@ npx @nanofuzz/cli app/calculator.py::divide
 
 # Test a Rust function
 npx @nanofuzz/cli src/lib.rs::parse_token
+
+# Test a Java method
+npx @nanofuzz/cli src/main/java/com/example/MathUtil.java::add
 ```
 
 ### Install as a Dev Dependency
@@ -94,11 +97,11 @@ nanofuzz src/internal.ts::_helperFn
 
 ### General Options
 
-| Option                  | Description                                                |
-| :---------------------- | :--------------------------------------------------------- |
-| `-h, --help`            | Display help and available command-line options            |
-| `-V, --version`         | Output the version number                                  |
-| `--clear-compile-cache` | Clear compiler cache before run                            |
+| Option                  | Description                                     |
+| :---------------------- | :---------------------------------------------- |
+| `-h, --help`            | Display help and available command-line options |
+| `-V, --version`         | Output the version number                       |
+| `--clear-compile-cache` | Clear compiler cache before run                 |
 
 ### Core Fuzzing Parameters
 
@@ -164,7 +167,7 @@ NaNofuzz automatically detects companion functions defined alongside your target
 
 ### 1. Preconditions via Input Transformers
 
-To filter invalid inputs or express function preconditions, define an input transformer `<fn>Transformer`. Use `assume(...)` from `@nanofuzz/runtime` (or `UnsatisfiedAssumption` in Python / `assume!` in Rust):
+To filter invalid inputs or express function preconditions, define an input transformer `<fn>Transformer`. Use `assume(...)` from `@nanofuzz/runtime` (or `UnsatisfiedAssumption` in Python, `assume!` in Rust, or `Assume.that(...)` in Java):
 
 ```typescript
 import { assume } from "@nanofuzz/runtime";
@@ -177,6 +180,22 @@ export function sqrt(x: number): number {
 export function sqrtTransformer(x: number): number {
   assume(x >= 0, "x must be non-negative");
   return x;
+}
+```
+
+```java
+import com.nanofuzz.runtime.Assume;
+
+public class MathUtil {
+    public static double sqrt(double x) {
+        return Math.sqrt(x);
+    }
+
+    // Automatically detected and paired with sqrt():
+    public static Object[] sqrtTransformer(double x) {
+        Assume.that(x >= 0, "x must be non-negative");
+        return new Object[] { x };
+    }
 }
 ```
 
@@ -206,6 +225,25 @@ export function sortNumbersValidator(r: {
 }
 ```
 
+```java
+import com.nanofuzz.runtime.FuzzTestResult;
+import com.nanofuzz.runtime.ValidatorResult;
+
+public class MathUtil {
+    public static int add(int a, int b) {
+        return a + b;
+    }
+
+    // Automatically runs on every test output:
+    public static ValidatorResult addValidator(FuzzTestResult r) {
+        int a = r.getIn(0);
+        int b = r.getIn(1);
+        int out = r.getOut();
+        return (out - a == b) ? ValidatorResult.PASS : ValidatorResult.FAIL;
+    }
+}
+```
+
 ### 3. Custom Input Generators
 
 To supply domain-specific distributions or structured grammars, define `<fn>Generator`:
@@ -215,6 +253,20 @@ export function parseExpression(expr: string): number { ... }
 
 export function parseExpressionGenerator(prng: () => number): string {
   // Return generated strings conforming to your domain grammar
+}
+```
+
+```java
+import java.util.function.DoubleSupplier;
+
+public class MathUtil {
+    public static int classify(int val) { ... }
+
+    // Generates inputs using seeded pseudo-random supplier:
+    public static Object[] classifyGenerator(DoubleSupplier prng) {
+        int val = (int)(prng.getAsDouble() * 100);
+        return new Object[] { val };
+    }
 }
 ```
 

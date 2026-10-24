@@ -6,6 +6,7 @@ import { TypescriptProgram } from "./typescript/TypescriptProgram";
 import { PythonProgram } from "./python/PythonProgram";
 import { RustProgram } from "./rust/RustProgram";
 import { OxcamlProgram } from "./oxcaml/OxcamlProgram";
+import { JavaProgram } from "./java/JavaProgram";
 
 /**
  * Returns an AbstractProgram object for the given filename.
@@ -105,6 +106,8 @@ function factory(
       return new RustProgram(getSource, filename, options, parent);
     case "oxcaml":
       return new OxcamlProgram(getSource, filename, options, parent);
+    case "java":
+      return new JavaProgram(getSource, filename, options, parent);
     case "typescript":
     case "*":
     default:
@@ -116,7 +119,7 @@ function factory(
  * Determines the programming language of a source file based on its filename or language hint.
  *
  * @param details Object containing filename and/or optional language hint
- * @returns Detected ProgramLanguage ("typescript" | "python" | "rust" | "oxcaml")
+ * @returns Detected ProgramLanguage
  */
 export function getLanguage(details: {
   filename?: string;
@@ -131,7 +134,13 @@ export function getLanguage(details: {
   if (OxcamlProgram.understands(details)) {
     return "oxcaml";
   }
-  return "typescript";
+  if (JavaProgram.understands(details)) {
+    return "java";
+  }
+  if (TypescriptProgram.understands(details)) {
+    return "typescript";
+  }
+  return "*";
 } // fn: getLanguage
 
 /**

@@ -113,6 +113,29 @@ describe("src/fuzzer/synthesis/ValidatorSynthesizer", () => {
     expect(result.fullTemplate).toContain("open Nanofuzz_runtime\n");
   });
 
+  it("synthesizes Java validator with correct signature and FuzzTestResult unpacking", () => {
+    const src = `public class MathOps { public static int add(int a, double b) { return (int)(a + b); } }`;
+    const program = ProgramFactory.fromSource(() => src, "java");
+    const fnDef = program.functionsExported["add"];
+    expect(fnDef).toBeDefined();
+
+    const result = synthesizeValidator(fnDef, "java");
+    expect(result.name).toBe("addValidator");
+    expect(result.imports.length).toBe(2);
+    expect(result.imports[0].name).toBe("FuzzTestResult");
+    expect(result.imports[1].name).toBe("ValidatorResult");
+    expect(result.skeleton).toContain(
+      "public static ValidatorResult addValidator(FuzzTestResult r) {"
+    );
+    expect(result.skeleton).toContain("int a = r.getIn(0);");
+    expect(result.skeleton).toContain("double b = r.getIn(1);");
+    expect(result.skeleton).toContain("int out = r.getOut();");
+    expect(result.skeleton).toContain("return ValidatorResult.PASS;");
+    expect(result.fullTemplate).toContain(
+      "import com.nanofuzz.runtime.FuzzTestResult;\nimport com.nanofuzz.runtime.ValidatorResult;\n"
+    );
+  });
+
   it("disambiguates validator name when existing names conflict", () => {
     const program = ProgramFactory.fromFile(tsFixture);
     const fnDef = program.functions["testStandardVoidReturnUndefined"];

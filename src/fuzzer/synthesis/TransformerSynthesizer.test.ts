@@ -90,6 +90,26 @@ describe("src/fuzzer/synthesis/TransformerSynthesizer", () => {
     expect(result.skeleton).toContain("(a, b)");
   });
 
+  it("synthesizes Java transformer with typed parameters and Object[] return", () => {
+    const src = `public class MathOps { public static int add(int a, double b) { return (int)(a + b); } }`;
+    const program = ProgramFactory.fromSource(() => src, "java");
+    const fnDef = program.functionsExported["add"];
+    expect(fnDef).toBeDefined();
+
+    const result = synthesizeTransformer(fnDef, "java");
+    expect(result.name).toBe("addTransformer");
+    expect(result.imports.length).toBe(2);
+    expect(result.imports[0].name).toBe("Assume");
+    expect(result.imports[1].name).toBe("UnsatisfiedAssumptionException");
+    expect(result.skeleton).toContain(
+      "public static Object[] addTransformer(int a, double b) {"
+    );
+    expect(result.skeleton).toContain("return new Object[] { a, b };");
+    expect(result.fullTemplate).toContain(
+      "import com.nanofuzz.runtime.Assume;\nimport com.nanofuzz.runtime.UnsatisfiedAssumptionException;\n"
+    );
+  });
+
   it("disambiguates transformer name when existing names conflict", () => {
     const program = ProgramFactory.fromFile(tsFixture);
     const fnDef = program.functions["testStandardVoidReturnUndefined"];

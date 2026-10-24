@@ -365,6 +365,49 @@ describe("cli:", () => {
     expect(rsOutputData.stats.outcomes.total).toBeLessThanOrEqual(maxTests);
   });
 
+  it("--output-file: check matching parameter set for Java", async () => {
+    const outputFile = path.join(tmpDir, "java_output.json5");
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.java";
+    const targetFn = "greeting";
+    const seed = "java_cli_seed_789";
+    const maxTests = 2;
+    const maxRuntime = 10000;
+
+    const res = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--max-tests",
+      maxTests.toString(),
+      "--max-runtime",
+      maxRuntime.toString(),
+      "--seed",
+      seed,
+    ]);
+
+    expect(res.status).toBe(0);
+    expect(fs.existsSync(outputFile)).toBeTrue();
+
+    const javaOutputData = JSON5.parse<FuzzTestResults>(
+      fs.readFileSync(outputFile, "utf8")
+    );
+
+    // Verify output matches target function
+    const fnMeta = getFnNameAndModule(javaOutputData.env.function);
+    expect(fnMeta.name).toBe(targetFn);
+    expect(fnMeta.module).toBe(path.resolve(targetFile));
+
+    // Verify parameter set in output options matches CLI flags
+    expect(javaOutputData.env.options.maxTests).toBe(maxTests);
+    expect(javaOutputData.env.options.suiteTimeout).toBe(maxRuntime);
+    expect(javaOutputData.env.options.seed).toBe(seed);
+
+    // Verify test results were produced
+    expect(javaOutputData.stats.outcomes.total).toBeGreaterThan(0);
+    expect(javaOutputData.stats.outcomes.total).toBeLessThanOrEqual(maxTests);
+  });
+
   it("--output-file: writes packed binary output for .msgpack extension", async () => {
     const outputFile = path.join(tmpDir, "ts_output.msgpack");
     const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";

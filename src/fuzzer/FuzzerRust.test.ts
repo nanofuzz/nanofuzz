@@ -1,6 +1,7 @@
 import { FuzzerFactory } from "./FuzzerFactory";
 import { intOptions, initParser } from "./FuzzerTestHelper";
 import { FuzzPinnedTest, FuzzStopReason, FuzzTestResult } from "./Types";
+import { isKeyedObject } from "../Util";
 
 describe("fuzzer: rust targets", () => {
   beforeAll(async () => {
@@ -351,6 +352,108 @@ describe("fuzzer: rust targets", () => {
         (idx) => fileStats.fileMap.fnMap[idx]?.name
       );
       expect(coveredFnNames).toContain("unexported_helper");
+    }
+  });
+
+  it("Rust struct fuzz target with Random and Mutation generators", async () => {
+    const results: FuzzTestResult[] = [];
+    const fuzzResult = await FuzzerFactory(
+      "./test_fixtures/Fuzzer.testfixtures.rs",
+      "shift_point",
+      {
+        ...intOptions,
+        maxTests: 20,
+        suiteTimeout: 10000,
+      }
+    ).test([], { gen: true }, undefined, undefined, (r) => results.push(r));
+
+    expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
+    expect(fuzzResult.stats.outcomes.categories.ok).toBe(
+      fuzzResult.stats.outcomes.total
+    );
+    expect(results.length).toBe(fuzzResult.stats.outcomes.total);
+    for (const r of results) {
+      expect(r.input.length).toBe(1);
+      const inVal = r.input[0].value;
+      const outVal = r.output[0].value;
+      if (
+        isKeyedObject(inVal) &&
+        isKeyedObject(outVal) &&
+        typeof inVal.x === "number" &&
+        typeof inVal.y === "number" &&
+        typeof outVal.x === "number" &&
+        typeof outVal.y === "number"
+      ) {
+        expect(outVal.x).toBe(inVal.x + 1);
+        expect(outVal.y).toBe(inVal.y - 1);
+      } else {
+        fail("Expected inVal and outVal to be objects with numeric x and y");
+      }
+    }
+  });
+
+  it("Rust struct target with property validator using get_in and get_out", async () => {
+    const results: FuzzTestResult[] = [];
+    const fuzzResult = await FuzzerFactory(
+      "./test_fixtures/Fuzzer.testfixtures.rs",
+      "shift_point",
+      {
+        ...intOptions,
+        useProperty: true,
+        maxTests: 20,
+        suiteTimeout: 10000,
+      }
+    ).test([], { gen: true }, undefined, undefined, (r) => results.push(r));
+
+    expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
+    expect(fuzzResult.env.validators.length).toBe(1);
+    expect(fuzzResult.stats.outcomes.oracles.property.pass).toBe(
+      fuzzResult.stats.outcomes.total
+    );
+    for (const r of results) {
+      expect(r.passedValidators.length).toBe(1);
+      expect(r.passedValidator).toBe("pass");
+    }
+  });
+
+  it("Rust struct target with input transformer", async () => {
+    const results: FuzzTestResult[] = [];
+    const fuzzResult = await FuzzerFactory(
+      "./test_fixtures/Fuzzer.testfixtures.rs",
+      "transform_point",
+      {
+        ...intOptions,
+        useTransformer: true,
+        maxTests: 20,
+        suiteTimeout: 10000,
+      }
+    ).test([], { gen: true }, undefined, undefined, (r) => results.push(r));
+
+    expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
+    expect(fuzzResult.stats.outcomes.categories.ok).toBeGreaterThan(0);
+    for (const r of results) {
+      if (r.category === "ok") {
+        const inVal = r.input[0].value;
+        const outVal = r.output[0].value;
+        if (
+          isKeyedObject(inVal) &&
+          isKeyedObject(outVal) &&
+          typeof inVal.x === "number" &&
+          typeof inVal.y === "number" &&
+          typeof outVal.x === "number" &&
+          typeof outVal.y === "number"
+        ) {
+          expect(outVal.x).toBe(inVal.x + 1);
+          expect(outVal.y).toBe(inVal.y - 1);
+          if (r.input[0].origin.type === "transformer") {
+            expect(r.input[0].origin.transformer).toBe(
+              "transform_point_transformer"
+            );
+          }
+        } else {
+          fail("Expected inVal and outVal to be objects with numeric x and y");
+        }
+      }
     }
   });
 });

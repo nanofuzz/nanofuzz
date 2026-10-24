@@ -16,6 +16,7 @@ const grammarsToLoad = [
   "tree-sitter-python",
   "tree-sitter-rust",
   "tree-sitter-ocaml",
+  "tree-sitter-java",
 ];
 let loaded: "no" | "pending" | "yes" = "no";
 let initPromise: Promise<void> | undefined; // init only once
@@ -207,11 +208,15 @@ function _langToGrammarName(lang: ProgramLanguage): string {
   switch (lang) {
     case "oxcaml":
       return "tree-sitter-ocaml";
+    case "java":
+      return "tree-sitter-java";
     case "typescript":
     case "python":
     case "rust":
     case "*":
       return `tree-sitter-${lang}`;
+    default:
+      throw new Error(`Unsupported parser language: ${lang}`);
   }
 } // fn: _langToGrammarName()
 

@@ -57,3 +57,9 @@ jobs:
         working-directory: packages/runtime/oxcaml
         run: |
           dune runtest
+
+      # maven runtime package
+      - name: NaNofuzz runtime (java)
+        working-directory: packages/runtime/java
+        run: |
+          mvn clean test

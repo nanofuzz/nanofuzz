@@ -28,6 +28,7 @@ Be sure you have these tools installed:
 - [Yarn][] v1.x
 - [python][] v3.13+
 - [Rust][] v1.80+ (cargo & rustc)
+- [Java][] JDK 17+ & [Maven][] v3.8+
 
 If you're using [Nix][], all dependencies other than Git will be automatically provided by the `flake.nix` file in this repo once you've cloned it.
 
@@ -183,11 +184,12 @@ Our repo uses [semantic versioning][] and maintains the same version number for 
 
 - Make sure all PRs for the upcoming release are merged. Switch to `main` and check `git status` to make sure it's clean and up-to-date.
 - Create a new version branch (`git checkout -b "vX.Y.Z"`)
-- Increment the version number in `package.json`, `./packages/runtime/typescript/package.json`, `./packages/runtime/python/pyproject.toml`, and `./packages/runtime/rust/Cargo.toml`. Ensure the versions match in all four files.
+- Increment the version number in `package.json`, `./packages/runtime/typescript/package.json`, `./packages/runtime/python/pyproject.toml`, `./packages/runtime/rust/Cargo.toml`, and `./packages/runtime/java/pom.xml`. Ensure the versions match in all five files.
 - Build and run NaNofuzz tests (`yarn build` and `yarn test`)
 - Build the npm runtime package (`cd packages/runtime/typescript`, `yarn build`, `cd ../..`)
 - Build the pip runtime package (`cd ../../../packages/runtime/python`, `python -m build`)
 - Test the cargo runtime crate (`cd ../../../packages/runtime/rust`, `cargo test`, `cd ../../..`)
+- Test the maven runtime package (`cd ../../../packages/runtime/java`, `mvn clean test`, `cd ../../..`)
 - Stage commit and push to the remote branch (`git add .`, `git commit -m "chore: update version to vX.Y.Z"`, and `git push`)
 - Open a new PR with title `chore: update version to vX.Y.Z` and merge after CI passes.
 - Create a new GitHub tag and [GitHub release][] in the format `vX.Y.Z`.
@@ -197,6 +199,7 @@ Our repo uses [semantic versioning][] and maintains the same version number for 
     - to npm: `cd packages/runtime/typescript`, `npm publish --access public`, `cd ../../..`)
     - to pip: `cd packages/runtime/python`, `python -m twine upload dist/*`, `cd ../../..`)
     - to crates.io: `cd packages/runtime/rust`, `cargo publish`, `cd ../../..`)
+    - to maven / GitHub Packages: `cd packages/runtime/java`, `mvn deploy`, `cd ../../..`)
 - Clone the [NaNofuzz playground](https://github.com/nanofuzz/nanofuzz-examples)
   - If needed, upgrade the runtime packages: `yarn update @nanofuzz/runtime@X.Y.Z`, `pip install "nanofuzz-runtime==X.Y.Z"`, and update `nanofuzz-runtime = "X.Y.Z"` in `Cargo.toml`
   - Ensure the version of the NaNofuzz extension loaded is the new one
@@ -230,3 +233,5 @@ Our repo uses [semantic versioning][] and maintains the same version number for 
 [github release]: https://docs.github.com/en/repositories/releasing-projects-on-github/managing-releases-in-a-repository
 [python]: https://www.python.org/
 [rust]: https://www.rust-lang.org/
+[java]: https://adoptium.net/
+[maven]: https://maven.apache.org/

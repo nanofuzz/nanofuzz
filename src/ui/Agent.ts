@@ -1447,6 +1447,15 @@ export function formatFunctionSignature(
       paramParts.length > 0 ? ` ${paramParts.join(" ")}` : " ()";
     return `let ${name}${paramsStr}${retStr}`;
   }
+  if (lang === "java") {
+    const javaArgs = args.map((arg) => {
+      const typeStr = formatArgDefType(arg);
+      return `${typeStr} ${arg.getName()}`;
+    });
+    const retStr = returnType ?? (fnDef.isVoid() ? "void" : "Object");
+    const prefix = fnDef.isExported() ? "public " : "";
+    return `${prefix}${retStr} ${name}(${javaArgs.join(", ")})`;
+  }
   const retStr = returnType
     ? `: ${returnType}`
     : fnDef.isVoid()
