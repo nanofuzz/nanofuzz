@@ -49,7 +49,7 @@ To export a NaNofuzz test to CI, click the pin button beside an example. NaNofuz
 - **Command-line interface**: Run NaNofuzz directly from your terminal or CI pipelines via `npx @nanofuzz/cli <filename>::<function>` (see [CLI documentation](docs/CLI.md)).
 - **Python**: Test Python functions and export the saved tests to `pytest` for use in CI.
 - **Rust**: (experimental) Test Rust functions and export the saved tests to `cargo test` for use in CI.
-- **Java**: Test Java functions and export the saved tests to `JUnit 5` for use in CI.
+- **Java**: (experimental) Test Java functions and export the saved tests to `JUnit 5` for use in CI.
 - **Custom input generators**: Programatically generate, modify, or skip inputs before they are dispatched for test execution.
 - **More types**: Tuples, Unions, `Map`s, `Set`s, unique Arrays/`List`s, dictionaries, regex strings, `null`s, binary data like `Uint8Array`/`bytes`, and select Typescript utility types, like `Record<K,V>`, `Required<T>` and `Partial<T>`.
 - **Unexported functions**: NaNofuzz will test them, too! 
