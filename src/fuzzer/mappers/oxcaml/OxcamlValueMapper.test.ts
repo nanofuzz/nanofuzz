@@ -266,7 +266,7 @@ describe("fuzzer/mappers/oxcaml/OxcamlValueMapper: ", () => {
       dimsUnique: false,
     };
 
-    // 1. Set round-trip
+    // Set round-trip
     const setDef = new ArgDef(
       "s",
       0,
@@ -291,7 +291,7 @@ describe("fuzzer/mappers/oxcaml/OxcamlValueMapper: ", () => {
       OxcamlValueMapper.fromOxcaml<Set<number>>(emptySetFormatted)
     ).toEqual(new Set());
 
-    // 2. Hashtbl round-trip
+    // Hashtbl round-trip
     const hashtblDef = new ArgDef(
       "tbl",
       0,
@@ -316,7 +316,7 @@ describe("fuzzer/mappers/oxcaml/OxcamlValueMapper: ", () => {
       OxcamlValueMapper.fromOxcaml<Map<string, number>>(hashtblFormatted);
     expect(hashtblParsed).toEqual(originalMap);
 
-    // 3. Functor Map round-trip
+    // Functor Map round-trip
     const mapDef = new ArgDef(
       "m",
       0,
@@ -336,14 +336,14 @@ describe("fuzzer/mappers/oxcaml/OxcamlValueMapper: ", () => {
       OxcamlValueMapper.fromOxcaml<Map<string, number>>(mapFormatted);
     expect(mapParsed).toEqual(originalMap);
 
-    // 4. Record round-trip
+    // Record round-trip
     const userObj = { name: "Carol", age: 32 };
     const userFormatted = OxcamlValueMapper.toOxcaml(userObj);
     expect(userFormatted).toBe('{ name = "Carol"; age = 32 }');
     const userParsed = OxcamlValueMapper.fromOxcaml(userFormatted);
     expect(userParsed).toEqual(userObj);
 
-    // 5. Association list round-trip
+    // Association list round-trip
     const tupleDef = new ArgDef(
       "item",
       0,
@@ -391,7 +391,7 @@ describe("fuzzer/mappers/oxcaml/OxcamlValueMapper: ", () => {
       dimsUnique: false,
     };
 
-    // 1. Lists (including nested)
+    // Lists (including nested)
     const intElem = new ArgDef(
       "elem",
       0,
@@ -423,7 +423,7 @@ describe("fuzzer/mappers/oxcaml/OxcamlValueMapper: ", () => {
     expect(emptyListStr).toBe("[]");
     expect(OxcamlValueMapper.fromOxcaml(emptyListStr)).toEqual([]);
 
-    // 2. Arrays (including empty)
+    // Arrays (including empty)
     const intArrayDef = new ArgDef(
       "arr",
       0,
@@ -444,7 +444,7 @@ describe("fuzzer/mappers/oxcaml/OxcamlValueMapper: ", () => {
     expect(emptyArrStr).toBe("[| |]");
     expect(OxcamlValueMapper.fromOxcaml(emptyArrStr)).toEqual([]);
 
-    // 3. Tuples (2-tuple and 3-tuple)
+    // Tuples (2-tuple and 3-tuple)
     const strElem = new ArgDef(
       "s",
       0,
@@ -499,7 +499,7 @@ describe("fuzzer/mappers/oxcaml/OxcamlValueMapper: ", () => {
     expect(tuple3Str).toBe('(true, 7, "world")');
     expect(OxcamlValueMapper.fromOxcaml(tuple3Str)).toEqual(tuple3Val);
 
-    // 4. Option (Some and None)
+    // Option (Some and None)
     const optDef = new ArgDef(
       "opt",
       0,
@@ -519,7 +519,7 @@ describe("fuzzer/mappers/oxcaml/OxcamlValueMapper: ", () => {
     expect(noneStr).toBe("None");
     expect(OxcamlValueMapper.fromOxcaml(noneStr)).toBeNull();
 
-    // 5. Bytes
+    // Bytes
     const bytesDef = new ArgDef(
       "b",
       0,
@@ -538,7 +538,7 @@ describe("fuzzer/mappers/oxcaml/OxcamlValueMapper: ", () => {
       bytesVal
     );
 
-    // 6. Record (flat and nested)
+    // Record (flat and nested)
     const nestedObj = {
       header: { id: 1, title: "Doc" },
       active: true,
@@ -548,5 +548,77 @@ describe("fuzzer/mappers/oxcaml/OxcamlValueMapper: ", () => {
       '{ header = { id = 1; title = "Doc" }; active = true }'
     );
     expect(OxcamlValueMapper.fromOxcaml(nestedStr)).toEqual(nestedObj);
+
+    // Result types (Ok and Error)
+    const resultDef = new ArgDef(
+      "res",
+      0,
+      ArgTag.OBJECT,
+      baseOpt,
+      0,
+      false,
+      undefined,
+      [intElem, strElem],
+      "result"
+    );
+    const okVal = { ok: 42 };
+    const okStr = OxcamlValueMapper.toOxcaml(okVal, resultDef);
+    expect(okStr).toBe("Ok (42)");
+    expect(OxcamlValueMapper.fromOxcaml(okStr)).toEqual(okVal);
+
+    const errVal = { error: "bad input" };
+    const errStr = OxcamlValueMapper.toOxcaml(errVal, resultDef);
+    expect(errStr).toBe('Error ("bad input")');
+    expect(OxcamlValueMapper.fromOxcaml(errStr)).toEqual(errVal);
+
+    // Enum variants
+    const colorDef = new ArgDef(
+      "c",
+      0,
+      ArgTag.UNION,
+      baseOpt,
+      0,
+      false,
+      undefined,
+      [],
+      "color"
+    );
+    expect(OxcamlValueMapper.toOxcaml("Red", colorDef)).toBe("Red");
+    expect(OxcamlValueMapper.toOxcaml("Green", colorDef)).toBe("Green");
+    expect(OxcamlValueMapper.fromOxcaml("Red")).toBe("Red");
+    expect(OxcamlValueMapper.fromOxcaml("Green")).toBe("Green");
+
+    // Buffers: Buffer.t and bigstring
+    const bufferDef = new ArgDef(
+      "buf",
+      0,
+      ArgTag.BYTES,
+      baseOpt,
+      0,
+      false,
+      undefined,
+      [],
+      "Buffer.t"
+    );
+    const bufStr = OxcamlValueMapper.toOxcaml("stream data", bufferDef);
+    expect(bufStr).toContain("Buffer.create");
+    expect(bufStr).toContain("Buffer.add_string");
+    expect(OxcamlValueMapper.fromOxcaml(bufStr)).toBe("stream data");
+
+    const bigstringDef = new ArgDef(
+      "ba",
+      0,
+      ArgTag.BYTES,
+      baseOpt,
+      0,
+      false,
+      undefined,
+      [],
+      "bigstring"
+    );
+    const bigBytes = new Uint8Array([65, 66, 67]);
+    const bigStr = OxcamlValueMapper.toOxcaml(bigBytes, bigstringDef);
+    expect(bigStr).toContain("Bigarray.Array1.create");
+    expect(OxcamlValueMapper.fromOxcaml<Uint8Array>(bigStr)).toEqual(bigBytes);
   });
 });

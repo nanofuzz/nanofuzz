@@ -11,7 +11,9 @@ import { CoverageMapData } from "istanbul-lib-coverage";
 import { isRecordOfFileCoverageData } from "../../measures/CoverageMeasure";
 import { FuzzEnv } from "../../Types";
 import { isError, normalizePathForKey } from "../../Util";
+import { isKeyedObject } from "../../../Util";
 import * as Config from "../../../Config";
+import * as JSONN from "../../../Jsonn";
 import { ArgDef } from "../../analysis/ArgDef";
 import { ArgTag } from "../../analysis/Types";
 import { PutTimeoutName } from "../AbstractHost";
@@ -110,31 +112,16 @@ export class OxcamlRunner extends AbstractRunner {
         validators: validators.length > 0 ? validators : undefined,
       };
 
-      const serialized = JSON.stringify(input, (_key, val) => {
-        if (val instanceof Uint8Array || Buffer.isBuffer(val)) {
-          return Array.from(val);
-        }
-        if (val instanceof Set) {
-          return { __nanofuzz_set: Array.from(val.values()) };
-        }
-        if (val instanceof Map) {
-          return { __nanofuzz_map: Array.from(val.entries()) };
-        }
-        if (typeof val === "bigint") {
-          return val.toString();
-        }
-        return val;
-      });
-
-      host.sendMessage(serialized);
+      const encoded = JSONN.pack(input);
+      host.sendMessage(
+        Buffer.from(encoded.buffer, encoded.byteOffset, encoded.byteLength)
+      );
 
       const numFunctions = 1 + (validators?.length ?? 0);
       const hostTimeout =
         timeout && timeout > 0 ? timeout * numFunctions + 500 : Infinity;
       const rawResBuf = await host.getResponseBuffer(hostTimeout);
-      const hostPayload: OxcamlHostResponse = JSON.parse(
-        rawResBuf.toString("utf8")
-      );
+      const hostPayload: OxcamlHostResponse = JSONN.unpack(rawResBuf);
 
       // Ingest dynamic coverage data
       if (this._coverageEnabled && this._coverageInfo) {
@@ -278,21 +265,19 @@ export class OxcamlRunner extends AbstractRunner {
     );
 
     const rawOkBuf = await host.getResponseBuffer(hostStartupTimeout);
-    const okcode = JSON.parse(rawOkBuf.toString("utf8"));
+    const okcode = JSONN.unpack<string>(rawOkBuf);
     if (okcode === "READY") {
       this._host = host;
       // Consume initial static coverage handshake message
       const rawCovBuf = await host.getResponseBuffer(hostStartupTimeout);
       try {
-        const rawCov = JSON.parse(rawCovBuf.toString("utf8"));
-        if (rawCov && typeof rawCov === "object") {
-          const covInfo = rawCov.covInfo ?? rawCov;
-          const files = rawCov.files ?? Object.keys(covInfo);
-          if (covInfo && Object.keys(covInfo).length > 0) {
-            this._coverageInfo = covInfo;
-            this._staticCoverage = structuredClone(covInfo);
-            this._pgmFiles = files;
-          }
+        const rawCovVal = JSONN.unpack<unknown>(rawCovBuf);
+        const rawCov =
+          typeof rawCovVal === "string" ? JSON.parse(rawCovVal) : rawCovVal;
+        if (isRecordOfFileCoverageData(rawCov)) {
+          this._coverageInfo = rawCov;
+          this._staticCoverage = structuredClone(rawCov);
+          this._pgmFiles = Object.keys(rawCov);
         }
       } catch {
         // Fall back to pre-calculated static coverage
@@ -380,7 +365,17 @@ function transformHostResult(val: unknown, retArgDef?: ArgDef): unknown {
     typeRef.includes("Map") ||
     typeRef.includes("Hashtbl");
 
-  if (retArgDef.getType() === ArgTag.BYTES || typeRef === "bytes") {
+  if (
+    retArgDef.getType() === ArgTag.BYTES ||
+    typeRef === "bytes" ||
+    typeRef === "bigstring" ||
+    typeRef === "Buffer.t"
+  ) {
+    if (typeRef === "Buffer.t") {
+      if (typeof val === "string") return val;
+      if (val instanceof Uint8Array) return Buffer.from(val).toString("utf-8");
+      return String(val);
+    }
     if (val instanceof Uint8Array) return val;
     if (Array.isArray(val)) {
       const nums: number[] = [];
@@ -393,6 +388,23 @@ function transformHostResult(val: unknown, retArgDef?: ArgDef): unknown {
     }
     if (typeof val === "string") {
       return new Uint8Array(Buffer.from(val, "binary"));
+    }
+  }
+
+  if (typeRef === "result" || typeRef.endsWith(" result")) {
+    if (isKeyedObject(val)) {
+      if ("ok" in val) {
+        const okDef = retArgDef.getChildren()[0];
+        return {
+          ok: okDef ? transformHostResult(val.ok, okDef) : val.ok,
+        };
+      }
+      if ("error" in val) {
+        const errDef = retArgDef.getChildren()[1];
+        return {
+          error: errDef ? transformHostResult(val.error, errDef) : val.error,
+        };
+      }
     }
   }
 
@@ -430,7 +442,6 @@ function getBaseTypeHint(arg: ArgDef): TypeHint {
     return "bytes";
   }
 
-  // eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check
   switch (arg.getType()) {
     case ArgTag.SET: {
       const [elemChild] = arg.getChildren();
@@ -455,9 +466,20 @@ function getBaseTypeHint(arg: ArgDef): TypeHint {
       const valHint = children[1] ? getTypeHint(children[1]) : "default";
       return { kind: "dictionary", key: keyHint, value: valHint };
     }
+    case ArgTag.UNION:
+      return {
+        kind: "union",
+        arms: arg.getChildren().map(getTypeHint),
+      };
+    case ArgTag.BYTES:
+      return "bytes";
     case ArgTag.BIGINT:
     case ArgTag.NUMBER:
       return arg.getOptions().numInteger ? "int" : "float";
+    case ArgTag.STRING:
+    case ArgTag.BOOLEAN:
+    case ArgTag.LITERAL:
+    case ArgTag.UNRESOLVED:
     default:
       return "default";
   }

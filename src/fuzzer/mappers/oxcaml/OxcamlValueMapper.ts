@@ -100,9 +100,39 @@ function toOxcamlFormat(val: unknown, argDef?: ArgDefContext): string {
     return `${val}L`;
   }
 
+  if (argDef?.getTypeRef() === "Buffer.t") {
+    const str =
+      typeof val === "string"
+        ? val
+        : isBufferOrUint8Array(val)
+          ? Buffer.from(val).toString("utf-8")
+          : String(val);
+    return `(let b = Buffer.create 16 in Buffer.add_string b ${JSON.stringify(str)}; b)`;
+  }
+
+  if (
+    argDef?.getTypeRef() === "bigstring" ||
+    argDef?.getTypeRef() === "Bigstring.t" ||
+    argDef?.getTypeRef() === "Bigarray.Array1.t"
+  ) {
+    const bytes = isBufferOrUint8Array(val)
+      ? val
+      : new TextEncoder().encode(String(val));
+    return `(let s = ${bytesToOxcamlStringLiteral(bytes)} in let ba = Bigarray.Array1.create Bigarray.char Bigarray.c_layout (String.length s) in String.iteri (fun i c -> ba.{i} <- c) s; ba)`;
+  }
+
   if (typeof val === "string") {
+    const typeRef = argDef?.getTypeRef?.();
     if (
-      argDef?.getTypeRef() === "char" ||
+      typeRef &&
+      /^[A-Z][A-Za-z0-9_]*$/.test(val) &&
+      !isOxcamlBuiltin(typeRef)
+    ) {
+      return val;
+    }
+
+    if (
+      argDef?.getTypeRef?.() === "char" ||
       (argDef?.getOptions().strLength?.min === 1 &&
         argDef?.getOptions().strLength?.max === 1)
     ) {
@@ -129,6 +159,16 @@ function toOxcamlFormat(val: unknown, argDef?: ArgDefContext): string {
 
   if (isBufferOrUint8Array(val)) {
     return `(Bytes.of_string ${bytesToOxcamlStringLiteral(val)})`;
+  }
+
+  if (isKeyedObject(val) && "ok" in val) {
+    const okDef = argDef?.getChildren()[0];
+    return `Ok (${toOxcamlFormat(val.ok, okDef)})`;
+  }
+
+  if (isKeyedObject(val) && "error" in val) {
+    const errDef = argDef?.getChildren()[1];
+    return `Error (${toOxcamlFormat(val.error, errDef)})`;
   }
 
   if (
@@ -387,6 +427,12 @@ function astNodeToValue(node: Parser.SyntaxNode | undefined | null): unknown {
       if (fnText === "Some") {
         return astNodeToValue(argNode);
       }
+      if (fnText === "Ok") {
+        return { ok: astNodeToValue(argNode) };
+      }
+      if (fnText === "Error") {
+        return { error: astNodeToValue(argNode) };
+      }
       if (fnText === "Bytes.of_string") {
         const str = astNodeToValue(argNode);
         if (typeof str === "string") {
@@ -465,6 +511,25 @@ function astNodeToValue(node: Parser.SyntaxNode | undefined | null): unknown {
         }
       }
       return res;
+    }
+    case "let_expression": {
+      if (node.text.includes("Buffer.create")) {
+        const strNode = node.descendantsOfType("string")[0];
+        if (strNode) {
+          return parseOxcamlStringLiteral(strNode.text);
+        }
+        return "";
+      }
+      if (node.text.includes("Bigarray.Array1.create")) {
+        const strNode = node.descendantsOfType("string")[0];
+        if (strNode) {
+          const str = parseOxcamlStringLiteral(strNode.text);
+          return new Uint8Array(Buffer.from(str, "binary"));
+        }
+        return new Uint8Array(0);
+      }
+      const body = node.childForFieldName("body");
+      return astNodeToValue(body);
     }
     case "value_path":
     case "value_name": {
@@ -576,3 +641,22 @@ export type ArgDefContext = {
   getChildren(): ArgDefContext[];
   getDim(): number;
 };
+
+function isOxcamlBuiltin(type: string): boolean {
+  return [
+    "int",
+    "float",
+    "bool",
+    "string",
+    "char",
+    "bytes",
+    "unit",
+    "int32",
+    "int64",
+    "nativeint",
+    "#int",
+    "#float",
+    "Buffer.t",
+    "bigstring",
+  ].includes(type);
+} // fn: isOxcamlBuiltin

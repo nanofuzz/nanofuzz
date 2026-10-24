@@ -626,6 +626,141 @@ let promote (c : company) : company =
     await runner.onRunEnd();
   });
 
+  it("executes functions with result types over the IPC bridge", async () => {
+    const duneBin = OxcamlCompiler.resolveDune();
+    if (!duneBin) {
+      pending("Dune not found in environment");
+      return;
+    }
+
+    const mlPath = path.join(tempDir, "result_ipc_test.ml");
+    fs.writeFileSync(
+      mlPath,
+      `let safe_divide (a : int) (b : int) : (int, string) result =
+  if b = 0 then Error "divide by zero"
+  else Ok (a / b)
+`
+    );
+
+    const program = ProgramFactory.fromFile(mlPath, "oxcaml");
+    const fnDef = program.functionsExported["safe_divide"];
+    const env = createTestEnv(fnDef);
+
+    const runner = new OxcamlRunner(mlPath, "safe_divide", env);
+    await runner.onRunStart();
+
+    const okRes = await runner.run([10, 2], 5000);
+    expect(okRes.result.tag).toBe("value");
+    if (okRes.result.tag === "value") {
+      expect(okRes.result.value).toEqual({ ok: 5 });
+    }
+
+    const errRes = await runner.run([10, 0], 5000);
+    expect(errRes.result.tag).toBe("value");
+    if (errRes.result.tag === "value") {
+      expect(errRes.result.value).toEqual({ error: "divide by zero" });
+    }
+
+    await runner.onRunEnd();
+  });
+
+  it("executes functions with enum variant types over the IPC bridge", async () => {
+    const duneBin = OxcamlCompiler.resolveDune();
+    if (!duneBin) {
+      pending("Dune not found in environment");
+      return;
+    }
+
+    const mlPath = path.join(tempDir, "enum_ipc_test.ml");
+    fs.writeFileSync(
+      mlPath,
+      `type level = Debug | Info | Warn | Error
+
+let level_to_weight (l : level) : int =
+  match l with
+  | Debug -> 0
+  | Info -> 1
+  | Warn -> 2
+  | Error -> 3
+`
+    );
+
+    const program = ProgramFactory.fromFile(mlPath, "oxcaml");
+    const fnDef = program.functionsExported["level_to_weight"];
+    const env = createTestEnv(fnDef);
+
+    const runner = new OxcamlRunner(mlPath, "level_to_weight", env);
+    await runner.onRunStart();
+
+    const resWarn = await runner.run(["Warn"], 5000);
+    expect(resWarn.result.tag).toBe("value");
+    if (resWarn.result.tag === "value") {
+      expect(resWarn.result.value).toBe(2);
+    }
+
+    const resDebug = await runner.run(["Debug"], 5000);
+    expect(resDebug.result.tag).toBe("value");
+    if (resDebug.result.tag === "value") {
+      expect(resDebug.result.value).toBe(0);
+    }
+
+    await runner.onRunEnd();
+  });
+
+  it("executes functions with Buffer and bigstring types over the IPC bridge", async () => {
+    const duneBin = OxcamlCompiler.resolveDune();
+    if (!duneBin) {
+      pending("Dune not found in environment");
+      return;
+    }
+
+    const mlPath = path.join(tempDir, "buffers_ipc_test.ml");
+    fs.writeFileSync(
+      mlPath,
+      `open Bigarray
+
+let append_hello (buf : Buffer.t) : string =
+  Buffer.add_string buf " hello";
+  Buffer.contents buf
+
+let sum_bigarray (ba : (char, int8_unsigned_elt, c_layout) Array1.t) : int =
+  let sum = ref 0 in
+  for i = 0 to Array1.dim ba - 1 do
+    sum := !sum + Char.code ba.{i}
+  done;
+  !sum
+`
+    );
+
+    const program = ProgramFactory.fromFile(mlPath, "oxcaml");
+
+    // Test Buffer.t
+    const bufFn = program.functionsExported["append_hello"];
+    const bufEnv = createTestEnv(bufFn);
+    const bufRunner = new OxcamlRunner(mlPath, "append_hello", bufEnv);
+    await bufRunner.onRunStart();
+
+    const bufRes = await bufRunner.run(["prefix"], 5000);
+    expect(bufRes.result.tag).toBe("value");
+    if (bufRes.result.tag === "value") {
+      expect(bufRes.result.value).toBe("prefix hello");
+    }
+    await bufRunner.onRunEnd();
+
+    // Test Bigarray
+    const baFn = program.functionsExported["sum_bigarray"];
+    const baEnv = createTestEnv(baFn);
+    const baRunner = new OxcamlRunner(mlPath, "sum_bigarray", baEnv);
+    await baRunner.onRunStart();
+
+    const baRes = await baRunner.run([new Uint8Array([1, 2, 3])], 5000);
+    expect(baRes.result.tag).toBe("value");
+    if (baRes.result.tag === "value") {
+      expect(baRes.result.value).toBe(6);
+    }
+    await baRunner.onRunEnd();
+  });
+
   it("is instantiated correctly via RunnerFactory", () => {
     const mlPath = path.join(tempDir, "sample.ml");
     fs.writeFileSync(mlPath, "let add (a : int) : int = a");

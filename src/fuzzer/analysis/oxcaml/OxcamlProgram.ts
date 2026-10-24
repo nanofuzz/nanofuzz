@@ -74,6 +74,21 @@ export class OxcamlProgram extends AbstractProgram {
     options: TypeAnnotationOptions = TypeAnnotationOptionDefaults
   ): string {
     const typeRef = arg.getTypeRef();
+    if (typeRef === "result") {
+      const children = arg.getChildren();
+      const okType = children[0]
+        ? OxcamlProgram.getTypeAnnotation(children[0], options)
+        : "int";
+      const errType = children[1]
+        ? OxcamlProgram.getTypeAnnotation(children[1], options)
+        : "string";
+      let type = `(${okType}, ${errType}) result`;
+      if (arg.isOptional()) {
+        type = `${type} option`;
+      }
+      return type;
+    }
+
     if (typeRef?.endsWith(" array")) {
       let type = typeRef;
       if (arg.isOptional()) {
@@ -257,6 +272,40 @@ export class OxcamlProgram extends AbstractProgram {
         typeRef.type.dims += resolved.dims;
       }
       typeRef.optional = typeRef.optional || resolved.optional;
+      return typeRef;
+    }
+
+    if (name === "Buffer.t" || name === "Buffer") {
+      typeRef.type = {
+        type: ArgTag.BYTES,
+        dims: 0,
+        children: [],
+        resolved: true,
+      };
+      return typeRef;
+    }
+
+    if (
+      name === "bigstring" ||
+      name.endsWith("Bigstring.t") ||
+      name.endsWith("Array1.t")
+    ) {
+      typeRef.type = {
+        type: ArgTag.BYTES,
+        dims: 0,
+        children: [],
+        resolved: true,
+      };
+      return typeRef;
+    }
+
+    if (name === "result") {
+      typeRef.type = {
+        type: ArgTag.OBJECT,
+        dims: 0,
+        children: typeRef.type?.children ?? [],
+        resolved: true,
+      };
       return typeRef;
     }
 
@@ -490,20 +539,65 @@ export class OxcamlProgram extends AbstractProgram {
           },
         };
       } else if (targetNode.type === "variant_declaration") {
-        types[typeName] = {
-          module: this._filename,
-          name: typeName,
-          typeRefName: typeName,
-          optional: false,
-          dims: 0,
-          isExported: !typeName.startsWith("_"),
-          type: {
-            type: ArgTag.OBJECT,
+        const constructors: string[] = [];
+        let isEnum = true;
+        for (const child of Parser.getNamedChildrenNoComments(targetNode)) {
+          if (child.type === "constructor_declaration") {
+            const cNameNode = child.namedChildren[0];
+            if (cNameNode && cNameNode.type === "constructor_name") {
+              constructors.push(cNameNode.text);
+            }
+            if (child.namedChildren.length > 1) {
+              isEnum = false;
+            }
+          }
+        }
+        if (isEnum && constructors.length > 0) {
+          const children: TypeRef[] = constructors.map((c) => ({
+            module: this._filename,
+            name: c,
+            typeRefName: c,
+            optional: false,
             dims: 0,
-            children: [],
-            resolved: true,
-          },
-        };
+            isExported: true,
+            type: {
+              type: ArgTag.LITERAL,
+              dims: 0,
+              children: [],
+              value: c,
+              resolved: true,
+            },
+          }));
+          types[typeName] = {
+            module: this._filename,
+            name: typeName,
+            typeRefName: typeName,
+            optional: false,
+            dims: 0,
+            isExported: !typeName.startsWith("_"),
+            type: {
+              type: ArgTag.UNION,
+              dims: 0,
+              children,
+              resolved: true,
+            },
+          };
+        } else {
+          types[typeName] = {
+            module: this._filename,
+            name: typeName,
+            typeRefName: typeName,
+            optional: false,
+            dims: 0,
+            isExported: !typeName.startsWith("_"),
+            type: {
+              type: ArgTag.OBJECT,
+              dims: 0,
+              children: [],
+              resolved: true,
+            },
+          };
+        }
       } else {
         const typeRef = this._getTypeRefFromAstNode(targetNode);
         typeRef.name = typeName;
@@ -856,6 +950,32 @@ export class OxcamlProgram extends AbstractProgram {
           return thisType;
         }
 
+        if (text === "Buffer.t" || text === "Buffer") {
+          thisType.typeRefName = "Buffer.t";
+          thisType.type = {
+            type: ArgTag.BYTES,
+            dims: 0,
+            children: [],
+            resolved: true,
+          };
+          return thisType;
+        }
+
+        if (
+          text === "bigstring" ||
+          text.endsWith("Bigstring.t") ||
+          text.endsWith("Array1.t")
+        ) {
+          thisType.typeRefName = "bigstring";
+          thisType.type = {
+            type: ArgTag.BYTES,
+            dims: 0,
+            children: [],
+            resolved: true,
+          };
+          return thisType;
+        }
+
         thisType.typeRefName = text;
         thisType.type = {
           type: ArgTag.UNRESOLVED,
@@ -938,6 +1058,38 @@ export class OxcamlProgram extends AbstractProgram {
           const typeArgs = children
             .slice(0, -1)
             .map((c) => this._getTypeRefFromAstNode(c));
+
+          if (
+            ctorName === "result" ||
+            ctorName === "Result.result" ||
+            ctorName === "Result.t"
+          ) {
+            const okRef = this._getTypeRefFromAstNode(children[0]);
+            const errRef =
+              children.length > 2
+                ? this._getTypeRefFromAstNode(children[1])
+                : {
+                    module: this._filename,
+                    typeRefName: "string",
+                    type: {
+                      type: ArgTag.STRING,
+                      dims: 0,
+                      children: [],
+                      resolved: true,
+                    },
+                    dims: 0,
+                    optional: false,
+                    isExported: true,
+                  };
+            thisType.typeRefName = "result";
+            thisType.type = {
+              type: ArgTag.OBJECT,
+              dims: 0,
+              children: [okRef, errRef],
+              resolved: true,
+            };
+            return thisType;
+          }
 
           if (ctorName === "Hashtbl.t" || ctorName === "Map.t") {
             const keyRef = this._getTypeRefFromAstNode(children[0]);

@@ -606,7 +606,14 @@ function findRuntimeIncludeDirs(): string[] {
   const switchPrefix = process.env.OPAM_SWITCH_PREFIX;
   if (switchPrefix) {
     const opamLib = path.join(switchPrefix, "lib");
-    const subLibs = ["yojson", "biniou", "easy-format", "csexp"];
+    const subLibs = [
+      "yojson",
+      "biniou",
+      "easy-format",
+      "csexp",
+      "msgpck",
+      "ocplib-endian",
+    ];
     for (const sub of subLibs) {
       const p = path.join(opamLib, sub);
       if (fs.existsSync(p)) {

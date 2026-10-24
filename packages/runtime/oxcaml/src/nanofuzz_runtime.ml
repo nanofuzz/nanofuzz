@@ -103,6 +103,53 @@ let assert_equal ?(message = "Values are not equal") a b =
 
 let assert_eq = assert_equal
 
+let rec msgpck_to_yojson : Msgpck.t -> Yojson.Safe.t = function
+  | Nil -> `Null
+  | Bool b -> `Bool b
+  | Int n -> `Int n
+  | Int32 n -> `Int (Int32.to_int n)
+  | Int64 n -> `Intlit (Int64.to_string n)
+  | Uint32 n -> `Int (Int32.to_int n)
+  | Uint64 n -> `Intlit (Int64.to_string n)
+  | Float f -> `Float f
+  | Float32 f -> `Float (Int32.float_of_bits f)
+  | String s -> `String s
+  | Bytes s -> `String s
+  | Ext (_, s) -> `String s
+  | List l -> `List (List.map msgpck_to_yojson l)
+  | Map m ->
+    let assoc =
+      List.map
+        (fun (k, v) ->
+          let key =
+            match k with
+            | Msgpck.String s -> s
+            | _ -> Msgpck.show k
+          in
+          (key, msgpck_to_yojson v))
+        m
+    in
+    `Assoc assoc
+
+let rec yojson_to_msgpck : Yojson.Safe.t -> Msgpck.t = function
+  | `Null -> Msgpck.Nil
+  | `Bool b -> Msgpck.Bool b
+  | `Int n -> Msgpck.Int n
+  | `Intlit s -> (try Msgpck.Int64 (Int64.of_string s) with _ -> Msgpck.String s)
+  | `Float f -> Msgpck.Float f
+  | `String s -> Msgpck.String s
+  | `List l -> Msgpck.List (List.map yojson_to_msgpck l)
+  | `Assoc pairs ->
+    Msgpck.Map
+      (List.map
+         (fun (k, v) -> (Msgpck.String k, yojson_to_msgpck v))
+         pairs)
+  | `Tuple l -> Msgpck.List (List.map yojson_to_msgpck l)
+  | `Variant (name, arg) ->
+    (match arg with
+     | None -> Msgpck.String name
+     | Some a -> Msgpck.Map [ (Msgpck.String name, yojson_to_msgpck a) ])
+
 let rec implicit_oracle_value = function
   | `Null -> false
   | `Float f ->
@@ -245,5 +292,29 @@ module Coverage = struct
       ("s", `Assoc s_assoc);
       ("f", `Assoc f_assoc);
       ("b", `Assoc b_assoc);
+    ]
+
+  let file_coverage_to_msgpck (cov : file_coverage) : Msgpck.t =
+    let s_map =
+      Hashtbl.fold
+        (fun k v acc -> (Msgpck.String k, Msgpck.Int v) :: acc)
+        cov.s []
+    in
+    let f_map =
+      Hashtbl.fold
+        (fun k v acc -> (Msgpck.String k, Msgpck.Int v) :: acc)
+        cov.f []
+    in
+    let b_map =
+      Hashtbl.fold
+        (fun k v acc ->
+          (Msgpck.String k, Msgpck.List (List.map (fun count -> Msgpck.Int count) v)) :: acc)
+        cov.b []
+    in
+    Msgpck.Map [
+      (Msgpck.String "path", Msgpck.String cov.path);
+      (Msgpck.String "s", Msgpck.Map s_map);
+      (Msgpck.String "f", Msgpck.Map f_map);
+      (Msgpck.String "b", Msgpck.Map b_map);
     ]
 end

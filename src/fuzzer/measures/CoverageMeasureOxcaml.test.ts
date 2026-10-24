@@ -127,7 +127,7 @@ describe("fuzzer/measures/CoverageMeasure: OCaml / OxCaml", () => {
     // Initial static coverage should be registered in measure
     expect(runner.coverageInfo).toBeDefined();
 
-    // 1. Run with negative input (hits then branch: -x)
+    // Run with negative input (hits then branch: -x)
     measure.onBeforeNextTestExecution();
     const resNegative = await runner.run([-5], 5000);
     expect(resNegative.result.tag).toBe("value");
@@ -148,7 +148,7 @@ describe("fuzzer/measures/CoverageMeasure: OCaml / OxCaml", () => {
     expect(currentSummary1.functions.covered).toBe(1);
     expect(currentSummary1.branches.covered).toBe(1);
 
-    // 2. Run with positive input (hits else branch, introducing new global coverage)
+    // Run with positive input (hits else branch, introducing new global coverage)
     measure.onBeforeNextTestExecution();
     const resPositive = await runner.run([10], 5000);
     expect(resPositive.result.tag).toBe("value");
@@ -167,7 +167,7 @@ describe("fuzzer/measures/CoverageMeasure: OCaml / OxCaml", () => {
     expect(currentSummary2.branches.covered).toBe(1);
     expect(measurement2.coverageMeasure.globalDelta).toBeGreaterThan(0);
 
-    // 3. Finalize run and verify cumulative coverage across both runs
+    // Finalize run and verify cumulative coverage across both runs
     const dummyGenStats = {
       counters: { inputsGenerated: 2, dupesGenerated: 0, dupeTicks: [] },
       timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
