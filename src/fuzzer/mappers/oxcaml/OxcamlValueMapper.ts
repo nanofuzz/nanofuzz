@@ -199,7 +199,11 @@ function toOxcamlFormat(val: unknown, argDef?: ArgDefContext): string {
   }
 
   if (Array.isArray(val)) {
-    if (argDef && argDef.getType() === ArgTag.TUPLE) {
+    if (
+      argDef &&
+      argDef.getType() === ArgTag.TUPLE &&
+      (argDef.getDim?.() ?? 0) === 0
+    ) {
       const children = argDef.getChildren();
       const items = val.map((item, i) => toOxcamlFormat(item, children[i]));
       return `(${items.join(", ")})`;
@@ -207,20 +211,20 @@ function toOxcamlFormat(val: unknown, argDef?: ArgDefContext): string {
 
     const elemDef: ArgDefContext | undefined =
       argDef?.getChildren()[0] ??
-      (argDef && argDef.getDim() > 0
+      (argDef && (argDef.getDim?.() ?? 0) > 0
         ? {
             isOptional: () => false,
-            getTypeRef: () => argDef.getTypeRef(),
-            getBaseTypeRef: () => argDef.getBaseTypeRef(),
-            getOptions: () => argDef.getOptions(),
+            getTypeRef: () => argDef.getTypeRef?.(),
+            getBaseTypeRef: () => argDef.getBaseTypeRef?.(),
+            getOptions: () => argDef.getOptions?.() ?? {},
             getType: () => argDef.getType(),
             getChildren: () => [],
-            getDim: () => argDef.getDim() - 1,
+            getDim: () => (argDef.getDim?.() ?? 1) - 1,
           }
         : undefined);
     const items = val.map((item) => toOxcamlFormat(item, elemDef));
 
-    if (argDef?.getTypeRef()?.includes("array")) {
+    if (argDef?.getTypeRef?.()?.includes("array")) {
       if (items.length === 0) return "[| |]";
       return `[| ${items.join("; ")} |]`;
     }
@@ -486,18 +490,59 @@ function astNodeToValue(node: Parser.SyntaxNode | undefined | null): unknown {
  */
 function parseOxcamlStringLiteral(text: string): string {
   if (text.startsWith('"') && text.endsWith('"')) {
-    try {
-      return JSON.parse(text);
-    } catch {
-      return text
-        .slice(1, -1)
-        .replace(/\\"/g, '"')
-        .replace(/\\\\/g, "\\")
-        .replace(/\\n/g, "\n")
-        .replace(/\\r/g, "\r")
-        .replace(/\\t/g, "\t")
-        .replace(/\\0/g, "\0");
+    const inner = text.slice(1, -1);
+    let result = "";
+    for (let i = 0; i < inner.length; i++) {
+      if (inner[i] === "\\" && i + 1 < inner.length) {
+        const next = inner[i + 1];
+        if (next === "n") {
+          result += "\n";
+          i++;
+        } else if (next === "r") {
+          result += "\r";
+          i++;
+        } else if (next === "t") {
+          result += "\t";
+          i++;
+        } else if (next === "b") {
+          result += "\b";
+          i++;
+        } else if (next === "\\") {
+          result += "\\";
+          i++;
+        } else if (next === '"') {
+          result += '"';
+          i++;
+        } else if (next === "'") {
+          result += "'";
+          i++;
+        } else if (next === "x" && i + 3 < inner.length) {
+          const hex = inner.slice(i + 2, i + 4);
+          if (/^[0-9a-fA-F]{2}$/.test(hex)) {
+            result += String.fromCharCode(parseInt(hex, 16));
+            i += 3;
+          } else {
+            result += "\\" + next;
+            i++;
+          }
+        } else if (/^[0-9]/.test(next) && i + 3 < inner.length) {
+          const digits = inner.slice(i + 1, i + 4);
+          if (/^[0-9]{3}$/.test(digits)) {
+            result += String.fromCharCode(parseInt(digits, 10));
+            i += 3;
+          } else {
+            result += "\\" + next;
+            i++;
+          }
+        } else {
+          result += next;
+          i++;
+        }
+      } else {
+        result += inner[i];
+      }
     }
+    return result;
   }
   return text;
 } // fn: parseOxcamlStringLiteral

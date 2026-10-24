@@ -416,6 +416,216 @@ let uppercase_map (m : int StringMap.t) : int StringMap.t =
     await runner.onRunEnd();
   });
 
+  it("executes functions with list types over the IPC bridge", async () => {
+    const duneBin = OxcamlCompiler.resolveDune();
+    if (!duneBin) {
+      pending("Dune not found in environment");
+      return;
+    }
+
+    const mlPath = path.join(tempDir, "list_ipc_test.ml");
+    fs.writeFileSync(
+      mlPath,
+      `let double_list (l : int list) : int list =
+  List.map (fun x -> x * 2) l
+`
+    );
+
+    const program = ProgramFactory.fromFile(mlPath, "oxcaml");
+    const fnDef = program.functionsExported["double_list"];
+    const env = createTestEnv(fnDef);
+
+    const runner = new OxcamlRunner(mlPath, "double_list", env);
+    await runner.onRunStart();
+
+    const res = await runner.run([[1, 2, 3]], 5000);
+    expect(res.result.tag).toBe("value");
+    if (res.result.tag === "value") {
+      expect(res.result.value).toEqual([2, 4, 6]);
+    }
+
+    await runner.onRunEnd();
+  });
+
+  it("executes functions with array types over the IPC bridge", async () => {
+    const duneBin = OxcamlCompiler.resolveDune();
+    if (!duneBin) {
+      pending("Dune not found in environment");
+      return;
+    }
+
+    const mlPath = path.join(tempDir, "array_ipc_test.ml");
+    fs.writeFileSync(
+      mlPath,
+      `let inc_array (arr : int array) : int array =
+  Array.map (fun x -> x + 1) arr
+`
+    );
+
+    const program = ProgramFactory.fromFile(mlPath, "oxcaml");
+    const fnDef = program.functionsExported["inc_array"];
+    const env = createTestEnv(fnDef);
+
+    const runner = new OxcamlRunner(mlPath, "inc_array", env);
+    await runner.onRunStart();
+
+    const res = await runner.run([[10, 20, 30]], 5000);
+    expect(res.result.tag).toBe("value");
+    if (res.result.tag === "value") {
+      expect(res.result.value).toEqual([11, 21, 31]);
+    }
+
+    await runner.onRunEnd();
+  });
+
+  it("executes functions with tuple types over the IPC bridge", async () => {
+    const duneBin = OxcamlCompiler.resolveDune();
+    if (!duneBin) {
+      pending("Dune not found in environment");
+      return;
+    }
+
+    const mlPath = path.join(tempDir, "tuple_ipc_test.ml");
+    fs.writeFileSync(
+      mlPath,
+      `let swap_pair (p : int * string) : string * int =
+  let (n, s) = p in (s, n)
+`
+    );
+
+    const program = ProgramFactory.fromFile(mlPath, "oxcaml");
+    const fnDef = program.functionsExported["swap_pair"];
+    const env = createTestEnv(fnDef);
+
+    const runner = new OxcamlRunner(mlPath, "swap_pair", env);
+    await runner.onRunStart();
+
+    const res = await runner.run([[42, "hello"]], 5000);
+    expect(res.result.tag).toBe("value");
+    if (res.result.tag === "value") {
+      expect(res.result.value).toEqual(["hello", 42]);
+    }
+
+    await runner.onRunEnd();
+  });
+
+  it("executes functions with option types over the IPC bridge", async () => {
+    const duneBin = OxcamlCompiler.resolveDune();
+    if (!duneBin) {
+      pending("Dune not found in environment");
+      return;
+    }
+
+    const mlPath = path.join(tempDir, "option_ipc_test.ml");
+    fs.writeFileSync(
+      mlPath,
+      `let bump_opt (opt : int option) : int option =
+  match opt with
+  | Some n -> Some (n + 10)
+  | None -> None
+`
+    );
+
+    const program = ProgramFactory.fromFile(mlPath, "oxcaml");
+    const fnDef = program.functionsExported["bump_opt"];
+    const env = createTestEnv(fnDef);
+
+    const runner = new OxcamlRunner(mlPath, "bump_opt", env);
+    await runner.onRunStart();
+
+    const someRes = await runner.run([5], 5000);
+    expect(someRes.result.tag).toBe("value");
+    if (someRes.result.tag === "value") {
+      expect(someRes.result.value).toBe(15);
+    }
+
+    const noneRes = await runner.run([null], 5000);
+    expect(noneRes.result.tag).toBe("value");
+    if (noneRes.result.tag === "value") {
+      expect(noneRes.result.value).toBeNull();
+    }
+
+    await runner.onRunEnd();
+  });
+
+  it("executes functions with bytes types over the IPC bridge", async () => {
+    const duneBin = OxcamlCompiler.resolveDune();
+    if (!duneBin) {
+      pending("Dune not found in environment");
+      return;
+    }
+
+    const mlPath = path.join(tempDir, "bytes_ipc_test.ml");
+    fs.writeFileSync(
+      mlPath,
+      `let reverse_bytes (b : bytes) : bytes =
+  let len = Bytes.length b in
+  let res = Bytes.create len in
+  for i = 0 to len - 1 do
+    Bytes.set res i (Bytes.get b (len - 1 - i))
+  done;
+  res
+`
+    );
+
+    const program = ProgramFactory.fromFile(mlPath, "oxcaml");
+    const fnDef = program.functionsExported["reverse_bytes"];
+    const env = createTestEnv(fnDef);
+
+    const runner = new OxcamlRunner(mlPath, "reverse_bytes", env);
+    await runner.onRunStart();
+
+    const inputBytes = new Uint8Array([1, 2, 3, 4]);
+    const res = await runner.run([inputBytes], 5000);
+    expect(res.result.tag).toBe("value");
+    if (res.result.tag === "value") {
+      expect(res.result.value).toEqual(new Uint8Array([4, 3, 2, 1]));
+    }
+
+    await runner.onRunEnd();
+  });
+
+  it("executes functions with nested record types over the IPC bridge", async () => {
+    const duneBin = OxcamlCompiler.resolveDune();
+    if (!duneBin) {
+      pending("Dune not found in environment");
+      return;
+    }
+
+    const mlPath = path.join(tempDir, "nested_record_test.ml");
+    fs.writeFileSync(
+      mlPath,
+      `type person = { name : string; age : int }
+type company = { boss : person; title : string }
+
+let promote (c : company) : company =
+  { boss = { name = c.boss.name; age = c.boss.age + 1 }; title = "Senior " ^ c.title }
+`
+    );
+
+    const program = ProgramFactory.fromFile(mlPath, "oxcaml");
+    const fnDef = program.functionsExported["promote"];
+    const env = createTestEnv(fnDef);
+
+    const runner = new OxcamlRunner(mlPath, "promote", env);
+    await runner.onRunStart();
+
+    const companyInput = {
+      boss: { name: "Dave", age: 40 },
+      title: "Engineer",
+    };
+    const res = await runner.run([companyInput], 5000);
+    expect(res.result.tag).toBe("value");
+    if (res.result.tag === "value") {
+      expect(res.result.value).toEqual({
+        boss: { name: "Dave", age: 41 },
+        title: "Senior Engineer",
+      });
+    }
+
+    await runner.onRunEnd();
+  });
+
   it("is instantiated correctly via RunnerFactory", () => {
     const mlPath = path.join(tempDir, "sample.ml");
     fs.writeFileSync(mlPath, "let add (a : int) : int = a");

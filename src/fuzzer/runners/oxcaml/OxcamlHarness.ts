@@ -1049,7 +1049,13 @@ function buildDeserializer(
     return `(match List.nth_opt args ${idx} with Some (\`String s) when String.length s > 0 -> s.[0] | _ -> failwith "arg ${idx}: expected char")`;
   }
   if (cleanType === "bytes") {
-    return `(match List.nth_opt args ${idx} with Some (\`String s) -> Bytes.of_string s | _ -> failwith "arg ${idx}: expected bytes")`;
+    return `(match List.nth_opt args ${idx} with
+      | Some (\`String s) -> Bytes.of_string s
+      | Some (\`List l) ->
+        let b = Bytes.create (List.length l) in
+        List.iteri (fun i -> function \`Int n -> Bytes.set b i (Char.chr (n land 0xFF)) | _ -> ()) l;
+        b
+      | _ -> failwith "arg ${idx}: expected bytes")`;
   }
   if (cleanType.endsWith(" option")) {
     const elemType = cleanType.slice(0, -7).trim();
@@ -1085,6 +1091,36 @@ function buildSingleValDeserializer(
 ): string {
   const cleanType = typeAnnot.trim();
 
+  // 1. Records
+  const isRecord =
+    !cleanType.includes("Map") &&
+    !cleanType.includes("Set") &&
+    !cleanType.includes("Hashtbl") &&
+    ((argDef &&
+      argDef.getType() === ArgTag.OBJECT &&
+      argDef.getChildren().length > 0 &&
+      argDef.getChildren().every((c) => c.getName() !== "unknown")) ||
+      (cleanType in progTypes &&
+        (progTypes[cleanType]?.type?.children?.length ?? 0) > 0));
+  if (isRecord) {
+    const fields =
+      argDef && argDef.getChildren().length > 0
+        ? argDef.getChildren()
+        : (progTypes[cleanType]?.type?.children ?? []);
+    const fieldDesers = fields.map((f) => {
+      if (f instanceof ArgDef) {
+        const fieldName = f.getName();
+        const fieldType = OxcamlProgram.getTypeAnnotation(f);
+        return `${fieldName} = (match List.assoc_opt "${fieldName}" fields with Some v -> ${buildSingleValDeserializer(fieldType, "v", f, progTypes)} | _ -> failwith "missing field ${fieldName}")`;
+      } else {
+        const fieldName = f.name ?? "";
+        const fieldType = f.typeRefName ?? "int";
+        return `${fieldName} = (match List.assoc_opt "${fieldName}" fields with Some v -> ${buildSingleValDeserializer(fieldType, "v", undefined, progTypes)} | _ -> failwith "missing field ${fieldName}")`;
+      }
+    });
+    return `(match ${valVar} with \`Assoc fields -> { Target_module. ${fieldDesers.join("; ")} } | _ -> failwith "expected record ${cleanType}")`;
+  }
+
   // Tuples
   const tupleParts = splitTupleType(cleanType);
   if (tupleParts.length > 1) {
@@ -1114,10 +1150,27 @@ function buildSingleValDeserializer(
   if (cleanType === "char")
     return `(match ${valVar} with \`String s when String.length s > 0 -> s.[0] | _ -> Char.chr 0)`;
   if (cleanType === "bytes")
-    return `(match ${valVar} with \`String s -> Bytes.of_string s | _ -> Bytes.empty)`;
+    return `(match ${valVar} with
+      | \`String s -> Bytes.of_string s
+      | \`List l ->
+        let b = Bytes.create (List.length l) in
+        List.iteri (fun i -> function \`Int n -> Bytes.set b i (Char.chr (n land 0xFF)) | _ -> ()) l;
+        b
+      | _ -> Bytes.empty)`;
   if (cleanType.endsWith(" option")) {
     const elemType = cleanType.slice(0, -7).trim();
-    return `(match ${valVar} with \`Null -> None | v -> Some ${buildSingleValDeserializer(elemType, "v", undefined, progTypes)})`;
+    const elemChild = argDef?.getChildren()[0];
+    return `(match ${valVar} with \`Null -> None | v -> Some ${buildSingleValDeserializer(elemType, "v", elemChild, progTypes)})`;
+  }
+  if (cleanType.endsWith(" list")) {
+    const elemType = cleanType.slice(0, -5).trim();
+    const elemChild = argDef?.getChildren()[0];
+    return `(match ${valVar} with \`List l -> List.map (fun v -> ${buildSingleValDeserializer(elemType, "v", elemChild, progTypes)}) l | _ -> [])`;
+  }
+  if (cleanType.endsWith(" array")) {
+    const elemType = cleanType.slice(0, -6).trim();
+    const elemChild = argDef?.getChildren()[0];
+    return `(match ${valVar} with \`List l -> Array.of_list (List.map (fun v -> ${buildSingleValDeserializer(elemType, "v", elemChild, progTypes)}) l) | _ -> [||])`;
   }
   return `(match ${valVar} with \`Int n -> n | _ -> 0)`;
 } // fn: buildSingleValDeserializer
@@ -1338,7 +1391,7 @@ function buildSerializer(
     return `\`String (String.make 1 ${valVar})`;
   }
   if (cleanType === "bytes") {
-    return `\`String (Bytes.to_string ${valVar})`;
+    return `\`List (let b = ${valVar} in let l = ref [] in for i = Bytes.length b - 1 downto 0 do l := \`Int (Char.code (Bytes.get b i)) :: !l done; !l)`;
   }
   if (cleanType.endsWith(" list")) {
     const elemType = cleanType.slice(0, -5).trim();

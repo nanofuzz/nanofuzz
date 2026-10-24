@@ -111,6 +111,9 @@ export class OxcamlRunner extends AbstractRunner {
       };
 
       const serialized = JSON.stringify(input, (_key, val) => {
+        if (val instanceof Uint8Array || Buffer.isBuffer(val)) {
+          return Array.from(val);
+        }
         if (val instanceof Set) {
           return { __nanofuzz_set: Array.from(val.values()) };
         }
@@ -376,6 +379,22 @@ function transformHostResult(val: unknown, retArgDef?: ArgDef): unknown {
     retArgDef.getType() === ArgTag.DICTIONARY ||
     typeRef.includes("Map") ||
     typeRef.includes("Hashtbl");
+
+  if (retArgDef.getType() === ArgTag.BYTES || typeRef === "bytes") {
+    if (val instanceof Uint8Array) return val;
+    if (Array.isArray(val)) {
+      const nums: number[] = [];
+      for (const item of val) {
+        if (typeof item === "number") {
+          nums.push(item);
+        }
+      }
+      return new Uint8Array(nums);
+    }
+    if (typeof val === "string") {
+      return new Uint8Array(Buffer.from(val, "binary"));
+    }
+  }
 
   if (isSet) {
     if (val instanceof Set) return val;

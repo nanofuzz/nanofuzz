@@ -74,6 +74,14 @@ export class OxcamlProgram extends AbstractProgram {
     options: TypeAnnotationOptions = TypeAnnotationOptionDefaults
   ): string {
     const typeRef = arg.getTypeRef();
+    if (typeRef?.endsWith(" array")) {
+      let type = typeRef;
+      if (arg.isOptional()) {
+        type = `${type} option`;
+      }
+      return type;
+    }
+
     if (typeRef && options.useTypeRefs) {
       const outerDims = arg.getTypeRefDims() ?? 0;
       let type = typeRef;
@@ -199,8 +207,12 @@ export class OxcamlProgram extends AbstractProgram {
       if (typeRef.type.resolved) {
         return typeRef;
       } else {
-        typeRef.type.children.forEach((child) => this.resolveTypeRef(child));
-        typeRef.type.resolved = true;
+        typeRef.type.children = typeRef.type.children.map((child) =>
+          this.resolveTypeRef(child)
+        );
+        typeRef.type.resolved = typeRef.type.children.every(
+          (c) => c.type?.resolved
+        );
         return typeRef;
       }
     }
@@ -473,7 +485,8 @@ export class OxcamlProgram extends AbstractProgram {
             type: ArgTag.OBJECT,
             dims: 0,
             children,
-            resolved: true,
+            resolved:
+              children.length > 0 && children.every((c) => c.type?.resolved),
           },
         };
       } else if (targetNode.type === "variant_declaration") {
@@ -907,7 +920,8 @@ export class OxcamlProgram extends AbstractProgram {
           if (ctorName === "array") {
             const inner = this._getTypeRefFromAstNode(argNode);
             thisType.dims = inner.dims + 1;
-            thisType.typeRefName = inner.typeRefName;
+            const innerName = inner.typeRefName ?? "int";
+            thisType.typeRefName = `${innerName} array`;
             thisType.type = inner.type;
             return thisType;
           }

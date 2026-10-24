@@ -374,4 +374,179 @@ describe("fuzzer/mappers/oxcaml/OxcamlValueMapper: ", () => {
     expect(assocFormatted).toBe('[("k1", 100); ("k2", 200)]');
     expect(OxcamlValueMapper.fromOxcaml(assocFormatted)).toEqual(assocPairs);
   });
+
+  it("round-trips list, array, tuples, option, bytes, and record with ArgDef context", () => {
+    const baseOpt: ArgOptions = {
+      strCharset: "abc",
+      strLength: { min: 0, max: 3 },
+      byteLength: { min: 0, max: 3 },
+      dictLength: { min: 0, max: 3 },
+      setLength: { min: 0, max: 3 },
+      strRegex: undefined,
+      numInteger: true,
+      anyType: ArgTag.NUMBER,
+      anyDims: 0,
+      dftDimLength: { min: 0, max: 1 },
+      dimLength: [],
+      dimsUnique: false,
+    };
+
+    // 1. Lists (including nested)
+    const intElem = new ArgDef(
+      "elem",
+      0,
+      ArgTag.NUMBER,
+      baseOpt,
+      0,
+      false,
+      undefined,
+      [],
+      "int"
+    );
+    const intListDef = new ArgDef(
+      "l",
+      0,
+      ArgTag.NUMBER,
+      baseOpt,
+      1,
+      false,
+      undefined,
+      [intElem],
+      "int list"
+    );
+    const listVal = [10, 20, 30];
+    const listStr = OxcamlValueMapper.toOxcaml(listVal, intListDef);
+    expect(listStr).toBe("[10; 20; 30]");
+    expect(OxcamlValueMapper.fromOxcaml(listStr)).toEqual(listVal);
+
+    const emptyListStr = OxcamlValueMapper.toOxcaml([], intListDef);
+    expect(emptyListStr).toBe("[]");
+    expect(OxcamlValueMapper.fromOxcaml(emptyListStr)).toEqual([]);
+
+    // 2. Arrays (including empty)
+    const intArrayDef = new ArgDef(
+      "arr",
+      0,
+      ArgTag.NUMBER,
+      baseOpt,
+      1,
+      false,
+      undefined,
+      [intElem],
+      "int array"
+    );
+    const arrVal = [100, 200];
+    const arrStr = OxcamlValueMapper.toOxcaml(arrVal, intArrayDef);
+    expect(arrStr).toBe("[| 100; 200 |]");
+    expect(OxcamlValueMapper.fromOxcaml(arrStr)).toEqual(arrVal);
+
+    const emptyArrStr = OxcamlValueMapper.toOxcaml([], intArrayDef);
+    expect(emptyArrStr).toBe("[| |]");
+    expect(OxcamlValueMapper.fromOxcaml(emptyArrStr)).toEqual([]);
+
+    // 3. Tuples (2-tuple and 3-tuple)
+    const strElem = new ArgDef(
+      "s",
+      0,
+      ArgTag.STRING,
+      baseOpt,
+      0,
+      false,
+      undefined,
+      [],
+      "string"
+    );
+    const boolElem = new ArgDef(
+      "b",
+      0,
+      ArgTag.BOOLEAN,
+      baseOpt,
+      0,
+      false,
+      undefined,
+      [],
+      "bool"
+    );
+    const tuple2Def = new ArgDef(
+      "p",
+      0,
+      ArgTag.TUPLE,
+      baseOpt,
+      0,
+      false,
+      undefined,
+      [intElem, strElem],
+      "int * string"
+    );
+    const tuple2Val = [42, "hello"];
+    const tuple2Str = OxcamlValueMapper.toOxcaml(tuple2Val, tuple2Def);
+    expect(tuple2Str).toBe('(42, "hello")');
+    expect(OxcamlValueMapper.fromOxcaml(tuple2Str)).toEqual(tuple2Val);
+
+    const tuple3Def = new ArgDef(
+      "t",
+      0,
+      ArgTag.TUPLE,
+      baseOpt,
+      0,
+      false,
+      undefined,
+      [boolElem, intElem, strElem],
+      "bool * int * string"
+    );
+    const tuple3Val = [true, 7, "world"];
+    const tuple3Str = OxcamlValueMapper.toOxcaml(tuple3Val, tuple3Def);
+    expect(tuple3Str).toBe('(true, 7, "world")');
+    expect(OxcamlValueMapper.fromOxcaml(tuple3Str)).toEqual(tuple3Val);
+
+    // 4. Option (Some and None)
+    const optDef = new ArgDef(
+      "opt",
+      0,
+      ArgTag.NUMBER,
+      baseOpt,
+      0,
+      true,
+      undefined,
+      [],
+      "int"
+    );
+    const someStr = OxcamlValueMapper.toOxcaml(99, optDef);
+    expect(someStr).toBe("Some (99)");
+    expect(OxcamlValueMapper.fromOxcaml(someStr)).toBe(99);
+
+    const noneStr = OxcamlValueMapper.toOxcaml(null, optDef);
+    expect(noneStr).toBe("None");
+    expect(OxcamlValueMapper.fromOxcaml(noneStr)).toBeNull();
+
+    // 5. Bytes
+    const bytesDef = new ArgDef(
+      "b",
+      0,
+      ArgTag.BYTES,
+      baseOpt,
+      0,
+      false,
+      undefined,
+      [],
+      "bytes"
+    );
+    const bytesVal = new Uint8Array([0, 10, 255]);
+    const bytesStr = OxcamlValueMapper.toOxcaml(bytesVal, bytesDef);
+    expect(bytesStr).toContain("Bytes.of_string");
+    expect(OxcamlValueMapper.fromOxcaml<Uint8Array>(bytesStr)).toEqual(
+      bytesVal
+    );
+
+    // 6. Record (flat and nested)
+    const nestedObj = {
+      header: { id: 1, title: "Doc" },
+      active: true,
+    };
+    const nestedStr = OxcamlValueMapper.toOxcaml(nestedObj);
+    expect(nestedStr).toBe(
+      '{ header = { id = 1; title = "Doc" }; active = true }'
+    );
+    expect(OxcamlValueMapper.fromOxcaml(nestedStr)).toEqual(nestedObj);
+  });
 });
