@@ -4,6 +4,7 @@ import { AbstractRunner, RunnerOverrides } from "./AbstractRunner";
 import { JavascriptRunner } from "./javascript/JavascriptRunner";
 import { PythonRunner } from "./python/PythonRunner";
 import { RustRunner } from "./rust/RustRunner";
+import { OxcamlRunner } from "./oxcaml/OxcamlRunner";
 import { JavaRunner } from "./java/JavaRunner";
 
 /**
@@ -36,6 +37,8 @@ export function RunnerFactory(
       return new PythonRunner(module, fn, env, overrides);
     case "rust":
       return new RustRunner(module, fn, env, overrides);
+    case "oxcaml":
+      return new OxcamlRunner(module, fn, env, overrides);
     case "java":
       return new JavaRunner(module, fn, env, overrides);
     case "typescript":

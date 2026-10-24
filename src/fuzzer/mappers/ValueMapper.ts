@@ -3,6 +3,7 @@ import { ArgDef } from "../analysis/ArgDef";
 import * as PythonValueMapper from "./python/PythonValueMapper";
 import * as TypescriptValueMapper from "./typescript/TypescriptValueMapper";
 import * as RustValueMapper from "./rust/RustValueMapper";
+import * as OxcamlValueMapper from "./oxcaml/OxcamlValueMapper";
 import * as JavaValueMapper from "./java/JavaValueMapper";
 
 export function toLang(
@@ -17,6 +18,8 @@ export function toLang(
       return TypescriptValueMapper.toTypescript(val, argDef);
     case "rust":
       return RustValueMapper.toRust(val, argDef);
+    case "oxcaml":
+      return OxcamlValueMapper.toOxcaml(val, argDef);
     case "java":
       return JavaValueMapper.toJava(val, argDef);
   }
@@ -31,6 +34,8 @@ export function fromLang<T>(lang: Omit<ProgramLanguage, "*">, text: string): T {
       return TypescriptValueMapper.fromTypescript(text);
     case "rust":
       return RustValueMapper.fromRust(text);
+    case "oxcaml":
+      return OxcamlValueMapper.fromOxcaml(text);
     case "java":
       return JavaValueMapper.fromJava(text);
   }

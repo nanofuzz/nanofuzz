@@ -75,6 +75,21 @@ describe("src/fuzzer/synthesis/TransformerSynthesizer", () => {
     expect(result.fullTemplate).toContain("use nanofuzz_runtime::{assume,");
   });
 
+  it("synthesizes OxCaml input transformer with assume and tuple return", () => {
+    const src = `let add (a : int) (b : int) : int = a + b`;
+    const program = ProgramFactory.fromSource(() => src, "oxcaml");
+    const fnDef = program.functionsExported["add"];
+    expect(fnDef).toBeDefined();
+
+    const result = synthesizeTransformer(fnDef, "oxcaml");
+    expect(result.name).toBe("add_transformer");
+    expect(result.imports[0].stmt).toContain("open Nanofuzz_runtime");
+    expect(result.skeleton).toContain(
+      "let add_transformer (a : int) (b : int) : (int * int) ="
+    );
+    expect(result.skeleton).toContain("(a, b)");
+  });
+
   it("synthesizes Java transformer with typed parameters and Object[] return", () => {
     const src = `public class MathOps { public static int add(int a, double b) { return (int)(a + b); } }`;
     const program = ProgramFactory.fromSource(() => src, "java");

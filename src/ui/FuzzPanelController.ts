@@ -3946,6 +3946,8 @@ export const languages = [
   "typescriptreact",
   "python",
   "rust",
+  "ocaml",
+  "oxcaml",
   "java",
 ];
 

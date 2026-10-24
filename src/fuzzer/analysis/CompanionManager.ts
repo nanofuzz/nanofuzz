@@ -401,6 +401,23 @@ const RULES: Record<
       patterns: GENERATOR_PATTERNS,
     },
   },
+  oxcaml: {
+    validator: {
+      canonicalSuffix: "_validator",
+      indexDelimiter: "_",
+      patterns: VALIDATOR_PATTERNS,
+    },
+    transformer: {
+      canonicalSuffix: "_transformer",
+      indexDelimiter: "_",
+      patterns: TRANSFORMER_PATTERNS,
+    },
+    generator: {
+      canonicalSuffix: "_generator",
+      indexDelimiter: "_",
+      patterns: GENERATOR_PATTERNS,
+    },
+  },
   java: {
     validator: {
       canonicalSuffix: "Validator",

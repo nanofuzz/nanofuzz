@@ -8,6 +8,10 @@ describe("Config", () => {
 
   it("reads default configuration from package.json", () => {
     expect(Config.get("nanofuzz.rust.cargoPath", "fallback")).toBe("cargo");
+    expect(Config.get("nanofuzz.oxcaml.dunePath", "fallback")).toBe("dune");
+    expect(Config.get("nanofuzz.oxcaml.ocamloptPath", "fallback")).toBe(
+      "ocamlopt"
+    );
     expect(Config.get("nanofuzz.java.javacPath", "fallback")).toBe("javac");
     expect(Config.get("nanofuzz.java.javaPath", "fallback")).toBe("java");
   });
@@ -17,16 +21,21 @@ describe("Config", () => {
     expect(Config.get("nanofuzz.rust.cargoPath", "cargo")).toBe(
       "/custom/path/to/cargo"
     );
+    Config.override("nanofuzz.oxcaml.dunePath", "/custom/path/to/dune");
+    expect(Config.get("nanofuzz.oxcaml.dunePath", "dune")).toBe(
+      "/custom/path/to/dune"
+    );
     Config.override("nanofuzz.java.javacPath", "/custom/path/to/javac");
     expect(Config.get("nanofuzz.java.javacPath", "javac")).toBe(
       "/custom/path/to/javac"
     );
   });
 
-  it("registers rust in supported languages for FuzzPanelController", () => {
+  it("registers rust and oxcaml in supported languages for FuzzPanelController", () => {
     expect(languages).toContain("rust");
     expect(languages).toContain("typescript");
     expect(languages).toContain("python");
+    expect(languages).toContain("oxcaml");
     expect(languages).toContain("java");
   });
 });

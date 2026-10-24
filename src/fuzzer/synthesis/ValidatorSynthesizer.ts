@@ -2,6 +2,7 @@ import { FunctionDef } from "../analysis/FunctionDef";
 import { TypescriptProgram } from "../analysis/typescript/TypescriptProgram";
 import { PythonProgram } from "../analysis/python/PythonProgram";
 import { RustProgram } from "../analysis/rust/RustProgram";
+import { OxcamlProgram } from "../analysis/oxcaml/OxcamlProgram";
 import { JavaProgram } from "../analysis/java/JavaProgram";
 import { ProgramLanguage } from "../analysis/Types";
 import { CompanionManager } from "../analysis/CompanionManager";
@@ -178,6 +179,48 @@ export function synthesizeValidator(
       imports,
       fullTemplate,
     };
+  } else if (targetLang === "oxcaml") {
+    const inArgLines = inArgs.map((argDef, i) => {
+      const typeAnnot = OxcamlProgram.getTypeAnnotation(argDef);
+      return `  (* let ${argDef.getName()} : ${typeAnnot} = Nanofuzz_runtime.get_in ${i} ${validatorArgs.resultArgName} in *)`;
+    });
+    const outVarName = getIdentifierNameAvoidingConflicts(
+      inArgs,
+      outVarCandidateNames,
+      maxOutVarSuffix
+    );
+    const outArgLine = `  (* let ${outVarName.name} = Nanofuzz_runtime.get_out ${validatorArgs.resultArgName} in *)`;
+
+    const imports = [
+      {
+        name: "Nanofuzz_runtime",
+        stmt: `open Nanofuzz_runtime\n`,
+      },
+    ];
+
+    const bodyLines: string[] = [];
+    bodyLines.push(
+      "  (* Extract input arguments and return value from execution result *)"
+    );
+    if (inArgLines.length > 0) {
+      bodyLines.push(...inArgLines);
+    }
+    bodyLines.push(outArgLine);
+    bodyLines.push(
+      `\n  (* Validate properties and return Nanofuzz_runtime.Pass, Fail, or Unknown *)`
+    );
+    bodyLines.push(`  Nanofuzz_runtime.Pass`);
+
+    const skeleton = `\n\nlet ${validatorName} (${validatorArgs.resultArgName} : Nanofuzz_runtime.fuzz_test_result) : Nanofuzz_runtime.validator_result =\n${bodyLines.join("\n")}\n`;
+    const importData = imports.map((i) => i.stmt).join("");
+    const fullTemplate = `${importData}${skeleton.trimStart()}`;
+
+    return {
+      name: validatorName,
+      skeleton,
+      imports,
+      fullTemplate,
+    };
   } else if (targetLang === "java") {
     const inArgLines = inArgs.map((argDef, i) => {
       const typeAnnot = JavaProgram.getTypeAnnotation(argDef, {
@@ -200,7 +243,6 @@ export function synthesizeValidator(
       !fn.isVoid() && returnTypeStr && returnTypeStr !== "void"
         ? `  ${returnTypeStr} ${outVarName.name} = ${validatorArgs.resultArgName}.getOut();`
         : `  Object ${outVarName.name} = ${validatorArgs.resultArgName}.getOut();`;
-
     const imports = [
       {
         name: "FuzzTestResult",
@@ -211,7 +253,6 @@ export function synthesizeValidator(
         stmt: `import com.nanofuzz.runtime.ValidatorResult;\n`,
       },
     ];
-
     const bodyLines: string[] = [];
     bodyLines.push(
       "  // Extract input arguments and return value from the execution result"
@@ -224,11 +265,9 @@ export function synthesizeValidator(
       `\n  // Validate properties and return ValidatorResult.PASS, ValidatorResult.FAIL, or ValidatorResult.UNKNOWN`
     );
     bodyLines.push(`  return ValidatorResult.PASS;\n}`);
-
     const skeleton = `\n\npublic static ValidatorResult ${validatorName}(FuzzTestResult ${validatorArgs.resultArgName}) {\n${bodyLines.join("\n")}`;
     const importData = imports.map((i) => i.stmt).join("");
     const fullTemplate = `${importData}${skeleton.trimStart()}`;
-
     return {
       name: validatorName,
       skeleton,

@@ -51,6 +51,13 @@ jobs:
         run: |
           cargo test
 
+      # opam runtime library
+      - name: NaNofuzz runtime (oxcaml)
+        if: runner.os != 'Windows'
+        working-directory: packages/runtime/oxcaml
+        run: |
+          dune runtest
+
       # maven runtime package
       - name: NaNofuzz runtime (java)
         working-directory: packages/runtime/java

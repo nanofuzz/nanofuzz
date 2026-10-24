@@ -15,6 +15,7 @@ const grammarsToLoad = [
   "tree-sitter-typescript",
   "tree-sitter-python",
   "tree-sitter-rust",
+  "tree-sitter-ocaml",
   "tree-sitter-java",
 ];
 let loaded: "no" | "pending" | "yes" = "no";
@@ -204,7 +205,19 @@ function _getGrammarOrThrow(grammarName: string): GrammarData {
  * @returns internal grammar name
  */
 function _langToGrammarName(lang: ProgramLanguage): string {
-  return `tree-sitter-${lang}`;
+  switch (lang) {
+    case "oxcaml":
+      return "tree-sitter-ocaml";
+    case "java":
+      return "tree-sitter-java";
+    case "typescript":
+    case "python":
+    case "rust":
+    case "*":
+      return `tree-sitter-${lang}`;
+    default:
+      throw new Error(`Unsupported parser language: ${lang}`);
+  }
 } // fn: _langToGrammarName()
 
 type Parser = TSWeb.Parser;

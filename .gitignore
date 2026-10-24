@@ -122,3 +122,24 @@ __pycache__/
 # direnv files
 /.direnv/
 /.envrc
+
+# OCaml / Dune build output
+_build/
+*.install
+.merlin
+*.cmi
+*.cmo
+*.cmx
+*.cma
+*.cmxa
+*.cmxs
+*.o
+*.a
+
+
+# Benchmark and local scripts
+run_pbt_benchmark.py
+run_pbt_comparison.py
+run_transformer_benchmark.py
+slow.py
+

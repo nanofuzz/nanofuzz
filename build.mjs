@@ -40,6 +40,16 @@ copyfiles(
   () => console.log("copied .rs runner template")
 );
 
+// Copy OCaml assets
+copyfiles(
+  [
+    "./src/fuzzer/runners/oxcaml/OxcamlRunnerHost.template.ml",
+    "./build/extension",
+  ],
+  true,
+  () => console.log("copied .ml runner template")
+);
+
 // Copy Python runtime package (nanofuzz_runtime)
 const pyRuntimeSrc = path.resolve(
   "./packages/runtime/python/src/nanofuzz_runtime"
@@ -102,6 +112,40 @@ if (fs.existsSync(rustRuntimeDir)) {
     filter: (src) => !src.includes(`${path.sep}target`),
   });
   console.log("copied nanofuzz-runtime");
+}
+
+// Build and copy OCaml runtime library (nanofuzz_runtime)
+const oxRuntimeDir = path.resolve("./packages/runtime/oxcaml");
+if (fs.existsSync(oxRuntimeDir)) {
+  const duneBin = resolveDune();
+  if (duneBin) {
+    try {
+      const duneDir = path.dirname(duneBin);
+      const pathEnvKey =
+        Object.keys(process.env).find((k) => k.toLowerCase() === "path") ||
+        "PATH";
+      ChildProcess.execFileSync(duneBin, ["build"], {
+        cwd: oxRuntimeDir,
+        env: {
+          ...process.env,
+          [pathEnvKey]: `${duneDir}${path.delimiter}${process.env[pathEnvKey] || ""}`,
+        },
+        stdio: "inherit",
+      });
+    } catch {
+      console.warn("WARNING: dune build failed for nanofuzz_runtime");
+    }
+  }
+
+  const destOxRuntime = path.resolve(
+    "./build/extension/nanofuzz_runtime_oxcaml"
+  );
+  fs.mkdirSync(destOxRuntime, { recursive: true });
+  fs.cpSync(oxRuntimeDir, destOxRuntime, {
+    recursive: true,
+    filter: (src) => !src.includes(`${path.sep}_build`),
+  });
+  console.log("copied nanofuzz_runtime_oxcaml");
 }
 
 // Build and copy Java runtime package (nanofuzz-runtime)
@@ -217,6 +261,7 @@ await esbuild.build({
     "tree-sitter-typescript",
     "tree-sitter-javascript",
     "tree-sitter-rust",
+    "tree-sitter-ocaml",
     "tree-sitter-java",
     "web-tree-sitter",
   ],
@@ -267,6 +312,7 @@ await esbuild.build({
     "tree-sitter-typescript",
     "tree-sitter-javascript",
     "tree-sitter-rust",
+    "tree-sitter-ocaml",
     "tree-sitter-java",
     "web-tree-sitter",
   ],
@@ -343,6 +389,7 @@ await esbuild.build({
     "tree-sitter-typescript",
     "tree-sitter-javascript",
     "tree-sitter-rust",
+    "tree-sitter-ocaml",
     "tree-sitter-java",
     "web-tree-sitter",
   ],
@@ -486,6 +533,50 @@ function resolveCargo() {
 } // fn: resolveCargo
 
 /**
+ * Resolves the dune executable location.
+ *
+ * @returns Path to the dune executable or undefined if not found
+ */
+function resolveDune() {
+  const duneBinName = process.platform === "win32" ? "dune.exe" : "dune";
+  const candidates = [];
+  if (process.env.OPAM_SWITCH_PREFIX) {
+    candidates.push(
+      path.join(process.env.OPAM_SWITCH_PREFIX, "bin", duneBinName)
+    );
+  }
+  const home = os.homedir();
+  if (home) {
+    const opamDir = path.join(home, ".opam");
+    if (fs.existsSync(opamDir)) {
+      try {
+        const switches = fs.readdirSync(opamDir);
+        for (const sw of switches) {
+          candidates.push(path.join(opamDir, sw, "bin", duneBinName));
+        }
+      } catch {
+        // ignore
+      }
+    }
+  }
+  candidates.push(duneBinName);
+  for (const candidate of candidates) {
+    try {
+      const res = ChildProcess.spawnSync(candidate, ["--version"], {
+        encoding: "utf8",
+        stdio: "pipe",
+      });
+      if (res.status === 0) {
+        return candidate;
+      }
+    } catch {
+      // not found or not executable
+    }
+  }
+  return undefined;
+} // fn: resolveDune
+
+/**
  * Resolves the maven (mvn) executable location.
  *
  * @returns Path to the mvn executable or undefined if not found
@@ -500,7 +591,6 @@ function resolveMaven() {
     candidates.push(path.join(process.env.MAVEN_HOME, "bin", mvnBinName));
   }
   candidates.push(mvnBinName);
-
   for (const candidate of candidates) {
     try {
       const res = ChildProcess.spawnSync(candidate, ["--version"], {

@@ -96,6 +96,23 @@ describe("src/fuzzer/synthesis/ValidatorSynthesizer", () => {
     );
   });
 
+  it("synthesizes OxCaml validator with Nanofuzz_runtime open and types", () => {
+    const src = `let add (a : int) (b : int) : int = a + b`;
+    const program = ProgramFactory.fromSource(() => src, "oxcaml");
+    const fnDef = program.functionsExported["add"];
+    expect(fnDef).toBeDefined();
+
+    const result = synthesizeValidator(fnDef, "oxcaml");
+    expect(result.name).toBe("add_validator");
+    expect(result.imports.length).toBe(1);
+    expect(result.imports[0].name).toBe("Nanofuzz_runtime");
+    expect(result.skeleton).toContain(
+      "let add_validator (r : Nanofuzz_runtime.fuzz_test_result) : Nanofuzz_runtime.validator_result ="
+    );
+    expect(result.skeleton).toContain("Nanofuzz_runtime.Pass");
+    expect(result.fullTemplate).toContain("open Nanofuzz_runtime\n");
+  });
+
   it("synthesizes Java validator with correct signature and FuzzTestResult unpacking", () => {
     const src = `public class MathOps { public static int add(int a, double b) { return (int)(a + b); } }`;
     const program = ProgramFactory.fromSource(() => src, "java");

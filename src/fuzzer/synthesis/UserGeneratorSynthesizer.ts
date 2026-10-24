@@ -2,6 +2,7 @@ import seedrandom from "seedrandom";
 import { FunctionDef } from "../analysis/FunctionDef";
 import { PythonProgram } from "../analysis/python/PythonProgram";
 import { RustProgram } from "../analysis/rust/RustProgram";
+import { OxcamlProgram } from "../analysis/oxcaml/OxcamlProgram";
 import { ProgramLanguage } from "../analysis/Types";
 import { CompanionManager } from "../analysis/CompanionManager";
 import { ArgDefGenerator } from "../analysis/ArgDefGenerator";
@@ -115,6 +116,47 @@ export function synthesizeUserGenerator(
     const importData = imports.map((i) => i.stmt).join("");
     const fullTemplate = `${importData}${skeleton.trimStart()}`;
 
+    return {
+      name: userGenName,
+      skeleton,
+      imports,
+      fullTemplate,
+    };
+  } else if (targetLang === "oxcaml") {
+    const oxcamlTupleType =
+      inArgs.length === 0
+        ? "unit option"
+        : inArgs.length === 1
+          ? `${OxcamlProgram.getTypeAnnotation(inArgs[0], { useTypeRefs: true })} option`
+          : `(${inArgs
+              .map((a) =>
+                OxcamlProgram.getTypeAnnotation(a, { useTypeRefs: true })
+              )
+              .join(" * ")}) option`;
+
+    const oxcamlDefaultArgs =
+      inArgs.length === 0
+        ? "()"
+        : inArgs.length === 1
+          ? ValueMapper.toLang(
+              "oxcaml",
+              ArgDefGenerator.gen(inArgs[0], seedrandom("skeleton")),
+              inArgs[0]
+            )
+          : `(${inArgs
+              .map((a) =>
+                ValueMapper.toLang(
+                  "oxcaml",
+                  ArgDefGenerator.gen(a, seedrandom("skeleton")),
+                  a
+                )
+              )
+              .join(", ")})`;
+
+    const imports: { name: string; stmt: string }[] = [];
+    const skeleton = `\n\nlet ${userGenName} (_prng : unit -> float) : ${oxcamlTupleType} =\n  (* Return an argument tuple for ${fn.getName()}, or return None when exhausted *)\n  (* Call _prng () to generate random float values in [0.0, 1.0) *)\n  Some (${oxcamlDefaultArgs})\n`;
+    const importData = imports.map((i) => i.stmt).join("");
+    const fullTemplate = `${importData}${skeleton.trimStart()}`;
     return {
       name: userGenName,
       skeleton,

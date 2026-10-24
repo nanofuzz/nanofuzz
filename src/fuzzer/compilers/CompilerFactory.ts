@@ -1,9 +1,10 @@
 import * as ProgramFactory from "../analysis/ProgramFactory";
 import { TypescriptCompiler } from "./TypescriptCompiler";
 import { RustCompiler } from "./rust/RustCompiler";
+import { OxcamlCompiler } from "./oxcaml/OxcamlCompiler";
 import { JavaCompiler } from "./java/JavaCompiler";
 
-export { TypescriptCompiler, RustCompiler, JavaCompiler };
+export { TypescriptCompiler, RustCompiler, OxcamlCompiler, JavaCompiler };
 
 // TODO: Create an AbstractCompiler class & a matching strategy
 export function fromSourcefile(fqSrcFile: string): Compiler | undefined {
@@ -13,6 +14,8 @@ export function fromSourcefile(fqSrcFile: string): Compiler | undefined {
       return new TypescriptCompiler(fqSrcFile);
     case "rust":
       return new RustCompiler(fqSrcFile);
+    case "oxcaml":
+      return new OxcamlCompiler(fqSrcFile);
     case "java":
       return new JavaCompiler(fqSrcFile);
     case "python":
@@ -24,7 +27,12 @@ export function fromSourcefile(fqSrcFile: string): Compiler | undefined {
 
 export function needsCompilation(fqSrcFile: string): boolean {
   const lang = ProgramFactory.getLanguage({ filename: fqSrcFile });
-  return lang === "typescript" || lang === "rust" || lang === "java";
+  return (
+    lang === "typescript" ||
+    lang === "rust" ||
+    lang === "oxcaml" ||
+    lang === "java"
+  );
 } // fn: needsCompilation
 
 /**
@@ -33,7 +41,12 @@ export function needsCompilation(fqSrcFile: string): boolean {
 export function clean(): void {
   TypescriptCompiler.clean();
   RustCompiler.clean();
+  OxcamlCompiler.clean();
   JavaCompiler.clean();
 } // fn: clean
 
-export type Compiler = TypescriptCompiler | RustCompiler | JavaCompiler;
+export type Compiler =
+  | TypescriptCompiler
+  | RustCompiler
+  | OxcamlCompiler
+  | JavaCompiler;

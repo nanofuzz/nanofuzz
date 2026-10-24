@@ -1,0 +1,25 @@
+(lang dune 2.9)
+(name nanofuzz_runtime)
+(version 0.4.0)
+
+(generate_opam_files true)
+
+(source
+ (github nanofuzz/nanofuzz))
+
+(license MIT)
+
+(authors "The NaNofuzz Team at Carnegie Mellon University")
+(maintainers "The NaNofuzz Team at Carnegie Mellon University")
+
+(package
+ (name nanofuzz_runtime)
+ (synopsis "Runtime support and types for NaNofuzz test suites and property validators in OCaml/OxCaml")
+ (description
+  "This package provides the runtime support and types necessary for NaNofuzz tests to be executed in OCaml/OxCaml projects.")
+ (depends
+  (ocaml (>= 4.08.0))
+  (dune (>= 2.9.0))
+  (yojson (>= 1.6.0))
+  (msgpck (>= 1.7))
+  (ounit2 :with-test)))
