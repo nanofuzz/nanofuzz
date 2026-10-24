@@ -300,19 +300,19 @@ public class TargetClass {
     // Only the method with supported primitive arguments is exported
     expect(prog.functionsExported["evaluateExpression"]).toBeDefined();
 
-    // All others must be undefined in functionsExported
+    // Class and function-typed parameters remain unsupported.
     expect(
       prog.functionsExported["evaluateExpressionGenerator"]
     ).toBeUndefined();
     expect(prog.functionsExported["instanceMethod"]).toBeUndefined();
-    expect(prog.functionsExported["paint"]).toBeUndefined();
     expect(prog.functionsExported["handleUser"]).toBeUndefined();
     expect(prog.functionsExported["execute"]).toBeUndefined();
     expect(prog.functionsExported["processObj"]).toBeUndefined();
-    expect(prog.functionsExported["paintAll"]).toBeUndefined();
-    expect(prog.functionsExported["paintList"]).toBeUndefined();
-    expect(prog.functionsExported["paintMap"]).toBeUndefined();
-    expect(prog.functionsExported["draw"]).toBeUndefined();
+    expect(prog.functionsExported["paint"]).toBeDefined();
+    expect(prog.functionsExported["paintAll"]).toBeDefined();
+    expect(prog.functionsExported["paintList"]).toBeDefined();
+    expect(prog.functionsExported["paintMap"]).toBeDefined();
+    expect(prog.functionsExported["draw"]).toBeDefined();
 
     // Class methods marked unsupported
     expect(prog.functionsNotSupported["instanceMethod"]).toBeDefined();
@@ -328,12 +328,24 @@ public class TargetClass {
       prog.functionsNotSupported["evaluateExpressionGenerator"].argument
     ).toBe("prng");
 
-    // Enum parameter marked unsupported
-    expect(prog.functionsNotSupported["paint"]).toBeDefined();
-    expect(prog.functionsNotSupported["paint"].argument).toBe("c");
-    expect(prog.functionsNotSupported["paint"].reason).toContain(
-      "enums are not supported"
+    // Enum values and collections of enum values are modeled as literal unions.
+    expect(prog.functionsNotSupported["paint"]).toBeUndefined();
+    expect(prog.functionsNotSupported["paintAll"]).toBeUndefined();
+    expect(prog.functionsNotSupported["paintList"]).toBeUndefined();
+    expect(prog.functionsNotSupported["paintMap"]).toBeUndefined();
+    expect(prog.functionsNotSupported["draw"]).toBeUndefined();
+    expect(prog.functionsExported["paint"].getArgDefs()[0].getType()).toBe(
+      ArgTag.UNION
     );
+    expect(
+      prog.functionsExported["paint"]
+        .getArgDefs()[0]
+        .getChildren()
+        .map((child) => child.getConstantValue())
+    ).toEqual(["RED", "GREEN", "BLUE"]);
+    expect(
+      prog.functionsExported["draw"].getArgDefs()[0].getChildren()[1].getType()
+    ).toBe(ArgTag.UNION);
 
     // Class parameter marked unsupported
     expect(prog.functionsNotSupported["handleUser"]).toBeDefined();
@@ -352,12 +364,22 @@ public class TargetClass {
     // Object parameter marked unsupported
     expect(prog.functionsNotSupported["processObj"]).toBeDefined();
     expect(prog.functionsNotSupported["processObj"].argument).toBe("obj");
+  });
 
-    // Collections and arrays of unsupported types marked unsupported
-    expect(prog.functionsNotSupported["paintAll"]).toBeDefined();
-    expect(prog.functionsNotSupported["paintList"]).toBeDefined();
-    expect(prog.functionsNotSupported["paintMap"]).toBeDefined();
-    expect(prog.functionsNotSupported["draw"]).toBeDefined();
+  it("resolves UUID parameters with UUID-constrained string generation", () => {
+    const src = `
+import java.util.UUID;
+class UuidDemo {
+  public static UUID echo(UUID value) { return value; }
+}
+`;
+    const program = ProgramFactory.fromSource(() => src, "java");
+    const uuidArg = program.functionsExported["echo"].getArgDefs()[0];
+
+    expect(uuidArg.getType()).toBe(ArgTag.STRING);
+    expect(uuidArg.getTypeRef()).toBe("UUID");
+    expect(uuidArg.getOptions().strLength).toEqual({ min: 36, max: 36 });
+    expect(uuidArg.getOptions().strRegex).toContain("[1-5]");
   });
 
   it("extracts callees within method body", () => {

@@ -545,7 +545,51 @@ export class JavaProgram extends AbstractProgram {
       const name = nameNode.text;
 
       let children: TypeRef[] = [];
-      if (recordItem) {
+      if (enumItem) {
+        const constants = enumItem.descendantsOfType("enum_constant");
+        const enumChildren: TypeRef[] = constants.flatMap((constant) => {
+          const constantName =
+            constant.childForFieldName("name") ??
+            constant.namedChildren.find((child) => child.type === "identifier");
+          if (!constantName) return [];
+          return [
+            {
+              module: this._filename,
+              name: constantName.text,
+              typeRefName: constantName.text,
+              optional: false,
+              dims: 0,
+              isExported: true,
+              type: {
+                type: ArgTag.LITERAL,
+                dims: 0,
+                children: [],
+                value: constantName.text,
+                resolved: true,
+              },
+            },
+          ];
+        });
+
+        if (enumChildren.length > 0) {
+          types[name] = {
+            module: this._filename,
+            name,
+            typeRefName: name,
+            optional: false,
+            dims: 0,
+            isExported,
+            type: {
+              type: ArgTag.UNION,
+              dims: 0,
+              children: enumChildren,
+              resolved: true,
+            },
+          };
+        } else {
+          this._definedTypeKinds.set(name, "enum");
+        }
+      } else if (recordItem) {
         const paramsNode = recordItem.childForFieldName("parameters");
         if (paramsNode) {
           const paramNodes = Parser.getNamedChildrenNoComments(paramsNode);
@@ -589,7 +633,7 @@ export class JavaProgram extends AbstractProgram {
             resolved: children.every((c) => c.type?.resolved),
           },
         };
-      } else {
+      } else if (!enumItem) {
         const kind: "enum" | "interface" | "class" = enumItem
           ? "enum"
           : interfaceItem
@@ -1449,6 +1493,17 @@ function resolveJavaPrimitive(name: string):
     case "String":
     case "CharSequence":
       return { tag: ArgTag.STRING };
+    case "UUID":
+    case "java.util.UUID":
+      return {
+        tag: ArgTag.STRING,
+        options: {
+          strLength: { min: 36, max: 36 },
+          strCharset: "0123456789abcdefABCDEF-",
+          strRegex:
+            "\\A[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}\\Z",
+        },
+      };
     default:
       return undefined;
   }
@@ -1482,6 +1537,8 @@ function isJavaPrimitiveOrBuiltinName(name: string): boolean {
     "Character",
     "String",
     "CharSequence",
+    "UUID",
+    "java.util.UUID",
     "Object",
     "void",
     "Void",

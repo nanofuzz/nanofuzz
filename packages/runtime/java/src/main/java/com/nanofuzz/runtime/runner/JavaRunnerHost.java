@@ -34,6 +34,7 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.lang.reflect.RecordComponent;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.net.URL;
@@ -48,6 +49,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -678,7 +680,8 @@ public class JavaRunnerHost {
    * @param paramTypes Target reflection parameter types
    * @return Converted Object array ready for reflection invocation
    */
-  private Object[] convertArgs(List<Object> args, Class<?>[] paramTypes) {
+  private Object[] convertArgs(List<Object> args, Class<?>[] paramTypes)
+      throws ReflectiveOperationException {
     Object[] converted = new Object[paramTypes.length];
     for (int i = 0; i < paramTypes.length; i++) {
       Object raw = i < args.size() ? args.get(i) : null;
@@ -696,7 +699,8 @@ public class JavaRunnerHost {
    * @return Coerced and converted value
    */
   @SuppressWarnings("unchecked")
-  private Object convertArg(Object val, Class<?> target) {
+  private Object convertArg(Object val, Class<?> target)
+      throws ReflectiveOperationException {
     if (val == null) {
       if (target.isPrimitive()) {
         if (target == boolean.class)
@@ -759,6 +763,31 @@ public class JavaRunnerHost {
     }
     if (target == BigDecimal.class) {
       return new BigDecimal(String.valueOf(val));
+    }
+    if (target == UUID.class) {
+      return UUID.fromString(String.valueOf(val));
+    }
+    if (target.isEnum()) {
+      return Enum.valueOf((Class) target, String.valueOf(val));
+    }
+    if (target.isRecord()) {
+      if (!(val instanceof Map<?, ?> map)) {
+        throw new IllegalArgumentException(
+            "Expected a map to construct record " + target.getName());
+      }
+      RecordComponent[] components = target.getRecordComponents();
+      Class<?>[] componentTypes = new Class<?>[components.length];
+      Object[] componentValues = new Object[components.length];
+      for (int i = 0; i < components.length; i++) {
+        RecordComponent component = components[i];
+        componentTypes[i] = component.getType();
+        componentValues[i] = convertArg(map.get(component.getName()), component.getType());
+      }
+      Constructor<?> constructor = target.getDeclaredConstructor(componentTypes);
+      if (!constructor.canAccess(null)) {
+        constructor.setAccessible(true);
+      }
+      return constructor.newInstance(componentValues);
     }
     if (target == java.util.function.DoubleSupplier.class) {
       String seed = (val instanceof Map<?, ?> m && m.get("seed") != null) ? String.valueOf(m.get("seed")) : "0";

@@ -3,6 +3,7 @@ import * as ValueMapper from "../ValueMapper";
 import * as Parser from "../../adapters/ParserAdapter";
 import { ArgDef } from "../../analysis/ArgDef";
 import { ArgOptions, ArgTag } from "../../analysis/Types";
+import * as ProgramFactory from "../../analysis/ProgramFactory";
 
 describe("fuzzer/mappers/java/JavaValueMapper: ", () => {
   beforeAll(async () => {
@@ -184,6 +185,40 @@ describe("fuzzer/mappers/java/JavaValueMapper: ", () => {
       constructor: "Point",
       args: [10, 20],
     });
+  });
+
+  it("round-trips enum, UUID, and nested record values using Java type hints", () => {
+    const src = `
+import java.util.UUID;
+class MapperTypes {
+    enum Color { RED, BLUE }
+    record Inner(UUID id) {}
+    record Pair(Color color, Inner inner) {}
+    public static void echoColor(Color color) {}
+    public static void echoUuid(UUID id) {}
+    public static void echoRecord(Pair value) {}
+}
+`;
+    const program = ProgramFactory.fromSource(() => src, "java");
+    const colorArg = program.functionsExported["echoColor"].getArgDefs()[0];
+    const uuidArg = program.functionsExported["echoUuid"].getArgDefs()[0];
+    const recordArg = program.functionsExported["echoRecord"].getArgDefs()[0];
+    const uuid = "9d3e7a10-24b5-4c6d-8e9f-0123456789ab";
+
+    const enumJava = JavaValueMapper.toJava("RED", colorArg);
+    expect(enumJava).toBe("Color.RED");
+    expect(JavaValueMapper.fromJava(enumJava, colorArg)).toBe("RED");
+
+    const uuidJava = JavaValueMapper.toJava(uuid, uuidArg);
+    expect(uuidJava).toBe(`java.util.UUID.fromString("${uuid}")`);
+    expect(JavaValueMapper.fromJava(uuidJava, uuidArg)).toBe(uuid);
+
+    const record = { color: "BLUE", inner: { id: uuid } };
+    const recordJava = JavaValueMapper.toJava(record, recordArg);
+    expect(recordJava).toBe(
+      `new Pair(Color.BLUE, new Inner(java.util.UUID.fromString("${uuid}")))`
+    );
+    expect(JavaValueMapper.fromJava(recordJava, recordArg)).toEqual(record);
   });
 
   it("handles Java Optional expressions", () => {

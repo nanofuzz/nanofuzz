@@ -61,6 +61,90 @@ describe("fuzzer/runners/java/JavaRunner: ", () => {
     await runner.onRunEnd();
   });
 
+  it("round-trips enum values through runner IPC", async () => {
+    const javaPath = path.join(tempDir, "EnumRoundTrip.java");
+    fs.writeFileSync(
+      javaPath,
+      `public class EnumRoundTrip {
+    public enum Color { RED, GREEN, BLUE }
+    public static Color echo(Color color) { return color; }
+}
+`
+    );
+
+    const program = ProgramFactory.fromFile(javaPath, "java");
+    const env = createTestEnv(program.functionsExported["echo"]);
+    const runner = new JavaRunner(javaPath, "echo", env);
+    await runner.onRunStart();
+
+    const res = await runner.run(["GREEN"], 5000);
+    expect(res.result.tag).toBe("value");
+    if (res.result.tag === "value") {
+      expect(res.result.value).toBe("GREEN");
+    }
+
+    await runner.onRunEnd();
+  });
+
+  it("round-trips UUID values through runner IPC", async () => {
+    const javaPath = path.join(tempDir, "UuidRoundTrip.java");
+    fs.writeFileSync(
+      javaPath,
+      `import java.util.UUID;
+public class UuidRoundTrip {
+    public static UUID echo(UUID id) { return id; }
+}
+`
+    );
+
+    const program = ProgramFactory.fromFile(javaPath, "java");
+    const env = createTestEnv(program.functionsExported["echo"]);
+    const runner = new JavaRunner(javaPath, "echo", env);
+    await runner.onRunStart();
+
+    const uuid = "9d3e7a10-24b5-4c6d-8e9f-0123456789ab";
+    const res = await runner.run([uuid], 5000);
+    expect(res.result.tag).toBe("value");
+    if (res.result.tag === "value") {
+      expect(res.result.value).toBe(uuid);
+    }
+
+    await runner.onRunEnd();
+  });
+
+  it("round-trips nested record components through runner IPC", async () => {
+    const javaPath = path.join(tempDir, "RecordRoundTrip.java");
+    fs.writeFileSync(
+      javaPath,
+      `import java.util.UUID;
+public class RecordRoundTrip {
+    public enum Color { RED, BLUE }
+    public record Inner(UUID id) {}
+    public record Point(Color color, Inner inner, int x) {}
+    public static Point echo(Point point) { return point; }
+}
+`
+    );
+
+    const program = ProgramFactory.fromFile(javaPath, "java");
+    const env = createTestEnv(program.functionsExported["echo"]);
+    const runner = new JavaRunner(javaPath, "echo", env);
+    await runner.onRunStart();
+
+    const input = {
+      color: "BLUE",
+      inner: { id: "9d3e7a10-24b5-4c6d-8e9f-0123456789ab" },
+      x: 17,
+    };
+    const res = await runner.run([input], 5000);
+    expect(res.result.tag).toBe("value");
+    if (res.result.tag === "value") {
+      expect(res.result.value).toEqual(input);
+    }
+
+    await runner.onRunEnd();
+  });
+
   it("executes functions with strings, booleans, and arrays", async () => {
     const javaPath = path.join(tempDir, "Greeter.java");
     fs.writeFileSync(

@@ -31,8 +31,8 @@ function cast(val: unknown): unknown {
  * @param text Textual representation of a Java value
  * @returns JavaScript value corresponding to text
  */
-export function fromJava<T>(text: string): T {
-  return cast<T>(toJavascriptValue(text));
+export function fromJava<T>(text: string, argDef?: ArgDef | ArgDefContext): T {
+  return cast<T>(toJavascriptValue(text, argDef));
 } // fn: fromJava
 
 // ----------------- From JavaScript value to Java string ----------------- //
@@ -55,6 +55,7 @@ function toJavaFormat(val: unknown, argDef?: ArgDefContext): string {
   if (argDef?.isOptional()) {
     const innerArgDef: ArgDefContext = {
       isOptional: () => false,
+      getName: () => argDef.getName(),
       getTypeRef: () => argDef.getTypeRef(),
       getBaseTypeRef: () => argDef.getBaseTypeRef(),
       getOptions: () => argDef.getOptions(),
@@ -111,6 +112,12 @@ function toJavaFormat(val: unknown, argDef?: ArgDefContext): string {
   }
 
   if (typeof val === "string") {
+    if (argDef?.getTypeRef() === "UUID") {
+      return `java.util.UUID.fromString(${JSON.stringify(val)})`;
+    }
+    if (argDef?.getType() === ArgTag.UNION && argDef.getTypeRef()) {
+      return `${argDef.getTypeRef()}.${val}`;
+    }
     if (
       argDef?.getTypeRef() === "char" ||
       argDef?.getTypeRef() === "Character"
@@ -204,6 +211,7 @@ function toJavaFormat(val: unknown, argDef?: ArgDefContext): string {
       (argDef && argDef.getDim() > 0
         ? {
             isOptional: () => false,
+            getName: () => argDef.getName(),
             getTypeRef: () => argDef.getTypeRef(),
             getBaseTypeRef: () => argDef.getBaseTypeRef(),
             getOptions: () => argDef.getOptions(),
@@ -233,9 +241,14 @@ function toJavaFormat(val: unknown, argDef?: ArgDefContext): string {
       }
       const typeRef = argDef?.getTypeRef();
       if (typeRef && /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(typeRef)) {
-        return `new ${typeRef}(${Object.values(val)
-          .map((v) => toJavaFormat(v))
-          .join(", ")})`;
+        const componentDefs =
+          argDef?.getType() === ArgTag.OBJECT ? argDef.getChildren() : [];
+        const components = componentDefs.length
+          ? componentDefs.map((component) =>
+              toJavaFormat(val[component.getName()], component)
+            )
+          : Object.values(val).map((value) => toJavaFormat(value));
+        return `new ${typeRef}(${components.join(", ")})`;
       }
       return `{ ${entries.join(", ")} }`;
     }
@@ -260,7 +273,10 @@ function toJavaFormat(val: unknown, argDef?: ArgDefContext): string {
  * @param text Textual representation of a Java expression
  * @returns Converted JavaScript value
  */
-function toJavascriptValue(text: string): unknown {
+function toJavascriptValue(
+  text: string,
+  argDef?: ArgDef | ArgDefContext
+): unknown {
   if (!text || typeof text !== "string") {
     throw new Error("Input must be a non-empty string");
   }
@@ -350,13 +366,44 @@ function toJavascriptValue(text: string): unknown {
       const varDecl = tree.rootNode.descendantsOfType("variable_declarator")[0];
       const valNode = varDecl?.childForFieldName("value");
       if (valNode) {
-        return evalJavaAstNode(valNode);
+        return decodeTypedValue(evalJavaAstNode(valNode), argDef);
       }
     }
   }
 
-  return parseJavaObjectLiteral(trimmed);
+  return decodeTypedValue(parseJavaObjectLiteral(trimmed), argDef);
 } // fn: toJavascriptValue
+
+function decodeTypedValue(
+  value: unknown,
+  argDef?: ArgDef | ArgDefContext
+): unknown {
+  if (argDef?.getType() === ArgTag.UNION && typeof value === "string") {
+    return value.slice(value.lastIndexOf(".") + 1);
+  }
+
+  if (
+    argDef?.getType() === ArgTag.OBJECT &&
+    value !== null &&
+    typeof value === "object" &&
+    "constructor" in value &&
+    "args" in value &&
+    Array.isArray(value.args)
+  ) {
+    const components = argDef.getChildren();
+    const args = value.args;
+    if (components.length === args.length) {
+      return Object.fromEntries(
+        components.map((component, index) => [
+          component.getName(),
+          decodeTypedValue(args[index], component),
+        ])
+      );
+    }
+  }
+
+  return value;
+} // fn: decodeTypedValue
 
 /**
  * Evaluates a Tree-sitter Java AST expression node into a JavaScript value.
@@ -536,6 +583,12 @@ function evalJavaAstNode(node: Parser.SyntaxNode): unknown {
         if (methodName === "of" || methodName === "ofNullable") {
           return args.length > 0 ? args[0] : null;
         }
+      }
+      if (
+        (objName === "UUID" || objName === "java.util.UUID") &&
+        methodName === "fromString"
+      ) {
+        return args.length > 0 ? String(args[0]) : "";
       }
       if (
         (objName === "BigInteger" || objName === "java.math.BigInteger") &&
@@ -866,6 +919,7 @@ function inferArrayBaseType(val: unknown[], argDef?: ArgDefContext): string {
 
 export type ArgDefContext = {
   isOptional(): boolean;
+  getName(): string;
   getTypeRef(): string | undefined;
   getBaseTypeRef(): string | undefined;
   getOptions(): ArgOptions;
