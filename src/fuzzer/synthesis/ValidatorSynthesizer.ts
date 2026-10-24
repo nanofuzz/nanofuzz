@@ -2,6 +2,7 @@ import { FunctionDef } from "../analysis/FunctionDef";
 import { TypescriptProgram } from "../analysis/typescript/TypescriptProgram";
 import { PythonProgram } from "../analysis/python/PythonProgram";
 import { RustProgram } from "../analysis/rust/RustProgram";
+import { OxcamlProgram } from "../analysis/oxcaml/OxcamlProgram";
 import { ProgramLanguage } from "../analysis/Types";
 import { CompanionManager } from "../analysis/CompanionManager";
 import { FuzzerCodeSnippet } from "./Types";
@@ -168,6 +169,48 @@ export function synthesizeValidator(
     bodyLines.push(`  ValidatorResult::Pass\n}`);
 
     const skeleton = `\n\npub fn ${validatorName}(${validatorArgs.resultArgName}: &FuzzTestResult) -> ValidatorResult {\n${bodyLines.join("\n")}`;
+    const importData = imports.map((i) => i.stmt).join("");
+    const fullTemplate = `${importData}${skeleton.trimStart()}`;
+
+    return {
+      name: validatorName,
+      skeleton,
+      imports,
+      fullTemplate,
+    };
+  } else if (targetLang === "oxcaml") {
+    const inArgLines = inArgs.map((argDef, i) => {
+      const typeAnnot = OxcamlProgram.getTypeAnnotation(argDef);
+      return `  (* let ${argDef.getName()} : ${typeAnnot} = Nanofuzz_runtime.get_in ${i} ${validatorArgs.resultArgName} in *)`;
+    });
+    const outVarName = getIdentifierNameAvoidingConflicts(
+      inArgs,
+      outVarCandidateNames,
+      maxOutVarSuffix
+    );
+    const outArgLine = `  (* let ${outVarName.name} = Nanofuzz_runtime.get_out ${validatorArgs.resultArgName} in *)`;
+
+    const imports = [
+      {
+        name: "Nanofuzz_runtime",
+        stmt: `open Nanofuzz_runtime\n`,
+      },
+    ];
+
+    const bodyLines: string[] = [];
+    bodyLines.push(
+      "  (* Extract input arguments and return value from execution result *)"
+    );
+    if (inArgLines.length > 0) {
+      bodyLines.push(...inArgLines);
+    }
+    bodyLines.push(outArgLine);
+    bodyLines.push(
+      `\n  (* Validate properties and return Nanofuzz_runtime.Pass, Fail, or Unknown *)`
+    );
+    bodyLines.push(`  Nanofuzz_runtime.Pass`);
+
+    const skeleton = `\n\nlet ${validatorName} (${validatorArgs.resultArgName} : Nanofuzz_runtime.fuzz_test_result) : Nanofuzz_runtime.validator_result =\n${bodyLines.join("\n")}\n`;
     const importData = imports.map((i) => i.stmt).join("");
     const fullTemplate = `${importData}${skeleton.trimStart()}`;
 

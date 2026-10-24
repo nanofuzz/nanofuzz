@@ -64,6 +64,20 @@ describe("src/fuzzer/synthesis/UserGeneratorSynthesizer", () => {
     expect(result.fullTemplate).toContain("pub fn add_generator");
   });
 
+  it("synthesizes OxCaml user input generator with prng closure parameter", () => {
+    const src = `let add (a : int) (b : int) : int = a + b`;
+    const program = ProgramFactory.fromSource(() => src, "oxcaml");
+    const fnDef = program.functionsExported["add"];
+    expect(fnDef).toBeDefined();
+
+    const result = synthesizeUserGenerator(fnDef, "oxcaml");
+    expect(result.name).toBe("add_generator");
+    expect(result.skeleton).toContain(
+      "let add_generator (_prng : unit -> float) : (int * int) option ="
+    );
+    expect(result.skeleton).toContain("Some (");
+  });
+
   it("disambiguates generator name when existing names conflict", () => {
     const program = ProgramFactory.fromFile(tsFixture);
     const fnDef = program.functions["targetUserGen"];

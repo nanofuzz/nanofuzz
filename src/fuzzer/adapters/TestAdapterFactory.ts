@@ -4,6 +4,7 @@ import { AbstractTestAdapter } from "./AbstractTestAdapter";
 import { JestAdapter } from "./jest/JestAdapter";
 import { PytestAdapter } from "./pytest/PytestAdapter";
 import { CargoTestAdapter } from "./cargo/CargoTestAdapter";
+import { DuneTestAdapter } from "./dune/DuneTestAdapter";
 
 export function fromSourceFilename(
   filename: string,
@@ -18,6 +19,7 @@ export function fromSourceFilename(
     case "rust":
       return new CargoTestAdapter(testSet, filename);
     case "oxcaml":
+      return new DuneTestAdapter(testSet, filename);
     case "*":
     default:
       throw new Error(`Unsupported program type: ${filename}`);

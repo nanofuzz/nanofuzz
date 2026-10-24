@@ -1,6 +1,7 @@
 import { FunctionDef } from "../analysis/FunctionDef";
 import { PythonProgram } from "../analysis/python/PythonProgram";
 import { RustProgram } from "../analysis/rust/RustProgram";
+import { OxcamlProgram } from "../analysis/oxcaml/OxcamlProgram";
 import { ProgramLanguage } from "../analysis/Types";
 import { CompanionManager } from "../analysis/CompanionManager";
 import { FuzzerCodeSnippet } from "./Types";
@@ -109,6 +110,52 @@ export function synthesizeTransformer(
     ];
 
     const skeleton = `\n\npub fn ${transformerName}(${rustParams}) -> ${rustTupleType} {\n  // Use assume!(condition, "msg") or panic with UnsatisfiedAssumption to filter out-of-domain inputs\n  // Otherwise, return the transformed inputs\n  ${rustReturnTuple}\n}`;
+    const importData = imports.map((i) => i.stmt).join("");
+    const fullTemplate = `${importData}${skeleton.trimStart()}`;
+
+    return {
+      name: transformerName,
+      skeleton,
+      imports,
+      fullTemplate,
+    };
+  } else if (targetLang === "oxcaml") {
+    const oxcamlParams =
+      inArgs.length === 0
+        ? "()"
+        : inArgs
+            .map(
+              (a) =>
+                `(${a.getName()} : ${OxcamlProgram.getTypeAnnotation(a, {
+                  useTypeRefs: true,
+                })})`
+            )
+            .join(" ");
+    const oxcamlTupleType =
+      inArgs.length === 0
+        ? "unit"
+        : inArgs.length === 1
+          ? OxcamlProgram.getTypeAnnotation(inArgs[0], { useTypeRefs: true })
+          : `(${inArgs
+              .map((a) =>
+                OxcamlProgram.getTypeAnnotation(a, { useTypeRefs: true })
+              )
+              .join(" * ")})`;
+    const oxcamlReturnTuple =
+      inArgs.length === 0
+        ? "()"
+        : inArgs.length === 1
+          ? argDestructuring
+          : `(${argDestructuring})`;
+
+    const imports = [
+      {
+        name: "assume",
+        stmt: `open Nanofuzz_runtime\n`,
+      },
+    ];
+
+    const skeleton = `\n\nlet ${transformerName} ${oxcamlParams} : ${oxcamlTupleType} =\n  (* Use assume condition to filter out-of-domain inputs *)\n  (* Otherwise, return the transformed inputs *)\n  ${oxcamlReturnTuple}\n`;
     const importData = imports.map((i) => i.stmt).join("");
     const fullTemplate = `${importData}${skeleton.trimStart()}`;
 
