@@ -14,6 +14,8 @@ describe("fuzzer: java targets", () => {
       "greeting",
       {
         ...intOptions,
+        maxTests: 50,
+        fnTimeout: 2000,
         useProperty: true,
         suiteTimeout: 10000,
       }
@@ -228,6 +230,7 @@ describe("fuzzer: java targets", () => {
       {
         ...intOptions,
         maxTests: 20,
+        fnTimeout: 2000,
         suiteTimeout: 10000,
         generators: {
           RandomInputGenerator: { enabled: false },
