@@ -752,6 +752,12 @@ public class JavaRunnerHost {
     if (target == BigDecimal.class) {
       return new BigDecimal(String.valueOf(val));
     }
+    if (target == java.util.function.DoubleSupplier.class) {
+      String seed = (val instanceof Map<?, ?> m && m.get("seed") != null) ? String.valueOf(m.get("seed")) : "0";
+      long seedLong = seed.hashCode();
+      java.util.Random rng = new java.util.Random(seedLong);
+      return (java.util.function.DoubleSupplier) rng::nextDouble;
+    }
     if (target == byte[].class) {
       if (val instanceof List<?> list) {
         byte[] arr = new byte[list.size()];

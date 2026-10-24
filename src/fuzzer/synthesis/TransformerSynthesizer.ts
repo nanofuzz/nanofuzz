@@ -1,6 +1,7 @@
 import { FunctionDef } from "../analysis/FunctionDef";
 import { PythonProgram } from "../analysis/python/PythonProgram";
 import { RustProgram } from "../analysis/rust/RustProgram";
+import { JavaProgram } from "../analysis/java/JavaProgram";
 import { ProgramLanguage } from "../analysis/Types";
 import { CompanionManager } from "../analysis/CompanionManager";
 import { FuzzerCodeSnippet } from "./Types";
@@ -109,6 +110,41 @@ export function synthesizeTransformer(
     ];
 
     const skeleton = `\n\npub fn ${transformerName}(${rustParams}) -> ${rustTupleType} {\n  // Use assume!(condition, "msg") or panic with UnsatisfiedAssumption to filter out-of-domain inputs\n  // Otherwise, return the transformed inputs\n  ${rustReturnTuple}\n}`;
+    const importData = imports.map((i) => i.stmt).join("");
+    const fullTemplate = `${importData}${skeleton.trimStart()}`;
+
+    return {
+      name: transformerName,
+      skeleton,
+      imports,
+      fullTemplate,
+    };
+  } else if (targetLang === "java") {
+    const javaParams = inArgs
+      .map(
+        (a) =>
+          `${JavaProgram.getTypeAnnotation(a, {
+            useTypeRefs: true,
+          })} ${a.getName()}`
+      )
+      .join(", ");
+    const javaReturn =
+      inArgs.length === 0
+        ? "new Object[0]"
+        : `new Object[] { ${argDestructuring} }`;
+
+    const imports = [
+      {
+        name: "Assume",
+        stmt: `import com.nanofuzz.runtime.Assume;\n`,
+      },
+      {
+        name: "UnsatisfiedAssumptionException",
+        stmt: `import com.nanofuzz.runtime.UnsatisfiedAssumptionException;\n`,
+      },
+    ];
+
+    const skeleton = `\n\npublic static Object[] ${transformerName}(${javaParams}) {\n  // Use Assume.that(condition, "msg") or throw new UnsatisfiedAssumptionException("msg") to filter out-of-domain inputs\n  // Otherwise, return the transformed inputs\n  return ${javaReturn};\n}`;
     const importData = imports.map((i) => i.stmt).join("");
     const fullTemplate = `${importData}${skeleton.trimStart()}`;
 
