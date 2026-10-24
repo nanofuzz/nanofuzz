@@ -36,4 +36,16 @@ public class AssumeTest {
         () -> Assume.assume(x > 0, "x was %d, expected positive", x));
     assertEquals("x was -5, expected positive", ex.getMessage());
   }
+
+  @Test
+  void testThatMethods() {
+    assertTrue(Assume.that(true));
+    assertTrue(Assume.that(true, "ok"));
+    assertTrue(Assume.that(true, "fmt %d", 1));
+
+    UnsatisfiedAssumptionException ex = assertThrows(
+        UnsatisfiedAssumptionException.class,
+        () -> Assume.that(false, "failed"));
+    assertEquals("failed", ex.getMessage());
+  }
 }

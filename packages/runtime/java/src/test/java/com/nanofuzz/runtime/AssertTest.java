@@ -10,7 +10,8 @@ public class AssertTest {
     Assert.that(true);
     Assert.that(true, "message");
     Assert.that(10 > 5);
-    Assert.that(2 + 2 == 4, "math must work");
+    int a = 2;
+    Assert.that(a + a == 4, "math must work");
     Assert.that(true, "formatted %s", "arg");
   }
 

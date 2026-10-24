@@ -3,7 +3,7 @@ import path from "node:path";
 import os from "node:os";
 import * as ChildProcess from "node:child_process";
 import * as Config from "../../Config";
-import { CoverageMeasure } from "./CoverageMeasure";
+import { CoverageMeasure, isRecordOfFileCoverageData } from "./CoverageMeasure";
 import { JavaRunner } from "../runners/java/JavaRunner";
 import { extractJavaStaticCoverage } from "../runners/java/JavaHarness";
 import { JavaCompiler } from "../compilers/java/JavaCompiler";
@@ -514,9 +514,14 @@ public class MainApp {
       // Verify dynamic hits recorded for external class
       const extFile = importFiles.find((f) => f.includes("Square.java"));
       expect(extFile).toBeDefined();
-      const extCov = runnerImports.coverageInfo![extFile!];
-      expect(Object.values(extCov.f).some((h) => h > 0)).toBeTrue();
-      expect(Object.values(extCov.s).some((h) => h > 0)).toBeTrue();
+      const cov = runnerImports.coverageInfo;
+      expect(cov).toBeDefined();
+      expect(isRecordOfFileCoverageData(cov)).toBeTrue();
+      if (!isRecordOfFileCoverageData(cov)) return;
+      const extCov = cov[extFile!];
+      expect(extCov).toBeDefined();
+      expect(Object.values(extCov.f).some((h: number) => h > 0)).toBeTrue();
+      expect(Object.values(extCov.s).some((h: number) => h > 0)).toBeTrue();
       expect(extCov.b["0"]).toEqual([1, 0]);
 
       await runnerImports.onRunEnd();

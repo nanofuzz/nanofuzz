@@ -23,5 +23,15 @@
   // insert spaces when pressing Tab
   "editor.insertSpaces": true,
   "editor.detectIndentation": true,
-  "python.analysis.extraPaths": ["./build/extension/_nanofuzz_python"]
+  "python.analysis.extraPaths": ["./build/extension/_nanofuzz_python"],
+  "java.project.resourceFilters": [
+    "node_modules",
+    "\\.git",
+    "packages",
+    "test_fixtures"
+  ],
+  "java.project.referencedLibraries": [
+    "packages/runtime/java/target/nanofuzz-runtime-*.jar"
+  ],
+  "java.errors.incompleteClasspath.severity": "ignore"
 }

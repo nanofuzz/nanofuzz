@@ -659,6 +659,14 @@ public class JavaRunnerHost {
       }
       return wrapped;
     }
+    if (val.getClass().isArray() && !(val instanceof byte[])) {
+      int len = Array.getLength(val);
+      List<Object> wrapped = new ArrayList<>(len);
+      for (int i = 0; i < len; i++) {
+        wrapped.add(wrapJsonn(Array.get(val, i)));
+      }
+      return wrapped;
+    }
     return val;
   } // fn: wrapJsonn
 

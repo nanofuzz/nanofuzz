@@ -67,7 +67,7 @@ export function buildJavaHarness(
       findInAncestor(path.dirname(normTarget), "build.gradle") ??
       findInAncestor(path.dirname(normTarget), "build.gradle.kts");
 
-    let srcRoots: string[] = [];
+    const srcRoots: string[] = [];
     if (pomFile || gradleFile) {
       const projDir = path.dirname((pomFile ?? gradleFile)!);
       const standardSrc = path.join(projDir, "src", "main", "java");

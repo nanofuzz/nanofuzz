@@ -542,7 +542,7 @@ function evalJavaAstNode(node: Parser.SyntaxNode): unknown {
         methodName === "valueOf" &&
         args.length > 0
       ) {
-        return BigInt(args[0] as string | number | bigint | boolean);
+        return BigInt(String(args[0]));
       }
       return args;
     }
@@ -579,7 +579,7 @@ function evalJavaAstNode(node: Parser.SyntaxNode): unknown {
         return [];
       }
       if (typeName === "BigInteger" || typeName === "java.math.BigInteger") {
-        return BigInt(args[0] as string | number | bigint | boolean);
+        return BigInt(String(args[0]));
       }
       if (typeName === "BigDecimal" || typeName === "java.math.BigDecimal") {
         return Number(args[0]);

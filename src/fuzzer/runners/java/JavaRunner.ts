@@ -2,7 +2,6 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   AbstractRunner,
-  RunnerCoverage,
   RunnerOverrides,
   RunnerResult,
   ValidatorResult,
@@ -76,14 +75,14 @@ export class JavaRunner extends AbstractRunner {
   /**
    * Returns accumulated coverage info, if available.
    */
-  public override get coverageInfo(): RunnerCoverage | undefined {
+  public override get coverageInfo(): CoverageMapData | undefined {
     return this._coverageInfo;
   } // get: coverageInfo
 
   /**
    * Returns the coverage info from the most recent test run execution.
    */
-  public override get lastRunCoverage(): RunnerCoverage | undefined {
+  public override get lastRunCoverage(): CoverageMapData | undefined {
     return this._lastRunCoverage;
   } // get: lastRunCoverage
 

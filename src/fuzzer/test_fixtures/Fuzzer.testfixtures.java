@@ -7,6 +7,8 @@ import /* inline in import */ java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.Optional;
+import com.nanofuzz.runtime.FuzzTestResult;
+import com.nanofuzz.runtime.Assume;
 
 /**
  * NaNofuzz test fixtures for Java.
@@ -26,10 +28,12 @@ class FuzzerTestFixtures {
   /*
    * Validator function with doc and block comments
    */
-  public static String greetingValidator(/* argument comment */ Object /* inline type */ r) {
-    // Extract output
-    /* inline start */ String out = "pass"; /* inline end */
-    return out;
+  public static String greetingValidator(/* argument comment */ FuzzTestResult /* inline type */ r) {
+    String out = r.getOut();
+    if (out != null && out.startsWith("Hello ")) {
+      return "pass";
+    }
+    return "fail";
   }
 
   /**
@@ -42,6 +46,28 @@ class FuzzerTestFixtures {
       throw new IllegalArgumentException("input greater than 10 not allowed");
     }
     // Return expression
+    return n;
+  }
+
+  /**
+   * Method with timeout.
+   */
+  public static int timeouts(int n) {
+    if (n > 0) {
+      try {
+        Thread.sleep(10000);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+      }
+    }
+    return n;
+  }
+
+  /**
+   * Method with assume precondition.
+   */
+  public static int withAssume(int n) {
+    Assume.that(n != 5, "n cannot be 5");
     return n;
   }
 
@@ -94,8 +120,20 @@ class FuzzerTestFixtures {
     return n + 1;
   }
 
-  public static int[] javaTransformedTransformer(int n) {
-    // Transformer computation
-    return new int[] { /* inline array element */ n * 10 };
+  public static Object[] javaTransformedTransformer(int n) {
+    Assume.that(n >= 0 && n != 5, "Transformer skipped negative n or n=5");
+    return new Object[] { /* inline array element */ n * 10 };
+  }
+
+  /**
+   * Custom user input generator target.
+   */
+  public static String javaUserGen(int n, String s) {
+    return s + ":" + n;
+  }
+
+  public static Object[] javaUserGenGenerator(java.util.function.DoubleSupplier prng) {
+    int n = (int) (prng.getAsDouble() * 100.0);
+    return new Object[] { n, "custom" };
   }
 }
