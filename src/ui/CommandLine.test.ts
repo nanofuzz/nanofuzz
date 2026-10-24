@@ -909,8 +909,9 @@ describe("cli:", () => {
 
     const origLoad = FuzzConfigStore.loadForFunction;
     spyOn(FuzzConfigStore, "loadForFunction").and.callFake(
-      (file: string, fn: string) => {
-        const cfg = origLoad(file, fn);
+      (...args: Parameters<typeof FuzzConfigStore.loadForFunction>) => {
+        const cfg = origLoad(...args);
+        const fn = args[1];
         if (fn === targetWithUserGen) {
           cfg.tests = {
             pin1: {
@@ -1776,6 +1777,35 @@ describe("cli:", () => {
     expect(outputData.stats.counters.failedTests).toBe(maxFailures);
   });
 
+  it("--max-failures: defaults to 1 when omitted", async () => {
+    const outputFile = path.join(tmpDir, "max_failures_default.json5");
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testStandardVoidReturnException";
+
+    const res = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--no-shrink",
+      "--max-tests",
+      "100",
+      "--seed",
+      "cli_seed_max_failures_default",
+    ]);
+
+    expect(res.status).toBe(1);
+    expect(fs.existsSync(outputFile)).toBeTrue();
+
+    const outputData = JSON5.parse<FuzzTestResults>(
+      fs.readFileSync(outputFile, "utf8")
+    );
+
+    expect(outputData.env.options.maxFailures).toBe(1);
+    expect(outputData.stopReason).toBe(FuzzStopReason.MAXFAILURES);
+    expect(outputData.results.length).toBe(1);
+  });
+
   it("--max-failures: stop fuzzing python put after 1 failure", async () => {
     const pyFile = path.join(
       tmpDir,
@@ -1899,6 +1929,8 @@ def ${targetFn}(n: int) -> int:
       outFileNone,
       "--output-results",
       "none",
+      "--max-failures",
+      "0",
       "--max-tests",
       "5",
       "--seed",
@@ -2225,6 +2257,111 @@ export function myPut(x: number): number {
     expect(res.stdout).toContain("Testing finished.");
     expect(res.stdout).toContain("Generated 5 inputs");
     expect(res.stdout).not.toContain("FAILED by Example Oracle");
+  });
+
+  it("loads options from .nano.json5 only when file exists and option is explicitly present", async () => {
+    const tsFile = path.join(tmpDir, "config_precedence.ts");
+    const jsonFile = path.join(tmpDir, "config_precedence.ts.nano.json5");
+    const outFile = path.join(tmpDir, "config_precedence_out.json5");
+    fs.writeFileSync(
+      tsFile,
+      `
+export function calc(x: number): number {
+  return x * 2;
+}
+`,
+      "utf8"
+    );
+    // Explicitly specify maxTests: 7 in the config file, but omit maxFailures
+    fs.writeFileSync(
+      jsonFile,
+      JSON.stringify({
+        version: "0.4.0",
+        functions: {
+          calc: {
+            options: {
+              maxTests: 7,
+            },
+            validators: [],
+            isVoid: false,
+            tests: {},
+          },
+        },
+      }),
+      "utf8"
+    );
+
+    const res = await runCli([
+      tsFile,
+      "calc",
+      "--output-file",
+      outFile,
+      "--seed",
+      "cli_seed_prec",
+    ]);
+
+    expect(res.status).toBe(0);
+    expect(fs.existsSync(outFile)).toBeTrue();
+    const data = JSON5.parse<FuzzTestResults>(fs.readFileSync(outFile, "utf8"));
+    // maxTests came from the file (7)
+    expect(data.env.options.maxTests).toBe(7);
+    expect(data.stats.outcomes.total).toBe(7);
+    // maxFailures was NOT in the file, so it used CLI default (1), NOT the extension default (0)
+    expect(data.env.options.maxFailures).toBe(1);
+  });
+
+  it("options in .nano.json5 take precedence over in-source @settings", async () => {
+    const pyFile = path.join(tmpDir, "precedence_settings.py");
+    const jsonFile = path.join(tmpDir, "precedence_settings.py.nano.json5");
+    const outFile = path.join(tmpDir, "precedence_settings_out.json5");
+    fs.writeFileSync(
+      pyFile,
+      `
+def settings(**kwargs):
+    def deco(fn):
+        return fn
+    return deco
+
+@settings(max_examples=100)
+def py_fn(x: int) -> int:
+    return x * 2
+`,
+      "utf8"
+    );
+    // Config file specifies maxTests: 4, overriding the in-source @settings(max_examples=100)
+    fs.writeFileSync(
+      jsonFile,
+      JSON.stringify({
+        version: "0.4.0",
+        functions: {
+          py_fn: {
+            options: {
+              maxTests: 4,
+            },
+            validators: [],
+            isVoid: false,
+            tests: {},
+          },
+        },
+      }),
+      "utf8"
+    );
+
+    const res = await runCli([
+      pyFile,
+      "py_fn",
+      "--output-file",
+      outFile,
+      "--seed",
+      "cli_seed_settings_precedence",
+    ]);
+
+    expect(res.status).toBe(0);
+    expect(fs.existsSync(outFile)).toBeTrue();
+    const data = JSON5.parse<FuzzTestResults>(fs.readFileSync(outFile, "utf8"));
+    // maxTests came from .nano.json5 (4), overriding in-source @settings (100)
+    expect(data.env.options.maxTests).toBe(4);
+    expect(data.stats.outcomes.total).toBe(4);
   });
 
   it("--max-failures 1: exception via PUT exception with shrinking", async () => {

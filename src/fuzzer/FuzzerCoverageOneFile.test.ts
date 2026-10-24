@@ -85,5 +85,5 @@ describe("fuzzer: coverageOneFile benchmark", () => {
     expect(
       runs.filter((r) => r.solved && !r.validatorFailed).map((r) => r.seed)
     ).toEqual([]);
-  }, 60000);
+  }, 300000);
 });

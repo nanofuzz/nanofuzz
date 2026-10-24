@@ -33,5 +33,8 @@
   "java.project.referencedLibraries": [
     "packages/runtime/java/target/nanofuzz-runtime-*.jar"
   ],
-  "java.errors.incompleteClasspath.severity": "ignore"
+  "java.errors.incompleteClasspath.severity": "ignore",
+  "yaml.schemas": {
+    "https://json.schemastore.org/github-action.json": ".github/actions/**/action.{yml,yaml}"
+  }
 }
