@@ -2,7 +2,7 @@
 
 NaNofuzz is a fast and easy-to-use Automatic Test sUite Generator (ATUG) for TypeScript, Python, and Rust that combines human insight, heuristics, and property checking to help you quickly reach working code nirvana. NaNofuzz is intended to be used during testing and development and is available in the [the VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=penrose.nanofuzz).
 
-<img width="1329" height="750" alt="image" src="https://github.com/user-attachments/assets/33a5fcda-19ac-459c-a50a-20cc0d8502c1" />
+![NaNofuzz Screenshot](https://github.com/user-attachments/assets/33a5fcda-19ac-459c-a50a-20cc0d8502c1)
 
 NaNofuzz proposes an initial set of tests with a single button click. Refine these tests with correctness annotations and/or by writing property validators that evaluate correctness at scale. NaNofuzz coherently organizes test results on a single screen so that you can see at a glance what you are actually testing---and what you may be missing.
 
@@ -35,6 +35,7 @@ To export a NaNofuzz test to CI, click the pin button beside an example. NaNofuz
 
 ## What's new in v0.4
 
+- **Command-line interface**: Run NaNofuzz directly from your terminal or CI pipelines via `npx @nanofuzz/cli <filename>::<function>` (see [CLI documentation](docs/CLI.md)).
 - **Python**: Test Python functions and export the saved tests to `pytest` for use in CI.
 - **Rust**: (experimental) Test Rust functions and export the saved tests to `cargo test` for use in CI.
 - **Custom input generators**: Programatically generate, modify, or skip inputs before they are dispatched for test execution.

@@ -1,0 +1,54 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-action.json
+name: Setup NaNofuzz Environment
+description: Sets up Python 3.13, virtual environment, Rust, OCaml, Node.js 22, and root dependencies
+inputs:
+  registry-url:
+    description: Optional npm registry URL for publishing
+    required: false
+    default: ""
+runs:
+  using: composite
+  steps:
+    - name: Install Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.13"
+
+    - name: Create Python virtual env
+      run: python -m venv .venv
+      shell: bash
+
+    - name: Add venv to GITHUB_PATH
+      run: |
+        import os
+        venv_bin = os.path.join(os.getcwd(), ".venv", "Scripts" if os.name == "nt" else "bin")
+        with open(os.environ["GITHUB_PATH"], "a") as f:
+            f.write(f"{venv_bin}\n")
+      shell: python
+
+    - name: Install Python packages
+      run: pip install -r requirements.txt
+      shell: bash
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Install OCaml
+      uses: ocaml/setup-ocaml@v3
+      with:
+        ocaml-compiler: 5.2.0
+
+    - name: Install OCaml packages
+      run: opam install dune yojson ounit2 -y
+      shell: bash
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        cache: yarn
+        registry-url: ${{ inputs.registry-url }}
+
+    - name: Install root dependencies
+      run: yarn --frozen-lockfile
+      shell: bash

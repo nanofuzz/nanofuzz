@@ -237,16 +237,25 @@ export async function runFuzz(
       Config.override("nanofuzz.ai.vendor", options.vendor);
     }
 
+    // Extract in-source fuzz options if present
+    const program = ProgramFactory.fromFile(resolvedPath);
+    const targetFnDef = program.functions[options.functionName];
+    const fnRef = targetFnDef?.getRef();
+    const fnFuzzOptions = fnRef?.fuzzOptions;
+
     // Load any companion .nano.json5 configuration and saved tests
     const fnConfig = FuzzConfigStore.loadForFunction(
       resolvedPath,
-      options.functionName
+      options.functionName,
+      undefined,
+      false
     );
     const persistedTests: FuzzPinnedTest[] = Object.values(
       fnConfig.tests ?? {}
     );
 
     const effectiveGenerators = {
+      ...(fnFuzzOptions?.generators ?? {}),
       ...(fnConfig.options?.generators ?? {}),
       ...options.generators,
       ...(shouldAutoEnableCopilot &&
@@ -255,10 +264,64 @@ export async function runFuzz(
         : {}),
     };
 
+    const effectiveMeasures = {
+      ...(fnFuzzOptions?.measures ?? {}),
+      ...(fnConfig.options?.measures ?? {}),
+      ...(options.measures ?? {}),
+    };
+
+    const effectiveArgDefaults = {
+      ...(fnFuzzOptions?.argDefaults ?? {}),
+      ...(fnConfig.options?.argDefaults ?? {}),
+      ...(options.argDefaults ?? {}),
+    };
+
     const normalizedOptions = normalizeAgentFuzzOptions({
-      ...(fnConfig.options ?? {}),
       ...options,
+      maxTests:
+        options.maxTests ??
+        fnConfig.options?.maxTests ??
+        fnFuzzOptions?.maxTests,
+      maxDupeInputs:
+        options.maxDupeInputs ??
+        fnConfig.options?.maxDupeInputs ??
+        fnFuzzOptions?.maxDupeInputs,
+      maxFailures:
+        options.maxFailures ??
+        fnConfig.options?.maxFailures ??
+        fnFuzzOptions?.maxFailures,
+      fnTimeout:
+        options.fnTimeout ??
+        fnConfig.options?.fnTimeout ??
+        fnFuzzOptions?.fnTimeout,
+      suiteTimeout:
+        options.suiteTimeout ??
+        fnConfig.options?.suiteTimeout ??
+        fnFuzzOptions?.suiteTimeout,
+      seed: options.seed ?? fnConfig.options?.seed ?? fnFuzzOptions?.seed,
+      useImplicit:
+        options.useImplicit ??
+        fnConfig.options?.useImplicit ??
+        fnFuzzOptions?.useImplicit,
+      useHuman:
+        options.useHuman ??
+        fnConfig.options?.useHuman ??
+        fnFuzzOptions?.useHuman,
+      useProperty:
+        options.useProperty ??
+        fnConfig.options?.useProperty ??
+        fnFuzzOptions?.useProperty,
+      useTransformer:
+        options.useTransformer ??
+        fnConfig.options?.useTransformer ??
+        fnFuzzOptions?.useTransformer,
       generators: effectiveGenerators,
+      measures: Object.keys(effectiveMeasures).length
+        ? effectiveMeasures
+        : undefined,
+      argDefaults: Object.keys(effectiveArgDefaults).length
+        ? effectiveArgDefaults
+        : undefined,
     });
 
     const executionOptions: FuzzExecutionOptions = {

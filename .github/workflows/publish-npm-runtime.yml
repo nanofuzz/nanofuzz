@@ -1,4 +1,4 @@
-name: Publish npm Package
+name: Publish npm Runtime Package
 
 on:
   release:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  publish-npm:
+  publish-npm-runtime:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -15,17 +15,13 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Setup NaNofuzz environment
+        uses: ./.github/actions/setup-nanofuzz
         with:
-          node-version: 22
           registry-url: "https://registry.npmjs.org"
 
       - name: Upgrade npm CLI to support Trusted Publishing (OIDC)
         run: npm install -g npm@latest
-
-      - name: Install root dependencies
-        run: yarn --frozen-lockfile
 
       - name: Install runtime package dependencies
         working-directory: packages/runtime/typescript
@@ -38,6 +34,6 @@ jobs:
           yarn test
           yarn package
 
-      - name: Publish to npm
+      - name: Publish runtime package to npm
         working-directory: packages/runtime/typescript
-        run: npm publish --access public
+        run: npm publish --access public --ignore-scripts
