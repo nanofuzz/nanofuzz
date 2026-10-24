@@ -118,6 +118,7 @@ if (fs.existsSync(javaRuntimeDir)) {
       ChildProcess.execFileSync(mvnBin, ["clean", "package", "-DskipTests"], {
         cwd: javaRuntimeDir,
         stdio: "inherit",
+        shell: process.platform === "win32",
       });
     } else {
       throw new Error(
@@ -505,6 +506,7 @@ function resolveMaven() {
       const res = ChildProcess.spawnSync(candidate, ["--version"], {
         encoding: "utf8",
         stdio: "pipe",
+        shell: process.platform === "win32",
       });
       if (res.status === 0) {
         return candidate;

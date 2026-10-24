@@ -32,4 +32,4 @@ jobs:
         working-directory: packages/runtime/java
         run: mvn deploy -DskipTests
         env:
-          MAVEN_TOKEN: ${{ secrets.MAVEN_TOKEN }}
+          MAVEN_TOKEN: ${{ secrets.GITHUB_TOKEN }}
