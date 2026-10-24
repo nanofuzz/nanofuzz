@@ -1,0 +1,45 @@
+name: Publish opam Package
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  publish-opam:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup OCaml
+        uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: 5.2.0
+
+      - name: Install dependencies
+        run: |
+          opam install dune yojson ounit2 dune-release opam-publish -y
+
+      - name: Test runtime package
+        working-directory: packages/runtime/oxcaml
+        run: dune runtest
+
+      - name: Validate opam package
+        working-directory: packages/runtime/oxcaml
+        run: opam lint nanofuzz_runtime.opam
+
+      - name: Publish to opam-repository
+        working-directory: packages/runtime/oxcaml
+        run: |
+          # Use dune-release to generate release tarball and submit PR to ocaml/opam-repository
+          if [ -n "${{ secrets.OPAM_PUBLISH_TOKEN }}" ]; then
+            dune-release distrib --skip-lint --skip-build --skip-tests
+            dune-release publish distrib --yes
+            dune-release opam pkg
+            dune-release opam submit --yes --no-auto-open
+          else
+            echo "Notice: OPAM_PUBLISH_TOKEN not set. Skipping PR submission to ocaml/opam-repository."
+          fi
+        env:
+          DUNE_RELEASE_DELEGATE_GITHUB_TOKEN: ${{ secrets.OPAM_PUBLISH_TOKEN || secrets.GITHUB_TOKEN }}
