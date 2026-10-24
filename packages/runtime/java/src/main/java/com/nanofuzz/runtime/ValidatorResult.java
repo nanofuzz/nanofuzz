@@ -33,6 +33,25 @@ public enum ValidatorResult {
   }
 
   /**
+   * Converts an arbitrary object into a ValidatorResult.
+   *
+   * @param obj Result object
+   * @return Corresponding ValidatorResult
+   */
+  public static ValidatorResult from(Object obj) {
+    if (obj instanceof ValidatorResult vr) {
+      return vr;
+    }
+    if (obj instanceof Boolean b) {
+      return from(b.booleanValue());
+    }
+    if (obj instanceof String s) {
+      return from(s);
+    }
+    return UNKNOWN;
+  }
+
+  /**
    * Converts a boolean into a ValidatorResult (true -> PASS, false -> FAIL).
    *
    * @param passed Boolean test assertion

@@ -4,6 +4,7 @@ import { AbstractTestAdapter } from "./AbstractTestAdapter";
 import { JestAdapter } from "./jest/JestAdapter";
 import { PytestAdapter } from "./pytest/PytestAdapter";
 import { CargoTestAdapter } from "./cargo/CargoTestAdapter";
+import { JUnitTestAdapter } from "./junit/JUnitTestAdapter";
 
 export function fromSourceFilename(
   filename: string,
@@ -18,6 +19,7 @@ export function fromSourceFilename(
     case "rust":
       return new CargoTestAdapter(testSet, filename);
     case "java":
+      return new JUnitTestAdapter(testSet, filename);
     case "*":
     default:
       throw new Error(`Unsupported program type: ${filename}`);
