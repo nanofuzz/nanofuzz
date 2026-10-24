@@ -64,6 +64,28 @@ describe("src/fuzzer/synthesis/UserGeneratorSynthesizer", () => {
     expect(result.fullTemplate).toContain("pub fn add_generator");
   });
 
+  it("synthesizes Java user input generator with DoubleSupplier prng and Object[] return", () => {
+    const src = `public class MathOps { public static int add(int a, double b) { return (int)(a + b); } }`;
+    const program = ProgramFactory.fromSource(() => src, "java");
+    const fnDef = program.functionsExported["add"];
+    expect(fnDef).toBeDefined();
+
+    const result = synthesizeUserGenerator(fnDef, "java");
+    expect(result.name).toBe("addGenerator");
+    expect(result.imports.length).toBe(1);
+    expect(result.imports[0].name).toBe("DoubleSupplier");
+    expect(result.imports[0].stmt).toContain(
+      "import java.util.function.DoubleSupplier;"
+    );
+    expect(result.skeleton).toContain(
+      "public static Object[] addGenerator(DoubleSupplier prng) {"
+    );
+    expect(result.skeleton).toContain("return new Object[] {");
+    expect(result.fullTemplate).toContain(
+      "import java.util.function.DoubleSupplier;"
+    );
+  });
+
   it("disambiguates generator name when existing names conflict", () => {
     const program = ProgramFactory.fromFile(tsFixture);
     const fnDef = program.functions["targetUserGen"];

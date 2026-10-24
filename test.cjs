@@ -77,6 +77,9 @@ function sortTestFiles(files) {
     "PytestAdapter.test.ts",
     "FuzzerPython.test.ts",
     "RustRunner.test.ts",
+    "JavaRunner.test.ts",
+    "FuzzerJava.test.ts",
+    "CoverageMeasureJava.test.ts",
     "Fuzzer.test.ts",
     "CoverageMeasureRust.test.ts",
     "FuzzerExamples1.test.ts",
@@ -86,6 +89,7 @@ function sortTestFiles(files) {
     "FuzzerRust.test.ts",
     "FuzzerTypescript.test.ts",
     "RustCompiler.test.ts",
+    "JavaCompiler.test.ts",
     "Agent.test.ts",
     "FuzzerCoverageMultiFile.test.ts",
     "TypescriptCompiler.test.ts",
@@ -105,14 +109,18 @@ function sortTestFiles(files) {
 // This prevents multiple heavy subprocess or fuzzer workloads from thrashing CPU and
 // starving sub-second timeouts.
 const disaffinityGroups = [
-  // Group 1: Subprocess-heavy Python, Rust, and CLI runner & adapter suites
+  // Group 1: Subprocess-heavy Python, Rust, Java, and CLI runner & adapter suites
   // No two of these may run at the same time.
   [
     "PythonRunner.test.ts",
     "RustRunner.test.ts",
+    "JavaRunner.test.ts",
+    "FuzzerJava.test.ts",
+    "CoverageMeasureJava.test.ts",
     "CoverageMeasureRust.test.ts",
     "CargoTestAdapter.test.ts",
     "RustCompiler.test.ts",
+    "JavaCompiler.test.ts",
     "PytestAdapter.test.ts",
     "CommandLine.test.ts",
     "CommandLineAiCache.test.ts",

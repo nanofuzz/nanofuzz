@@ -40,6 +40,20 @@ export class RustCompilerError extends CompilerError<RustCompilerErrorDetails> {
   }
 }
 
+/**
+ * Exception class for Java compiler errors.
+ */
+export class JavaCompilerError extends CompilerError<JavaCompilerErrorDetails> {
+  constructor(message: string, details: JavaCompilerErrorDetails) {
+    if (!details.cli && details.javacCli) details.cli = details.javacCli;
+    if (!details.configFilename && details.projectConfigPath) {
+      details.configFilename = details.projectConfigPath;
+    }
+    super(message, details);
+    this.name = "JavaCompilerError";
+  }
+}
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -93,6 +107,29 @@ export type RustCompilerErrorDetails = CompilerErrorDetails & {
     level: string;
     code?: string;
     span?: RustCompilerDiagnosticSpan;
+    rendered?: string;
+  }>;
+};
+
+/**
+ * Diagnostic source location reported by the Java compiler
+ */
+export type JavaCompilerDiagnosticSpan = {
+  file: string;
+  line: number;
+  col: number;
+};
+
+/**
+ * Java compiler error details
+ */
+export type JavaCompilerErrorDetails = CompilerErrorDetails & {
+  projectConfigPath?: string;
+  javacCli?: string;
+  diagnostics?: Array<{
+    message: string;
+    level: string;
+    span?: JavaCompilerDiagnosticSpan;
     rendered?: string;
   }>;
 };

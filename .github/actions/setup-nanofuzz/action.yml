@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://json.schemastore.org/github-action.json
 name: Setup NaNofuzz Environment
-description: Sets up Python 3.13, virtual environment, Rust, Node.js 22, and root dependencies
+description: Sets up Python 3.13, virtual environment, Rust, Java 17, Maven, Node.js 22, and root dependencies
 inputs:
   registry-url:
     description: Optional npm registry URL for publishing
@@ -32,6 +32,18 @@ runs:
 
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
+
+    - name: Setup Java
+      uses: actions/setup-java@v4
+      with:
+        distribution: "temurin"
+        java-version: "17"
+        cache: "maven"
+
+    - name: Setup Maven
+      uses: stCarolas/setup-maven@v5
+      with:
+        maven-version: "3.9.6"
 
     - name: Setup Node.js
       uses: actions/setup-node@v4

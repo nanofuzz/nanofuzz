@@ -16,6 +16,7 @@ import { bigIntOrThrow } from "../fuzzer/analysis/Util";
 import { CompanionManager } from "../fuzzer/analysis/CompanionManager";
 import { getIoKey } from "../fuzzer/Util";
 import * as fs from "fs";
+import * as path from "path";
 import { htmlEscape } from "escape-goat";
 import * as telemetry from "../telemetry/Telemetry";
 import {
@@ -34,7 +35,11 @@ import { CodeCoverageMeasureStats } from "../fuzzer/measures/CoverageMeasure";
 import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
 import { AbstractProgram } from "../fuzzer/analysis/AbstractProgram";
 import * as CompilerFactory from "../fuzzer/compilers/CompilerFactory";
-import { CompilerError, RustCompilerError } from "../fuzzer/compilers/Types";
+import {
+  CompilerError,
+  RustCompilerError,
+  JavaCompilerError,
+} from "../fuzzer/compilers/Types";
 import { synthesizeValidator } from "../fuzzer/synthesis/ValidatorSynthesizer";
 import { synthesizeTransformer } from "../fuzzer/synthesis/TransformerSynthesizer";
 import { synthesizeUserGenerator } from "../fuzzer/synthesis/UserGeneratorSynthesizer";
@@ -397,7 +402,11 @@ export class FuzzPanel {
         }
         if (error.details.configFilename) {
           const configLabel =
-            error instanceof RustCompilerError ? "Cargo.toml" : "tsconfig.json";
+            error instanceof RustCompilerError
+              ? "Cargo.toml"
+              : error instanceof JavaCompilerError
+                ? path.basename(error.details.configFilename)
+                : "tsconfig.json";
           this._errorMessage += `<p style="margin-bottom:0.25em;"><strong>${configLabel}</strong></p><small><pre style="margin-top:0;">${htmlEscape(error.details.configFilename)}</pre></small>`;
         }
         if (error.details.cli) {
@@ -3932,7 +3941,13 @@ export const toolName = Config.get("nanofuzz.name", "NaNofuzz");
 /**
  * Languages supported by this module
  */
-export const languages = ["typescript", "typescriptreact", "python", "rust"];
+export const languages = [
+  "typescript",
+  "typescriptreact",
+  "python",
+  "rust",
+  "java",
+];
 
 /**
  * The Fuzzer State Version we currently support.

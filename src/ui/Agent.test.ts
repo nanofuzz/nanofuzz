@@ -42,6 +42,10 @@ describe("Agent", () => {
     __dirname,
     "../fuzzer/test_fixtures/Fuzzer.testfixtures.rs"
   );
+  const javaFixture = path.resolve(
+    __dirname,
+    "../fuzzer/test_fixtures/Fuzzer.testfixtures.java"
+  );
 
   beforeAll(async () => {
     await ParserAdapter.init();
@@ -196,6 +200,25 @@ describe("Agent", () => {
     expect(asyncFn).toBeDefined();
     expect(asyncFn!.isAsync).toBe(true);
     expect(asyncFn!.signature).toContain("pub async fn async_greeting");
+  });
+
+  it("listTargets: java", async () => {
+    const result = await listTargets(javaFixture);
+    expect(result.language).toBe("java");
+    expect(result.functions.length).toBeGreaterThan(0);
+
+    const fnMap = new Map(result.functions.map((f) => [f.name, f]));
+    expect(fnMap.has("greeting")).toBe(true);
+    expect(fnMap.has("throwsException")).toBe(true);
+
+    const greetingFn = fnMap.get("greeting")!;
+    expect(greetingFn.args.length).toBe(1);
+    expect(greetingFn.args[0].name).toBe("name");
+    expect(greetingFn.signature).toBe("public String greeting(String name)");
+
+    expect(
+      result.unsupportedFunctions.some((f) => f.name === "javaUserGenGenerator")
+    ).toBeTrue();
   });
 
   it("listTargets: missing file", async () => {
@@ -787,6 +810,24 @@ def py_double(x: int) -> int:
     expect(result.testSuiteCode).toBeDefined();
     expect(result.testSuiteCode).toContain("describe(");
     expect(result.testSuiteCode).toContain("testCoverageOneFile");
+    expect(result.summaryText).toContain(
+      "Synthesized Branch-Covering Test Suite"
+    );
+  });
+
+  it("runFuzz: java exportSuite generates synthesized JUnit test suite", async () => {
+    const result = await runFuzz({
+      filePath: javaFixture,
+      functionName: "greeting",
+      maxTests: 10,
+      suiteTimeout: 3000,
+      exportSuite: true,
+    });
+
+    expect(result.status).toBe("success");
+    expect(result.testSuiteCode).toBeDefined();
+    expect(result.testSuiteCode).toContain("@Test");
+    expect(result.testSuiteCode).toContain("greeting");
     expect(result.summaryText).toContain(
       "Synthesized Branch-Covering Test Suite"
     );

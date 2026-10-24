@@ -104,6 +104,50 @@ if (fs.existsSync(rustRuntimeDir)) {
   console.log("copied nanofuzz-runtime");
 }
 
+// Build and copy Java runtime package (nanofuzz-runtime)
+const javaRuntimeDir = path.resolve("./packages/runtime/java");
+if (fs.existsSync(javaRuntimeDir)) {
+  const javaTargetJar = path.join(
+    javaRuntimeDir,
+    "target",
+    "nanofuzz-runtime-0.4.0.jar"
+  );
+  if (!fs.existsSync(javaTargetJar)) {
+    const mvnBin = resolveMaven();
+    if (mvnBin) {
+      ChildProcess.execFileSync(mvnBin, ["clean", "package", "-DskipTests"], {
+        cwd: javaRuntimeDir,
+        stdio: "inherit",
+        shell: process.platform === "win32",
+      });
+    } else {
+      throw new Error(
+        "Maven (mvn) not found. Java runtime JAR cannot be built (see ./CONTRIBUTING.md)"
+      );
+    }
+  }
+
+  if (!fs.existsSync(javaTargetJar)) {
+    throw new Error(
+      `Java runtime JAR was not found at ${javaTargetJar} after build.`
+    );
+  }
+
+  const destJavaRuntime = path.resolve(
+    "./build/extension/nanofuzz-runtime-java"
+  );
+  fs.mkdirSync(destJavaRuntime, { recursive: true });
+  fs.cpSync(javaRuntimeDir, destJavaRuntime, {
+    recursive: true,
+    filter: (src) => !src.includes(`${path.sep}target`),
+  });
+  fs.copyFileSync(
+    javaTargetJar,
+    path.join(destJavaRuntime, "nanofuzz-runtime.jar")
+  );
+  console.log("copied nanofuzz-runtime (java)");
+}
+
 // Copy Python imports
 let interpreter = "python";
 if (!fs.existsSync(path.resolve(path.join(".", ".venv")))) {
@@ -173,6 +217,7 @@ await esbuild.build({
     "tree-sitter-typescript",
     "tree-sitter-javascript",
     "tree-sitter-rust",
+    "tree-sitter-java",
     "web-tree-sitter",
   ],
   define: {
@@ -222,6 +267,7 @@ await esbuild.build({
     "tree-sitter-typescript",
     "tree-sitter-javascript",
     "tree-sitter-rust",
+    "tree-sitter-java",
     "web-tree-sitter",
   ],
   plugins: [
@@ -297,6 +343,7 @@ await esbuild.build({
     "tree-sitter-typescript",
     "tree-sitter-javascript",
     "tree-sitter-rust",
+    "tree-sitter-java",
     "web-tree-sitter",
   ],
   define: {
@@ -437,3 +484,36 @@ function resolveCargo() {
   }
   return undefined;
 } // fn: resolveCargo
+
+/**
+ * Resolves the maven (mvn) executable location.
+ *
+ * @returns Path to the mvn executable or undefined if not found
+ */
+function resolveMaven() {
+  const mvnBinName = process.platform === "win32" ? "mvn.cmd" : "mvn";
+  const candidates = [];
+  if (process.env.M2_HOME) {
+    candidates.push(path.join(process.env.M2_HOME, "bin", mvnBinName));
+  }
+  if (process.env.MAVEN_HOME) {
+    candidates.push(path.join(process.env.MAVEN_HOME, "bin", mvnBinName));
+  }
+  candidates.push(mvnBinName);
+
+  for (const candidate of candidates) {
+    try {
+      const res = ChildProcess.spawnSync(candidate, ["--version"], {
+        encoding: "utf8",
+        stdio: "pipe",
+        shell: process.platform === "win32",
+      });
+      if (res.status === 0) {
+        return candidate;
+      }
+    } catch {
+      // not found or not executable
+    }
+  }
+  return undefined;
+} // fn: resolveMaven

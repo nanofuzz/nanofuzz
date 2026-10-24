@@ -3,6 +3,28 @@ import { ArgTag } from "../Types";
 import { TypescriptProgram } from "./TypescriptProgram";
 
 describe("fuzzer/analysis/typescript/ProgramDef:", () => {
+  it("understands: detection of TypeScript files and language identifier", () => {
+    expect(TypescriptProgram.understands({ filename: "test.ts" })).toBeTrue();
+    expect(TypescriptProgram.understands({ lang: "typescript" })).toBeTrue();
+    expect(TypescriptProgram.understands({ filename: "test.js" })).toBeFalse();
+    expect(TypescriptProgram.understands({ filename: "test.py" })).toBeFalse();
+    expect(TypescriptProgram.understands({ filename: "test.rs" })).toBeFalse();
+    expect(
+      TypescriptProgram.understands({ filename: "test.java" })
+    ).toBeFalse();
+  });
+
+  it("getLanguage: resolves correct language or * for non-source files", () => {
+    expect(ProgramFactory.getLanguage({ filename: "test.ts" })).toBe(
+      "typescript"
+    );
+    expect(ProgramFactory.getLanguage({ filename: "test.py" })).toBe("python");
+    expect(ProgramFactory.getLanguage({ filename: "test.rs" })).toBe("rust");
+    expect(ProgramFactory.getLanguage({ filename: "test.java" })).toBe("java");
+    expect(ProgramFactory.getLanguage({ filename: "test.js" })).toBe("*");
+    expect(ProgramFactory.getLanguage({ filename: "test.unknown" })).toBe("*");
+  });
+
   it("Explicit default export type reference", () => {
     expect(
       ProgramFactory.fromSource(
@@ -814,7 +836,9 @@ export const returnsValueArrow = () => "hello";
     );
 
     expect(prog.functionsExported["evaluateExpression"]).toBeDefined();
-    expect(prog.functionsExported["evaluateExpressionGenerator"]).toBeUndefined();
+    expect(
+      prog.functionsExported["evaluateExpressionGenerator"]
+    ).toBeUndefined();
     expect(prog.functionsExported["arrowWithFnType"]).toBeUndefined();
 
     expect(

@@ -120,7 +120,7 @@ export function resolveFilePath(filePath: string): string {
 /**
  * Discovers and lists all fuzzable exported functions in a source file (sync and async).
  *
- * @param filePath Path to the target source file (TypeScript, Python, or Rust)
+ * @param filePath Path to the target source file (TypeScript, Python, Rust, or Java)
  * @returns TargetListResult containing exported functions and their signatures
  */
 export async function listTargets(filePath: string): Promise<TargetListResult> {
@@ -719,7 +719,7 @@ export function mapToAgentCounterexample(
 } // fn: mapToAgentCounterexample
 
 /**
- * Synthesizes an executable test suite / reproducer using NaNofuzz test adapters (Jest, Pytest, or cargo test).
+ * Synthesizes an executable test suite / reproducer using NaNofuzz test adapters (Jest, Pytest, cargo test, or JUnit 5).
  */
 export function synthesizeReproducer(
   filePath: string,
@@ -940,7 +940,7 @@ export async function shrinkCoveringResults(
 } // fn: shrinkCoveringResults
 
 /**
- * Synthesizes an executable test suite (Jest, Pytest, or cargo test) from branch-covering inputs and counterexamples.
+ * Synthesizes an executable test suite (Jest, Pytest, cargo test, or JUnit 5) from branch-covering inputs and counterexamples.
  */
 export async function synthesizeTestSuite(
   filePath: string,
@@ -1419,7 +1419,12 @@ export function formatFunctionSignature(
   const isAsync = fnDef.isAsync();
   const argParts = args.map((arg) => {
     const opt =
-      arg.isOptional() && lang !== "rust" && lang !== "python" ? "?" : "";
+      arg.isOptional() &&
+      lang !== "rust" &&
+      lang !== "python" &&
+      lang !== "java"
+        ? "?"
+        : "";
     const typeStr = formatArgDefType(arg);
     return `${arg.getName()}${opt}: ${typeStr}`;
   });
@@ -1435,6 +1440,15 @@ export function formatFunctionSignature(
     const retStr = returnType && returnType !== "()" ? ` -> ${returnType}` : "";
     const prefix = isAsync ? "pub async fn" : "pub fn";
     return `${prefix} ${name}(${argParts.join(", ")})${retStr}`;
+  }
+  if (lang === "java") {
+    const javaArgs = args.map((arg) => {
+      const typeStr = formatArgDefType(arg);
+      return `${typeStr} ${arg.getName()}`;
+    });
+    const retStr = returnType ?? (fnDef.isVoid() ? "void" : "Object");
+    const prefix = fnDef.isExported() ? "public " : "";
+    return `${prefix}${retStr} ${name}(${javaArgs.join(", ")})`;
   }
   const retStr = returnType
     ? `: ${returnType}`

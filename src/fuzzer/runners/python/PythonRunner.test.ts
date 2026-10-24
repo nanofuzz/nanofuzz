@@ -644,7 +644,7 @@ def normal_fn(n: int) -> int:
       fs.writeFileSync(pyPath, pyCode);
 
       const prevMaxMem = Config.get("nanofuzz.fuzzer.maxRunnerMemory", 8192);
-      Config.override("nanofuzz.fuzzer.maxRunnerMemory", 1024);
+      Config.override("nanofuzz.fuzzer.maxRunnerMemory", 100);
 
       try {
         const srcCode = `
