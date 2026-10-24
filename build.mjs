@@ -113,38 +113,23 @@ if (fs.existsSync(javaRuntimeDir)) {
     "nanofuzz-runtime-0.4.0.jar"
   );
   if (!fs.existsSync(javaTargetJar)) {
-    const classesDir = path.join(javaRuntimeDir, "target", "classes");
-    fs.mkdirSync(classesDir, { recursive: true });
-    const srcDir = path.join(
-      javaRuntimeDir,
-      "src",
-      "main",
-      "java",
-      "com",
-      "nanofuzz",
-      "runtime"
-    );
-    if (fs.existsSync(srcDir)) {
-      const srcFiles = fs
-        .readdirSync(srcDir)
-        .filter((f) => f.endsWith(".java"))
-        .map((f) => path.join(srcDir, f));
-
-      try {
-        ChildProcess.execFileSync(
-          "javac",
-          ["-d", classesDir, "--release", "17", ...srcFiles],
-          { stdio: "inherit" }
-        );
-        ChildProcess.execFileSync(
-          "jar",
-          ["cf", javaTargetJar, "-C", classesDir, "."],
-          { stdio: "inherit" }
-        );
-      } catch {
-        console.warn("WARNING: javac/jar failed to prebuild Java runtime JAR");
-      }
+    const mvnBin = resolveMaven();
+    if (mvnBin) {
+      ChildProcess.execFileSync(mvnBin, ["clean", "package", "-DskipTests"], {
+        cwd: javaRuntimeDir,
+        stdio: "inherit",
+      });
+    } else {
+      throw new Error(
+        "Maven (mvn) not found. Java runtime JAR cannot be built (see ./CONTRIBUTING.md)"
+      );
     }
+  }
+
+  if (!fs.existsSync(javaTargetJar)) {
+    throw new Error(
+      `Java runtime JAR was not found at ${javaTargetJar} after build.`
+    );
   }
 
   const destJavaRuntime = path.resolve(
@@ -155,12 +140,10 @@ if (fs.existsSync(javaRuntimeDir)) {
     recursive: true,
     filter: (src) => !src.includes(`${path.sep}target`),
   });
-  if (fs.existsSync(javaTargetJar)) {
-    fs.copyFileSync(
-      javaTargetJar,
-      path.join(destJavaRuntime, "nanofuzz-runtime.jar")
-    );
-  }
+  fs.copyFileSync(
+    javaTargetJar,
+    path.join(destJavaRuntime, "nanofuzz-runtime.jar")
+  );
   console.log("copied nanofuzz-runtime (java)");
 }
 
@@ -500,3 +483,35 @@ function resolveCargo() {
   }
   return undefined;
 } // fn: resolveCargo
+
+/**
+ * Resolves the maven (mvn) executable location.
+ *
+ * @returns Path to the mvn executable or undefined if not found
+ */
+function resolveMaven() {
+  const mvnBinName = process.platform === "win32" ? "mvn.cmd" : "mvn";
+  const candidates = [];
+  if (process.env.M2_HOME) {
+    candidates.push(path.join(process.env.M2_HOME, "bin", mvnBinName));
+  }
+  if (process.env.MAVEN_HOME) {
+    candidates.push(path.join(process.env.MAVEN_HOME, "bin", mvnBinName));
+  }
+  candidates.push(mvnBinName);
+
+  for (const candidate of candidates) {
+    try {
+      const res = ChildProcess.spawnSync(candidate, ["--version"], {
+        encoding: "utf8",
+        stdio: "pipe",
+      });
+      if (res.status === 0) {
+        return candidate;
+      }
+    } catch {
+      // not found or not executable
+    }
+  }
+  return undefined;
+} // fn: resolveMaven

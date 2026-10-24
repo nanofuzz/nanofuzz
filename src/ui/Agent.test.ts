@@ -815,6 +815,24 @@ def py_double(x: int) -> int:
     );
   });
 
+  it("runFuzz: java exportSuite generates synthesized JUnit test suite", async () => {
+    const result = await runFuzz({
+      filePath: javaFixture,
+      functionName: "greeting",
+      maxTests: 10,
+      suiteTimeout: 3000,
+      exportSuite: true,
+    });
+
+    expect(result.status).toBe("success");
+    expect(result.testSuiteCode).toBeDefined();
+    expect(result.testSuiteCode).toContain("@Test");
+    expect(result.testSuiteCode).toContain("greeting");
+    expect(result.summaryText).toContain(
+      "Synthesized Branch-Covering Test Suite"
+    );
+  });
+
   it("runFuzz: exportFilePath writes synthesized test suite directly to file", async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-export-test-"));
     try {

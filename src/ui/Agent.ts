@@ -120,7 +120,7 @@ export function resolveFilePath(filePath: string): string {
 /**
  * Discovers and lists all fuzzable exported functions in a source file (sync and async).
  *
- * @param filePath Path to the target source file (TypeScript, Python, or Rust)
+ * @param filePath Path to the target source file (TypeScript, Python, Rust, or Java)
  * @returns TargetListResult containing exported functions and their signatures
  */
 export async function listTargets(filePath: string): Promise<TargetListResult> {
@@ -719,7 +719,7 @@ export function mapToAgentCounterexample(
 } // fn: mapToAgentCounterexample
 
 /**
- * Synthesizes an executable test suite / reproducer using NaNofuzz test adapters (Jest, Pytest, or cargo test).
+ * Synthesizes an executable test suite / reproducer using NaNofuzz test adapters (Jest, Pytest, cargo test, or JUnit 5).
  */
 export function synthesizeReproducer(
   filePath: string,
@@ -940,7 +940,7 @@ export async function shrinkCoveringResults(
 } // fn: shrinkCoveringResults
 
 /**
- * Synthesizes an executable test suite (Jest, Pytest, or cargo test) from branch-covering inputs and counterexamples.
+ * Synthesizes an executable test suite (Jest, Pytest, cargo test, or JUnit 5) from branch-covering inputs and counterexamples.
  */
 export async function synthesizeTestSuite(
   filePath: string,

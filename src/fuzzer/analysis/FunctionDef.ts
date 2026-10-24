@@ -1,5 +1,11 @@
 import { ArgDef } from "./ArgDef";
-import { FunctionRef, ArgOptionOverrides, ArgOptions, TypeRef } from "./Types";
+import {
+  FunctionRef,
+  ArgOptionOverrides,
+  ArgOptions,
+  TypeRef,
+  ArgTag,
+} from "./Types";
 import { ProgramLanguage } from "./Types";
 import { CompanionManager } from "./CompanionManager";
 
@@ -181,7 +187,9 @@ export class FunctionDef {
    */
   public getReturnArg(): ArgDef | undefined {
     // If a return type is defined and resolved, convert it to an ArgDef
-    return this._ref.returnType && this._ref.returnType.type
+    return this._ref.returnType &&
+      this._ref.returnType.type &&
+      this._ref.returnType.type.type !== ArgTag.UNRESOLVED
       ? ArgDef.fromTypeRef(this._ref.returnType, this._options)
       : undefined;
   } // fn: getReturnArg()

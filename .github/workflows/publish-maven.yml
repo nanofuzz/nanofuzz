@@ -1,0 +1,35 @@
+name: Publish Maven Package
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  publish-maven:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+          server-id: github
+          server-password: MAVEN_TOKEN
+          cache: "maven"
+
+      - name: Test runtime package
+        working-directory: packages/runtime/java
+        run: mvn test
+
+      - name: Publish runtime package to GitHub Packages
+        working-directory: packages/runtime/java
+        run: mvn deploy -DskipTests
+        env:
+          MAVEN_TOKEN: ${{ secrets.MAVEN_TOKEN }}

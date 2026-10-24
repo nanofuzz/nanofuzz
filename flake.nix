@@ -23,6 +23,8 @@
               yarn
               cargo
               rustc
+              jdk17
+              maven
             ];
           };
       }
