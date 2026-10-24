@@ -131,22 +131,8 @@ let rec msgpck_to_yojson : Msgpck.t -> Yojson.Safe.t = function
     in
     `Assoc assoc
 
-let rec yojson_to_msgpck : Yojson.Safe.t -> Msgpck.t = function
-  | `Null -> Msgpck.Nil
-  | `Bool b -> Msgpck.Bool b
-  | `Int n -> Msgpck.Int n
-  | `Intlit s -> (try Msgpck.Int64 (Int64.of_string s) with _ -> Msgpck.String s)
-  | `Float f -> Msgpck.Float f
-  | `String s -> Msgpck.String s
-  | `List l -> Msgpck.List (List.map yojson_to_msgpck l)
-  | `Assoc pairs ->
-    Msgpck.Map
-      (List.map
-         (fun (k, v) -> (Msgpck.String k, yojson_to_msgpck v))
-         pairs)
-  | _ -> Msgpck.Nil
-
-let rec implicit_oracle_value = function
+let rec implicit_oracle_value (v : Yojson.Safe.t) : bool =
+  match v with
   | `Null -> false
   | `Float f ->
     (match classify_float f with

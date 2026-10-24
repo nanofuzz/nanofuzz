@@ -76,9 +76,6 @@ val assert_eq : ?message:string -> 'a -> 'a -> unit
 (** Converts a Msgpck value into its Yojson.Safe.t equivalent. *)
 val msgpck_to_yojson : Msgpck.t -> Yojson.Safe.t
 
-(** Converts a Yojson.Safe.t value into its Msgpck.t equivalent. *)
-val yojson_to_msgpck : Yojson.Safe.t -> Msgpck.t
-
 (** Evaluates a Yojson value against the NaNofuzz heuristic / implicit oracle.
     Returns [false] if the value is Null, NaN, or Infinity. *)
 val implicit_oracle_value : Yojson.Safe.t -> bool

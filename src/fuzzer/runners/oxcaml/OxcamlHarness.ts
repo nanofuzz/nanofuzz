@@ -1221,8 +1221,9 @@ function buildDeserializer(
     return `(match List.nth_opt args ${idx} with Some v -> Array.of_list (List.map (fun item -> ${buildSingleValDeserializer(elemType, "item", elemChild, progTypes)}) (get_list v)) | None -> [||])`;
   }
 
-  // Fallback for int
-  return `(match List.nth_opt args ${idx} with Some v -> get_int v | None -> 0)`;
+  throw new Error(
+    `Unsupported OCaml type for deserialization: '${cleanType}'`
+  );
 } // fn: buildDeserializer
 
 /**
@@ -1409,7 +1410,10 @@ function buildSingleValDeserializer(
     const elemChild = argDef?.getChildren()[0];
     return `(Array.of_list (List.map (fun item -> ${buildSingleValDeserializer(elemType, "item", elemChild, progTypes)}) (get_list ${valVar})))`;
   }
-  return `(get_int ${valVar})`;
+
+  throw new Error(
+    `Unsupported OCaml type for single value deserialization: '${cleanType}'`
+  );
 } // fn: buildSingleValDeserializer
 
 function stripOuterParens(s: string): string {
@@ -1718,7 +1722,8 @@ function buildSerializer(
     const elemChild = argDef?.getChildren()[0];
     return `(match ${valVar} with None -> Msgpck.Nil | Some v -> ${buildSerializer(elemType, "v", elemChild, progTypes)})`;
   }
-  return `Msgpck.Nil`;
+
+  throw new Error(`Unsupported OCaml type for serialization: '${cleanType}'`);
 } // fn: buildSerializer
 
 /**

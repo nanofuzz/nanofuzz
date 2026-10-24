@@ -1,4 +1,5 @@
 (library
  (name nanofuzz_runtime)
  (public_name nanofuzz_runtime)
+ (flags (:standard -w -11-33-26-27-32-34-37-39))
  (libraries yojson msgpck))
