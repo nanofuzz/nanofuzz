@@ -4,7 +4,10 @@
   "publisher": "penrose",
   "version": "0.4.0",
   "description": "NaNofuzz is a fast and easy-to-use automatic test suite generator for TypeScript, Python, and Rust that runs inside VS Code",
-  "repository": "https://github.com/nanofuzz/nanofuzz.git",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nanofuzz/nanofuzz.git"
+  },
   "author": "The NaNofuzz Team @ Carnegie Mellon University",
   "icon": "/logo.png",
   "galleryBanner": {
@@ -798,7 +801,7 @@
     "lint": "eslint src",
     "lint:errors": "eslint --quiet src",
     "vscode:prepublish": "yarn build",
-    "publish": "npx @vscode/vsce publish --yarn",
+    "vscode:publish": "npx @vscode/vsce publish --yarn",
     "package": "npx @vscode/vsce package --yarn",
     "pretest": "yarn build && yarn run lint",
     "nanofuzz": "node --max-old-space-size=8192 ./build/cli/cli.cjs"
@@ -864,7 +867,7 @@
     "jasmine": "5.9.0",
     "jest": "^29.7.0",
     "json5": "^2.2.3",
-    "nanofuzz-study": "nanofuzz/nanofuzz-study#main",
+    "nanofuzz-study": "github:nanofuzz/nanofuzz-study#main",
     "rimraf": "^5.0.5",
     "seedrandom": "^3.0.5",
     "tslib": "^2.1.0",
