@@ -78,7 +78,44 @@ export class JavaProgram extends AbstractProgram {
     const typeRef = arg.getTypeRef();
     if (typeRef && options.useTypeRefs) {
       const outerDims = arg.getTypeRefDims() ?? 0;
+      const baseTypeRef = arg.getBaseTypeRef();
+      const listTypes = [
+        "List",
+        "ArrayList",
+        "LinkedList",
+        "Vector",
+        "Collection",
+        "Iterable",
+        "Queue",
+        "Deque",
+        "ArrayDeque",
+        "PriorityQueue",
+      ];
       let type = `${typeRef}${"[]".repeat(outerDims)}`;
+      if (arg.getType() === ArgTag.SET && arg.getChildren().length === 1) {
+        type = `${typeRef}<${JavaProgram.toBoxedType(
+          JavaProgram.getTypeAnnotation(arg.getChildren()[0], options)
+        )}>`;
+      } else if (
+        arg.getType() === ArgTag.DICTIONARY &&
+        arg.getChildren().length === 2
+      ) {
+        const [key, value] = arg.getChildren();
+        type = `${typeRef}<${JavaProgram.toBoxedType(
+          JavaProgram.getTypeAnnotation(key, options)
+        )}, ${JavaProgram.toBoxedType(
+          JavaProgram.getTypeAnnotation(value, options)
+        )}>`;
+      } else if (
+        baseTypeRef &&
+        listTypes.includes(baseTypeRef) &&
+        outerDims > 0
+      ) {
+        type = typeRef;
+        for (let i = 0; i < outerDims; i++) {
+          type = `${baseTypeRef}<${JavaProgram.toBoxedType(type)}>`;
+        }
+      }
       if (arg.isOptional()) {
         type = `Optional<${type}>`;
       }
@@ -1064,6 +1101,7 @@ export class JavaProgram extends AbstractProgram {
           if (argNodes.length > 0) {
             const inner = this._getTypeRefFromAstNode(argNodes[0]);
             thisType.typeRefName = inner.typeRefName;
+            thisType.baseTypeRef = inner.baseTypeRef;
             thisType.dims = inner.dims;
             thisType.type = inner.type;
             return thisType;
@@ -1082,9 +1120,15 @@ export class JavaProgram extends AbstractProgram {
           baseName === "List" ||
           baseName === "ArrayList" ||
           baseName === "LinkedList" ||
+          baseName === "Vector" ||
           baseName === "Collection" ||
-          baseName === "Iterable"
+          baseName === "Iterable" ||
+          baseName === "Queue" ||
+          baseName === "Deque" ||
+          baseName === "ArrayDeque" ||
+          baseName === "PriorityQueue"
         ) {
+          thisType.baseTypeRef = baseName;
           if (argNodes.length > 0) {
             const inner = this._getTypeRefFromAstNode(argNodes[0]);
             thisType.typeRefName = inner.typeRefName;
@@ -1107,7 +1151,9 @@ export class JavaProgram extends AbstractProgram {
           baseName === "Set" ||
           baseName === "HashSet" ||
           baseName === "LinkedHashSet" ||
-          baseName === "TreeSet"
+          baseName === "TreeSet" ||
+          baseName === "SortedSet" ||
+          baseName === "NavigableSet"
         ) {
           thisType.typeRefName = baseName;
           thisType.baseTypeRef = "Set";
@@ -1125,7 +1171,9 @@ export class JavaProgram extends AbstractProgram {
           baseName === "Map" ||
           baseName === "HashMap" ||
           baseName === "LinkedHashMap" ||
-          baseName === "TreeMap"
+          baseName === "TreeMap" ||
+          baseName === "SortedMap" ||
+          baseName === "NavigableMap"
         ) {
           thisType.typeRefName = baseName;
           thisType.baseTypeRef = "Map";

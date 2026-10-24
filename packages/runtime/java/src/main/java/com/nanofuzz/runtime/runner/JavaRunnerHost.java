@@ -34,22 +34,40 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.RecordComponent;
+import java.lang.reflect.Type;
+import java.lang.reflect.WildcardType;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Deque;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.LinkedList;
 import java.util.List;
+import java.util.NavigableMap;
+import java.util.NavigableSet;
 import java.util.Map;
 import java.util.Optional;
+import java.util.PriorityQueue;
+import java.util.Queue;
 import java.util.Set;
+import java.util.SortedMap;
+import java.util.SortedSet;
+import java.util.Stack;
+import java.util.TreeMap;
+import java.util.TreeSet;
 import java.util.UUID;
+import java.util.Vector;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -296,7 +314,7 @@ public class JavaRunnerHost {
 
     Object[] convertedArgs;
     try {
-      convertedArgs = convertArgs(args, targetMethod.getParameterTypes());
+      convertedArgs = convertArgs(args, targetMethod.getGenericParameterTypes());
     } catch (Exception e) {
       response.put("tag", "error");
       response.put("name", "IllegalArgumentException");
@@ -680,7 +698,7 @@ public class JavaRunnerHost {
    * @param paramTypes Target reflection parameter types
    * @return Converted Object array ready for reflection invocation
    */
-  private Object[] convertArgs(List<Object> args, Class<?>[] paramTypes)
+  private Object[] convertArgs(List<Object> args, Type[] paramTypes)
       throws ReflectiveOperationException {
     Object[] converted = new Object[paramTypes.length];
     for (int i = 0; i < paramTypes.length; i++) {
@@ -699,8 +717,32 @@ public class JavaRunnerHost {
    * @return Coerced and converted value
    */
   @SuppressWarnings("unchecked")
-  private Object convertArg(Object val, Class<?> target)
+  private Object convertArg(Object val, Type targetType)
       throws ReflectiveOperationException {
+    if (targetType instanceof ParameterizedType parameterizedType) {
+      Class<?> rawType = (Class<?>) parameterizedType.getRawType();
+      Type[] typeArguments = parameterizedType.getActualTypeArguments();
+      if (rawType == Optional.class) {
+        return val == null
+            ? Optional.empty()
+            : Optional.ofNullable(convertArg(val, typeArguments[0]));
+      }
+      if (Map.class.isAssignableFrom(rawType)) {
+        return convertMap(val, rawType, typeArguments[0], typeArguments[1]);
+      }
+      if (Iterable.class.isAssignableFrom(rawType)) {
+        return convertCollection(val, rawType, typeArguments[0]);
+      }
+      return convertArg(val, rawType);
+    }
+    if (targetType instanceof WildcardType wildcardType) {
+      Type[] upperBounds = wildcardType.getUpperBounds();
+      return upperBounds.length > 0 ? convertArg(val, upperBounds[0]) : val;
+    }
+    if (!(targetType instanceof Class<?> target)) {
+      return val;
+    }
+
     if (val == null) {
       if (target.isPrimitive()) {
         if (target == boolean.class)
@@ -728,6 +770,12 @@ public class JavaRunnerHost {
 
     if (target == Optional.class) {
       return Optional.of(val);
+    }
+    if (Map.class.isAssignableFrom(target)) {
+      return convertMap(val, target, Object.class, Object.class);
+    }
+    if (Iterable.class.isAssignableFrom(target)) {
+      return convertCollection(val, target, Object.class);
     }
 
     if (target == int.class || target == Integer.class) {
@@ -781,7 +829,7 @@ public class JavaRunnerHost {
       for (int i = 0; i < components.length; i++) {
         RecordComponent component = components[i];
         componentTypes[i] = component.getType();
-        componentValues[i] = convertArg(map.get(component.getName()), component.getType());
+        componentValues[i] = convertArg(map.get(component.getName()), component.getGenericType());
       }
       Constructor<?> constructor = target.getDeclaredConstructor(componentTypes);
       if (!constructor.canAccess(null)) {
@@ -816,24 +864,91 @@ public class JavaRunnerHost {
         return arr;
       }
     }
-    if (target == List.class || target == Collection.class) {
-      if (val instanceof List<?> list)
-        return new ArrayList<>(list);
-      return List.of(val);
-    }
-    if (target == Set.class) {
-      if (val instanceof List<?> list)
-        return new LinkedHashSet<>(list);
-      return Set.of(val);
-    }
-    if (target == Map.class) {
-      if (val instanceof Map<?, ?> map)
-        return new LinkedHashMap<>(map);
-      return Collections.emptyMap();
-    }
-
     return val;
   } // fn: convertArg
+
+  private Object convertCollection(Object val, Class<?> target, Type elementType)
+      throws ReflectiveOperationException {
+    if (val == null)
+      return null;
+    if (!(val instanceof List<?> values)) {
+      throw new IllegalArgumentException(
+          "Expected an array to construct collection " + target.getName());
+    }
+
+    Collection<Object> converted;
+    if (SortedSet.class.isAssignableFrom(target)) {
+      converted = new TreeSet<>();
+    } else if (target == HashSet.class) {
+      converted = new HashSet<>();
+    } else if (Set.class.isAssignableFrom(target)) {
+      converted = new LinkedHashSet<>();
+    } else if (target == PriorityQueue.class) {
+      converted = new PriorityQueue<>();
+    } else if (target == ArrayDeque.class) {
+      converted = new ArrayDeque<>();
+    } else if (target == Stack.class) {
+      converted = new Stack<>();
+    } else if (target == Vector.class) {
+      converted = new Vector<>();
+    } else if (target == LinkedList.class || Queue.class.isAssignableFrom(target)
+        || Deque.class.isAssignableFrom(target)) {
+      converted = new LinkedList<>();
+    } else if (!target.isInterface() && !Modifier.isAbstract(target.getModifiers())) {
+      Object instance = target.getDeclaredConstructor().newInstance();
+      if (!(instance instanceof Collection<?> collection)) {
+        throw new IllegalArgumentException(
+            "Unsupported collection type " + target.getName());
+      }
+      @SuppressWarnings("unchecked")
+      Collection<Object> typedCollection = (Collection<Object>) collection;
+      converted = typedCollection;
+    } else {
+      converted = new ArrayList<>();
+    }
+
+    for (Object value : values) {
+      converted.add(convertArg(value, elementType));
+    }
+    return converted;
+  } // fn: convertCollection
+
+  private Object convertMap(
+      Object val,
+      Class<?> target,
+      Type keyType,
+      Type valueType) throws ReflectiveOperationException {
+    if (val == null)
+      return null;
+    if (!(val instanceof Map<?, ?> values)) {
+      throw new IllegalArgumentException(
+          "Expected a map to construct map " + target.getName());
+    }
+
+    Map<Object, Object> converted;
+    if (SortedMap.class.isAssignableFrom(target)) {
+      converted = new TreeMap<>();
+    } else if (target == HashMap.class) {
+      converted = new HashMap<>();
+    } else if (!target.isInterface() && !Modifier.isAbstract(target.getModifiers())) {
+      Object instance = target.getDeclaredConstructor().newInstance();
+      if (!(instance instanceof Map<?, ?> map)) {
+        throw new IllegalArgumentException("Unsupported map type " + target.getName());
+      }
+      @SuppressWarnings("unchecked")
+      Map<Object, Object> typedMap = (Map<Object, Object>) map;
+      converted = typedMap;
+    } else {
+      converted = new LinkedHashMap<>();
+    }
+
+    for (Map.Entry<?, ?> entry : values.entrySet()) {
+      converted.put(
+          convertArg(entry.getKey(), keyType),
+          convertArg(entry.getValue(), valueType));
+    }
+    return converted;
+  } // fn: convertMap
 
   /**
    * Extracts a stack trace string from a Throwable.

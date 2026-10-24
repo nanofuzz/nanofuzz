@@ -191,6 +191,61 @@ public class CollectionsDemo {
     expect(args[7].isOptional()).toBeTrue();
   });
 
+  it("preserves generic collection and nested Optional type hints", () => {
+    const src = `
+import java.util.Collection;
+import java.util.Deque;
+import java.util.List;
+import java.util.NavigableMap;
+import java.util.NavigableSet;
+import java.util.Optional;
+import java.util.Queue;
+import java.util.Set;
+import java.util.UUID;
+class GenericCollections {
+    enum Color { RED, BLUE }
+    public static void accept(
+        Collection<UUID> collection,
+        Iterable<String> iterable,
+        Queue<Integer> queue,
+        Deque<Color> deque,
+        NavigableSet<Color> sortedSet,
+        NavigableMap<String, List<UUID>> sortedMap,
+        Optional<Set<UUID>> optionalSet
+    ) {}
+}
+`;
+    const program = ProgramFactory.fromSource(() => src, "java");
+    const args = program.functionsExported["accept"].getArgDefs();
+
+    expect(args.map((arg) => arg.getBaseTypeRef())).toEqual([
+      "Collection",
+      "Iterable",
+      "Queue",
+      "Deque",
+      "Set",
+      "Map",
+      "Set",
+    ]);
+    const expectedAnnotations = [
+      "Collection<UUID>",
+      "Iterable<String>",
+      "Queue<Integer>",
+      "Deque<Color>",
+      "NavigableSet<Color>",
+      "NavigableMap<String, List<UUID>>",
+      "Optional<Set<UUID>>",
+    ];
+    expect(args.map((arg) => JavaProgram.getTypeAnnotation(arg))).toEqual(
+      expectedAnnotations
+    );
+    expect(
+      args.map((arg) =>
+        JavaProgram.getTypeAnnotation(arg, { useTypeRefs: true })
+      )
+    ).toEqual(expectedAnnotations);
+  });
+
   it("disambiguates overloaded methods by parameter signature", () => {
     const src = `
 public class OverloadDemo {

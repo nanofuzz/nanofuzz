@@ -145,6 +145,83 @@ public class RecordRoundTrip {
     await runner.onRunEnd();
   });
 
+  it("round-trips nested generic collection values through runner IPC", async () => {
+    const javaPath = path.join(tempDir, "GenericCollectionsRoundTrip.java");
+    fs.writeFileSync(
+      javaPath,
+      `import java.util.Collection;
+import java.util.Deque;
+    import java.util.ArrayDeque;
+import java.util.List;
+import java.util.NavigableMap;
+import java.util.NavigableSet;
+import java.util.Optional;
+import java.util.Queue;
+import java.util.Set;
+import java.util.UUID;
+public class GenericCollectionsRoundTrip {
+    public enum Color { RED, BLUE }
+    public static List<String> inspect(
+        Collection<UUID> ids,
+    Iterable<UUID> iterable,
+        ArrayDeque<UUID> arrayDeque,
+        Queue<Color> queue,
+        Deque<Integer> deque,
+        NavigableSet<Color> sorted,
+        NavigableMap<String, List<UUID>> grouped,
+        Optional<Set<Color>> optional
+    ) {
+        return List.of(
+            ids.iterator().next().toString(),
+            iterable.iterator().next().toString(),
+            arrayDeque.removeFirst().toString(),
+            queue.remove().name(),
+            String.valueOf(deque.removeFirst()),
+            sorted.first().name(),
+            grouped.get("ids").get(0).toString(),
+            String.valueOf(optional.orElseThrow().contains(Color.BLUE))
+        );
+    }
+}
+`
+    );
+
+    const program = ProgramFactory.fromFile(javaPath, "java");
+    const env = createTestEnv(program.functionsExported["inspect"]);
+    const runner = new JavaRunner(javaPath, "inspect", env);
+    await runner.onRunStart();
+
+    const uuid = "9d3e7a10-24b5-4c6d-8e9f-0123456789ab";
+    const res = await runner.run(
+      [
+        [uuid],
+        [uuid],
+        [uuid],
+        ["BLUE"],
+        [17],
+        ["BLUE", "RED"],
+        { ids: [uuid] },
+        ["BLUE"],
+      ],
+      5000
+    );
+    expect(res.result.tag).toBe("value");
+    if (res.result.tag === "value") {
+      expect(res.result.value).toEqual([
+        uuid,
+        uuid,
+        uuid,
+        "BLUE",
+        "17",
+        "RED",
+        uuid,
+        "true",
+      ]);
+    }
+
+    await runner.onRunEnd();
+  });
+
   it("executes functions with strings, booleans, and arrays", async () => {
     const javaPath = path.join(tempDir, "Greeter.java");
     fs.writeFileSync(

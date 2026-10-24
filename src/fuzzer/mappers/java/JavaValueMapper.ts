@@ -161,7 +161,22 @@ function toJavaFormat(val: unknown, argDef?: ArgDefContext): string {
       }
     }
     const items = uniqueItems.map((item) => toJavaFormat(item, elemDef));
-    return `java.util.Set.of(${items.join(", ")})`;
+    const setExpression = `java.util.Set.of(${items.join(", ")})`;
+    const setType = argDef?.getTypeRef();
+    if (setType === "HashSet") {
+      return `new java.util.HashSet<>(${setExpression})`;
+    }
+    if (
+      setType === "TreeSet" ||
+      setType === "SortedSet" ||
+      setType === "NavigableSet"
+    ) {
+      return `new java.util.TreeSet<>(${setExpression})`;
+    }
+    if (setType === "LinkedHashSet") {
+      return `new java.util.LinkedHashSet<>(${setExpression})`;
+    }
+    return setExpression;
   }
 
   if (
@@ -172,7 +187,9 @@ function toJavaFormat(val: unknown, argDef?: ArgDefContext): string {
         argDef.getTypeRef() === "Map" ||
         argDef.getTypeRef() === "HashMap" ||
         argDef.getTypeRef() === "LinkedHashMap" ||
-        argDef.getTypeRef() === "TreeMap") &&
+        argDef.getTypeRef() === "TreeMap" ||
+        argDef.getTypeRef() === "SortedMap" ||
+        argDef.getTypeRef() === "NavigableMap") &&
       val !== null &&
       typeof val === "object" &&
       !Array.isArray(val))
@@ -191,20 +208,45 @@ function toJavaFormat(val: unknown, argDef?: ArgDefContext): string {
       }
     }
 
+    let mapExpression: string;
     if (entries.length === 0) {
-      return "java.util.Map.of()";
+      mapExpression = "java.util.Map.of()";
+    } else if (entries.length <= 10) {
+      mapExpression = `java.util.Map.of(${entries.map(([k, v]) => `${k}, ${v}`).join(", ")})`;
+    } else {
+      mapExpression = `java.util.Map.ofEntries(${entries.map(([k, v]) => `java.util.Map.entry(${k}, ${v})`).join(", ")})`;
     }
-    if (entries.length <= 10) {
-      return `java.util.Map.of(${entries.map(([k, v]) => `${k}, ${v}`).join(", ")})`;
+
+    const mapType = argDef?.getTypeRef();
+    if (mapType === "HashMap") {
+      return `new java.util.HashMap<>(${mapExpression})`;
     }
-    return `java.util.Map.ofEntries(${entries.map(([k, v]) => `java.util.Map.entry(${k}, ${v})`).join(", ")})`;
+    if (mapType === "LinkedHashMap") {
+      return `new java.util.LinkedHashMap<>(${mapExpression})`;
+    }
+    if (
+      mapType === "TreeMap" ||
+      mapType === "SortedMap" ||
+      mapType === "NavigableMap"
+    ) {
+      return `new java.util.TreeMap<>(${mapExpression})`;
+    }
+    return mapExpression;
   }
 
   if (Array.isArray(val)) {
+    const listType = argDef?.getBaseTypeRef() ?? argDef?.getTypeRef();
     const isList =
-      argDef?.getBaseTypeRef() === "List" ||
-      argDef?.getTypeRef() === "List" ||
-      argDef?.getTypeRef() === "ArrayList";
+      listType === "List" ||
+      listType === "ArrayList" ||
+      listType === "LinkedList" ||
+      listType === "Vector" ||
+      listType === "Collection" ||
+      listType === "Iterable" ||
+      listType === "Queue" ||
+      listType === "Deque" ||
+      listType === "ArrayDeque" ||
+      listType === "PriorityQueue";
 
     const elemDef: ArgDefContext | undefined =
       argDef?.getChildren()[0] ??
@@ -224,7 +266,24 @@ function toJavaFormat(val: unknown, argDef?: ArgDefContext): string {
     const items = val.map((item) => toJavaFormat(item, elemDef));
 
     if (isList) {
-      return `java.util.List.of(${items.join(", ")})`;
+      const listExpression = `java.util.Arrays.asList(${items.join(", ")})`;
+      if (
+        listType === "LinkedList" ||
+        listType === "Queue" ||
+        listType === "Deque"
+      ) {
+        return `new java.util.LinkedList<>(${listExpression})`;
+      }
+      if (listType === "ArrayDeque") {
+        return `new java.util.ArrayDeque<>(${listExpression})`;
+      }
+      if (listType === "PriorityQueue") {
+        return `new java.util.PriorityQueue<>(${listExpression})`;
+      }
+      if (listType === "Vector") {
+        return `new java.util.Vector<>(${listExpression})`;
+      }
+      return `new java.util.ArrayList<>(${listExpression})`;
     }
 
     const dims = argDef ? Math.max(1, argDef.getDim()) : 1;
@@ -378,6 +437,37 @@ function decodeTypedValue(
   value: unknown,
   argDef?: ArgDef | ArgDefContext
 ): unknown {
+  if (argDef && argDef.getDim() > 0 && Array.isArray(value)) {
+    const elementDef: ArgDefContext = {
+      isOptional: () => false,
+      getName: () => argDef.getName(),
+      getTypeRef: () => argDef.getTypeRef(),
+      getBaseTypeRef: () => argDef.getBaseTypeRef(),
+      getOptions: () => argDef.getOptions(),
+      getType: () => argDef.getType(),
+      getChildren: () => argDef.getChildren(),
+      getDim: () => argDef.getDim() - 1,
+    };
+    return value.map((item) => decodeTypedValue(item, elementDef));
+  }
+
+  if (argDef?.getType() === ArgTag.SET && value instanceof Set) {
+    const elementDef = argDef.getChildren()[0];
+    return new Set(
+      Array.from(value, (item) => decodeTypedValue(item, elementDef))
+    );
+  }
+
+  if (argDef?.getType() === ArgTag.DICTIONARY && value instanceof Map) {
+    const [keyDef, valueDef] = argDef.getChildren();
+    return new Map(
+      Array.from(value, ([key, entryValue]) => [
+        decodeTypedValue(key, keyDef),
+        decodeTypedValue(entryValue, valueDef),
+      ])
+    );
+  }
+
   if (argDef?.getType() === ArgTag.UNION && typeof value === "string") {
     return value.slice(value.lastIndexOf(".") + 1);
   }
@@ -625,9 +715,18 @@ function evalJavaAstNode(node: Parser.SyntaxNode): unknown {
         typeName.endsWith("TreeMap") ||
         typeName.endsWith("LinkedHashMap")
       ) {
+        if (args.length > 0 && args[0] instanceof Map) {
+          return new Map(args[0]);
+        }
         return new Map();
       }
-      if (typeName.endsWith("ArrayList") || typeName.endsWith("LinkedList")) {
+      if (
+        typeName.endsWith("ArrayList") ||
+        typeName.endsWith("LinkedList") ||
+        typeName.endsWith("ArrayDeque") ||
+        typeName.endsWith("PriorityQueue") ||
+        typeName.endsWith("Vector")
+      ) {
         if (args.length > 0 && Array.isArray(args[0])) return args[0];
         return [];
       }

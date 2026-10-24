@@ -221,6 +221,53 @@ class MapperTypes {
     expect(JavaValueMapper.fromJava(recordJava, recordArg)).toEqual(record);
   });
 
+  it("round-trips generic collection families using Java type hints", () => {
+    const src = `
+import java.util.*;
+class GenericMapper {
+    enum Color { RED, BLUE }
+    public static void echoQueue(Queue<UUID> value) {}
+    public static void echoSortedSet(NavigableSet<Color> value) {}
+    public static void echoSortedMap(NavigableMap<String, List<UUID>> value) {}
+    public static void echoOptional(Optional<Set<Color>> value) {}
+}
+`;
+    const program = ProgramFactory.fromSource(() => src, "java");
+    const queueArg = program.functionsExported["echoQueue"].getArgDefs()[0];
+    const sortedSetArg =
+      program.functionsExported["echoSortedSet"].getArgDefs()[0];
+    const sortedMapArg =
+      program.functionsExported["echoSortedMap"].getArgDefs()[0];
+    const optionalArg =
+      program.functionsExported["echoOptional"].getArgDefs()[0];
+    const uuid = "9d3e7a10-24b5-4c6d-8e9f-0123456789ab";
+
+    const queue = [uuid];
+    const queueJava = JavaValueMapper.toJava(queue, queueArg);
+    expect(queueJava).toContain("new java.util.LinkedList<>");
+    expect(JavaValueMapper.fromJava(queueJava, queueArg)).toEqual(queue);
+
+    const colors = new Set(["RED", "BLUE"]);
+    const sortedSetJava = JavaValueMapper.toJava(colors, sortedSetArg);
+    expect(sortedSetJava).toContain("new java.util.TreeSet<>");
+    expect(JavaValueMapper.fromJava(sortedSetJava, sortedSetArg)).toEqual(
+      colors
+    );
+
+    const grouped = new Map([["ids", [uuid]]]);
+    const sortedMapJava = JavaValueMapper.toJava(grouped, sortedMapArg);
+    expect(sortedMapJava).toContain("new java.util.TreeMap<>");
+    expect(JavaValueMapper.fromJava(sortedMapJava, sortedMapArg)).toEqual(
+      grouped
+    );
+
+    const optionalColors = new Set(["RED", "BLUE"]);
+    const optionalJava = JavaValueMapper.toJava(optionalColors, optionalArg);
+    expect(JavaValueMapper.fromJava(optionalJava, optionalArg)).toEqual(
+      optionalColors
+    );
+  });
+
   it("handles Java Optional expressions", () => {
     expect(JavaValueMapper.fromJava("Optional.of(42)")).toBe(42);
     expect(JavaValueMapper.fromJava('Optional.of("hello")')).toBe("hello");
@@ -315,7 +362,7 @@ class MapperTypes {
       "List"
     );
     expect(JavaValueMapper.toJava([1, 2, 3], listDef)).toBe(
-      "java.util.List.of(1, 2, 3)"
+      "new java.util.ArrayList<>(java.util.Arrays.asList(1, 2, 3))"
     );
   });
 });
