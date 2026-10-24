@@ -505,26 +505,29 @@ async function main() {
 
         switch (msg.type) {
           case "compiling":
-            displayText = `Compiling: ${msg.file}`;
+            displayText = `${htmlEscape("Compiling: " + msg.file)}<span class="loading-dots">............</span>`;
             break;
           case "instrumenting":
-            displayText = `Instrumenting: ${msg.file}`;
+            displayText = `${htmlEscape("Instrumenting: " + msg.file)}<span class="loading-dots">............</span>`;
             break;
           case "testing":
-            displayText = formatTestingStatus(msg);
+            displayText = htmlEscape(formatTestingStatus(msg));
             break;
           case "waiting-for-generator":
-            displayText = formatWaitingStatus(msg);
+            displayText = htmlEscape(formatWaitingStatus(msg)).replace(
+              /(input generator(?:s)?)\.\.\./,
+              `$1<span class="loading-dots">............</span>`
+            );
             break;
           case "testing-complete":
-            displayText = formatTestingCompleteStatus(msg);
+            displayText = htmlEscape(formatTestingCompleteStatus(msg));
             break;
           case "progress-tick":
             break;
         }
 
         if (displayText !== undefined) {
-          nonMilestone.innerHTML = htmlEscape(displayText);
+          nonMilestone.innerHTML = displayText;
         }
 
         if ("pct" in msg && typeof msg.pct === "number") {

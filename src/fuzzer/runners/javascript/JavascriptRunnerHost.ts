@@ -158,9 +158,21 @@ async function main() {
 
     const fnToExec = getTargetFunction(targetFilename, targetFnName);
     const typeHints = input.typeHints ?? [];
-    const hydratedArgs = input.args.map((arg, i) =>
-      transformArg(arg, i < typeHints.length ? typeHints[i] : undefined)
-    );
+    let hydratedArgs: unknown[];
+    try {
+      hydratedArgs = input.args.map((arg, i) =>
+        transformArg(arg, i < typeHints.length ? typeHints[i] : undefined, i)
+      );
+    } catch (e: unknown) {
+      sendMsg({
+        tag: "error",
+        name: "ArgumentError",
+        message: isError(e) ? e.message : String(e),
+        source: "put",
+        seq: input.seq,
+      });
+      continue;
+    }
 
     const putExec = await invokeWithTimeout(
       fnToExec,
@@ -496,7 +508,7 @@ function functionTimeout(
  * @param hint The type hint guiding the transformation.
  * @returns The transformed value.
  */
-function isPrngPayload(val: unknown): val is { seed?: string } {
+function isPrngPayload(val: unknown): val is { seed?: unknown } {
   return (
     val !== null &&
     typeof val === "object" &&
@@ -505,17 +517,25 @@ function isPrngPayload(val: unknown): val is { seed?: string } {
   );
 }
 
-function transformArg(val: unknown, hint: TypeHint | undefined): unknown {
+function transformArg(
+  val: unknown,
+  hint: TypeHint | undefined,
+  argIndex: number = 0
+): unknown {
   if (isPrngPayload(val)) {
-    return seedrandom(val.seed);
+    const rawSeed = val.seed;
+    if (
+      rawSeed !== undefined &&
+      rawSeed !== null &&
+      (typeof rawSeed !== "string" || rawSeed.length > 0)
+    ) {
+      return seedrandom(String(rawSeed));
+    }
+    return Math.random;
   }
 
   if (val === null || val === undefined || hint === undefined) {
     return val;
-  }
-
-  if (hint === "prng") {
-    return seedrandom(typeof val === "string" ? val : undefined);
   }
 
   if (hint === "bytes") {
@@ -526,13 +546,8 @@ function transformArg(val: unknown, hint: TypeHint | undefined): unknown {
   }
 
   if (typeof hint === "object") {
-    if (hint.kind === "prng") {
-      const seed = typeof val === "string" ? val : hint.seed;
-      return seedrandom(seed);
-    }
-
     if (hint.kind === "array" && Array.isArray(val)) {
-      return val.map((item) => transformArg(item, hint.element));
+      return val.map((item) => transformArg(item, hint.element, argIndex));
     }
 
     if (hint.kind === "set") {

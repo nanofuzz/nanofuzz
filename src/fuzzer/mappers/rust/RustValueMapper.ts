@@ -38,7 +38,11 @@ export function fromRust<T>(text: string): T {
 // ----------------- From JavaScript value to Rust string ----------------- //
 
 function toRustFormat(val: unknown, argDef?: ArgDefContext): string {
-  if (val === undefined || val === null) {
+  const baseRef = argDef?.getBaseTypeRef();
+  const isPointerWrapper =
+    baseRef === "Box" || baseRef === "Rc" || baseRef === "Arc";
+
+  if (val === undefined || (val === null && !isPointerWrapper)) {
     return "None";
   }
 
@@ -53,6 +57,25 @@ function toRustFormat(val: unknown, argDef?: ArgDefContext): string {
       getDim: () => argDef.getDim(),
     };
     return `Some(${toRustFormat(val, innerArgDef)})`;
+  }
+
+  if (argDef && isPointerWrapper) {
+    const innerArgDef: ArgDefContext = argDef.getChildren()[0] ?? {
+      isOptional: () => false,
+      getTypeRef: () => argDef.getTypeRef(),
+      getBaseTypeRef: () => undefined,
+      getOptions: () => argDef.getOptions(),
+      getType: () => argDef.getType(),
+      getChildren: () => [],
+      getDim: () => argDef.getDim(),
+    };
+    const ctor =
+      baseRef === "Box"
+        ? "Box"
+        : baseRef === "Rc"
+          ? "std::rc::Rc"
+          : "std::sync::Arc";
+    return `${ctor}::new(${toRustFormat(val, innerArgDef)})`;
   }
 
   if (typeof val === "boolean") {
@@ -122,6 +145,14 @@ function toRustFormat(val: unknown, argDef?: ArgDefContext): string {
   if (typeof val === "string") {
     if (argDef?.getTypeRef() === "&str") {
       return JSON.stringify(val);
+    }
+    if (
+      argDef?.getType() === ArgTag.LITERAL &&
+      argDef.getBaseTypeRef() &&
+      argDef.getBaseTypeRef() !== "String" &&
+      argDef.getBaseTypeRef() !== "str"
+    ) {
+      return `${argDef.getBaseTypeRef()}::${val}`;
     }
     if (argDef?.getTypeRef() === "char") {
       const ch = val.length > 0 ? val[0] : "\0";
@@ -222,7 +253,10 @@ function toRustFormat(val: unknown, argDef?: ArgDefContext): string {
         ? {
             isOptional: () => false,
             getTypeRef: () => argDef.getTypeRef(),
-            getBaseTypeRef: () => argDef.getBaseTypeRef(),
+            getBaseTypeRef: () =>
+              argDef.getBaseTypeRef() === "VecDeque"
+                ? undefined
+                : argDef.getBaseTypeRef(),
             getOptions: () => argDef.getOptions(),
             getType: () => argDef.getType(),
             getChildren: () => [],
@@ -230,6 +264,13 @@ function toRustFormat(val: unknown, argDef?: ArgDefContext): string {
           }
         : undefined);
     const items = val.map((item) => toRustFormat(item, elemDef));
+
+    if (argDef?.getBaseTypeRef() === "VecDeque") {
+      if (items.length === 0) {
+        return `std::collections::VecDeque::new()`;
+      }
+      return `std::collections::VecDeque::from([${items.join(", ")}])`;
+    }
 
     if (argDef?.getTypeRef()?.startsWith("&[")) {
       return `&[${items.join(", ")}]`;
@@ -245,11 +286,23 @@ function toRustFormat(val: unknown, argDef?: ArgDefContext): string {
   }
 
   if (val !== null && typeof val === "object") {
+    if (isKeyedObject(val)) {
+      const keys = Object.keys(val);
+      if (keys.length === 1 && (keys[0] === "Ok" || keys[0] === "Err")) {
+        const tag = keys[0];
+        const childDef = argDef
+          ?.getChildren()
+          .find((c) => c.getName?.() === tag)
+          ?.getChildren()[0];
+        return `${tag}(${toRustFormat(val[tag], childDef)})`;
+      }
+    }
     const entries: string[] = [];
     if (isKeyedObject(val)) {
       for (const k of Object.keys(val)) {
         const propValue = val[k];
-        entries.push(`${k}: ${toRustFormat(propValue)}`);
+        const childDef = argDef?.getChildren().find((c) => c.getName?.() === k);
+        entries.push(`${k}: ${toRustFormat(propValue, childDef)}`);
       }
     }
     const typeRef = argDef?.getTypeRef();
@@ -559,6 +612,24 @@ function toJavascriptValue(text: string): unknown {
           });
           return;
         }
+        if (node.type === "scoped_identifier") {
+          if (
+            node.parent?.type !== "call_expression" &&
+            node.parent?.type !== "scoped_identifier" &&
+            !text.startsWith("std::") &&
+            !text.startsWith("core::")
+          ) {
+            const varName = node.childForFieldName("name")?.text;
+            if (varName) {
+              replacements.push({
+                start: node.startIndex,
+                end: node.endIndex,
+                text: JSON.stringify(varName),
+              });
+              return;
+            }
+          }
+        }
         break;
       }
 
@@ -620,6 +691,26 @@ function toJavascriptValue(text: string): unknown {
         const argsNode = node.childForFieldName("arguments");
         const fnText = fnNode?.text;
 
+        if (fnText === "Ok" || fnText === "Err") {
+          const innerArg = argsNode
+            ? Parser.getFirstNamedChildNoComments(argsNode)
+            : undefined;
+          if (innerArg) {
+            replacements.push({
+              start: node.startIndex,
+              end: innerArg.startIndex,
+              text: `{"${fnText}":`,
+            });
+            replacements.push({
+              start: innerArg.endIndex,
+              end: node.endIndex,
+              text: "}",
+            });
+            collectReplacements(innerArg);
+            return;
+          }
+        }
+
         if (fnText === "Some") {
           const innerArg = argsNode
             ? Parser.getFirstNamedChildNoComments(argsNode)
@@ -656,6 +747,73 @@ function toJavascriptValue(text: string): unknown {
               text: "",
             });
             collectReplacements(innerArg);
+            return;
+          }
+        }
+
+        if (
+          fnText === "Box::new" ||
+          fnText === "std::boxed::Box::new" ||
+          fnText === "Rc::new" ||
+          fnText === "std::rc::Rc::new" ||
+          fnText === "Arc::new" ||
+          fnText === "std::sync::Arc::new"
+        ) {
+          const innerArg = argsNode
+            ? Parser.getFirstNamedChildNoComments(argsNode)
+            : undefined;
+          if (innerArg) {
+            replacements.push({
+              start: node.startIndex,
+              end: innerArg.startIndex,
+              text: "",
+            });
+            replacements.push({
+              start: innerArg.endIndex,
+              end: node.endIndex,
+              text: "",
+            });
+            collectReplacements(innerArg);
+            return;
+          }
+        }
+
+        if (
+          fnText === "VecDeque::new" ||
+          fnText === "std::collections::VecDeque::new"
+        ) {
+          replacements.push({
+            start: node.startIndex,
+            end: node.endIndex,
+            text: "[]",
+          });
+          return;
+        }
+
+        if (
+          fnText === "VecDeque::from" ||
+          fnText === "std::collections::VecDeque::from"
+        ) {
+          const arrNode = argsNode
+            ? Parser.getNamedChildrenNoComments(argsNode).find(
+                (c) => c.type === "array_expression"
+              )
+            : undefined;
+          if (arrNode) {
+            replacements.push({
+              start: node.startIndex,
+              end: arrNode.startIndex,
+              text: "",
+            });
+            replacements.push({
+              start: arrNode.endIndex,
+              end: node.endIndex,
+              text: "",
+            });
+            for (let i = 0; i < arrNode.childCount; i++) {
+              const child = arrNode.child(i);
+              if (child) collectReplacements(child);
+            }
             return;
           }
         }
@@ -919,4 +1077,5 @@ export type ArgDefContext = {
   getType(): ArgTag;
   getChildren(): ArgDefContext[];
   getDim(): number;
+  getName?(): string;
 };

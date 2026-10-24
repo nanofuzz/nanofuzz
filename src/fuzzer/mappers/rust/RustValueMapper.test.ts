@@ -144,11 +144,53 @@ describe("fuzzer/mappers/rust/RustValueMapper: ", () => {
     expect(RustValueMapper.fromRust("()")).toBeNull();
   });
 
+  it("handles Box and VecDeque expressions with round-trip support", () => {
+    expect(RustValueMapper.fromRust("Box::new(42)")).toBe(42);
+    expect(RustValueMapper.fromRust("std::boxed::Box::new(42)")).toBe(42);
+    expect(RustValueMapper.fromRust("Rc::new(42)")).toBe(42);
+    expect(RustValueMapper.fromRust("std::rc::Rc::new(42)")).toBe(42);
+    expect(RustValueMapper.fromRust("Arc::new(42)")).toBe(42);
+    expect(RustValueMapper.fromRust("std::sync::Arc::new(42)")).toBe(42);
+    expect(RustValueMapper.fromRust('Box::new("hello")')).toBe("hello");
+    expect(RustValueMapper.fromRust("Box::new(vec![1, 2, 3])")).toEqual([
+      1, 2, 3,
+    ]);
+
+    expect(RustValueMapper.fromRust("VecDeque::new()")).toEqual([]);
+    expect(
+      RustValueMapper.fromRust("std::collections::VecDeque::new()")
+    ).toEqual([]);
+    expect(RustValueMapper.fromRust("VecDeque::from([1, 2, 3])")).toEqual([
+      1, 2, 3,
+    ]);
+    expect(
+      RustValueMapper.fromRust("std::collections::VecDeque::from([1, 2, 3])")
+    ).toEqual([1, 2, 3]);
+  });
+
   it("handles Rust struct expressions", () => {
     expect(RustValueMapper.fromRust("Point { x: 10, y: 20 }")).toEqual({
       x: 10,
       y: 20,
     });
+  });
+
+  it("handles Result and Enum expressions with round-trip support", () => {
+    expect(RustValueMapper.fromRust("Ok(42)")).toEqual({ Ok: 42 });
+    expect(RustValueMapper.fromRust('Err("failure")')).toEqual({
+      Err: "failure",
+    });
+
+    expect(RustValueMapper.toRust({ Ok: 42 })).toBe("Ok(42)");
+    expect(RustValueMapper.toRust({ Err: "failure" })).toBe(
+      'Err(String::from("failure"))'
+    );
+    expect(
+      RustValueMapper.fromRust(RustValueMapper.toRust({ Ok: 42 }))
+    ).toEqual({ Ok: 42 });
+
+    expect(RustValueMapper.fromRust("Status::Active")).toBe("Active");
+    expect(RustValueMapper.fromRust("ActionKind::Stop")).toBe("Stop");
   });
 
   it("integrates with ValueMapper dispatch", () => {
@@ -334,5 +376,102 @@ describe("fuzzer/mappers/rust/RustValueMapper: ", () => {
     expect(RustValueMapper.toRust(new Map(), btreeMapDef)).toBe(
       "std::collections::BTreeMap::new()"
     );
+
+    const boxI32Def = new ArgDef(
+      "b",
+      0,
+      ArgTag.NUMBER,
+      baseOpt,
+      0,
+      false,
+      undefined,
+      [],
+      "i32"
+    );
+    boxI32Def.setBaseTypeRef("Box");
+    expect(RustValueMapper.toRust(42, boxI32Def)).toBe("Box::new(42i32)");
+    expect(
+      RustValueMapper.fromRust(RustValueMapper.toRust(42, boxI32Def))
+    ).toBe(42);
+
+    const boxVecDef = new ArgDef(
+      "b",
+      0,
+      ArgTag.NUMBER,
+      baseOpt,
+      1,
+      false,
+      undefined,
+      [],
+      "i32"
+    );
+    boxVecDef.setBaseTypeRef("Box");
+    expect(RustValueMapper.toRust([1, 2, 3], boxVecDef)).toBe(
+      "Box::new(vec![1i32, 2i32, 3i32])"
+    );
+    expect(
+      RustValueMapper.fromRust(RustValueMapper.toRust([1, 2, 3], boxVecDef))
+    ).toEqual([1, 2, 3]);
+
+    const vecDequeDef = new ArgDef(
+      "q",
+      0,
+      ArgTag.NUMBER,
+      baseOpt,
+      1,
+      false,
+      undefined,
+      [],
+      "i32"
+    );
+    vecDequeDef.setBaseTypeRef("VecDeque");
+    expect(RustValueMapper.toRust([1, 2], vecDequeDef)).toBe(
+      "std::collections::VecDeque::from([1i32, 2i32])"
+    );
+    expect(RustValueMapper.toRust([], vecDequeDef)).toBe(
+      "std::collections::VecDeque::new()"
+    );
+    expect(
+      RustValueMapper.fromRust(RustValueMapper.toRust([1, 2], vecDequeDef))
+    ).toEqual([1, 2]);
+    expect(
+      RustValueMapper.fromRust(RustValueMapper.toRust([], vecDequeDef))
+    ).toEqual([]);
+
+    const rcDef = new ArgDef(
+      "r",
+      0,
+      ArgTag.NUMBER,
+      baseOpt,
+      0,
+      false,
+      undefined,
+      [],
+      "i32"
+    );
+    rcDef.setBaseTypeRef("Rc");
+    expect(RustValueMapper.toRust(42, rcDef)).toBe("std::rc::Rc::new(42i32)");
+    expect(RustValueMapper.fromRust(RustValueMapper.toRust(42, rcDef))).toBe(
+      42
+    );
+
+    const arcDef = new ArgDef(
+      "a",
+      0,
+      ArgTag.STRING,
+      baseOpt,
+      0,
+      false,
+      undefined,
+      [],
+      "String"
+    );
+    arcDef.setBaseTypeRef("Arc");
+    expect(RustValueMapper.toRust("hello", arcDef)).toBe(
+      'std::sync::Arc::new(String::from("hello"))'
+    );
+    expect(
+      RustValueMapper.fromRust(RustValueMapper.toRust("hello", arcDef))
+    ).toBe("hello");
   });
 });
