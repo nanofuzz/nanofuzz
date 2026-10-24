@@ -247,38 +247,117 @@ public record Point(int x, int y) {
     );
   });
 
-  it("marks class methods and functions with function-typed parameters as unsupported", () => {
+  it("marks class methods and functions with unsupported argument types as unsupported", () => {
     const src = `
+import java.util.List;
+import java.util.Map;
 import java.util.function.DoubleSupplier;
 
 public class TargetClass {
+    public enum Color { RED, GREEN, BLUE }
+    public class CustomUser { String name; }
+    public interface Callback { void run(); }
+    public record ColoredPoint(int x, Color color) {}
+
+    // Supported static method
     public static int evaluateExpression(int x) { return x; }
 
+    // Class (instance) method
+    public int instanceMethod(int x) { return x * 2; }
+
+    // Function with functional interface parameter
     public static Object[] evaluateExpressionGenerator(DoubleSupplier prng) {
         return new Object[] { 1 };
     }
 
-    public int instanceMethod(int x) { return x * 2; }
+    // Function with enum parameter
+    public static void paint(Color c) {}
+
+    // Function with custom class parameter
+    public static void handleUser(CustomUser u) {}
+
+    // Function with interface parameter
+    public static void execute(Callback cb) {}
+
+    // Function with Object parameter
+    public static void processObj(Object obj) {}
+
+    // Function with array of unsupported enum type
+    public static void paintAll(Color[] colors) {}
+
+    // Function with List of unsupported enum type
+    public static void paintList(List<Color> colors) {}
+
+    // Function with Map containing unsupported enum type
+    public static void paintMap(Map<String, Color> map) {}
+
+    // Function with record containing unsupported enum component
+    public static void draw(ColoredPoint cp) {}
 }
 `;
     const prog = ProgramFactory.fromSource(() => src, "java");
 
+    // Only the method with supported primitive arguments is exported
     expect(prog.functionsExported["evaluateExpression"]).toBeDefined();
+
+    // All others must be undefined in functionsExported
     expect(
       prog.functionsExported["evaluateExpressionGenerator"]
     ).toBeUndefined();
     expect(prog.functionsExported["instanceMethod"]).toBeUndefined();
+    expect(prog.functionsExported["paint"]).toBeUndefined();
+    expect(prog.functionsExported["handleUser"]).toBeUndefined();
+    expect(prog.functionsExported["execute"]).toBeUndefined();
+    expect(prog.functionsExported["processObj"]).toBeUndefined();
+    expect(prog.functionsExported["paintAll"]).toBeUndefined();
+    expect(prog.functionsExported["paintList"]).toBeUndefined();
+    expect(prog.functionsExported["paintMap"]).toBeUndefined();
+    expect(prog.functionsExported["draw"]).toBeUndefined();
 
+    // Class methods marked unsupported
+    expect(prog.functionsNotSupported["instanceMethod"]).toBeDefined();
+    expect(prog.functionsNotSupported["instanceMethod"].reason).toBe(
+      "Class methods are not supported"
+    );
+
+    // Functional interface parameter marked unsupported
     expect(
       prog.functionsNotSupported["evaluateExpressionGenerator"]
     ).toBeDefined();
     expect(
       prog.functionsNotSupported["evaluateExpressionGenerator"].argument
     ).toBe("prng");
-    expect(prog.functionsNotSupported["instanceMethod"]).toBeDefined();
-    expect(prog.functionsNotSupported["instanceMethod"].reason).toBe(
-      "Class methods are not supported"
+
+    // Enum parameter marked unsupported
+    expect(prog.functionsNotSupported["paint"]).toBeDefined();
+    expect(prog.functionsNotSupported["paint"].argument).toBe("c");
+    expect(prog.functionsNotSupported["paint"].reason).toContain(
+      "enums are not supported"
     );
+
+    // Class parameter marked unsupported
+    expect(prog.functionsNotSupported["handleUser"]).toBeDefined();
+    expect(prog.functionsNotSupported["handleUser"].argument).toBe("u");
+    expect(prog.functionsNotSupported["handleUser"].reason).toContain(
+      "classes are not supported"
+    );
+
+    // Interface parameter marked unsupported
+    expect(prog.functionsNotSupported["execute"]).toBeDefined();
+    expect(prog.functionsNotSupported["execute"].argument).toBe("cb");
+    expect(prog.functionsNotSupported["execute"].reason).toContain(
+      "interfaces are not supported"
+    );
+
+    // Object parameter marked unsupported
+    expect(prog.functionsNotSupported["processObj"]).toBeDefined();
+    expect(prog.functionsNotSupported["processObj"].argument).toBe("obj");
+
+    // Collections and arrays of unsupported types marked unsupported
+    expect(prog.functionsNotSupported["paintAll"]).toBeDefined();
+    expect(prog.functionsNotSupported["paintList"]).toBeDefined();
+    expect(prog.functionsNotSupported["paintMap"]).toBeDefined();
+    expect(prog.functionsNotSupported["draw"]).toBeDefined();
   });
 
   it("extracts callees within method body", () => {

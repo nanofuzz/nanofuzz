@@ -25,6 +25,8 @@ export class JavaProgram extends AbstractProgram {
     ".java",
   ]);
   protected _ast: Parser.Tree | undefined;
+  protected _definedTypeKinds: Map<string, "class" | "interface" | "enum"> =
+    new Map();
 
   /**
    * Constructs a new JavaProgram instance.
@@ -346,11 +348,20 @@ export class JavaProgram extends AbstractProgram {
    * @returns Resolved TypeRef
    */
   public resolveTypeRef(typeRef: TypeRef): TypeRef {
-    const name = typeRef.typeRefName;
-    if (name && isJavaFunctionType(name)) {
-      throw new Error(
-        `Unsupported parameter type '${name}': function-typed parameters are not supported`
-      );
+    const typeName = typeRef.typeRefName;
+    if (typeName) {
+      if (isJavaFunctionType(typeName)) {
+        throw new Error(
+          `Unsupported parameter type '${typeName}': function-typed parameters are not supported`
+        );
+      }
+      if (this._definedTypeKinds.has(typeName)) {
+        const kind = this._definedTypeKinds.get(typeName);
+        const pluralKind = kind === "class" ? "classes" : `${kind}s`;
+        throw new Error(
+          `Unsupported parameter type '${typeName}': ${pluralKind} are not supported`
+        );
+      }
     }
 
     if (typeRef.type && typeRef.type.type !== ArgTag.UNRESOLVED) {
@@ -363,7 +374,8 @@ export class JavaProgram extends AbstractProgram {
       }
     }
 
-    if (!typeRef.typeRefName) {
+    const typeNameResolved = typeRef.typeRefName;
+    if (typeNameResolved === undefined || typeNameResolved === "") {
       throw new Error(
         `Internal error: typeRef is undefined in TypeRef (${JSONN.stringify(
           typeRef
@@ -371,7 +383,7 @@ export class JavaProgram extends AbstractProgram {
       );
     }
 
-    if (name === "FuzzTestResult") {
+    if (typeNameResolved === "FuzzTestResult") {
       typeRef.type = {
         type: ArgTag.OBJECT,
         dims: 0,
@@ -381,7 +393,7 @@ export class JavaProgram extends AbstractProgram {
       return typeRef;
     }
 
-    const primitiveResolved = resolveJavaPrimitive(name);
+    const primitiveResolved = resolveJavaPrimitive(typeNameResolved);
     if (primitiveResolved) {
       typeRef.type = {
         type: primitiveResolved.tag,
@@ -395,8 +407,8 @@ export class JavaProgram extends AbstractProgram {
       return typeRef;
     }
 
-    if (name in this._types) {
-      const resolved = this.resolveTypeRef(this._types[name]);
+    if (typeNameResolved in this._types) {
+      const resolved = this.resolveTypeRef(this._types[typeNameResolved]);
       typeRef.type = structuredClone(resolved.type);
       if (typeRef.type) {
         typeRef.type.dims += resolved.dims;
@@ -405,8 +417,8 @@ export class JavaProgram extends AbstractProgram {
       return typeRef;
     }
 
-    if (name in this._imports.identifiers) {
-      const imp = this._imports.identifiers[name];
+    if (typeNameResolved in this._imports.identifiers) {
+      const imp = this._imports.identifiers[typeNameResolved];
       if (
         imp.programPath &&
         imp.programPath !== "?" &&
@@ -431,14 +443,9 @@ export class JavaProgram extends AbstractProgram {
       }
     }
 
-    // Default unresolved type
-    typeRef.type = {
-      type: ArgTag.OBJECT,
-      dims: 0,
-      children: [],
-      resolved: true,
-    };
-    return typeRef;
+    throw new Error(
+      `Unsupported parameter type '${typeNameResolved}': type is not supported`
+    );
   } // fn: resolveTypeRef
 
   /**
@@ -447,6 +454,11 @@ export class JavaProgram extends AbstractProgram {
    * @param src Java source code
    */
   protected _parse(src: string): void {
+    if (!this._definedTypeKinds) {
+      this._definedTypeKinds = new Map();
+    } else {
+      this._definedTypeKinds.clear();
+    }
     this._ast = Parser.parse("java", src) ?? undefined;
   } // fn: _parse
 
@@ -562,20 +574,29 @@ export class JavaProgram extends AbstractProgram {
         }
       }
 
-      types[name] = {
-        module: this._filename,
-        name,
-        typeRefName: name,
-        optional: false,
-        dims: 0,
-        isExported,
-        type: {
-          type: ArgTag.OBJECT,
+      if (recordItem) {
+        types[name] = {
+          module: this._filename,
+          name,
+          typeRefName: name,
+          optional: false,
           dims: 0,
-          children,
-          resolved: true,
-        },
-      };
+          isExported,
+          type: {
+            type: ArgTag.OBJECT,
+            dims: 0,
+            children,
+            resolved: children.every((c) => c.type?.resolved),
+          },
+        };
+      } else {
+        const kind: "enum" | "interface" | "class" = enumItem
+          ? "enum"
+          : interfaceItem
+            ? "interface"
+            : "class";
+        this._definedTypeKinds.set(name, kind);
+      }
     }
 
     return types;
@@ -900,16 +921,6 @@ export class JavaProgram extends AbstractProgram {
           };
           return thisType;
         }
-        if (text === "Object") {
-          thisType.typeRefName = text;
-          thisType.type = {
-            type: ArgTag.OBJECT,
-            dims: 0,
-            children: [],
-            resolved: true,
-          };
-          return thisType;
-        }
         if (text === "FuzzTestResult") {
           thisType.typeRefName = text;
           thisType.type = {
@@ -1013,12 +1024,12 @@ export class JavaProgram extends AbstractProgram {
             thisType.type = inner.type;
             return thisType;
           }
-          thisType.typeRefName = "Object";
+          thisType.typeRefName = "Optional";
           thisType.type = {
-            type: ArgTag.OBJECT,
+            type: ArgTag.UNRESOLVED,
             dims: 0,
             children: [],
-            resolved: true,
+            resolved: false,
           };
           return thisType;
         }
@@ -1037,13 +1048,13 @@ export class JavaProgram extends AbstractProgram {
             thisType.type = inner.type;
             return thisType;
           }
-          thisType.typeRefName = "Object";
+          thisType.typeRefName = baseName;
           thisType.dims = 1;
           thisType.type = {
-            type: ArgTag.OBJECT,
+            type: ArgTag.UNRESOLVED,
             dims: 0,
             children: [],
-            resolved: true,
+            resolved: false,
           };
           return thisType;
         }
@@ -1097,10 +1108,10 @@ export class JavaProgram extends AbstractProgram {
 
         thisType.typeRefName = baseName;
         thisType.type = {
-          type: ArgTag.OBJECT,
+          type: ArgTag.UNRESOLVED,
           dims: 0,
           children: argNodes.map((c) => this._getTypeRefFromAstNode(c)),
-          resolved: true,
+          resolved: false,
         };
         return thisType;
       }
@@ -1122,12 +1133,12 @@ export class JavaProgram extends AbstractProgram {
         return thisType;
       }
       case "wildcard": {
-        thisType.typeRefName = "Object";
+        thisType.typeRefName = "?";
         thisType.type = {
-          type: ArgTag.OBJECT,
+          type: ArgTag.UNRESOLVED,
           dims: 0,
           children: [],
-          resolved: true,
+          resolved: false,
         };
         return thisType;
       }
@@ -1147,10 +1158,10 @@ export class JavaProgram extends AbstractProgram {
         }
         thisType.typeRefName = text;
         thisType.type = {
-          type: ArgTag.OBJECT,
+          type: ArgTag.UNRESOLVED,
           dims: 0,
           children: [],
-          resolved: true,
+          resolved: false,
         };
         return thisType;
       }
