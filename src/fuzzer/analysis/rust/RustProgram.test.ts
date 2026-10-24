@@ -189,6 +189,166 @@ pub async fn check_status(code: i32) -> bool {
     expect(fnDef.getCmt()).toContain("Fetches a remote status asynchronously");
   });
 
+  it("flags non-top-level functions (methods, impl blocks, traits, inner functions) as unsupported", () => {
+    const src = `
+pub struct Counter {
+    pub count: i32,
+}
+
+impl Counter {
+    pub fn new() -> Counter {
+        Counter { count: 0 }
+    }
+
+    pub fn increment(&mut self, amount: i32) {
+        self.count += amount;
+    }
+
+    pub fn get_count(&self) -> i32 {
+        self.count
+    }
+}
+
+pub trait Describable {
+    fn describe(&self) -> String {
+        String::from("default")
+    }
+}
+
+pub fn outer_func(x: i32) -> i32 {
+    fn inner_func(y: i32) -> i32 {
+        y * 2
+    }
+    inner_func(x)
+}
+
+mod internal {
+    pub fn module_func(x: i32) -> i32 { x }
+}
+`;
+    const program = ProgramFactory.fromSource(() => src, "rust");
+
+    // Top-level function outer_func is supported
+    expect(program.functions["outer_func"]).toBeDefined();
+
+    // Associated functions and methods in impl blocks are unsupported
+    expect(program.functions["new"]).toBeUndefined();
+    expect(program.functions["increment"]).toBeUndefined();
+    expect(program.functions["get_count"]).toBeUndefined();
+    expect(program.functionsNotSupported["new"]).toBeDefined();
+    expect(program.functionsNotSupported["increment"]).toBeDefined();
+    expect(program.functionsNotSupported["get_count"]).toBeDefined();
+
+    // Trait methods, inner functions, and inline module functions are unsupported
+    expect(program.functions["describe"]).toBeUndefined();
+    expect(program.functions["inner_func"]).toBeUndefined();
+    expect(program.functions["module_func"]).toBeUndefined();
+    expect(program.functionsNotSupported["describe"]).toBeDefined();
+    expect(program.functionsNotSupported["inner_func"]).toBeDefined();
+    expect(program.functionsNotSupported["module_func"]).toBeDefined();
+  });
+
+  it("flags generic functions with type parameters as unsupported", () => {
+    const src = `
+pub fn identity<T>(val: T) -> T {
+    val
+}
+
+pub fn with_bound<T: std::fmt::Debug>(val: T) {
+    println!("{:?}", val);
+}
+
+pub fn with_lifetime<'a>(s: &'a str) -> &'a str {
+    s
+}
+`;
+    const program = ProgramFactory.fromSource(() => src, "rust");
+
+    // Generic type parameters are unsupported
+    expect(program.functions["identity"]).toBeUndefined();
+    expect(program.functions["with_bound"]).toBeUndefined();
+    expect(program.functionsNotSupported["identity"]).toBeDefined();
+    expect(program.functionsNotSupported["with_bound"]).toBeDefined();
+
+    // Lifetime parameters only are supported
+    expect(program.functions["with_lifetime"]).toBeDefined();
+  });
+
+  it("flags functions with unsupported or unresolved argument types as unsupported", () => {
+    const src = `
+pub struct UserPayload {
+    pub id: u64,
+}
+
+pub enum ActionKind {
+    Start,
+    Stop,
+}
+
+pub fn handle_struct(payload: UserPayload) -> bool {
+    payload.id > 0
+}
+
+pub fn handle_enum(kind: ActionKind) -> bool {
+    true
+}
+
+pub fn handle_unknown(conn: DatabaseConnection) -> bool {
+    true
+}
+
+pub fn handle_mut_ref(x: &mut i32) {
+    *x += 1;
+}
+
+pub fn handle_raw_ptr(p: *const i32) -> i32 {
+    unsafe { *p }
+}
+
+pub fn handle_fn_ptr(cb: fn(i32) -> i32) -> i32 {
+    cb(42)
+}
+
+pub fn handle_dyn_trait(d: &dyn std::fmt::Display) {
+}
+
+pub fn handle_unresolved_collection(items: Vec<UnresolvedItem>) -> usize {
+    items.len()
+}
+`;
+    const program = ProgramFactory.fromSource(() => src, "rust");
+
+    expect(program.functions["handle_struct"]).toBeUndefined();
+    expect(program.functions["handle_enum"]).toBeUndefined();
+    expect(program.functions["handle_unknown"]).toBeUndefined();
+    expect(program.functions["handle_mut_ref"]).toBeUndefined();
+    expect(program.functions["handle_raw_ptr"]).toBeUndefined();
+    expect(program.functions["handle_fn_ptr"]).toBeUndefined();
+    expect(program.functions["handle_dyn_trait"]).toBeUndefined();
+    expect(program.functions["handle_unresolved_collection"]).toBeUndefined();
+
+    expect(program.functionsNotSupported["handle_struct"]).toBeDefined();
+    expect(program.functionsNotSupported["handle_struct"].argument).toBe(
+      "payload"
+    );
+
+    expect(program.functionsNotSupported["handle_enum"]).toBeDefined();
+    expect(program.functionsNotSupported["handle_enum"].argument).toBe("kind");
+
+    expect(program.functionsNotSupported["handle_unknown"]).toBeDefined();
+    expect(program.functionsNotSupported["handle_unknown"].argument).toBe(
+      "conn"
+    );
+
+    expect(program.functionsNotSupported["handle_mut_ref"]).toBeDefined();
+    expect(program.functionsNotSupported["handle_raw_ptr"]).toBeDefined();
+    expect(program.functionsNotSupported["handle_fn_ptr"]).toBeDefined();
+    expect(program.functionsNotSupported["handle_dyn_trait"]).toBeDefined();
+    expect(
+      program.functionsNotSupported["handle_unresolved_collection"]
+    ).toBeDefined();
+  });
+
   it("generates correct Rust type annotations", () => {
     const src = `
 pub fn dummy(

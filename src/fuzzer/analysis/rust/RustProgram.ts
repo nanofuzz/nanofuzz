@@ -173,7 +173,14 @@ export class RustProgram extends AbstractProgram {
         return typeRef;
       } else {
         typeRef.type.children.forEach((child) => this.resolveTypeRef(child));
-        typeRef.type.resolved = true;
+        typeRef.type.resolved = typeRef.type.children.every(
+          (child) => child.type?.resolved ?? false
+        );
+        if (!typeRef.type.resolved) {
+          throw new Error(
+            `Unable to resolve type '${typeRef.typeRefName ?? "unknown"}' in module '${this._filename}'`
+          );
+        }
         return typeRef;
       }
     }
@@ -187,7 +194,11 @@ export class RustProgram extends AbstractProgram {
     }
 
     const name = typeRef.typeRefName;
-    if (name === "FuzzTestResult") {
+    if (
+      name === "FuzzTestResult" ||
+      name.includes("Fn") ||
+      typeRef.name === "prng"
+    ) {
       typeRef.type = {
         type: ArgTag.OBJECT,
         dims: 0,
@@ -201,7 +212,7 @@ export class RustProgram extends AbstractProgram {
     if (primitiveResolved) {
       typeRef.type = {
         type: primitiveResolved.tag,
-        dims: 0,
+        dims: typeRef.dims,
         children: [],
         ...(primitiveResolved.options
           ? { options: primitiveResolved.options }
@@ -212,13 +223,26 @@ export class RustProgram extends AbstractProgram {
     }
 
     if (name in this._types) {
-      const resolved = this.resolveTypeRef(this._types[name]);
-      typeRef.type = structuredClone(resolved.type);
-      if (typeRef.type) {
-        typeRef.type.dims += resolved.dims;
+      const typeDef = this._types[name];
+      if (typeDef.type?.resolved) {
+        typeRef.type = structuredClone(typeDef.type);
+        if (typeRef.type) {
+          typeRef.type.dims += typeDef.dims;
+        }
+        typeRef.optional = typeRef.optional || typeDef.optional;
+        return typeRef;
+      } else if (typeDef.typeRefName && typeDef.typeRefName !== name) {
+        const resolved = this.resolveTypeRef(typeDef);
+        typeRef.type = structuredClone(resolved.type);
+        if (typeRef.type) {
+          typeRef.type.dims += resolved.dims;
+        }
+        typeRef.optional = typeRef.optional || resolved.optional;
+        return typeRef;
       }
-      typeRef.optional = typeRef.optional || resolved.optional;
-      return typeRef;
+      throw new Error(
+        `Unable to resolve type '${name}' in module '${this._filename}'`
+      );
     }
 
     if (name in this._imports.identifiers) {
@@ -248,14 +272,9 @@ export class RustProgram extends AbstractProgram {
       }
     }
 
-    // Default unresolved type
-    typeRef.type = {
-      type: ArgTag.OBJECT,
-      dims: 0,
-      children: [],
-      resolved: true,
-    };
-    return typeRef;
+    throw new Error(
+      `Unable to resolve type '${name}' in module '${this._filename}'`
+    );
   } // fn: resolveTypeRef
 
   protected _parse(src: string): void {
@@ -296,84 +315,29 @@ export class RustProgram extends AbstractProgram {
     const typeQuery = Parser.query(
       "rust",
       `
-[
-  (type_item
-    name: (type_identifier) @type.name
-    type: (_) @type.target) @type.item
-  (struct_item
-    name: (type_identifier) @struct.name) @struct.item
-  (enum_item
-    name: (type_identifier) @enum.name) @enum.item
-]
+(type_item
+  name: (type_identifier) @type.name
+  type: (_) @type.target) @type.item
 `
     );
 
     const matches = typeQuery.matches(this._ast.rootNode);
     for (const match of matches) {
       const typeItem = match.captures.find((c) => c.name === "type.item")?.node;
-      if (typeItem) {
-        const nameNode = match.captures.find(
-          (c) => c.name === "type.name"
-        )?.node;
-        const targetNode = match.captures.find(
-          (c) => c.name === "type.target"
-        )?.node;
-        if (nameNode && targetNode) {
-          const isExported = isNodePublic(typeItem);
+      const nameNode = match.captures.find((c) => c.name === "type.name")?.node;
+      const targetNode = match.captures.find(
+        (c) => c.name === "type.target"
+      )?.node;
+      if (typeItem && nameNode && targetNode) {
+        try {
           const typeRef = this._getTypeRefFromAstNode(targetNode);
           typeRef.name = nameNode.text;
-          typeRef.isExported = isExported;
+          typeRef.isExported = isNodePublic(typeItem);
           types[nameNode.text] = typeRef;
-        }
-        continue;
-      }
-
-      const structItem = match.captures.find(
-        (c) => c.name === "struct.item"
-      )?.node;
-      if (structItem) {
-        const nameNode = match.captures.find(
-          (c) => c.name === "struct.name"
-        )?.node;
-        if (nameNode) {
-          types[nameNode.text] = {
-            module: this._filename,
-            name: nameNode.text,
-            typeRefName: nameNode.text,
-            optional: false,
-            dims: 0,
-            isExported: isNodePublic(structItem),
-            type: {
-              type: ArgTag.OBJECT,
-              dims: 0,
-              children: [],
-              resolved: true,
-            },
-          };
-        }
-        continue;
-      }
-
-      const enumItem = match.captures.find((c) => c.name === "enum.item")?.node;
-      if (enumItem) {
-        const nameNode = match.captures.find(
-          (c) => c.name === "enum.name"
-        )?.node;
-        if (nameNode) {
-          types[nameNode.text] = {
-            module: this._filename,
-            name: nameNode.text,
-            typeRefName: nameNode.text,
-            optional: false,
-            dims: 0,
-            isExported: isNodePublic(enumItem),
-            type: {
-              type: ArgTag.OBJECT,
-              dims: 0,
-              children: [],
-              resolved: true,
-            },
-          };
+        } catch (e) {
+          console.debug(
+            `Error getting TypeRef from AST node for ${nameNode.text} in module ${this._filename}, ignoring. Reason: ${e}`
+          );
         }
       }
     }
@@ -494,6 +458,27 @@ export class RustProgram extends AbstractProgram {
     nameNode: Parser.SyntaxNode,
     paramsNode: Parser.SyntaxNode
   ): FunctionRef {
+    if (itemNode.parent && itemNode.parent.type !== "source_file") {
+      throw new Error(
+        `Function '${nameNode.text}' is not a top-level module function`
+      );
+    }
+
+    const typeParamsNode = itemNode.childForFieldName("type_parameters");
+    if (typeParamsNode) {
+      const allLifetimes = Parser.getNamedChildrenNoComments(
+        typeParamsNode
+      ).every(
+        (child) =>
+          child.type === "lifetime_parameter" || child.type === "lifetime"
+      );
+      if (!allLifetimes) {
+        throw new Error(
+          `Generic function '${nameNode.text}' with type parameters is not supported`
+        );
+      }
+    }
+
     const isExported = isNodePublic(itemNode);
     const modifiersNode = itemNode.children.find(
       (c) => c.type === "function_modifiers"
@@ -518,16 +503,40 @@ export class RustProgram extends AbstractProgram {
     const args: TypeRef[] = [];
     const paramChildren = Parser.getNamedChildrenNoComments(paramsNode);
     for (const child of paramChildren) {
-      if (child.type === "parameter") {
-        const patternNode = child.childForFieldName("pattern");
-        const typeNode = child.childForFieldName("type");
-        if (!patternNode || !typeNode) {
-          continue;
-        }
-        const paramTypeRef = this._getTypeRefFromAstNode(typeNode);
-        paramTypeRef.name = patternNode.text;
-        args.push(paramTypeRef);
+      if (child.type !== "parameter") {
+        throw new Error(
+          `Unsupported parameter kind '${child.type}' in function '${nameNode.text}'`
+        );
       }
+      const patternNode = child.childForFieldName("pattern");
+      const typeNode = child.childForFieldName("type");
+      if (!patternNode || !typeNode) {
+        throw new Error(
+          `Parameter in function '${nameNode.text}' is missing type or pattern`
+        );
+      }
+      let paramName: string;
+      if (patternNode.type === "identifier") {
+        paramName = patternNode.text;
+      } else if (patternNode.type === "mut_pattern") {
+        const inner = Parser.getNamedChildrenNoComments(patternNode).find(
+          (c) => c.type === "identifier"
+        );
+        if (inner) {
+          paramName = inner.text;
+        } else {
+          throw new Error(
+            `Unsupported parameter pattern in function '${nameNode.text}'`
+          );
+        }
+      } else {
+        throw new Error(
+          `Unsupported parameter pattern '${patternNode.type}' in function '${nameNode.text}'`
+        );
+      }
+      const paramTypeRef = this._getTypeRefFromAstNode(typeNode);
+      paramTypeRef.name = paramName;
+      args.push(paramTypeRef);
     }
 
     const cmt = extractLeadingDocComment(itemNode);
@@ -572,8 +581,7 @@ export class RustProgram extends AbstractProgram {
           };
           return thisType;
         }
-        thisType.typeRefName = node.text;
-        return thisType;
+        throw new Error(`Unsupported primitive type '${node.text}'`);
       }
       case "type_identifier": {
         const text = node.text;
@@ -601,6 +609,16 @@ export class RustProgram extends AbstractProgram {
           };
           return thisType;
         }
+        if (text === "FuzzTestResult") {
+          thisType.typeRefName = text;
+          thisType.type = {
+            type: ArgTag.OBJECT,
+            dims: 0,
+            children: [],
+            resolved: true,
+          };
+          return thisType;
+        }
         thisType.typeRefName = text;
         thisType.type = {
           type: ArgTag.UNRESOLVED,
@@ -611,6 +629,14 @@ export class RustProgram extends AbstractProgram {
         return thisType;
       }
       case "reference_type": {
+        if (
+          node.text.startsWith("&mut") ||
+          node.children.some((c) => c.type === "mutable_specifier")
+        ) {
+          throw new Error(
+            `Mutable reference parameter '${node.text}' is not supported`
+          );
+        }
         // e.g. &str, &[T], &T
         const innerTypeNode =
           node.childForFieldName("type") ??
@@ -651,10 +677,15 @@ export class RustProgram extends AbstractProgram {
           ? Parser.getNamedChildrenNoComments(typeArgsNode)
           : [];
 
-        if (baseName === "Vec") {
-          thisType.dims = 1;
-          if (argNodes.length > 0) {
+        switch (baseName) {
+          case "Vec": {
+            if (argNodes.length === 0) {
+              throw new Error(
+                `Missing type argument for Vec in '${node.text}'`
+              );
+            }
             const inner = this._getTypeRefFromAstNode(argNodes[0]);
+            thisType.dims = 1;
             thisType.typeRefName = inner.typeRefName;
             thisType.type = {
               type: inner.type?.type ?? ArgTag.UNRESOLVED,
@@ -663,63 +694,65 @@ export class RustProgram extends AbstractProgram {
               ...(inner.type?.options ? { options: inner.type.options } : {}),
               resolved: inner.type?.resolved ?? false,
             };
-          } else {
-            thisType.typeRefName = "i32";
-            thisType.type = {
-              type: ArgTag.NUMBER,
-              dims: 0,
-              children: [],
-              resolved: true,
-            };
+            return thisType;
           }
-          return thisType;
-        }
-
-        if (baseName === "Option") {
-          thisType.optional = true;
-          if (argNodes.length > 0) {
+          case "Option": {
+            if (argNodes.length === 0) {
+              throw new Error(
+                `Missing type argument for Option in '${node.text}'`
+              );
+            }
             const inner = this._getTypeRefFromAstNode(argNodes[0]);
+            thisType.optional = true;
             thisType.typeRefName = inner.typeRefName;
             thisType.dims = inner.dims;
             thisType.type = inner.type;
             return thisType;
           }
+          case "HashMap":
+          case "BTreeMap": {
+            if (argNodes.length < 2) {
+              throw new Error(
+                `Missing type arguments for ${baseName} in '${node.text}'`
+              );
+            }
+            thisType.typeRefName = baseName;
+            thisType.baseTypeRef = "Map";
+            const children = [
+              this._getTypeRefFromAstNode(argNodes[0]),
+              this._getTypeRefFromAstNode(argNodes[1]),
+            ];
+            thisType.type = {
+              type: ArgTag.DICTIONARY,
+              dims: 0,
+              children,
+              resolved: children.every((c) => c.type?.resolved),
+            };
+            return thisType;
+          }
+          case "HashSet":
+          case "BTreeSet": {
+            if (argNodes.length === 0) {
+              throw new Error(
+                `Missing type argument for ${baseName} in '${node.text}'`
+              );
+            }
+            thisType.typeRefName = baseName;
+            thisType.baseTypeRef = "Set";
+            const children = [this._getTypeRefFromAstNode(argNodes[0])];
+            thisType.type = {
+              type: ArgTag.SET,
+              dims: 0,
+              children,
+              resolved: children.every((c) => c.type?.resolved),
+            };
+            return thisType;
+          }
+          default:
+            throw new Error(
+              `Unsupported generic type '${baseName}' in module '${this._filename}'`
+            );
         }
-
-        if (baseName === "HashMap" || baseName === "BTreeMap") {
-          thisType.typeRefName = baseName;
-          thisType.baseTypeRef = "Map";
-          const children = argNodes.map((c) => this._getTypeRefFromAstNode(c));
-          thisType.type = {
-            type: ArgTag.DICTIONARY,
-            dims: 0,
-            children,
-            resolved: children.every((c) => c.type?.resolved),
-          };
-          return thisType;
-        }
-
-        if (baseName === "HashSet" || baseName === "BTreeSet") {
-          thisType.typeRefName = baseName;
-          thisType.baseTypeRef = "Set";
-          const children = argNodes.map((c) => this._getTypeRefFromAstNode(c));
-          thisType.type = {
-            type: ArgTag.SET,
-            dims: 0,
-            children,
-            resolved: children.every((c) => c.type?.resolved),
-          };
-          return thisType;
-        }
-
-        thisType.typeRefName = baseName;
-        thisType.type = {
-          type: ArgTag.UNRESOLVED,
-          dims: 0,
-          children: argNodes.map((c) => this._getTypeRefFromAstNode(c)),
-          resolved: false,
-        };
-        return thisType;
       }
       case "array_type": {
         // [T; N] or [T]
@@ -727,11 +760,12 @@ export class RustProgram extends AbstractProgram {
         thisType.dims = 1;
         if (elemNode) {
           const inner = this._getTypeRefFromAstNode(elemNode);
+          thisType.typeRefName = inner.typeRefName;
           thisType.type = {
             type: inner.type?.type ?? ArgTag.NUMBER,
             dims: inner.dims,
             children: inner.type?.children ?? [],
-            resolved: inner.type?.resolved ?? true,
+            resolved: inner.type?.resolved ?? false,
           };
         } else {
           thisType.type = {
@@ -764,15 +798,23 @@ export class RustProgram extends AbstractProgram {
         };
         return thisType;
       }
+      case "abstract_type": {
+        if (node.text.includes("Fn")) {
+          thisType.typeRefName = node.text;
+          thisType.type = {
+            type: ArgTag.OBJECT,
+            dims: 0,
+            children: [],
+            resolved: true,
+          };
+          return thisType;
+        }
+        throw new Error(`Unsupported abstract type '${node.text}'`);
+      }
       default: {
-        thisType.typeRefName = node.text;
-        thisType.type = {
-          type: ArgTag.UNRESOLVED,
-          dims: 0,
-          children: [],
-          resolved: false,
-        };
-        return thisType;
+        throw new Error(
+          `Unsupported type annotation '${node.text}' of kind '${node.type}'`
+        );
       }
     }
   } // fn: _getTypeRefFromAstNode
