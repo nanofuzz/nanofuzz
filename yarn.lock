@@ -4116,7 +4116,7 @@ mute-stream@~0.0.4:
   resolved "https://registry.yarnpkg.com/mute-stream/-/mute-stream-0.0.8.tgz#1630c42b2251ff81e2a283de96a5497ea92e5e0d"
   integrity sha512-nnbWWOkoWyUsTjKrhgD0dcz22mdkSnpYqbEjIm2nhwhuxlSkpywJmBo8h0ZqJdkp73mb90SssHkN4rsRaBAfAA==
 
-nanofuzz-study@nanofuzz/nanofuzz-study#main:
+"nanofuzz-study@github:nanofuzz/nanofuzz-study#main":
   version "0.0.0"
   resolved "https://codeload.github.com/nanofuzz/nanofuzz-study/tar.gz/b2b684882b5e1606c28ea8ba3662f99ba0e958eb"
 
