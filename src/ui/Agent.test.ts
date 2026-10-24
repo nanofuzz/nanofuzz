@@ -42,6 +42,10 @@ describe("Agent", () => {
     __dirname,
     "../fuzzer/test_fixtures/Fuzzer.testfixtures.rs"
   );
+  const mlFixture = path.resolve(
+    __dirname,
+    "../fuzzer/test_fixtures/Fuzzer.testfixtures.ml"
+  );
 
   beforeAll(async () => {
     await ParserAdapter.init();
@@ -196,6 +200,39 @@ describe("Agent", () => {
     expect(asyncFn).toBeDefined();
     expect(asyncFn!.isAsync).toBe(true);
     expect(asyncFn!.signature).toContain("pub async fn async_greeting");
+  });
+
+  it("listTargets: ml", async () => {
+    const result = await listTargets(mlFixture);
+    expect(result.language).toBe("oxcaml");
+    expect(result.functions.length).toBeGreaterThan(0);
+
+    const fnMap = new Map(result.functions.map((f) => [f.name, f]));
+    expect(fnMap.has("greeting")).toBe(true);
+    expect(fnMap.has("throws")).toBe(true);
+
+    const greetingFn = fnMap.get("greeting")!;
+    expect(greetingFn.args.length).toBe(1);
+    expect(greetingFn.args[0].name).toBe("name");
+    expect(greetingFn.signature).toContain(
+      "let greeting (name : string) : string"
+    );
+    expect(greetingFn.validatorTemplate).toBeDefined();
+    expect(greetingFn.validatorTemplate).toContain("open Nanofuzz_runtime");
+    expect(greetingFn.validatorTemplate).toContain(
+      "let greeting_validator_1 (r : Nanofuzz_runtime.fuzz_test_result) : Nanofuzz_runtime.validator_result ="
+    );
+
+    expect(greetingFn.transformerTemplate).toBeDefined();
+    expect(greetingFn.transformerTemplate).toContain("open Nanofuzz_runtime");
+    expect(greetingFn.transformerTemplate).toContain(
+      "let greeting_transformer"
+    );
+
+    expect(greetingFn.generatorTemplate).toBeDefined();
+    expect(greetingFn.generatorTemplate).toContain(
+      "let greeting_generator (_prng : unit -> float)"
+    );
   });
 
   it("listTargets: missing file", async () => {

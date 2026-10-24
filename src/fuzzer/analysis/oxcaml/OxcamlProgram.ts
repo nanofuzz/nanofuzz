@@ -501,6 +501,55 @@ export class OxcamlProgram extends AbstractProgram {
       }
     }
 
+    const methodQuery = Parser.query(
+      "oxcaml",
+      `
+[
+  (class_binding
+    (class_name) @class.name
+    body: (object_expression
+      (method_definition
+        (method_name) @method.name) @method.item))
+  (object_expression
+    (method_definition
+      (method_name) @method.name) @method.item)
+]
+`
+    );
+
+    const methodMatches = methodQuery.matches(this._ast.rootNode);
+    for (const match of methodMatches) {
+      const itemNode = match.captures.find(
+        (c) => c.name === "method.item"
+      )?.node;
+      const nameNode = match.captures.find(
+        (c) => c.name === "method.name"
+      )?.node;
+      const classNode = match.captures.find(
+        (c) => c.name === "class.name"
+      )?.node;
+      if (!itemNode || !nameNode) continue;
+
+      const name = classNode
+        ? `${classNode.text}.${nameNode.text}`
+        : nameNode.text;
+      unsupported[name] = {
+        reason: "Class and object methods are not supported",
+        node: JSONN.stringify(itemNode.toString()),
+        function: {
+          module: this._filename,
+          name,
+          src: itemNode.text,
+          lang: OxcamlProgram.lang,
+          startOffset: itemNode.startIndex,
+          endOffset: itemNode.endIndex,
+          isExported: true,
+          isVoid: false,
+          args: [],
+        },
+      };
+    }
+
     return { supported, unsupported };
   } // fn: _findFunctions
 
@@ -626,7 +675,11 @@ export class OxcamlProgram extends AbstractProgram {
   ): TypeRef | undefined {
     const text = paramNode.text.trim();
     // Special case: unit argument `()` indicates zero-argument function
-    if (text === "()" || paramNode.type === "unit") {
+    if (
+      text === "()" ||
+      paramNode.type === "unit" ||
+      paramNode.children.some((c) => c.type === "unit")
+    ) {
       return undefined;
     }
 
@@ -637,21 +690,24 @@ export class OxcamlProgram extends AbstractProgram {
 
     const namedChildren = Parser.getNamedChildrenNoComments(paramNode);
     if (namedChildren.length === 0) {
-      paramName = text.replace(/^[~?]/, "").replace(/^[()]/, "").trim();
-    } else {
-      const firstChild = namedChildren[0];
-      if (firstChild.type === "typed_pattern") {
-        const patternChild = firstChild.namedChildren[0];
-        paramName = patternChild ? patternChild.text : "";
-        typeNode = firstChild.namedChildren[1];
-      } else if (firstChild.type === "value_pattern") {
-        paramName = firstChild.text;
-        if (namedChildren.length > 1) {
-          typeNode = namedChildren[1];
-        }
-      } else {
-        paramName = firstChild.text;
+      throw new Error(`Missing type annotation: ${text}`);
+    }
+
+    const firstChild = namedChildren[0];
+    if (firstChild.type === "typed_pattern") {
+      const patternChild = firstChild.namedChildren[0];
+      if (patternChild && patternChild.type !== "value_pattern") {
+        throw new Error(`Unsupported parameter pattern: ${paramNode.text}`);
       }
+      paramName = patternChild ? patternChild.text : "";
+      typeNode = firstChild.namedChildren[1];
+    } else if (firstChild.type === "value_pattern") {
+      paramName = firstChild.text;
+      if (namedChildren.length > 1) {
+        typeNode = namedChildren[1];
+      }
+    } else {
+      throw new Error(`Unsupported parameter pattern: ${paramNode.text}`);
     }
 
     paramName = paramName.replace(/^[~?]/, "").trim();
@@ -735,14 +791,25 @@ export class OxcamlProgram extends AbstractProgram {
           return thisType;
         }
         thisType.typeRefName = text;
+        thisType.type = {
+          type: ArgTag.UNRESOLVED,
+          dims: 0,
+          children: [],
+          resolved: false,
+        };
         return thisType;
+      }
+      case "function_type": {
+        throw new Error(
+          `Function-typed parameters are not supported: ${node.text}`
+        );
       }
       case "parenthesized_type": {
         const inner = Parser.getNamedChildrenNoComments(node)[0];
         if (inner) {
           return this._getTypeRefFromAstNode(inner);
         }
-        return thisType;
+        throw new Error("Empty parenthesized type expression");
       }
       case "constructed_type": {
         // Postfix type construction: e.g. 'a list, 'a array, 'a option
@@ -806,7 +873,7 @@ export class OxcamlProgram extends AbstractProgram {
           };
           return thisType;
         }
-        return thisType;
+        throw new Error(`Invalid constructed type: ${node.text}`);
       }
       case "tuple_type": {
         const tupleElements = Parser.getNamedChildrenNoComments(node);
@@ -822,8 +889,9 @@ export class OxcamlProgram extends AbstractProgram {
         return thisType;
       }
       default: {
-        thisType.typeRefName = node.text;
-        return thisType;
+        throw new Error(
+          `Unsupported type annotation '${node.text}' (AST node: ${node.type})`
+        );
       }
     }
   } // fn: _getTypeRefFromAstNode

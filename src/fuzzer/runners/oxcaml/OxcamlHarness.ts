@@ -726,19 +726,11 @@ function generateHarnessSource(
   const isTransformer = CompanionManager.isTransformer(fnName, "oxcaml");
   const isGenerator = CompanionManager.isUserGenerator(fnName, "oxcaml");
 
-  for (let i = 0; i < argDefs.length; i++) {
-    const arg = argDefs[i];
-    const typeAnnot = OxcamlProgram.getTypeAnnotation(arg);
-
-    if (
-      arg.getName() === "prng" ||
-      arg.getName() === "_prng" ||
-      typeAnnot.includes("->")
-    ) {
-      argConversions.push(
-        `let seed_val_${i} = ref (
+  if (isGenerator) {
+    argConversions.push(
+      `let seed_val_0 = ref (
           let h = ref 0x811c9dc5 in
-          (match List.nth_opt args ${i} with
+          (match List.nth_opt args 0 with
            | Some (\`Assoc fields) ->
              (match List.assoc_opt "seed" fields with
               | Some (\`String s) ->
@@ -747,40 +739,62 @@ function generateHarnessSource(
            | _ -> ());
           !h
         ) in
-        let arg_${i} () : float =
-          seed_val_${i} := (!seed_val_${i} * 1103515245 + 12345) land 0x7FFFFFFF;
-          float_of_int (!seed_val_${i}) /. 2147483648.0
+        let arg_0 () : float =
+          seed_val_0 := (!seed_val_0 * 1103515245 + 12345) land 0x7FFFFFFF;
+          float_of_int (!seed_val_0) /. 2147483648.0
         in`
-      );
+    );
+    callArgs.push("arg_0");
+    callArgsPat.push("arg_0");
+  } else {
+    for (let i = 0; i < argDefs.length; i++) {
+      const arg = argDefs[i];
+      const typeAnnot = OxcamlProgram.getTypeAnnotation(arg);
+      const deserExpr = buildDeserializer(typeAnnot, i);
+
+      argConversions.push(`let arg_${i} = ${deserExpr} in`);
       callArgs.push(`arg_${i}`);
       callArgsPat.push(`arg_${i}`);
-      continue;
     }
-
-    const deserExpr = buildDeserializer(typeAnnot, i);
-
-    argConversions.push(`let arg_${i} = ${deserExpr} in`);
-    callArgs.push(`arg_${i}`);
-    callArgsPat.push(`arg_${i}`);
   }
 
   const callArgsStr = callArgs.length > 0 ? callArgs.join(", ") : "()";
   const callArgsPatStr = callArgsPat.length > 0 ? callArgsPat.join(", ") : "()";
 
   // Target function call and output serialization
-  const retArg = targetFnDef?.getReturnArg();
-  const retType = retArg ? OxcamlProgram.getTypeAnnotation(retArg) : "int";
-  const serExpr = buildSerializer(
-    retType,
-    "out_val",
-    isTransformer,
-    isGenerator
-  );
+  let serExpr: string;
+  if (isGenerator) {
+    const targetFn = CompanionManager.getUserGeneratorTarget(fnName, "oxcaml");
+    const genTargetDef =
+      env?.function?.getName() === targetFn
+        ? env?.function
+        : targetFn
+          ? prog.functions[targetFn]
+          : undefined;
+    const targetArgs = genTargetDef ? genTargetDef.getArgDefs() : [];
+    if (targetArgs.length > 1) {
+      const binders = targetArgs.map((_, i) => `t_${i}`).join(", ");
+      const elems = targetArgs
+        .map((a, i) =>
+          buildSerializer(OxcamlProgram.getTypeAnnotation(a), `t_${i}`)
+        )
+        .join("; ");
+      serExpr = `(match out_val with None -> \`Null | Some (${binders}) -> \`List [${elems}])`;
+    } else if (targetArgs.length === 1) {
+      serExpr = `(match out_val with None -> \`Null | Some v -> \`List [${buildSerializer(OxcamlProgram.getTypeAnnotation(targetArgs[0]), "v")}])`;
+    } else {
+      serExpr = `(match out_val with None -> \`Null | Some v -> \`List [\`Int (Obj.magic v)])`;
+    }
+  } else {
+    const retArg = targetFnDef?.getReturnArg();
+    const retType = retArg ? OxcamlProgram.getTypeAnnotation(retArg) : "int";
+    serExpr = buildSerializer(retType, "out_val", isTransformer, false);
+  }
 
   let fnCallCode: string;
-  if (isVoid || argDefs.length === 0) {
+  if (isVoid || callArgs.length === 0) {
     const callInvocation =
-      argDefs.length === 0
+      callArgs.length === 0
         ? `${targetFnAccessor} ()`
         : `${targetFnAccessor} ${callArgs.join(" ")}`;
     if (isVoid) {

@@ -291,4 +291,56 @@ let unannotated a b = a + b
       "Missing type annotation"
     );
   });
+
+  it("marks functions with function-typed parameters as unsupported", () => {
+    const src = `
+let evaluate_expr (x : int) : int = x
+
+let evaluate_expr_generator (prng : unit -> float) : (int * int) option =
+  Some (1, 2)
+
+let with_callback (cb : int -> string) : string =
+  cb 42
+`;
+    const program = ProgramFactory.fromSource(() => src, "oxcaml");
+    expect(program.functionsExported["evaluate_expr"]).toBeDefined();
+    expect(
+      program.functionsExported["evaluate_expr_generator"]
+    ).toBeUndefined();
+    expect(program.functionsExported["with_callback"]).toBeUndefined();
+
+    expect(
+      program.functionsNotSupported["evaluate_expr_generator"]
+    ).toBeDefined();
+    expect(
+      program.functionsNotSupported["evaluate_expr_generator"].reason
+    ).toContain("Function-typed parameters are not supported");
+    expect(program.functionsNotSupported["with_callback"]).toBeDefined();
+    expect(program.functionsNotSupported["with_callback"].reason).toContain(
+      "Function-typed parameters are not supported"
+    );
+  });
+
+  it("marks class methods as unsupported", () => {
+    const src = `
+class point (x_init : int) =
+  object
+    val mutable x = x_init
+    method get_x = x
+    method set_x (n : int) = x <- n
+  end
+`;
+    const program = ProgramFactory.fromSource(() => src, "oxcaml");
+    expect(program.functionsExported["point.get_x"]).toBeUndefined();
+    expect(program.functionsExported["point.set_x"]).toBeUndefined();
+
+    expect(program.functionsNotSupported["point.get_x"]).toBeDefined();
+    expect(program.functionsNotSupported["point.get_x"].reason).toContain(
+      "Class and object methods are not supported"
+    );
+    expect(program.functionsNotSupported["point.set_x"]).toBeDefined();
+    expect(program.functionsNotSupported["point.set_x"].reason).toContain(
+      "Class and object methods are not supported"
+    );
+  });
 });

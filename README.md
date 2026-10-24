@@ -1,6 +1,6 @@
 # NaNofuzz
 
-NaNofuzz is a fast and easy-to-use Automatic Test sUite Generator (ATUG) for TypeScript, Python, and Rust that combines human insight, heuristics, and property checking to help you quickly reach working code nirvana. NaNofuzz is intended to be used during testing and development and is available in the [the VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=penrose.nanofuzz).
+NaNofuzz is a fast and easy-to-use Automatic Test sUite Generator (ATUG) for TypeScript, Python, Rust, and OCaml/OxCaml that combines human insight, heuristics, and property checking to help you quickly reach working code nirvana. NaNofuzz is intended to be used during testing and development and is available in the [the VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=penrose.nanofuzz).
 
 ![NaNofuzz Screenshot](https://github.com/user-attachments/assets/33a5fcda-19ac-459c-a50a-20cc0d8502c1)
 
@@ -22,6 +22,8 @@ To use NaNofuzz in your own projects:
       - **pip**: `pip install nanofuzz-runtime`
     - Rust projects:
       - **cargo**: `cargo add nanofuzz-runtime`
+    - OCaml / OxCaml projects:
+      - **dune**: add `nanofuzz_runtime` to your `dune` libraries
 - **Step 2**: Add the NaNofuzz extension to your repo's `./.vscode/settings.json` recommendations:
     ```
     {
@@ -31,13 +33,14 @@ To use NaNofuzz in your own projects:
     }
     ```
 
-To export a NaNofuzz test to CI, click the pin button beside an example. NaNofuzz exports pinned tests to Jest/Jasmine, pytest, or cargo test format, depending on the target language.
+To export a NaNofuzz test to CI, click the pin button beside an example. NaNofuzz exports pinned tests to Jest/Jasmine, pytest, cargo test, or dune runtest format, depending on the target language.
 
 ## What's new in v0.4
 
 - **Command-line interface**: Run NaNofuzz directly from your terminal or CI pipelines via `npx @nanofuzz/cli <filename>::<function>` (see [CLI documentation](docs/CLI.md)).
 - **Python**: Test Python functions and export the saved tests to `pytest` for use in CI.
 - **Rust**: (experimental) Test Rust functions and export the saved tests to `cargo test` for use in CI.
+- **OCaml / OxCaml**: (experimental) Test OCaml and OxCaml functions and export the saved tests to `dune runtest` for use in CI.
 - **Custom input generators**: Programatically generate, modify, or skip inputs before they are dispatched for test execution.
 - **More types**: Tuples, Unions, `Map`s, `Set`s, unique Arrays/`List`s, dictionaries, regex strings, `null`s, binary data like `Uint8Array`/`bytes`, and select Typescript utility types, like `Record<K,V>`, `Required<T>` and `Partial<T>`.
 - **Unexported functions**: NaNofuzz will test them, too! 
@@ -62,6 +65,7 @@ NaNofuzz automatically generates a test suite in these formats for use in CI:
  - **TypeScript**: Jest/Jasmine
  - **Python**: pytest
  - **Rust**: cargo test
+ - **OCaml / OxCaml**: dune runtest
 
 The following are not yet supported:
  - Generating inputs of deconstructed, `enum`, generic, intersection, some utility (e.g., TypeScript `Omit<T1,T2>`) types, implicit `any`, `unknown`, and function types as well `NaN` and `Infinity`

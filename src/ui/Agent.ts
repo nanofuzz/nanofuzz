@@ -120,7 +120,7 @@ export function resolveFilePath(filePath: string): string {
 /**
  * Discovers and lists all fuzzable exported functions in a source file (sync and async).
  *
- * @param filePath Path to the target source file (TypeScript, Python, or Rust)
+ * @param filePath Path to the target source file (TypeScript, Python, Rust, or OCaml/OxCaml)
  * @returns TargetListResult containing exported functions and their signatures
  */
 export async function listTargets(filePath: string): Promise<TargetListResult> {
@@ -1435,6 +1435,17 @@ export function formatFunctionSignature(
     const retStr = returnType && returnType !== "()" ? ` -> ${returnType}` : "";
     const prefix = isAsync ? "pub async fn" : "pub fn";
     return `${prefix} ${name}(${argParts.join(", ")})${retStr}`;
+  }
+  if (lang === "oxcaml") {
+    const retStr =
+      returnType && returnType !== "unit" ? ` : ${returnType}` : "";
+    const paramParts = args.map((arg) => {
+      const typeStr = formatArgDefType(arg);
+      return `(${arg.getName()} : ${typeStr})`;
+    });
+    const paramsStr =
+      paramParts.length > 0 ? ` ${paramParts.join(" ")}` : " ()";
+    return `let ${name}${paramsStr}${retStr}`;
   }
   const retStr = returnType
     ? `: ${returnType}`
