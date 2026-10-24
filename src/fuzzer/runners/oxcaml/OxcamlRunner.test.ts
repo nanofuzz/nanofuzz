@@ -761,6 +761,154 @@ let sum_bigarray (ba : (char, int8_unsigned_elt, c_layout) Array1.t) : int =
     await baRunner.onRunEnd();
   });
 
+  it("executes functions with tagged sum types (payload variants) over the IPC bridge", async () => {
+    const duneBin = OxcamlCompiler.resolveDune();
+    if (!duneBin) {
+      pending("Dune not found in environment");
+      return;
+    }
+
+    const mlPath = path.join(tempDir, "variants_ipc_test.ml");
+    fs.writeFileSync(
+      mlPath,
+      `type shape = Circle of float | Rect of float * float | Point
+
+let area (s : shape) : float =
+  match s with
+  | Circle r -> 3.14 *. r *. r
+  | Rect (w, h) -> w *. h
+  | Point -> 0.0
+
+let double_shape (s : shape) : shape =
+  match s with
+  | Circle r -> Circle (r *. 2.0)
+  | Rect (w, h) -> Rect (w *. 2.0, h *. 2.0)
+  | Point -> Point
+`
+    );
+
+    const program = ProgramFactory.fromFile(mlPath, "oxcaml");
+
+    // Test area
+    const areaFn = program.functionsExported["area"];
+    const areaEnv = createTestEnv(areaFn);
+    const areaRunner = new OxcamlRunner(mlPath, "area", areaEnv);
+    await areaRunner.onRunStart();
+
+    const circleRes = await areaRunner.run(
+      [{ tag: "Circle", value: 10.0 }],
+      5000
+    );
+    expect(circleRes.result.tag).toBe("value");
+    if (circleRes.result.tag === "value") {
+      expect(circleRes.result.value).toBeCloseTo(314.0, 1);
+    }
+
+    const rectRes = await areaRunner.run(
+      [{ tag: "Rect", value: [5.0, 8.0] }],
+      5000
+    );
+    expect(rectRes.result.tag).toBe("value");
+    if (rectRes.result.tag === "value") {
+      expect(rectRes.result.value).toBe(40.0);
+    }
+
+    const pointRes = await areaRunner.run(["Point"], 5000);
+    expect(pointRes.result.tag).toBe("value");
+    if (pointRes.result.tag === "value") {
+      expect(pointRes.result.value).toBe(0.0);
+    }
+    await areaRunner.onRunEnd();
+
+    // Test returning variant
+    const doubleFn = program.functionsExported["double_shape"];
+    const doubleEnv = createTestEnv(doubleFn);
+    const doubleRunner = new OxcamlRunner(mlPath, "double_shape", doubleEnv);
+    await doubleRunner.onRunStart();
+
+    const doubleRes = await doubleRunner.run(
+      [{ tag: "Circle", value: 3.0 }],
+      5000
+    );
+    expect(doubleRes.result.tag).toBe("value");
+    if (doubleRes.result.tag === "value") {
+      expect(doubleRes.result.value).toEqual({ tag: "Circle", value: 6.0 });
+    }
+    await doubleRunner.onRunEnd();
+  });
+
+  it("executes functions with polymorphic variants over the IPC bridge", async () => {
+    const duneBin = OxcamlCompiler.resolveDune();
+    if (!duneBin) {
+      pending("Dune not found in environment");
+      return;
+    }
+
+    const mlPath = path.join(tempDir, "poly_ipc_test.ml");
+    fs.writeFileSync(
+      mlPath,
+      `type color = [ \`Red | \`Green | \`Custom of int ]
+
+let color_code (c : color) : int =
+  match c with
+  | \`Red -> 1
+  | \`Green -> 2
+  | \`Custom n -> n
+
+let next_color (c : color) : color =
+  match c with
+  | \`Red -> \`Green
+  | \`Green -> \`Custom 10
+  | \`Custom n -> \`Custom (n + 1)
+`
+    );
+
+    const program = ProgramFactory.fromFile(mlPath, "oxcaml");
+
+    const codeFn = program.functionsExported["color_code"];
+    const codeEnv = createTestEnv(codeFn);
+    const codeRunner = new OxcamlRunner(mlPath, "color_code", codeEnv);
+    await codeRunner.onRunStart();
+
+    const redRes = await codeRunner.run(["`Red"], 5000);
+    expect(redRes.result.tag).toBe("value");
+    if (redRes.result.tag === "value") {
+      expect(redRes.result.value).toBe(1);
+    }
+
+    const customRes = await codeRunner.run(
+      [{ tag: "`Custom", value: 42 }],
+      5000
+    );
+    expect(customRes.result.tag).toBe("value");
+    if (customRes.result.tag === "value") {
+      expect(customRes.result.value).toBe(42);
+    }
+    await codeRunner.onRunEnd();
+
+    // Test returning polymorphic variant
+    const nextFn = program.functionsExported["next_color"];
+    const nextEnv = createTestEnv(nextFn);
+    const nextRunner = new OxcamlRunner(mlPath, "next_color", nextEnv);
+    await nextRunner.onRunStart();
+
+    const nextRed = await nextRunner.run(["`Red"], 5000);
+    expect(nextRed.result.tag).toBe("value");
+    if (nextRed.result.tag === "value") {
+      expect(nextRed.result.value).toBe("`Green");
+    }
+
+    const nextCustom = await nextRunner.run(
+      [{ tag: "`Custom", value: 5 }],
+      5000
+    );
+    expect(nextCustom.result.tag).toBe("value");
+    if (nextCustom.result.tag === "value") {
+      expect(nextCustom.result.value).toEqual({ tag: "`Custom", value: 6 });
+    }
+    await nextRunner.onRunEnd();
+  });
+
   it("is instantiated correctly via RunnerFactory", () => {
     const mlPath = path.join(tempDir, "sample.ml");
     fs.writeFileSync(mlPath, "let add (a : int) : int = a");

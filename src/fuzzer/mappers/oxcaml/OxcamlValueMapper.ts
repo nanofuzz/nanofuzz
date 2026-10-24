@@ -54,6 +54,7 @@ function toOxcamlFormat(val: unknown, argDef?: ArgDefContext): string {
   if (argDef?.isOptional && argDef.isOptional()) {
     const innerArgDef: ArgDefContext = {
       isOptional: () => false,
+      getName: () => argDef.getName?.() ?? "",
       getTypeRef: () => argDef.getTypeRef?.(),
       getBaseTypeRef: () => argDef.getBaseTypeRef?.(),
       getOptions: () => argDef.getOptions?.() ?? {},
@@ -122,6 +123,10 @@ function toOxcamlFormat(val: unknown, argDef?: ArgDefContext): string {
   }
 
   if (typeof val === "string") {
+    if (val.startsWith("`")) {
+      return val;
+    }
+
     const typeRef = argDef?.getTypeRef?.();
     if (
       typeRef &&
@@ -159,6 +164,30 @@ function toOxcamlFormat(val: unknown, argDef?: ArgDefContext): string {
 
   if (isBufferOrUint8Array(val)) {
     return `(Bytes.of_string ${bytesToOxcamlStringLiteral(val)})`;
+  }
+
+  if (isKeyedObject(val) && "tag" in val && typeof val.tag === "string") {
+    const tag = val.tag;
+    if (!("value" in val) || val.value === undefined) {
+      return tag;
+    }
+    const children = argDef?.getChildren() ?? [];
+    const variantChild = children.find((c) => c.getName() === tag);
+    const valueDef = variantChild
+      ?.getChildren()
+      ?.find((c) => c.getName() === "value");
+    if (Array.isArray(val.value)) {
+      if (valueDef && valueDef.getType() === ArgTag.TUPLE) {
+        const tupleChildren = valueDef.getChildren();
+        const tupleStrs = val.value.map((elem, i) =>
+          toOxcamlFormat(elem, tupleChildren[i])
+        );
+        return `${tag} (${tupleStrs.join(", ")})`;
+      }
+      const elemStrs = val.value.map((elem) => toOxcamlFormat(elem));
+      return `${tag} (${elemStrs.join(", ")})`;
+    }
+    return `${tag} (${toOxcamlFormat(val.value, valueDef)})`;
   }
 
   if (isKeyedObject(val) && "ok" in val) {
@@ -246,6 +275,10 @@ function toOxcamlFormat(val: unknown, argDef?: ArgDefContext): string {
     ) {
       const children = argDef.getChildren();
       const items = val.map((item, i) => toOxcamlFormat(item, children[i]));
+      const typeRef = argDef.getTypeRef?.();
+      if (typeRef === "#tuple" || typeRef?.startsWith("#(")) {
+        return `#(${items.join(", ")})`;
+      }
       return `(${items.join(", ")})`;
     }
 
@@ -254,6 +287,7 @@ function toOxcamlFormat(val: unknown, argDef?: ArgDefContext): string {
       (argDef && (argDef.getDim?.() ?? 0) > 0
         ? {
             isOptional: () => false,
+            getName: () => argDef.getName?.() ?? "",
             getTypeRef: () => argDef.getTypeRef?.(),
             getBaseTypeRef: () => argDef.getBaseTypeRef?.(),
             getOptions: () => argDef.getOptions?.() ?? {},
@@ -280,6 +314,10 @@ function toOxcamlFormat(val: unknown, argDef?: ArgDefContext): string {
         const propValue = val[k];
         entries.push(`${k} = ${toOxcamlFormat(propValue)}`);
       }
+    }
+    const typeRef = argDef?.getTypeRef?.();
+    if (typeRef === "#record" || typeRef?.startsWith("#{")) {
+      return `#{ ${entries.join("; ")} }`;
     }
     return `{ ${entries.join("; ")} }`;
   }
@@ -360,7 +398,13 @@ function toJavascriptValue(text: string): unknown {
     return new Map();
   }
 
-  const tree = Parser.parse("oxcaml", text);
+  const cleanText =
+    (trimmed.startsWith("#(") && trimmed.endsWith(")")) ||
+    (trimmed.startsWith("#{") && trimmed.endsWith("}"))
+      ? trimmed.slice(1)
+      : trimmed;
+
+  const tree = Parser.parse("oxcaml", cleanText);
   if (!tree) {
     throw new Error("Parser returned null");
   }
@@ -414,7 +458,8 @@ function astNodeToValue(node: Parser.SyntaxNode | undefined | null): unknown {
     case "unit":
       return null;
     case "constructor_path":
-    case "constructor_name": {
+    case "constructor_name":
+    case "tag": {
       if (node.text === "None") return null;
       return node.text;
     }
@@ -438,6 +483,10 @@ function astNodeToValue(node: Parser.SyntaxNode | undefined | null): unknown {
         if (typeof str === "string") {
           return new Uint8Array(Buffer.from(str, "binary"));
         }
+      }
+      if (/^[A-Z][A-Za-z0-9_]*$/.test(fnText) || fnText.startsWith("`")) {
+        const argVal = astNodeToValue(argNode);
+        return { tag: fnText, value: argVal };
       }
       if (fnText.endsWith(".of_list") || fnText === "Set.of_list") {
         const argVal = astNodeToValue(argNode);
@@ -634,6 +683,7 @@ function parseOxcamlCharLiteral(text: string): string {
 
 export type ArgDefContext = {
   isOptional(): boolean;
+  getName(): string;
   getTypeRef(): string | undefined;
   getBaseTypeRef(): string | undefined;
   getOptions(): ArgOptions;

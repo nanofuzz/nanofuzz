@@ -620,5 +620,148 @@ describe("fuzzer/mappers/oxcaml/OxcamlValueMapper: ", () => {
     const bigStr = OxcamlValueMapper.toOxcaml(bigBytes, bigstringDef);
     expect(bigStr).toContain("Bigarray.Array1.create");
     expect(OxcamlValueMapper.fromOxcaml<Uint8Array>(bigStr)).toEqual(bigBytes);
+
+    // Tagged sum types with payloads
+    const floatOpt: ArgOptions = { ...baseOpt, numInteger: false };
+    const floatElem = new ArgDef(
+      "f",
+      0,
+      ArgTag.NUMBER,
+      floatOpt,
+      0,
+      false,
+      undefined,
+      [],
+      "float"
+    );
+    const circleValChild = new ArgDef(
+      "value",
+      0,
+      ArgTag.NUMBER,
+      floatOpt,
+      0,
+      false,
+      undefined,
+      [],
+      "float"
+    );
+    const circleTagChild = new ArgDef(
+      "tag",
+      0,
+      ArgTag.LITERAL,
+      baseOpt,
+      0,
+      false,
+      undefined,
+      [],
+      "string"
+    );
+    const circleCtor = new ArgDef(
+      "Circle",
+      0,
+      ArgTag.OBJECT,
+      baseOpt,
+      0,
+      false,
+      undefined,
+      [circleTagChild, circleValChild],
+      "shape"
+    );
+    const rectValChild = new ArgDef(
+      "value",
+      0,
+      ArgTag.TUPLE,
+      floatOpt,
+      0,
+      false,
+      undefined,
+      [floatElem, floatElem],
+      "float * float"
+    );
+    const rectCtor = new ArgDef(
+      "Rect",
+      0,
+      ArgTag.OBJECT,
+      baseOpt,
+      0,
+      false,
+      undefined,
+      [circleTagChild, rectValChild],
+      "shape"
+    );
+    const shapeDef = new ArgDef(
+      "s",
+      0,
+      ArgTag.UNION,
+      baseOpt,
+      0,
+      false,
+      undefined,
+      [circleCtor, rectCtor],
+      "shape"
+    );
+
+    const circlePayload = { tag: "Circle", value: 3.14 };
+    const circleStr = OxcamlValueMapper.toOxcaml(circlePayload, shapeDef);
+    expect(circleStr).toBe("Circle (3.14)");
+    expect(OxcamlValueMapper.fromOxcaml(circleStr)).toEqual(circlePayload);
+
+    const rectPayload = { tag: "Rect", value: [10.5, 20.5] };
+    const rectStr = OxcamlValueMapper.toOxcaml(rectPayload, shapeDef);
+    expect(rectStr).toBe("Rect (10.5, 20.5)");
+    expect(OxcamlValueMapper.fromOxcaml(rectStr)).toEqual(rectPayload);
+
+    // Polymorphic variants
+    const polyNullary = "`Red";
+    expect(OxcamlValueMapper.toOxcaml(polyNullary)).toBe("`Red");
+    expect(OxcamlValueMapper.fromOxcaml("`Red")).toBe("`Red");
+
+    const polyPayload = { tag: "`Custom", value: 42 };
+    const polyStr = OxcamlValueMapper.toOxcaml(polyPayload);
+    expect(polyStr).toBe("`Custom (42)");
+    expect(OxcamlValueMapper.fromOxcaml(polyStr)).toEqual(polyPayload);
+
+    // OxCaml unboxed tuples and unboxed records
+    const unboxedTupleDef = new ArgDef(
+      "ut",
+      0,
+      ArgTag.TUPLE,
+      baseOpt,
+      0,
+      false,
+      undefined,
+      [intElem, strElem],
+      "#(int * string)"
+    );
+    const unboxedTupleVal = [10, "unboxed"];
+    const unboxedTupleStr = OxcamlValueMapper.toOxcaml(
+      unboxedTupleVal,
+      unboxedTupleDef
+    );
+    expect(unboxedTupleStr).toBe('#(10, "unboxed")');
+    expect(OxcamlValueMapper.fromOxcaml(unboxedTupleStr)).toEqual(
+      unboxedTupleVal
+    );
+
+    const unboxedRecordDef = new ArgDef(
+      "ur",
+      0,
+      ArgTag.OBJECT,
+      baseOpt,
+      0,
+      false,
+      undefined,
+      [],
+      "#{ x : int; y : string }"
+    );
+    const unboxedRecordVal = { x: 5, y: "point" };
+    const unboxedRecordStr = OxcamlValueMapper.toOxcaml(
+      unboxedRecordVal,
+      unboxedRecordDef
+    );
+    expect(unboxedRecordStr).toBe('#{ x = 5; y = "point" }');
+    expect(OxcamlValueMapper.fromOxcaml(unboxedRecordStr)).toEqual(
+      unboxedRecordVal
+    );
   });
 });

@@ -74,6 +74,33 @@ export class OxcamlProgram extends AbstractProgram {
     options: TypeAnnotationOptions = TypeAnnotationOptionDefaults
   ): string {
     const typeRef = arg.getTypeRef();
+    if (typeRef === "#tuple" || typeRef?.startsWith("#(")) {
+      const children = arg.getChildren();
+      const elemStr = children
+        .map((c) => OxcamlProgram.getTypeAnnotation(c, options))
+        .join(" * ");
+      let type = `#(${elemStr})`;
+      if (arg.isOptional()) {
+        type = `${type} option`;
+      }
+      return type;
+    }
+
+    if (typeRef === "#record" || typeRef?.startsWith("#{")) {
+      const children = arg.getChildren();
+      const fieldStr = children
+        .map(
+          (c) =>
+            `${c.getName()} : ${OxcamlProgram.getTypeAnnotation(c, options)}`
+        )
+        .join("; ");
+      let type = `#{ ${fieldStr} }`;
+      if (arg.isOptional()) {
+        type = `${type} option`;
+      }
+      return type;
+    }
+
     if (typeRef === "result") {
       const children = arg.getChildren();
       const okType = children[0]
@@ -539,65 +566,101 @@ export class OxcamlProgram extends AbstractProgram {
           },
         };
       } else if (targetNode.type === "variant_declaration") {
-        const constructors: string[] = [];
-        let isEnum = true;
+        const variantChildren: TypeRef[] = [];
         for (const child of Parser.getNamedChildrenNoComments(targetNode)) {
           if (child.type === "constructor_declaration") {
             const cNameNode = child.namedChildren[0];
-            if (cNameNode && cNameNode.type === "constructor_name") {
-              constructors.push(cNameNode.text);
-            }
-            if (child.namedChildren.length > 1) {
-              isEnum = false;
+            if (!cNameNode || cNameNode.type !== "constructor_name") continue;
+            const cName = cNameNode.text;
+            if (child.namedChildren.length === 1) {
+              variantChildren.push({
+                module: this._filename,
+                name: cName,
+                typeRefName: cName,
+                optional: false,
+                dims: 0,
+                isExported: true,
+                type: {
+                  type: ArgTag.LITERAL,
+                  dims: 0,
+                  children: [],
+                  value: cName,
+                  resolved: true,
+                },
+              });
+            } else {
+              const payloadNodes = child.namedChildren.slice(1);
+              let payloadTypeRef: TypeRef;
+              if (payloadNodes.length === 1) {
+                payloadTypeRef = this._getTypeRefFromAstNode(payloadNodes[0]);
+              } else {
+                const tupleChildren = payloadNodes.map((n) =>
+                  this._getTypeRefFromAstNode(n)
+                );
+                payloadTypeRef = {
+                  module: this._filename,
+                  dims: 0,
+                  optional: false,
+                  isExported: true,
+                  type: {
+                    type: ArgTag.TUPLE,
+                    dims: 0,
+                    children: tupleChildren,
+                    resolved: tupleChildren.every((c) => c.type?.resolved),
+                  },
+                };
+              }
+              variantChildren.push({
+                module: this._filename,
+                name: cName,
+                typeRefName: cName,
+                optional: false,
+                dims: 0,
+                isExported: true,
+                type: {
+                  type: ArgTag.OBJECT,
+                  dims: 0,
+                  children: [
+                    {
+                      module: this._filename,
+                      name: "tag",
+                      typeRefName: "string",
+                      optional: false,
+                      dims: 0,
+                      isExported: true,
+                      type: {
+                        type: ArgTag.LITERAL,
+                        dims: 0,
+                        children: [],
+                        value: cName,
+                        resolved: true,
+                      },
+                    },
+                    {
+                      ...payloadTypeRef,
+                      name: "value",
+                    },
+                  ],
+                  resolved: payloadTypeRef.type?.resolved ?? true,
+                },
+              });
             }
           }
         }
-        if (isEnum && constructors.length > 0) {
-          const children: TypeRef[] = constructors.map((c) => ({
-            module: this._filename,
-            name: c,
-            typeRefName: c,
-            optional: false,
+        types[typeName] = {
+          module: this._filename,
+          name: typeName,
+          typeRefName: typeName,
+          optional: false,
+          dims: 0,
+          isExported: !typeName.startsWith("_"),
+          type: {
+            type: ArgTag.UNION,
             dims: 0,
-            isExported: true,
-            type: {
-              type: ArgTag.LITERAL,
-              dims: 0,
-              children: [],
-              value: c,
-              resolved: true,
-            },
-          }));
-          types[typeName] = {
-            module: this._filename,
-            name: typeName,
-            typeRefName: typeName,
-            optional: false,
-            dims: 0,
-            isExported: !typeName.startsWith("_"),
-            type: {
-              type: ArgTag.UNION,
-              dims: 0,
-              children,
-              resolved: true,
-            },
-          };
-        } else {
-          types[typeName] = {
-            module: this._filename,
-            name: typeName,
-            typeRefName: typeName,
-            optional: false,
-            dims: 0,
-            isExported: !typeName.startsWith("_"),
-            type: {
-              type: ArgTag.OBJECT,
-              dims: 0,
-              children: [],
-              resolved: true,
-            },
-          };
-        }
+            children: variantChildren,
+            resolved: variantChildren.every((c) => c.type?.resolved),
+          },
+        };
       } else {
         const typeRef = this._getTypeRefFromAstNode(targetNode);
         typeRef.name = typeName;
@@ -870,7 +933,7 @@ export class OxcamlProgram extends AbstractProgram {
     const isOptional = text.startsWith("?");
 
     let paramName: string;
-    let typeNode: Parser.SyntaxNode | undefined = undefined;
+    let typeNode: Parser.SyntaxNode | undefined;
 
     const namedChildren = Parser.getNamedChildrenNoComments(paramNode);
     if (namedChildren.length === 0) {
@@ -879,17 +942,19 @@ export class OxcamlProgram extends AbstractProgram {
 
     const firstChild = namedChildren[0];
     if (firstChild.type === "typed_pattern") {
-      const patternChild = firstChild.namedChildren[0];
+      const patternChild =
+        firstChild.childForFieldName("pattern") ?? firstChild.namedChildren[0];
       if (patternChild && patternChild.type !== "value_pattern") {
         throw new Error(`Unsupported parameter pattern: ${paramNode.text}`);
       }
       paramName = patternChild ? patternChild.text : "";
-      typeNode = firstChild.namedChildren[1];
+      typeNode =
+        firstChild.childForFieldName("type") ?? firstChild.namedChildren[1];
     } else if (firstChild.type === "value_pattern") {
       paramName = firstChild.text;
-      if (namedChildren.length > 1) {
-        typeNode = namedChildren[1];
-      }
+      typeNode =
+        paramNode.childForFieldName("type") ??
+        (namedChildren.length > 1 ? namedChildren[1] : undefined);
     } else {
       throw new Error(`Unsupported parameter pattern: ${paramNode.text}`);
     }
@@ -904,6 +969,11 @@ export class OxcamlProgram extends AbstractProgram {
     }
 
     typeRef.name = paramName;
+    if (paramNode.text.includes("#(") && typeRef.type?.type === ArgTag.TUPLE) {
+      typeRef.typeRefName = "#tuple";
+    } else if (paramNode.text.includes("#{")) {
+      typeRef.typeRefName = "#record";
+    }
     if (isOptional) {
       typeRef.optional = true;
     }
@@ -1148,6 +1218,73 @@ export class OxcamlProgram extends AbstractProgram {
         );
         thisType.type = {
           type: ArgTag.TUPLE,
+          dims: 0,
+          children,
+          resolved: children.every((c) => c.type?.resolved),
+        };
+        return thisType;
+      }
+      case "polymorphic_variant_type": {
+        const tagSpecs = Parser.getNamedChildrenNoComments(node);
+        const children = tagSpecs.map((tagSpec) => {
+          const named = Parser.getNamedChildrenNoComments(tagSpec);
+          const tagNode = named[0];
+          const tagText = tagNode ? tagNode.text : "";
+          if (named.length <= 1) {
+            return {
+              module: this._filename,
+              name: tagText,
+              typeRefName: tagText,
+              optional: false,
+              dims: 0,
+              isExported: true,
+              type: {
+                type: ArgTag.LITERAL,
+                dims: 0,
+                children: [],
+                value: tagText,
+                resolved: true,
+              },
+            };
+          }
+          const payloadTypeRef = this._getTypeRefFromAstNode(named[1]);
+          return {
+            module: this._filename,
+            name: tagText,
+            typeRefName: tagText,
+            optional: false,
+            dims: 0,
+            isExported: true,
+            type: {
+              type: ArgTag.OBJECT,
+              dims: 0,
+              children: [
+                {
+                  module: this._filename,
+                  name: "tag",
+                  typeRefName: "string",
+                  optional: false,
+                  dims: 0,
+                  isExported: true,
+                  type: {
+                    type: ArgTag.LITERAL,
+                    dims: 0,
+                    children: [],
+                    value: tagText,
+                    resolved: true,
+                  },
+                },
+                {
+                  ...payloadTypeRef,
+                  name: "value",
+                },
+              ],
+              resolved: payloadTypeRef.type?.resolved ?? true,
+            },
+          };
+        });
+        thisType.type = {
+          type: ArgTag.UNION,
           dims: 0,
           children,
           resolved: children.every((c) => c.type?.resolved),

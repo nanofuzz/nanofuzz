@@ -928,18 +928,83 @@ function buildDeserializer(
       | None -> Ok (${buildSingleValDeserializer(okType, "Msgpck.Nil", okChild, progTypes)}))`;
   }
 
-  // Enum variants
-  const enumCtors = getEnumConstructors(cleanType, argDef, progTypes);
-  if (enumCtors && enumCtors.length > 0) {
-    const matchBranches = enumCtors
-      .map((m) => `| "${m}" -> Target_module.${m}`)
-      .join("\n       ");
+  // Variants (nullary enums, payload-bearing variants, polymorphic variants)
+  const variantCtors = getVariantConstructors(cleanType, argDef, progTypes);
+  if (variantCtors && variantCtors.length > 0) {
+    const nullaryCtors = variantCtors.filter((c) => !c.hasPayload);
+    const nullaryBranches = nullaryCtors
+      .map((c) => {
+        const ctorRef = c.isPoly ? c.name : `Target_module.${c.name}`;
+        return `| "${c.name}" -> ${ctorRef}`;
+      })
+      .join("\n            ");
+
+    const payloadCtors = variantCtors.filter((c) => c.hasPayload);
+    const payloadBranches = payloadCtors
+      .map((c) => {
+        const ctorRef = c.isPoly ? c.name : `Target_module.${c.name}`;
+        if (
+          c.isTuplePayload &&
+          c.tuplePayloadTypes &&
+          c.tuplePayloadTypes.length > 1
+        ) {
+          const tupleArgs = c.tuplePayloadTypes
+            .map((t, i) =>
+              buildSingleValDeserializer(
+                t,
+                `(List.nth l ${i})`,
+                undefined,
+                progTypes
+              )
+            )
+            .join(", ");
+          return `| "${c.name}" ->
+               let l = get_list val_payload in
+               ${ctorRef} (${tupleArgs})`;
+        } else {
+          const deser = buildSingleValDeserializer(
+            c.payloadType ?? "int",
+            "val_payload",
+            c.argDef,
+            progTypes
+          );
+          return `| "${c.name}" -> ${ctorRef} (${deser})`;
+        }
+      })
+      .join("\n            ");
+
+    const defaultCtor = variantCtors[0];
+    const defaultExpr = defaultCtor.hasPayload
+      ? defaultCtor.isPoly
+        ? `${defaultCtor.name} (${buildSingleValDeserializer(
+            defaultCtor.payloadType ?? "int",
+            "Msgpck.Nil",
+            defaultCtor.argDef,
+            progTypes
+          )})`
+        : `Target_module.${defaultCtor.name} (${buildSingleValDeserializer(
+            defaultCtor.payloadType ?? "int",
+            "Msgpck.Nil",
+            defaultCtor.argDef,
+            progTypes
+          )})`
+      : defaultCtor.isPoly
+        ? defaultCtor.name
+        : `Target_module.${defaultCtor.name}`;
+
     return `(match List.nth_opt args ${idx} with
       | Some v ->
-        (match get_string v with
-         ${matchBranches}
-         | _ -> Target_module.${enumCtors[0]})
-      | None -> Target_module.${enumCtors[0]})`;
+        (match v with
+         | Msgpck.String s ->
+           (match s with
+            ${nullaryBranches ? nullaryBranches + "\n            " : ""}| _ -> ${defaultExpr})
+         | Msgpck.Map _ ->
+           let tag_str = get_string (find_key "tag" v) in
+           let val_payload = find_key "value" v in
+           (match tag_str with
+            ${payloadBranches ? payloadBranches + "\n            " : ""}${nullaryBranches ? nullaryBranches + "\n            " : ""}| _ -> ${defaultExpr})
+         | _ -> ${defaultExpr})
+      | None -> ${defaultExpr})`;
   }
 
   // Buffer.t
@@ -1190,15 +1255,80 @@ function buildSingleValDeserializer(
          | None -> Ok (${buildSingleValDeserializer(okType, "Msgpck.Nil", okChild, progTypes)})))`;
   }
 
-  // Enum variants
-  const enumCtors = getEnumConstructors(cleanType, argDef, progTypes);
-  if (enumCtors && enumCtors.length > 0) {
-    const matchBranches = enumCtors
-      .map((m) => `| "${m}" -> Target_module.${m}`)
-      .join("\n       ");
-    return `(match get_string ${valVar} with
-       ${matchBranches}
-       | _ -> Target_module.${enumCtors[0]})`;
+  // Variants (nullary enums, payload-bearing variants, polymorphic variants)
+  const variantCtors = getVariantConstructors(cleanType, argDef, progTypes);
+  if (variantCtors && variantCtors.length > 0) {
+    const nullaryCtors = variantCtors.filter((c) => !c.hasPayload);
+    const nullaryBranches = nullaryCtors
+      .map((c) => {
+        const ctorRef = c.isPoly ? c.name : `Target_module.${c.name}`;
+        return `| "${c.name}" -> ${ctorRef}`;
+      })
+      .join("\n          ");
+
+    const payloadCtors = variantCtors.filter((c) => c.hasPayload);
+    const payloadBranches = payloadCtors
+      .map((c) => {
+        const ctorRef = c.isPoly ? c.name : `Target_module.${c.name}`;
+        if (
+          c.isTuplePayload &&
+          c.tuplePayloadTypes &&
+          c.tuplePayloadTypes.length > 1
+        ) {
+          const tupleArgs = c.tuplePayloadTypes
+            .map((t, i) =>
+              buildSingleValDeserializer(
+                t,
+                `(List.nth l ${i})`,
+                undefined,
+                progTypes
+              )
+            )
+            .join(", ");
+          return `| "${c.name}" ->
+             let l = get_list val_payload in
+             ${ctorRef} (${tupleArgs})`;
+        } else {
+          const deser = buildSingleValDeserializer(
+            c.payloadType ?? "int",
+            "val_payload",
+            c.argDef,
+            progTypes
+          );
+          return `| "${c.name}" -> ${ctorRef} (${deser})`;
+        }
+      })
+      .join("\n          ");
+
+    const defaultCtor = variantCtors[0];
+    const defaultExpr = defaultCtor.hasPayload
+      ? defaultCtor.isPoly
+        ? `${defaultCtor.name} (${buildSingleValDeserializer(
+            defaultCtor.payloadType ?? "int",
+            "Msgpck.Nil",
+            defaultCtor.argDef,
+            progTypes
+          )})`
+        : `Target_module.${defaultCtor.name} (${buildSingleValDeserializer(
+            defaultCtor.payloadType ?? "int",
+            "Msgpck.Nil",
+            defaultCtor.argDef,
+            progTypes
+          )})`
+      : defaultCtor.isPoly
+        ? defaultCtor.name
+        : `Target_module.${defaultCtor.name}`;
+
+    return `(match ${valVar} with
+       | Msgpck.String s ->
+         (match s with
+          ${nullaryBranches ? nullaryBranches + "\n          " : ""}| _ -> ${defaultExpr})
+       | Msgpck.Map _ ->
+         let tag_str = get_string (find_key "tag" ${valVar}) in
+         let val_payload = find_key "value" ${valVar} in
+         (match tag_str with
+          ${payloadBranches ? payloadBranches + "\n          " : ""}${nullaryBranches ? nullaryBranches + "\n          " : ""}| _ -> ${defaultExpr})
+       | _ -> ${defaultExpr})`;
   }
 
   // Buffer.t
@@ -1383,14 +1513,46 @@ function buildSerializer(
       | Error e -> Msgpck.Map [(Msgpck.String "error", ${buildSerializer(errType, "e", errChild, progTypes)})])`;
   }
 
-  // Enum variants
-  const enumCtors = getEnumConstructors(cleanType, argDef, progTypes);
-  if (enumCtors && enumCtors.length > 0) {
-    const matchBranches = enumCtors
-      .map((m) => `| Target_module.${m} -> Msgpck.String "${m}"`)
-      .join("\n   ");
+  // Variants (nullary enums, payload-bearing variants, polymorphic variants)
+  const variantCtors = getVariantConstructors(cleanType, argDef, progTypes);
+  if (variantCtors && variantCtors.length > 0) {
+    const branches = variantCtors.map((c) => {
+      const ctorRef = c.isPoly ? c.name : `Target_module.${c.name}`;
+      if (!c.hasPayload) {
+        return `| ${ctorRef} -> Msgpck.String "${c.name}"`;
+      }
+      if (
+        c.isTuplePayload &&
+        c.tuplePayloadTypes &&
+        c.tuplePayloadTypes.length > 1
+      ) {
+        const binders = c.tuplePayloadTypes
+          .map((_, i) => `p_${i}`)
+          .join(", ");
+        const listItems = c.tuplePayloadTypes
+          .map((t, i) => buildSerializer(t, `p_${i}`, undefined, progTypes))
+          .join("; ");
+        return `| ${ctorRef} (${binders}) ->
+       Msgpck.Map [
+         (Msgpck.String "tag", Msgpck.String "${c.name}");
+         (Msgpck.String "value", Msgpck.List [${listItems}])
+       ]`;
+      } else {
+        const serVal = buildSerializer(
+          c.payloadType ?? "int",
+          "v",
+          c.argDef,
+          progTypes
+        );
+        return `| ${ctorRef} v ->
+       Msgpck.Map [
+         (Msgpck.String "tag", Msgpck.String "${c.name}");
+         (Msgpck.String "value", ${serVal})
+       ]`;
+      }
+    });
     return `(match ${valVar} with
-   ${matchBranches})`;
+   ${branches.join("\n   ")})`;
   }
 
   // Buffer.t
@@ -1758,47 +1920,114 @@ export type CoverageManifestEntry = {
   branchArms: Array<[number, number]>;
 };
 
+type VariantConstructor = {
+  name: string;
+  isPoly: boolean;
+  hasPayload: boolean;
+  payloadType?: string;
+  isTuplePayload?: boolean;
+  tuplePayloadTypes?: string[];
+  argDef?: ArgDef;
+};
+
 /**
- * Extracts enum variant constructor names from an ArgDef or TypeRef map.
+ * Extracts variant constructors (nullary or payload-bearing) from an ArgDef or TypeRef map.
  */
-function getEnumConstructors(
+function getVariantConstructors(
   cleanType: string,
   argDef?: ArgDef,
   progTypes: Record<string, TypeRef> = {}
-): string[] | undefined {
+): VariantConstructor[] | undefined {
   if (argDef && argDef.getType() === ArgTag.UNION) {
-    const names: string[] = [];
+    const list: VariantConstructor[] = [];
     for (const child of argDef.getChildren()) {
-      const v = child.getConstantValue();
-      if (typeof v === "string") {
-        names.push(v);
-      } else {
-        const name = child.getName();
-        if (/^[A-Z]/.test(name)) {
-          names.push(name);
+      if (child.getType() === ArgTag.LITERAL) {
+        const v = child.getConstantValue();
+        const name = typeof v === "string" ? v : child.getName();
+        if (name) {
+          list.push({
+            name,
+            isPoly: name.startsWith("`"),
+            hasPayload: false,
+          });
+        }
+      } else if (child.getType() === ArgTag.OBJECT) {
+        const tagChild = child
+          .getChildren()
+          .find((c) => c.getName() === "tag");
+        const valChild = child
+          .getChildren()
+          .find((c) => c.getName() === "value");
+        const tagVal = tagChild?.getConstantValue();
+        const name = typeof tagVal === "string" ? tagVal : child.getName();
+        if (name && valChild) {
+          const isTuplePayload = valChild.getType() === ArgTag.TUPLE;
+          const tuplePayloadTypes = isTuplePayload
+            ? valChild
+                .getChildren()
+                .map((c) => OxcamlProgram.getTypeAnnotation(c))
+            : undefined;
+          list.push({
+            name,
+            isPoly: name.startsWith("`"),
+            hasPayload: true,
+            payloadType: OxcamlProgram.getTypeAnnotation(valChild),
+            isTuplePayload,
+            tuplePayloadTypes,
+            argDef: valChild,
+          });
         }
       }
     }
-    if (names.length > 0) {
-      return names;
+    if (list.length > 0) {
+      return list;
     }
   }
 
   const typeDef = progTypes[cleanType];
   if (typeDef?.type?.type === ArgTag.UNION && typeDef.type.children) {
-    const names: string[] = [];
+    const list: VariantConstructor[] = [];
     for (const child of typeDef.type.children) {
-      const v = child.type?.value;
-      if (typeof v === "string") {
-        names.push(v);
-      } else if (child.name && /^[A-Z]/.test(child.name)) {
-        names.push(child.name);
+      if (child.type?.type === ArgTag.LITERAL) {
+        const v = child.type.value;
+        const name = typeof v === "string" ? v : (child.name ?? "");
+        if (name) {
+          list.push({
+            name,
+            isPoly: name.startsWith("`"),
+            hasPayload: false,
+          });
+        }
+      } else if (child.type?.type === ArgTag.OBJECT && child.type.children) {
+        const tagChild = child.type.children.find((c) => c.name === "tag");
+        const valChild = child.type.children.find((c) => c.name === "value");
+        const tagVal = tagChild?.type?.value;
+        const name = typeof tagVal === "string" ? tagVal : (child.name ?? "");
+        if (name && valChild) {
+          const isTuplePayload = valChild.type?.type === ArgTag.TUPLE;
+          const tuplePayloadTypes = isTuplePayload
+            ? valChild.type?.children?.map((c) => c.typeRefName ?? "int")
+            : undefined;
+          const payloadType =
+            valChild.typeRefName ??
+            (isTuplePayload && tuplePayloadTypes
+              ? tuplePayloadTypes.join(" * ")
+              : "int");
+          list.push({
+            name,
+            isPoly: name.startsWith("`"),
+            hasPayload: true,
+            payloadType,
+            isTuplePayload,
+            tuplePayloadTypes,
+          });
+        }
       }
     }
-    if (names.length > 0) {
-      return names;
+    if (list.length > 0) {
+      return list;
     }
   }
 
   return undefined;
-} // fn: getEnumConstructors
+} // fn: getVariantConstructors
