@@ -635,6 +635,28 @@ p span.codicon {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.loading-dots {
+  display: inline-block;
+  width: 0ch;
+  overflow: hidden;
+  vertical-align: bottom;
+  animation: loading-dots 6.5s steps(13, end) infinite;
+  white-space: nowrap;
+}
+@keyframes loading-dots {
+  0% {
+    width: 0ch;
+  }
+  100% {
+    width: 13ch;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .loading-dots {
+    animation: none;
+    width: auto;
+  }
+}
 #fuzzBusyMessage {
   font-size: 0.9em;
   min-height: 5.6em;
