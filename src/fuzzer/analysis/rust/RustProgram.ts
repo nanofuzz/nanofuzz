@@ -53,10 +53,50 @@ export class RustProgram extends AbstractProgram {
     arg: ArgDef,
     options: TypeAnnotationOptions = TypeAnnotationOptionDefaults
   ): string {
+    const isBox = arg.getBaseTypeRef() === "Box";
+    const isVecDeque = arg.getBaseTypeRef() === "VecDeque";
+    const listPrefix = isVecDeque ? "std::collections::VecDeque<" : "Vec<";
+
+    if (isBox && arg.getChildren().length > 0) {
+      const innerAnnot = RustProgram.getTypeAnnotation(
+        arg.getChildren()[0],
+        options
+      );
+      let type = `Box<${innerAnnot}>`;
+      if (arg.isOptional()) {
+        type = `Option<${type}>`;
+      }
+      return type;
+    }
+
     const typeRef = arg.getTypeRef();
-    if (typeRef && options.useTypeRefs) {
+    if (
+      typeRef?.startsWith("&[") ||
+      (typeRef?.startsWith("[") && typeRef.includes(";"))
+    ) {
+      let type = typeRef;
+      if (arg.isOptional()) {
+        type = `Option<${type}>`;
+      }
+      return type;
+    }
+
+    const isBuiltInGeneric =
+      typeRef === "HashMap" ||
+      typeRef === "BTreeMap" ||
+      typeRef === "HashSet" ||
+      typeRef === "BTreeSet" ||
+      typeRef === "Vec" ||
+      typeRef === "VecDeque" ||
+      typeRef === "Box" ||
+      typeRef === "Option";
+
+    if (typeRef && options.useTypeRefs && !isBuiltInGeneric) {
       const outerDims = arg.getTypeRefDims() ?? 0;
-      let type = `${"Vec<".repeat(outerDims)}${typeRef}${">".repeat(outerDims)}`;
+      let type = `${listPrefix.repeat(outerDims)}${typeRef}${">".repeat(outerDims)}`;
+      if (isBox) {
+        type = `Box<${type}>`;
+      }
       if (arg.isOptional()) {
         type = `Option<${type}>`;
       }
@@ -65,7 +105,10 @@ export class RustProgram extends AbstractProgram {
 
     const baseType = RustProgram.getBaseType(arg, options);
     const dims = arg.getDim();
-    let type = `${"Vec<".repeat(dims)}${baseType}${">".repeat(dims)}`;
+    let type = `${listPrefix.repeat(dims)}${baseType}${">".repeat(dims)}`;
+    if (isBox) {
+      type = `Box<${type}>`;
+    }
 
     if (arg.isOptional()) {
       type = `Option<${type}>`;
@@ -135,7 +178,9 @@ export class RustProgram extends AbstractProgram {
           children.length > 1
             ? RustProgram.getTypeAnnotation(children[1], options)
             : "String";
-        return `std::collections::HashMap<${keyType}, ${valType}>`;
+        const coll =
+          arg.getBaseTypeRef() === "BTreeMap" ? "BTreeMap" : "HashMap";
+        return `std::collections::${coll}<${keyType}, ${valType}>`;
       }
       case ArgTag.SET: {
         const children = arg.getChildren();
@@ -143,7 +188,9 @@ export class RustProgram extends AbstractProgram {
           children.length > 0
             ? RustProgram.getTypeAnnotation(children[0], options)
             : "String";
-        return `std::collections::HashSet<${elemType}>`;
+        const coll =
+          arg.getBaseTypeRef() === "BTreeSet" ? "BTreeSet" : "HashSet";
+        return `std::collections::${coll}<${elemType}>`;
       }
       case ArgTag.OBJECT: {
         return arg.getTypeRef() ?? "struct";
@@ -230,6 +277,9 @@ export class RustProgram extends AbstractProgram {
           typeRef.type.dims += typeDef.dims;
         }
         typeRef.optional = typeRef.optional || typeDef.optional;
+        if (typeRef.baseTypeRef && typeRef.type) {
+          typeRef.type.baseTypeRef = typeRef.baseTypeRef;
+        }
         return typeRef;
       } else if (typeDef.typeRefName && typeDef.typeRefName !== name) {
         const resolved = this.resolveTypeRef(typeDef);
@@ -238,6 +288,9 @@ export class RustProgram extends AbstractProgram {
           typeRef.type.dims += resolved.dims;
         }
         typeRef.optional = typeRef.optional || resolved.optional;
+        if (typeRef.baseTypeRef && typeRef.type) {
+          typeRef.type.baseTypeRef = typeRef.baseTypeRef;
+        }
         return typeRef;
       }
       throw new Error(
@@ -267,6 +320,9 @@ export class RustProgram extends AbstractProgram {
             typeRef.type.dims += resolved.dims;
           }
           typeRef.optional = typeRef.optional || resolved.optional;
+          if (typeRef.baseTypeRef && typeRef.type) {
+            typeRef.type.baseTypeRef = typeRef.baseTypeRef;
+          }
           return typeRef;
         }
       }
@@ -315,29 +371,85 @@ export class RustProgram extends AbstractProgram {
     const typeQuery = Parser.query(
       "rust",
       `
-(type_item
-  name: (type_identifier) @type.name
-  type: (_) @type.target) @type.item
+[
+  (type_item
+    name: (type_identifier) @type.name
+    type: (_) @type.target) @type.item
+  (struct_item
+    name: (type_identifier) @struct.name
+    body: (field_declaration_list) @struct.body) @struct.item
+]
 `
     );
 
     const matches = typeQuery.matches(this._ast.rootNode);
     for (const match of matches) {
       const typeItem = match.captures.find((c) => c.name === "type.item")?.node;
-      const nameNode = match.captures.find((c) => c.name === "type.name")?.node;
-      const targetNode = match.captures.find(
-        (c) => c.name === "type.target"
+      if (typeItem) {
+        const nameNode = match.captures.find(
+          (c) => c.name === "type.name"
+        )?.node;
+        const targetNode = match.captures.find(
+          (c) => c.name === "type.target"
+        )?.node;
+        if (nameNode && targetNode) {
+          try {
+            const typeRef = this._getTypeRefFromAstNode(targetNode);
+            typeRef.name = nameNode.text;
+            typeRef.isExported = isNodePublic(typeItem);
+            types[nameNode.text] = typeRef;
+          } catch (e) {
+            console.debug(
+              `Error getting TypeRef from AST node for ${nameNode.text} in module ${this._filename}, ignoring. Reason: ${e}`
+            );
+          }
+        }
+        continue;
+      }
+
+      const structItem = match.captures.find(
+        (c) => c.name === "struct.item"
       )?.node;
-      if (typeItem && nameNode && targetNode) {
-        try {
-          const typeRef = this._getTypeRefFromAstNode(targetNode);
-          typeRef.name = nameNode.text;
-          typeRef.isExported = isNodePublic(typeItem);
-          types[nameNode.text] = typeRef;
-        } catch (e) {
-          console.debug(
-            `Error getting TypeRef from AST node for ${nameNode.text} in module ${this._filename}, ignoring. Reason: ${e}`
-          );
+      if (structItem) {
+        const nameNode = match.captures.find(
+          (c) => c.name === "struct.name"
+        )?.node;
+        const bodyNode = match.captures.find(
+          (c) => c.name === "struct.body"
+        )?.node;
+        if (nameNode && bodyNode) {
+          try {
+            const fields: TypeRef[] = [];
+            for (const child of Parser.getNamedChildrenNoComments(bodyNode)) {
+              if (child.type === "field_declaration") {
+                const fName = child.childForFieldName("name");
+                const fType = child.childForFieldName("type");
+                if (fName && fType) {
+                  const fTypeRef = this._getTypeRefFromAstNode(fType);
+                  fTypeRef.name = fName.text;
+                  fields.push(fTypeRef);
+                }
+              }
+            }
+            types[nameNode.text] = {
+              module: this._filename,
+              name: nameNode.text,
+              typeRefName: nameNode.text,
+              optional: false,
+              dims: 0,
+              isExported: isNodePublic(structItem),
+              type: {
+                type: ArgTag.OBJECT,
+                dims: 0,
+                children: fields,
+                resolved: true,
+              },
+            };
+          } catch (e) {
+            console.debug(
+              `Error getting TypeRef from struct AST node for ${nameNode.text} in module ${this._filename}, ignoring. Reason: ${e}`
+            );
+          }
         }
       }
     }
@@ -664,6 +776,23 @@ export class RustProgram extends AbstractProgram {
           };
           return thisType;
         }
+        if (innerTypeNode.type === "array_type") {
+          const elemNode = innerTypeNode.childForFieldName("element");
+          const inner = elemNode
+            ? this._getTypeRefFromAstNode(elemNode)
+            : undefined;
+          const elemName = inner?.typeRefName ?? "i32";
+          thisType.typeRefName = `&[${elemName}]`;
+          thisType.dims = 1;
+          thisType.baseTypeRef = `&[${elemName}]`;
+          thisType.type = {
+            type: inner?.type?.type ?? ArgTag.NUMBER,
+            dims: 0,
+            children: inner?.type?.children ?? [],
+            resolved: inner?.type?.resolved ?? false,
+          };
+          return thisType;
+        }
         return this._getTypeRefFromAstNode(innerTypeNode);
       }
       case "generic_type": {
@@ -693,6 +822,49 @@ export class RustProgram extends AbstractProgram {
               children: inner.type?.children ?? [],
               ...(inner.type?.options ? { options: inner.type.options } : {}),
               resolved: inner.type?.resolved ?? false,
+            };
+            return thisType;
+          }
+          case "VecDeque": {
+            if (argNodes.length === 0) {
+              throw new Error(
+                `Missing type argument for VecDeque in '${node.text}'`
+              );
+            }
+            const inner = this._getTypeRefFromAstNode(argNodes[0]);
+            thisType.dims = 1;
+            thisType.typeRefName = inner.typeRefName;
+            thisType.baseTypeRef = "VecDeque";
+            thisType.type = {
+              type: inner.type?.type ?? ArgTag.UNRESOLVED,
+              dims: inner.dims,
+              children: [inner],
+              ...(inner.type?.options ? { options: inner.type.options } : {}),
+              resolved: inner.type?.resolved ?? false,
+              baseTypeRef: "VecDeque",
+            };
+            return thisType;
+          }
+          case "Box": {
+            if (argNodes.length === 0) {
+              throw new Error(
+                `Missing type argument for Box in '${node.text}'`
+              );
+            }
+            const inner = this._getTypeRefFromAstNode(argNodes[0]);
+            thisType.dims = inner.dims;
+            thisType.optional = false;
+            thisType.typeRefName = inner.optional
+              ? `Option<${inner.typeRefName}>`
+              : inner.typeRefName;
+            thisType.baseTypeRef = "Box";
+            thisType.type = {
+              type: inner.type?.type ?? ArgTag.UNRESOLVED,
+              dims: inner.dims,
+              children: inner.type?.children ?? [],
+              ...(inner.type?.options ? { options: inner.type.options } : {}),
+              resolved: inner.type?.resolved ?? false,
+              baseTypeRef: "Box",
             };
             return thisType;
           }
@@ -757,6 +929,21 @@ export class RustProgram extends AbstractProgram {
       case "array_type": {
         // [T; N] or [T]
         const elemNode = node.childForFieldName("element");
+        const lenNode = node.childForFieldName("length");
+        if (elemNode && lenNode) {
+          const inner = this._getTypeRefFromAstNode(elemNode);
+          const lenText = lenNode.text.trim();
+          thisType.typeRefName = `[${inner.typeRefName ?? "i32"}; ${lenText}]`;
+          thisType.dims = 1;
+          thisType.baseTypeRef = thisType.typeRefName;
+          thisType.type = {
+            type: inner.type?.type ?? ArgTag.NUMBER,
+            dims: 0,
+            children: inner.type?.children ?? [],
+            resolved: inner.type?.resolved ?? false,
+          };
+          return thisType;
+        }
         thisType.dims = 1;
         if (elemNode) {
           const inner = this._getTypeRefFromAstNode(elemNode);

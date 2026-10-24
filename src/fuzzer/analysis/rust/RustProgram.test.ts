@@ -156,6 +156,59 @@ pub fn complex_types(
     expect(ret?.getType()).toBe(ArgTag.STRING);
   });
 
+  it("parses Box and VecDeque container types and generates annotations", () => {
+    const src = `
+use std::collections::VecDeque;
+
+pub fn container_types(
+    boxed_num: Box<i32>,
+    queue_str: VecDeque<String>,
+    opt_box: Option<Box<f64>>,
+    boxed_opt: Box<Option<bool>>
+) -> Box<i32> {
+    boxed_num
+}
+`;
+    const program = ProgramFactory.fromSource(() => src, "rust");
+    const fnDef = program.functionsExported["container_types"];
+    expect(fnDef).toBeDefined();
+
+    const args = fnDef.getArgDefs();
+    expect(args.length).toBe(4);
+
+    // Box<i32>
+    expect(args[0].getName()).toBe("boxed_num");
+    expect(args[0].getType()).toBe(ArgTag.NUMBER);
+    expect(args[0].getBaseTypeRef()).toBe("Box");
+    expect(args[0].getDim()).toBe(0);
+    expect(RustProgram.getTypeAnnotation(args[0])).toBe("Box<i32>");
+
+    // VecDeque<String>
+    expect(args[1].getName()).toBe("queue_str");
+    expect(args[1].getType()).toBe(ArgTag.STRING);
+    expect(args[1].getBaseTypeRef()).toBe("VecDeque");
+    expect(args[1].getDim()).toBe(1);
+    expect(RustProgram.getTypeAnnotation(args[1])).toBe(
+      "std::collections::VecDeque<String>"
+    );
+
+    // Option<Box<f64>>
+    expect(args[2].getName()).toBe("opt_box");
+    expect(args[2].isOptional()).toBeTrue();
+    expect(args[2].getBaseTypeRef()).toBe("Box");
+    expect(RustProgram.getTypeAnnotation(args[2])).toBe("Option<Box<f64>>");
+
+    // Box<Option<bool>>
+    expect(args[3].getName()).toBe("boxed_opt");
+    expect(args[3].getBaseTypeRef()).toBe("Box");
+    expect(RustProgram.getTypeAnnotation(args[3])).toBe("Box<Option<bool>>");
+
+    const ret = fnDef.getReturnArg();
+    expect(ret).toBeDefined();
+    expect(ret?.getBaseTypeRef()).toBe("Box");
+    expect(RustProgram.getTypeAnnotation(ret!)).toBe("Box<i32>");
+  });
+
   it("resolves local type aliases", () => {
     const src = `
 type UserId = u32;
@@ -274,10 +327,35 @@ pub fn with_lifetime<'a>(s: &'a str) -> &'a str {
     expect(program.functions["with_lifetime"]).toBeDefined();
   });
 
+  it("parses valid structs into Object types and supports functions using them", () => {
+    const src = `
+pub struct Point {
+    pub x: f64,
+    pub y: f64,
+}
+
+pub fn move_point(p: Point, dx: f64) -> Point {
+    Point { x: p.x + dx, y: p.y }
+}
+`;
+    const program = ProgramFactory.fromSource(() => src, "rust");
+    expect("Point" in program.types).toBeTrue();
+    expect(program.types["Point"].type?.type).toBe(ArgTag.OBJECT);
+    expect(program.types["Point"].type?.children.length).toBe(2);
+
+    expect(program.functions["move_point"]).toBeDefined();
+    const fnDef = program.functions["move_point"];
+    const args = fnDef.getArgDefs();
+    expect(args[0].getType()).toBe(ArgTag.OBJECT);
+    expect(args[0].getChildren().length).toBe(2);
+    expect(args[0].getChildren()[0].getName()).toBe("x");
+    expect(args[0].getChildren()[1].getName()).toBe("y");
+  });
+
   it("flags functions with unsupported or unresolved argument types as unsupported", () => {
     const src = `
-pub struct UserPayload {
-    pub id: u64,
+pub struct BadPayload {
+    pub ptr: *const i32,
 }
 
 pub enum ActionKind {
@@ -285,8 +363,8 @@ pub enum ActionKind {
     Stop,
 }
 
-pub fn handle_struct(payload: UserPayload) -> bool {
-    payload.id > 0
+pub fn handle_bad_struct(payload: BadPayload) -> bool {
+    true
 }
 
 pub fn handle_enum(kind: ActionKind) -> bool {
@@ -318,7 +396,7 @@ pub fn handle_unresolved_collection(items: Vec<UnresolvedItem>) -> usize {
 `;
     const program = ProgramFactory.fromSource(() => src, "rust");
 
-    expect(program.functions["handle_struct"]).toBeUndefined();
+    expect(program.functions["handle_bad_struct"]).toBeUndefined();
     expect(program.functions["handle_enum"]).toBeUndefined();
     expect(program.functions["handle_unknown"]).toBeUndefined();
     expect(program.functions["handle_mut_ref"]).toBeUndefined();
@@ -327,8 +405,8 @@ pub fn handle_unresolved_collection(items: Vec<UnresolvedItem>) -> usize {
     expect(program.functions["handle_dyn_trait"]).toBeUndefined();
     expect(program.functions["handle_unresolved_collection"]).toBeUndefined();
 
-    expect(program.functionsNotSupported["handle_struct"]).toBeDefined();
-    expect(program.functionsNotSupported["handle_struct"].argument).toBe(
+    expect(program.functionsNotSupported["handle_bad_struct"]).toBeDefined();
+    expect(program.functionsNotSupported["handle_bad_struct"].argument).toBe(
       "payload"
     );
 

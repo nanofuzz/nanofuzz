@@ -38,7 +38,10 @@ export function fromRust<T>(text: string): T {
 // ----------------- From JavaScript value to Rust string ----------------- //
 
 function toRustFormat(val: unknown, argDef?: ArgDefContext): string {
-  if (val === undefined || val === null) {
+  if (
+    val === undefined ||
+    (val === null && argDef?.getBaseTypeRef() !== "Box")
+  ) {
     return "None";
   }
 
@@ -53,6 +56,19 @@ function toRustFormat(val: unknown, argDef?: ArgDefContext): string {
       getDim: () => argDef.getDim(),
     };
     return `Some(${toRustFormat(val, innerArgDef)})`;
+  }
+
+  if (argDef?.getBaseTypeRef() === "Box") {
+    const innerArgDef: ArgDefContext = argDef.getChildren()[0] ?? {
+      isOptional: () => false,
+      getTypeRef: () => argDef.getTypeRef(),
+      getBaseTypeRef: () => undefined,
+      getOptions: () => argDef.getOptions(),
+      getType: () => argDef.getType(),
+      getChildren: () => [],
+      getDim: () => argDef.getDim(),
+    };
+    return `Box::new(${toRustFormat(val, innerArgDef)})`;
   }
 
   if (typeof val === "boolean") {
@@ -222,7 +238,10 @@ function toRustFormat(val: unknown, argDef?: ArgDefContext): string {
         ? {
             isOptional: () => false,
             getTypeRef: () => argDef.getTypeRef(),
-            getBaseTypeRef: () => argDef.getBaseTypeRef(),
+            getBaseTypeRef: () =>
+              argDef.getBaseTypeRef() === "VecDeque"
+                ? undefined
+                : argDef.getBaseTypeRef(),
             getOptions: () => argDef.getOptions(),
             getType: () => argDef.getType(),
             getChildren: () => [],
@@ -230,6 +249,13 @@ function toRustFormat(val: unknown, argDef?: ArgDefContext): string {
           }
         : undefined);
     const items = val.map((item) => toRustFormat(item, elemDef));
+
+    if (argDef?.getBaseTypeRef() === "VecDeque") {
+      if (items.length === 0) {
+        return `std::collections::VecDeque::new()`;
+      }
+      return `std::collections::VecDeque::from([${items.join(", ")}])`;
+    }
 
     if (argDef?.getTypeRef()?.startsWith("&[")) {
       return `&[${items.join(", ")}]`;
@@ -249,7 +275,8 @@ function toRustFormat(val: unknown, argDef?: ArgDefContext): string {
     if (isKeyedObject(val)) {
       for (const k of Object.keys(val)) {
         const propValue = val[k];
-        entries.push(`${k}: ${toRustFormat(propValue)}`);
+        const childDef = argDef?.getChildren().find((c) => c.getName?.() === k);
+        entries.push(`${k}: ${toRustFormat(propValue, childDef)}`);
       }
     }
     const typeRef = argDef?.getTypeRef();
@@ -660,6 +687,66 @@ function toJavascriptValue(text: string): unknown {
           }
         }
 
+        if (fnText === "Box::new" || fnText === "std::boxed::Box::new") {
+          const innerArg = argsNode
+            ? Parser.getFirstNamedChildNoComments(argsNode)
+            : undefined;
+          if (innerArg) {
+            replacements.push({
+              start: node.startIndex,
+              end: innerArg.startIndex,
+              text: "",
+            });
+            replacements.push({
+              start: innerArg.endIndex,
+              end: node.endIndex,
+              text: "",
+            });
+            collectReplacements(innerArg);
+            return;
+          }
+        }
+
+        if (
+          fnText === "VecDeque::new" ||
+          fnText === "std::collections::VecDeque::new"
+        ) {
+          replacements.push({
+            start: node.startIndex,
+            end: node.endIndex,
+            text: "[]",
+          });
+          return;
+        }
+
+        if (
+          fnText === "VecDeque::from" ||
+          fnText === "std::collections::VecDeque::from"
+        ) {
+          const arrNode = argsNode
+            ? Parser.getNamedChildrenNoComments(argsNode).find(
+                (c) => c.type === "array_expression"
+              )
+            : undefined;
+          if (arrNode) {
+            replacements.push({
+              start: node.startIndex,
+              end: arrNode.startIndex,
+              text: "",
+            });
+            replacements.push({
+              start: arrNode.endIndex,
+              end: node.endIndex,
+              text: "",
+            });
+            for (let i = 0; i < arrNode.childCount; i++) {
+              const child = arrNode.child(i);
+              if (child) collectReplacements(child);
+            }
+            return;
+          }
+        }
+
         if (
           fnText === "HashSet::new" ||
           fnText === "std::collections::HashSet::new" ||
@@ -919,4 +1006,5 @@ export type ArgDefContext = {
   getType(): ArgTag;
   getChildren(): ArgDefContext[];
   getDim(): number;
+  getName?(): string;
 };
