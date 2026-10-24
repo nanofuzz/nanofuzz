@@ -111,7 +111,9 @@ describe("fuzzer/runners/java/JavaRunner: ", () => {
     );
 
     const program = ProgramFactory.fromFile(javaPath, "java");
-    const fnDef = program.functionsExported["offset"];
+    expect(program.functionsNotSupported["offset"]).toBeDefined();
+    const fnRef = program.functionsNotSupported["offset"].function!;
+    const fnDef = FunctionDef.fromFunctionRef(fnRef);
     const env = createTestEnv(fnDef);
 
     const runner = new JavaRunner(javaPath, "offset", env);

@@ -215,6 +215,10 @@ describe("Agent", () => {
     expect(greetingFn.args.length).toBe(1);
     expect(greetingFn.args[0].name).toBe("name");
     expect(greetingFn.signature).toBe("public String greeting(String name)");
+
+    expect(
+      result.unsupportedFunctions.some((f) => f.name === "javaUserGenGenerator")
+    ).toBeTrue();
   });
 
   it("listTargets: missing file", async () => {

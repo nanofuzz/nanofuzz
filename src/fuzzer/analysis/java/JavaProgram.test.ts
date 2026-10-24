@@ -240,7 +240,45 @@ public record Point(int x, int y) {
     expect(pointType.type?.children[1].name).toBe("y");
     expect(pointType.type?.children[1].type?.type).toBe(ArgTag.NUMBER);
 
-    expect("manhattanDistance" in program.functionsExported).toBeTrue();
+    expect("manhattanDistance" in program.functionsExported).toBeFalse();
+    expect("manhattanDistance" in program.functionsNotSupported).toBeTrue();
+    expect(program.functionsNotSupported["manhattanDistance"].reason).toBe(
+      "Class methods are not supported"
+    );
+  });
+
+  it("marks class methods and functions with function-typed parameters as unsupported", () => {
+    const src = `
+import java.util.function.DoubleSupplier;
+
+public class TargetClass {
+    public static int evaluateExpression(int x) { return x; }
+
+    public static Object[] evaluateExpressionGenerator(DoubleSupplier prng) {
+        return new Object[] { 1 };
+    }
+
+    public int instanceMethod(int x) { return x * 2; }
+}
+`;
+    const prog = ProgramFactory.fromSource(() => src, "java");
+
+    expect(prog.functionsExported["evaluateExpression"]).toBeDefined();
+    expect(
+      prog.functionsExported["evaluateExpressionGenerator"]
+    ).toBeUndefined();
+    expect(prog.functionsExported["instanceMethod"]).toBeUndefined();
+
+    expect(
+      prog.functionsNotSupported["evaluateExpressionGenerator"]
+    ).toBeDefined();
+    expect(
+      prog.functionsNotSupported["evaluateExpressionGenerator"].argument
+    ).toBe("prng");
+    expect(prog.functionsNotSupported["instanceMethod"]).toBeDefined();
+    expect(prog.functionsNotSupported["instanceMethod"].reason).toBe(
+      "Class methods are not supported"
+    );
   });
 
   it("extracts callees within method body", () => {

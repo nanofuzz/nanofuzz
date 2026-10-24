@@ -346,6 +346,13 @@ export class JavaProgram extends AbstractProgram {
    * @returns Resolved TypeRef
    */
   public resolveTypeRef(typeRef: TypeRef): TypeRef {
+    const name = typeRef.typeRefName;
+    if (name && isJavaFunctionType(name)) {
+      throw new Error(
+        `Unsupported parameter type '${name}': function-typed parameters are not supported`
+      );
+    }
+
     if (typeRef.type && typeRef.type.type !== ArgTag.UNRESOLVED) {
       if (typeRef.type.resolved) {
         return typeRef;
@@ -364,7 +371,6 @@ export class JavaProgram extends AbstractProgram {
       );
     }
 
-    const name = typeRef.typeRefName;
     if (name === "FuzzTestResult") {
       typeRef.type = {
         type: ArgTag.OBJECT,
@@ -618,6 +624,39 @@ export class JavaProgram extends AbstractProgram {
       }
 
       const rawName = nameNode.text;
+      if (!isNodeStatic(itemNode)) {
+        try {
+          const fnRef = this._getFunctionFromNode(
+            itemNode,
+            nameNode,
+            paramsNode,
+            returnTypeNode
+          );
+          unsupported[rawName] = {
+            reason: "Class methods are not supported",
+            node: JSONN.stringify(itemNode.toString()),
+            function: fnRef,
+          };
+        } catch {
+          unsupported[rawName] = {
+            reason: "Class methods are not supported",
+            node: JSONN.stringify(itemNode.toString()),
+            function: {
+              module: this._filename,
+              name: rawName,
+              src: itemNode.text,
+              lang: JavaProgram.lang,
+              startOffset: itemNode.startIndex,
+              endOffset: itemNode.endIndex,
+              isExported: isNodePublic(itemNode),
+              isVoid: false,
+              args: [],
+            },
+          };
+        }
+        continue;
+      }
+
       try {
         const fnRef = this._getFunctionFromNode(
           itemNode,
@@ -1045,6 +1084,17 @@ export class JavaProgram extends AbstractProgram {
           return thisType;
         }
 
+        if (isJavaFunctionType(baseName)) {
+          thisType.typeRefName = baseName;
+          thisType.type = {
+            type: ArgTag.UNRESOLVED,
+            dims: 0,
+            children: [],
+            resolved: false,
+          };
+          return thisType;
+        }
+
         thisType.typeRefName = baseName;
         thisType.type = {
           type: ArgTag.OBJECT,
@@ -1137,6 +1187,79 @@ function isNodePublic(node: Parser.SyntaxNode): boolean {
     (c) => c.type === "public" || c.text === "public"
   );
 } // fn: isNodePublic
+
+/**
+ * Checks whether an AST syntax node has a static modifier (`static`).
+ *
+ * @param node The AST syntax node to check
+ * @returns True if static modifier present, false otherwise
+ */
+function isNodeStatic(node: Parser.SyntaxNode): boolean {
+  const modifiers = node.children.find((c) => c.type === "modifiers");
+  if (!modifiers) return false;
+  return modifiers.children.some(
+    (c) => c.type === "static" || c.text === "static"
+  );
+} // fn: isNodeStatic
+
+/**
+ * Checks whether an identifier corresponds to a Java functional interface or function-typed parameter.
+ *
+ * @param name The type name to check
+ * @returns True if the identifier represents a functional/function type, false otherwise
+ */
+function isJavaFunctionType(name: string): boolean {
+  if (name.startsWith("java.util.function.")) return true;
+  const simple = name.includes(".") ? name.split(".").pop()! : name;
+  const functionTypes = new Set([
+    "DoubleSupplier",
+    "IntSupplier",
+    "LongSupplier",
+    "BooleanSupplier",
+    "Supplier",
+    "Function",
+    "BiFunction",
+    "DoubleFunction",
+    "IntFunction",
+    "LongFunction",
+    "ToDoubleFunction",
+    "ToIntFunction",
+    "ToLongFunction",
+    "DoubleToIntFunction",
+    "DoubleToLongFunction",
+    "IntToDoubleFunction",
+    "IntToLongFunction",
+    "LongToDoubleFunction",
+    "LongToIntFunction",
+    "ToDoubleBiFunction",
+    "ToIntBiFunction",
+    "ToLongBiFunction",
+    "Consumer",
+    "BiConsumer",
+    "DoubleConsumer",
+    "IntConsumer",
+    "LongConsumer",
+    "ObjDoubleConsumer",
+    "ObjIntConsumer",
+    "ObjLongConsumer",
+    "Predicate",
+    "BiPredicate",
+    "DoublePredicate",
+    "IntPredicate",
+    "LongPredicate",
+    "UnaryOperator",
+    "BinaryOperator",
+    "DoubleUnaryOperator",
+    "DoubleBinaryOperator",
+    "IntUnaryOperator",
+    "IntBinaryOperator",
+    "LongUnaryOperator",
+    "LongBinaryOperator",
+    "Runnable",
+    "Callable",
+  ]);
+  return functionTypes.has(simple);
+} // fn: isJavaFunctionType
 
 /**
  * Checks whether an AST syntax node contains `@Nullable` or `@CheckForNull` annotations.
