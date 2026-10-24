@@ -16,6 +16,7 @@ import * as ProgramFactory from "../../analysis/ProgramFactory";
 import { JavaProgram } from "../../analysis/java/JavaProgram";
 import {
   JavaCompiler,
+  JavaCompilerOptions,
   findRuntimeJar,
 } from "../../compilers/java/JavaCompiler";
 import { JavaHost } from "./JavaHost";
@@ -43,6 +44,7 @@ export class JavaRunner extends AbstractRunner {
   protected _staticCoverage?: CoverageMapData = undefined;
   protected _lastRunCoverage?: CoverageMapData = undefined;
   protected _branchSpecsMap?: Record<string, JavaBranchSpec[]> = undefined;
+  protected _directImportClasspath: string[] = [];
   protected _pgmFiles: string[] = [];
   protected _coverageEnabled = true;
   protected _coverageCallback?: (covData: unknown) => void;
@@ -51,13 +53,17 @@ export class JavaRunner extends AbstractRunner {
     filename: string,
     fn: string,
     env?: FuzzEnv,
-    overrides: RunnerOverrides = {}
+    overrides: RunnerOverrides = {},
+    compilerOptions?: Partial<JavaCompilerOptions>
   ) {
     super(fn);
     this._filename = filename;
     this._fn = fn;
     this._env = env;
     this._overrides = overrides;
+    if (compilerOptions) {
+      this._compiler = new JavaCompiler(filename, compilerOptions);
+    }
   } // constructor
 
   /**
@@ -101,7 +107,9 @@ export class JavaRunner extends AbstractRunner {
         this._env.options.measures.CoverageMeasure.enabled;
     }
 
-    this._compiler = new JavaCompiler(this._filename);
+    if (!this._compiler) {
+      this._compiler = new JavaCompiler(this._filename);
+    }
     if (this._compiler.isStale()) {
       this._compiler.compileSync();
     }
@@ -114,12 +122,15 @@ export class JavaRunner extends AbstractRunner {
       this._fqClassName = path.basename(this._filename, ".java");
     }
 
-    const { staticCov, staticCovMap, branchSpecsMap } = buildJavaHarness(
-      this._filename,
-      this._fn,
-      this._env
-    );
+    const { staticCov, staticCovMap, branchSpecsMap, directImportClasspath } =
+      buildJavaHarness(
+        this._filename,
+        this._fn,
+        this._env,
+        this._compiler.options.extraClasspath
+      );
     this._branchSpecsMap = branchSpecsMap;
+    this._directImportClasspath = directImportClasspath;
     const allStaticCov = staticCovMap ?? { [this._filename]: staticCov };
     this._coverageInfo = { ...allStaticCov };
     for (const [fPath, sCov] of Object.entries(allStaticCov)) {
@@ -356,6 +367,17 @@ export class JavaRunner extends AbstractRunner {
     const classpath = cpEntries.join(sep);
 
     const fqClass = this._fqClassName ?? path.basename(this._filename, ".java");
+
+    const instrumentEntries = [classesDir];
+    if (this._directImportClasspath && this._directImportClasspath.length > 0) {
+      for (const entry of this._directImportClasspath) {
+        if (!instrumentEntries.includes(entry)) {
+          instrumentEntries.push(entry);
+        }
+      }
+    }
+    const instrumentClasspath = instrumentEntries.join(sep);
+
     const args = [
       "-ea",
       "-cp",
@@ -363,7 +385,7 @@ export class JavaRunner extends AbstractRunner {
       "com.nanofuzz.runtime.runner.JavaRunnerHost",
       fqClass,
       this._fn,
-      classesDir,
+      instrumentClasspath,
     ];
 
     this._host = new JavaHost(javaBin, args, projectPath, process.env, () => {

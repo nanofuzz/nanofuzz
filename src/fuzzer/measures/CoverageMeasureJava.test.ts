@@ -1,10 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import * as ChildProcess from "node:child_process";
 import * as Config from "../../Config";
 import { CoverageMeasure } from "./CoverageMeasure";
 import { JavaRunner } from "../runners/java/JavaRunner";
 import { extractJavaStaticCoverage } from "../runners/java/JavaHarness";
+import { JavaCompiler } from "../compilers/java/JavaCompiler";
 import { ArgDef } from "../analysis/ArgDef";
 import { FunctionDef } from "../analysis/FunctionDef";
 import * as ProgramFactory from "../analysis/ProgramFactory";
@@ -413,6 +415,114 @@ describe("fuzzer/measures/CoverageMeasure: Java", () => {
     expect(helperStats!.counters.branchesCovered).toBe(1);
 
     await runner.onRunEnd();
+  });
+
+  it("coverage scope: 'project static' vs 'project directimports static' for Java", async () => {
+    const depDir = path.join(tempDir, "ext_dep");
+    const appDir = path.join(tempDir, "my_app");
+    fs.mkdirSync(path.join(depDir, "src", "com", "ext"), { recursive: true });
+    fs.mkdirSync(path.join(appDir, "src", "com", "app"), { recursive: true });
+
+    const squareJava = path.join(depDir, "src", "com", "ext", "Square.java");
+    fs.writeFileSync(
+      squareJava,
+      `package com.ext;
+
+public class Square {
+    public static int square(int x) {
+        if (x > 0) {
+            return x * x;
+        } else {
+            return 0;
+        }
+    }
+}
+`
+    );
+
+    const depClasses = path.join(depDir, "classes");
+    fs.mkdirSync(depClasses, { recursive: true });
+    const javac = JavaCompiler.resolveJavac() ?? "javac";
+    ChildProcess.execSync(`"${javac}" -g -d "${depClasses}" "${squareJava}"`);
+
+    const mainJava = path.join(appDir, "src", "com", "app", "MainApp.java");
+    fs.writeFileSync(
+      mainJava,
+      `package com.app;
+
+import com.ext.Square;
+
+public class MainApp {
+    public static int compute(int n) {
+        return Square.square(n) + 1;
+    }
+}
+`
+    );
+
+    const program = ProgramFactory.fromFile(mainJava, "java");
+    const fnDef = program.functionsExported["compute"];
+    const env = createTestEnv(fnDef);
+
+    try {
+      // Default 'project static' scope
+      Config.override("nanofuzz.fuzzer.coverageScope", "project static");
+      const runnerProject = new JavaRunner(
+        mainJava,
+        "compute",
+        env,
+        {},
+        { extraClasspath: [depClasses] }
+      );
+      await runnerProject.onRunStart();
+      const resProject = await runnerProject.run([4], 5000);
+      expect(resProject.result.tag).toBe("value");
+      if (resProject.result.tag === "value") {
+        expect(resProject.result.value).toBe(17);
+      }
+      expect(runnerProject.coverageInfo).toBeDefined();
+      const projectFiles = Object.keys(runnerProject.coverageInfo!);
+      expect(projectFiles.some((f) => f.includes("MainApp.java"))).toBeTrue();
+      // External dependency should NOT be in project scope
+      expect(projectFiles.some((f) => f.includes("Square.java"))).toBeFalse();
+      await runnerProject.onRunEnd();
+
+      // 'project directimports static' scope
+      Config.override(
+        "nanofuzz.fuzzer.coverageScope",
+        "project directimports static"
+      );
+      const runnerImports = new JavaRunner(
+        mainJava,
+        "compute",
+        env,
+        {},
+        { extraClasspath: [depClasses] }
+      );
+      await runnerImports.onRunStart();
+      const resImports = await runnerImports.run([4], 5000);
+      expect(resImports.result.tag).toBe("value");
+      if (resImports.result.tag === "value") {
+        expect(resImports.result.value).toBe(17);
+      }
+      expect(runnerImports.coverageInfo).toBeDefined();
+      const importFiles = Object.keys(runnerImports.coverageInfo!);
+      // Both MainApp.java AND Square.java should be present
+      expect(importFiles.some((f) => f.includes("MainApp.java"))).toBeTrue();
+      expect(importFiles.some((f) => f.includes("Square.java"))).toBeTrue();
+
+      // Verify dynamic hits recorded for external class
+      const extFile = importFiles.find((f) => f.includes("Square.java"));
+      expect(extFile).toBeDefined();
+      const extCov = runnerImports.coverageInfo![extFile!];
+      expect(Object.values(extCov.f).some((h) => h > 0)).toBeTrue();
+      expect(Object.values(extCov.s).some((h) => h > 0)).toBeTrue();
+      expect(extCov.b["0"]).toEqual([1, 0]);
+
+      await runnerImports.onRunEnd();
+    } finally {
+      Config.override("nanofuzz.fuzzer.coverageScope", "project static");
+    }
   });
 });
 

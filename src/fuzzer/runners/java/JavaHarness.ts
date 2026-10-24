@@ -19,11 +19,13 @@ import { CoverageScopeConfig } from "../../measures/Types";
 export function buildJavaHarness(
   targetFile: string,
   _fnName?: string,
-  _env?: FuzzEnv
+  _env?: FuzzEnv,
+  extraClasspath?: string[]
 ): {
   staticCov: FileCoverageData;
   staticCovMap: Record<string, FileCoverageData>;
   branchSpecsMap: Record<string, JavaBranchSpec[]>;
+  directImportClasspath: string[];
 } {
   const normTarget = fs.existsSync(targetFile)
     ? fs.realpathSync(path.resolve(targetFile))
@@ -99,10 +101,43 @@ export function buildJavaHarness(
     }
   }
 
+  const directImportClasspath: string[] = [];
+
+  // Discover direct external imports if directimports scope is active
+  if (scopeConfig.target.includes("directimports")) {
+    const directImports = extractImportedClassNames(targetSrc);
+    if (directImports.length > 0) {
+      const discovered = discoverDirectImportSources(
+        directImports,
+        normTarget,
+        extraClasspath
+      );
+      for (const item of discovered) {
+        if (!staticCovMap[item.normKey]) {
+          try {
+            const src = fs.readFileSync(item.filePath, "utf8");
+            const extraction = extractJavaStaticCoverage(src, item.filePath);
+            staticCovMap[item.normKey] = extraction.staticCov;
+            branchSpecsMap[item.normKey] = extraction.branchSpecs;
+            if (
+              item.classPathEntry &&
+              !directImportClasspath.includes(item.classPathEntry)
+            ) {
+              directImportClasspath.push(item.classPathEntry);
+            }
+          } catch {
+            // Ignore parse errors on external files
+          }
+        }
+      }
+    }
+  }
+
   return {
     staticCov: targetExtraction.staticCov,
     staticCovMap,
     branchSpecsMap,
+    directImportClasspath,
   };
 } // fn: buildJavaHarness
 
@@ -722,6 +757,248 @@ function findJavaFilesRecursive(dir: string): string[] {
   }
   return results;
 } // fn: findJavaFilesRecursive
+
+/**
+ * Extracts imported non-JDK, non-runtime class and package identifiers from Java source code.
+ *
+ * @param targetSrc Java source code
+ * @returns Array of imported class details
+ */
+function extractImportedClassNames(
+  targetSrc: string
+): Array<{ fullName: string; simpleName: string; pkgPath: string }> {
+  const tree = Parser.parse("java", targetSrc);
+  if (!tree) return [];
+
+  const importQuery = Parser.query(
+    "java",
+    `
+(import_declaration) @import.item
+`
+  );
+  const matches = importQuery.matches(tree.rootNode);
+  const results: Array<{
+    fullName: string;
+    simpleName: string;
+    pkgPath: string;
+  }> = [];
+  const seen = new Set<string>();
+
+  for (const m of matches) {
+    const item = m.captures.find((c) => c.name === "import.item")?.node;
+    if (!item) continue;
+    const isStatic = item.children.some(
+      (c) => c.type === "static" || c.text === "static"
+    );
+    const idNode = item.children.find(
+      (c) => c.type === "scoped_identifier" || c.type === "identifier"
+    );
+    if (!idNode) continue;
+    const text = idNode.text;
+    if (
+      text.startsWith("java.") ||
+      text.startsWith("javax.") ||
+      text.startsWith("sun.") ||
+      text.startsWith("org.junit.") ||
+      text.startsWith("com.nanofuzz.runtime.")
+    ) {
+      continue;
+    }
+
+    let fullName = text;
+    if (isStatic) {
+      const parts = text.split(".");
+      parts.pop();
+      fullName = parts.join(".");
+    }
+
+    const simpleName = fullName.includes(".")
+      ? fullName.split(".").pop()!
+      : fullName;
+    const pkgPath = fullName.replace(/\./g, "/") + ".java";
+
+    if (!seen.has(fullName) && simpleName && simpleName !== "*") {
+      seen.add(fullName);
+      results.push({ fullName, simpleName, pkgPath });
+    }
+  }
+
+  return results;
+} // fn: extractImportedClassNames
+
+/**
+ * Locates source files and classpath entries corresponding to direct imports.
+ *
+ * @param directImports Array of imported class details
+ * @param normTarget Absolute normalized path to target Java file
+ * @param extraClasspath Optional extra classpath entries
+ * @returns Discovered files and associated classpath entries
+ */
+function discoverDirectImportSources(
+  directImports: Array<{
+    fullName: string;
+    simpleName: string;
+    pkgPath: string;
+  }>,
+  normTarget: string,
+  extraClasspath?: string[]
+): Array<{ filePath: string; classPathEntry?: string; normKey: string }> {
+  const discovered: Array<{
+    filePath: string;
+    classPathEntry?: string;
+    normKey: string;
+  }> = [];
+  const targetDir = path.dirname(normTarget);
+  const parentDir = path.dirname(targetDir);
+
+  for (const imp of directImports) {
+    let foundFile: string | undefined;
+    let foundCpEntry: string | undefined;
+
+    // Search extraClasspath entries
+    if (extraClasspath) {
+      for (const cp of extraClasspath) {
+        if (!fs.existsSync(cp)) continue;
+        const cpStat = fs.statSync(cp);
+        const searchBase = cpStat.isDirectory() ? cp : path.dirname(cp);
+        const pDir = path.dirname(searchBase);
+
+        const candidates = [
+          path.join(searchBase, imp.pkgPath),
+          path.join(searchBase, imp.simpleName + ".java"),
+          path.join(pDir, "src", imp.pkgPath),
+          path.join(pDir, "src", "main", "java", imp.pkgPath),
+          path.join(pDir, "src", imp.simpleName + ".java"),
+          path.join(pDir, imp.simpleName + ".java"),
+        ];
+
+        for (const cand of candidates) {
+          if (fs.existsSync(cand) && fs.statSync(cand).isFile()) {
+            foundFile = fs.realpathSync(cand);
+            foundCpEntry = cp;
+            break;
+          }
+        }
+
+        if (!foundFile) {
+          const matched = findFileRecursive(pDir, imp.simpleName + ".java");
+          if (matched) {
+            foundFile = fs.realpathSync(matched);
+            foundCpEntry = cp;
+          }
+        }
+
+        if (foundFile) break;
+      }
+    }
+
+    // Search sibling directories in parent folder
+    if (!foundFile && fs.existsSync(parentDir)) {
+      try {
+        const siblings = fs.readdirSync(parentDir, { withFileTypes: true });
+        for (const sib of siblings) {
+          if (sib.isDirectory()) {
+            const sibPath = path.join(parentDir, sib.name);
+            if (sibPath === targetDir) continue;
+
+            const candidates = [
+              path.join(sibPath, imp.pkgPath),
+              path.join(sibPath, "src", imp.pkgPath),
+              path.join(sibPath, "src", "main", "java", imp.pkgPath),
+              path.join(sibPath, "src", imp.simpleName + ".java"),
+              path.join(sibPath, imp.simpleName + ".java"),
+            ];
+
+            for (const cand of candidates) {
+              if (fs.existsSync(cand) && fs.statSync(cand).isFile()) {
+                foundFile = fs.realpathSync(cand);
+                const possibleClasses = path.join(sibPath, "classes");
+                const possibleTargetClasses = path.join(
+                  sibPath,
+                  "target",
+                  "classes"
+                );
+                if (fs.existsSync(possibleClasses)) {
+                  foundCpEntry = possibleClasses;
+                } else if (fs.existsSync(possibleTargetClasses)) {
+                  foundCpEntry = possibleTargetClasses;
+                } else {
+                  foundCpEntry = sibPath;
+                }
+                break;
+              }
+            }
+
+            if (!foundFile) {
+              const matched = findFileRecursive(
+                sibPath,
+                imp.simpleName + ".java"
+              );
+              if (matched) {
+                foundFile = fs.realpathSync(matched);
+                const possibleClasses = path.join(sibPath, "classes");
+                foundCpEntry = fs.existsSync(possibleClasses)
+                  ? possibleClasses
+                  : sibPath;
+              }
+            }
+
+            if (foundFile) break;
+          }
+        }
+      } catch {
+        // Ignore directory read errors
+      }
+    }
+
+    if (foundFile) {
+      discovered.push({
+        filePath: foundFile,
+        classPathEntry: foundCpEntry,
+        normKey: foundFile.replace(/\\/g, "/"),
+      });
+    }
+  }
+
+  return discovered;
+} // fn: discoverDirectImportSources
+
+/**
+ * Recursively locates a file by name within a root directory.
+ *
+ * @param dir Directory to search
+ * @param targetFileName Filename to find
+ * @returns Path to matching file or undefined
+ */
+function findFileRecursive(
+  dir: string,
+  targetFileName: string
+): string | undefined {
+  if (!fs.existsSync(dir)) return undefined;
+  try {
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (
+          entry.name === "target" ||
+          entry.name === "build" ||
+          entry.name === ".git" ||
+          entry.name === "node_modules"
+        ) {
+          continue;
+        }
+        const res = findFileRecursive(full, targetFileName);
+        if (res) return res;
+      } else if (entry.isFile() && entry.name === targetFileName) {
+        return full;
+      }
+    }
+  } catch {
+    // Ignore read errors
+  }
+  return undefined;
+} // fn: findFileRecursive
 
 /**
  * Metadata for tracking branch behavior and line numbers.

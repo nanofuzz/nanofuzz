@@ -140,10 +140,17 @@ public class JavaRunnerHost {
       originalBytecode.clear();
       List<URL> urls = new ArrayList<>();
       if (classesDir != null && !classesDir.isEmpty()) {
-        File cDir = new File(classesDir);
-        if (cDir.exists()) {
-          urls.add(cDir.toURI().toURL());
-          lastClassLoaderMtime = cDir.lastModified();
+        String[] entries = classesDir.split(java.util.regex.Pattern.quote(File.pathSeparator));
+        for (String entry : entries) {
+          if (!entry.isEmpty()) {
+            File f = new File(entry);
+            if (f.exists()) {
+              urls.add(f.toURI().toURL());
+              if (f.lastModified() > lastClassLoaderMtime) {
+                lastClassLoaderMtime = f.lastModified();
+              }
+            }
+          }
         }
       }
       this.classLoader = new InstrumentingClassLoader(
@@ -166,9 +173,15 @@ public class JavaRunnerHost {
    */
   private void refreshClassLoaderIfNeeded() {
     if (classesDir != null && !classesDir.isEmpty()) {
-      File cDir = new File(classesDir);
-      if (cDir.exists() && cDir.lastModified() > lastClassLoaderMtime) {
-        initClassLoader();
+      String[] entries = classesDir.split(java.util.regex.Pattern.quote(File.pathSeparator));
+      for (String entry : entries) {
+        if (!entry.isEmpty()) {
+          File f = new File(entry);
+          if (f.exists() && f.lastModified() > lastClassLoaderMtime) {
+            initClassLoader();
+            break;
+          }
+        }
       }
     }
   } // fn: refreshClassLoaderIfNeeded

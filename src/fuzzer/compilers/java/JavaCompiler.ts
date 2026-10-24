@@ -33,7 +33,7 @@ export class JavaCompiler {
     { result: boolean; expiresAt: number }
   > = new Map();
 
-  constructor(fqModulePath: string) {
+  constructor(fqModulePath: string, options?: Partial<JavaCompilerOptions>) {
     this._moduleFile = fqModulePath;
 
     if (!fs.existsSync(fqModulePath)) {
@@ -61,7 +61,10 @@ export class JavaCompiler {
 
     this._javacPath = JavaCompiler.resolveJavac();
     this._javaPath = JavaCompiler.resolveJava(this._javacPath);
-    this._options = structuredClone(defaultJavaCompilerOptions);
+    this._options = {
+      ...structuredClone(defaultJavaCompilerOptions),
+      ...(options ?? {}),
+    };
   } // constructor
 
   /**
