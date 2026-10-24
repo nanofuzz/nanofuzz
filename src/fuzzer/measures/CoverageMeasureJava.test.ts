@@ -305,10 +305,10 @@ describe("fuzzer/measures/CoverageMeasure: Java", () => {
     const covInfo = runner.coverageInfo!;
     const registeredFiles = Object.keys(covInfo);
     expect(
-      registeredFiles.some((f) => f.includes("Calculator.java"))
+      registeredFiles.some((f) => f.toLowerCase().includes("calculator.java"))
     ).toBeTrue();
     expect(
-      registeredFiles.some((f) => f.includes("MathHelper.java"))
+      registeredFiles.some((f) => f.toLowerCase().includes("mathhelper.java"))
     ).toBeTrue();
 
     const measure = new CoverageMeasure();
@@ -402,10 +402,10 @@ describe("fuzzer/measures/CoverageMeasure: Java", () => {
     expect(finalStats.files.length).toBe(2);
 
     const entryStats = finalStats.files.find((f) =>
-      f.path.includes("Calculator.java")
+      f.path.toLowerCase().includes("calculator.java")
     );
     const helperStats = finalStats.files.find((f) =>
-      f.path.includes("MathHelper.java")
+      f.path.toLowerCase().includes("mathhelper.java")
     );
     expect(entryStats).toBeDefined();
     expect(helperStats).toBeDefined();
@@ -482,9 +482,13 @@ public class MainApp {
       }
       expect(runnerProject.coverageInfo).toBeDefined();
       const projectFiles = Object.keys(runnerProject.coverageInfo!);
-      expect(projectFiles.some((f) => f.includes("MainApp.java"))).toBeTrue();
+      expect(
+        projectFiles.some((f) => f.toLowerCase().includes("mainapp.java"))
+      ).toBeTrue();
       // External dependency should NOT be in project scope
-      expect(projectFiles.some((f) => f.includes("Square.java"))).toBeFalse();
+      expect(
+        projectFiles.some((f) => f.toLowerCase().includes("square.java"))
+      ).toBeFalse();
       await runnerProject.onRunEnd();
 
       // 'project directimports static' scope
@@ -508,11 +512,17 @@ public class MainApp {
       expect(runnerImports.coverageInfo).toBeDefined();
       const importFiles = Object.keys(runnerImports.coverageInfo!);
       // Both MainApp.java AND Square.java should be present
-      expect(importFiles.some((f) => f.includes("MainApp.java"))).toBeTrue();
-      expect(importFiles.some((f) => f.includes("Square.java"))).toBeTrue();
+      expect(
+        importFiles.some((f) => f.toLowerCase().includes("mainapp.java"))
+      ).toBeTrue();
+      expect(
+        importFiles.some((f) => f.toLowerCase().includes("square.java"))
+      ).toBeTrue();
 
       // Verify dynamic hits recorded for external class
-      const extFile = importFiles.find((f) => f.includes("Square.java"));
+      const extFile = importFiles.find((f) =>
+        f.toLowerCase().includes("square.java")
+      );
       expect(extFile).toBeDefined();
       const cov = runnerImports.coverageInfo;
       expect(cov).toBeDefined();
