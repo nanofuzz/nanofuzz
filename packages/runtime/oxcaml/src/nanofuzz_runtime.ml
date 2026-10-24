@@ -144,11 +144,7 @@ let rec yojson_to_msgpck : Yojson.Safe.t -> Msgpck.t = function
       (List.map
          (fun (k, v) -> (Msgpck.String k, yojson_to_msgpck v))
          pairs)
-  | `Tuple l -> Msgpck.List (List.map yojson_to_msgpck l)
-  | `Variant (name, arg) ->
-    (match arg with
-     | None -> Msgpck.String name
-     | Some a -> Msgpck.Map [ (Msgpck.String name, yojson_to_msgpck a) ])
+  | _ -> Msgpck.Nil
 
 let rec implicit_oracle_value = function
   | `Null -> false
@@ -158,7 +154,6 @@ let rec implicit_oracle_value = function
      | _ -> true)
   | `List l -> List.for_all implicit_oracle_value l
   | `Assoc pairs -> List.for_all (fun (_, v) -> implicit_oracle_value v) pairs
-  | `Tuple l -> List.for_all implicit_oracle_value l
   | _ -> true
 
 module Coverage = struct

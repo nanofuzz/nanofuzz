@@ -45,22 +45,22 @@ export function fromOxcaml<T>(text: string): T {
  */
 function toOxcamlFormat(val: unknown, argDef?: ArgDefContext): string {
   if (val === undefined || val === null) {
-    if (argDef?.getTypeRef && argDef.getTypeRef() === "unit") {
+    if (argDef?.getTypeRef() === "unit") {
       return "()";
     }
     return "None";
   }
 
-  if (argDef?.isOptional && argDef.isOptional()) {
+  if (argDef?.isOptional()) {
     const innerArgDef: ArgDefContext = {
       isOptional: () => false,
-      getName: () => argDef.getName?.() ?? "",
-      getTypeRef: () => argDef.getTypeRef?.(),
-      getBaseTypeRef: () => argDef.getBaseTypeRef?.(),
-      getOptions: () => argDef.getOptions?.() ?? {},
+      getName: () => argDef.getName(),
+      getTypeRef: () => argDef.getTypeRef(),
+      getBaseTypeRef: () => argDef.getBaseTypeRef(),
+      getOptions: () => argDef.getOptions(),
       getType: () => argDef.getType(),
-      getChildren: () => argDef.getChildren?.() ?? [],
-      getDim: () => argDef.getDim?.() ?? 0,
+      getChildren: () => argDef.getChildren(),
+      getDim: () => argDef.getDim(),
     };
     return `Some (${toOxcamlFormat(val, innerArgDef)})`;
   }
@@ -127,7 +127,7 @@ function toOxcamlFormat(val: unknown, argDef?: ArgDefContext): string {
       return val;
     }
 
-    const typeRef = argDef?.getTypeRef?.();
+    const typeRef = argDef?.getTypeRef();
     if (
       typeRef &&
       /^[A-Z][A-Za-z0-9_]*$/.test(val) &&
@@ -137,7 +137,7 @@ function toOxcamlFormat(val: unknown, argDef?: ArgDefContext): string {
     }
 
     if (
-      argDef?.getTypeRef?.() === "char" ||
+      argDef?.getTypeRef() === "char" ||
       (argDef?.getOptions().strLength?.min === 1 &&
         argDef?.getOptions().strLength?.max === 1)
     ) {
@@ -268,14 +268,10 @@ function toOxcamlFormat(val: unknown, argDef?: ArgDefContext): string {
   }
 
   if (Array.isArray(val)) {
-    if (
-      argDef &&
-      argDef.getType() === ArgTag.TUPLE &&
-      (argDef.getDim?.() ?? 0) === 0
-    ) {
+    if (argDef && argDef.getType() === ArgTag.TUPLE && argDef.getDim() === 0) {
       const children = argDef.getChildren();
       const items = val.map((item, i) => toOxcamlFormat(item, children[i]));
-      const typeRef = argDef.getTypeRef?.();
+      const typeRef = argDef.getTypeRef();
       if (typeRef === "#tuple" || typeRef?.startsWith("#(")) {
         return `#(${items.join(", ")})`;
       }
@@ -284,21 +280,21 @@ function toOxcamlFormat(val: unknown, argDef?: ArgDefContext): string {
 
     const elemDef: ArgDefContext | undefined =
       argDef?.getChildren()[0] ??
-      (argDef && (argDef.getDim?.() ?? 0) > 0
+      (argDef && argDef.getDim() > 0
         ? {
             isOptional: () => false,
-            getName: () => argDef.getName?.() ?? "",
-            getTypeRef: () => argDef.getTypeRef?.(),
-            getBaseTypeRef: () => argDef.getBaseTypeRef?.(),
-            getOptions: () => argDef.getOptions?.() ?? {},
+            getName: () => argDef.getName(),
+            getTypeRef: () => argDef.getTypeRef(),
+            getBaseTypeRef: () => argDef.getBaseTypeRef(),
+            getOptions: () => argDef.getOptions(),
             getType: () => argDef.getType(),
             getChildren: () => [],
-            getDim: () => (argDef.getDim?.() ?? 1) - 1,
+            getDim: () => argDef.getDim() - 1,
           }
         : undefined);
     const items = val.map((item) => toOxcamlFormat(item, elemDef));
 
-    if (argDef?.getTypeRef?.()?.includes("array")) {
+    if (argDef?.getTypeRef()?.includes("array")) {
       if (items.length === 0) return "[| |]";
       return `[| ${items.join("; ")} |]`;
     }
@@ -315,7 +311,7 @@ function toOxcamlFormat(val: unknown, argDef?: ArgDefContext): string {
         entries.push(`${k} = ${toOxcamlFormat(propValue)}`);
       }
     }
-    const typeRef = argDef?.getTypeRef?.();
+    const typeRef = argDef?.getTypeRef();
     if (typeRef === "#record" || typeRef?.startsWith("#{")) {
       return `#{ ${entries.join("; ")} }`;
     }
