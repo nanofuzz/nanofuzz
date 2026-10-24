@@ -89,6 +89,57 @@ describe("fuzzer/runners/rust/RustRunner: ", () => {
     await runner.onRunEnd();
   });
 
+  it("executes functions taking a seeded PRNG closure and errors when seed is omitted", async () => {
+    const rsPath = path.join(tempDir, "prng_test.rs");
+    fs.writeFileSync(
+      rsPath,
+      `pub fn sample(mut prng: impl FnMut() -> f64) -> f64 {
+    prng()
+}
+`
+    );
+
+    const program = ProgramFactory.fromFile(rsPath, "rust");
+    const fnDef = program.functionsExported["sample"];
+    const env = createTestEnv(fnDef);
+
+    const runner = new RustRunner(rsPath, "sample", env);
+    await runner.onRunStart();
+
+    // Invocation with a seeded PRNG payload succeeds deterministically
+    const res1 = await runner.run(
+      [{ __nanofuzz_type: "prng", seed: "fixed_seed_abc" }],
+      5000
+    );
+    expect(res1.result.tag).toBe("value");
+    if (res1.result.tag === "value") {
+      expect(typeof res1.result.value).toBe("number");
+      expect(res1.result.value as number).toBeGreaterThanOrEqual(0);
+      expect(res1.result.value as number).toBeLessThan(1);
+    }
+
+    const res2 = await runner.run(
+      [{ __nanofuzz_type: "prng", seed: "fixed_seed_abc" }],
+      5000
+    );
+    expect(res2.result.tag).toBe("value");
+    if (res2.result.tag === "value" && res1.result.tag === "value") {
+      expect(res2.result.value).toBe(res1.result.value);
+    }
+
+    // Invocation without a seed returns an ArgumentError instead of silently faking a seed
+    const errRes = await runner.run([{}], 5000);
+    expect(errRes.result.tag).toBe("error");
+    if (errRes.result.tag === "error") {
+      expect(errRes.result.name).toBe("ArgumentError");
+      expect(errRes.result.message).toContain(
+        "Argument 0 expects a PRNG payload with a valid seed"
+      );
+    }
+
+    await runner.onRunEnd();
+  });
+
   it("catches panics without terminating the host process", async () => {
     const rsPath = path.join(tempDir, "divide.rs");
     fs.writeFileSync(

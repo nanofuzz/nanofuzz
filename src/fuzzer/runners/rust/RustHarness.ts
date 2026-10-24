@@ -341,6 +341,7 @@ edition = "2021"
 
 [dependencies]
 nanofuzz-runtime = { path = "${runtimeCratePath.replace(/\\/g, "/")}" }
+nanofuzz_prng = { package = "fastrand", version = "2" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 ${extraDependencies}
@@ -478,24 +479,38 @@ function generateHarnessSource(
 
     if (arg.getName() === "prng" || typeAnnot.includes("Fn")) {
       argConversions.push(
-        `        let mut seed_val_${i}: u64 = {
-            let mut h: u64 = 0x811c9dc5;
-            if let Some(seed_str) = input.args.get(${i}).and_then(|v| v.get("seed")).and_then(|s| s.as_str()) {
-                for b in seed_str.as_bytes() {
-                    h = h.wrapping_mul(0x100000001b3).wrapping_add(*b as u64);
+        `        let seed_val_${i}: u64 = {
+            let arg_val = input.args.get(${i});
+            let seed_str = arg_val
+                .and_then(|v| v.get("seed").and_then(|s| s.as_str()).or_else(|| v.as_str()));
+            let seed_num = arg_val
+                .and_then(|v| v.get("seed").and_then(|n| n.as_u64()).or_else(|| v.as_u64()));
+
+            if let Some(s) = seed_str {
+                let mut h: u64 = 0xcbf29ce484222325;
+                for b in s.as_bytes() {
+                    h = (h ^ (*b as u64)).wrapping_mul(0x100000001b3);
                 }
+                h
+            } else if let Some(n) = seed_num {
+                n
             } else {
-                h = 123456789;
+                let resp = RunnerResultPayload::Error {
+                    name: "ArgumentError".to_string(),
+                    message: format!("Argument ${i} expects a PRNG payload with a valid seed"),
+                    source: "put",
+                    seq: input.seq,
+                    validators: None,
+                    coverage_data: None,
+                };
+                write_msg(&serde_json::to_vec(&resp).unwrap())?;
+                continue;
             }
-            h
         };
+        let mut rng_${i} = nanofuzz_prng::Rng::with_seed(seed_val_${i});
+        #[allow(unused_mut)]
         let mut arg_${i} = move || -> f64 {
-            seed_val_${i} = seed_val_${i}.wrapping_add(0x9e3779b97f4a7c15);
-            let mut z = seed_val_${i};
-            z = (z ^ (z >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
-            z = (z ^ (z >> 27)).wrapping_mul(0x94d049bb133111eb);
-            let val = z ^ (z >> 31);
-            (val as f64) / (u64::MAX as f64)
+            rng_${i}.f64()
         };`
       );
       if (typeAnnot.startsWith("&")) {
