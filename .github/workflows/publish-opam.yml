@@ -19,7 +19,12 @@ jobs:
 
       - name: Install dependencies
         run: |
-          opam install dune yojson ounit2 dune-release opam-publish -y
+          opam install dune yojson msgpck ounit2 dune-release opam-publish -y
+
+      - name: Add OCaml switch to GITHUB_PATH
+        run: |
+          opam var bin >> "$GITHUB_PATH"
+          echo "OPAM_SWITCH_PREFIX=$(opam var prefix)" >> "$GITHUB_ENV"
 
       - name: Test runtime package
         working-directory: packages/runtime/oxcaml

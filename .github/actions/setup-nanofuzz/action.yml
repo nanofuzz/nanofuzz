@@ -39,7 +39,13 @@ runs:
         ocaml-compiler: 5.2.0
 
     - name: Install OCaml packages
-      run: opam install dune yojson ounit2 -y
+      run: opam install dune yojson msgpck ounit2 -y
+      shell: bash
+
+    - name: Add OCaml switch to GITHUB_PATH
+      run: |
+        opam var bin >> "$GITHUB_PATH"
+        echo "OPAM_SWITCH_PREFIX=$(opam var prefix)" >> "$GITHUB_ENV"
       shell: bash
 
     - name: Setup Node.js
