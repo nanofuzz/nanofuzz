@@ -107,3 +107,16 @@ fn unexported_helper(x: i32) -> i32 {
     x * 2
 }
 
+pub struct GeoPoint {
+    pub x: i32,
+    pub y: i32,
+}
+
+pub fn shift_point(p: GeoPoint) -> GeoPoint {
+    GeoPoint {
+        x: p.x + 1,
+        y: p.y - 1,
+    }
+}
+
+

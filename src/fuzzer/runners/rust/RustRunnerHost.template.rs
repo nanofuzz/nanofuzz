@@ -1,3 +1,4 @@
+use rmp_serde;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{self, Read, Write};
@@ -15,6 +16,8 @@ mod target {
     include!("/* __NANOFUZZ_TARGET_PATH__ */");
     /* __NANOFUZZ_SHIM__ */
 }
+#[allow(unused_imports)]
+use target::*;
 
 #[derive(Deserialize, Debug)]
 struct RunnerInput {
@@ -101,11 +104,13 @@ fn main() -> io::Result<()> {
     std::panic::set_hook(Box::new(|_| {}));
 
     // Send READY handshake message
-    write_msg(&serde_json::to_vec("READY").unwrap())?;
+    write_msg(&rmp_serde::to_vec("READY").unwrap())?;
 
     // Send initial static coverage metadata
     const STATIC_COV_JSON: &str = r#"/* __NANOFUZZ_STATIC_COV_JSON__ */"#;
-    write_msg(STATIC_COV_JSON.as_bytes())?;
+    let static_cov: serde_json::Value =
+        serde_json::from_str(STATIC_COV_JSON).unwrap_or(serde_json::Value::Null);
+    write_msg(&rmp_serde::to_vec_named(&static_cov).unwrap())?;
 
     let mut stdin = io::stdin().lock();
     loop {
@@ -117,7 +122,10 @@ fn main() -> io::Result<()> {
         let mut payload = vec![0u8; len];
         stdin.read_exact(&mut payload)?;
 
-        let input: RunnerInput = match serde_json::from_slice(&payload) {
+        let input: RunnerInput = match rmp_serde::from_slice::<serde_json::Value>(&payload)
+            .map_err(|e| format!("{}", e))
+            .and_then(|v| serde_json::from_value(v).map_err(|e| format!("{}", e)))
+        {
             Ok(v) => v,
             Err(e) => {
                 let resp = RunnerResultPayload::Error {
@@ -128,7 +136,7 @@ fn main() -> io::Result<()> {
                     validators: None,
                     coverage_data: None,
                 };
-                write_msg(&serde_json::to_vec(&resp).unwrap())?;
+                write_msg(&rmp_serde::to_vec_named(&resp).unwrap())?;
                 continue;
             }
         };
@@ -185,7 +193,7 @@ fn main() -> io::Result<()> {
             }
         };
 
-        write_msg(&serde_json::to_vec(&response).unwrap())?;
+        write_msg(&rmp_serde::to_vec_named(&response).unwrap())?;
     }
 
     Ok(())

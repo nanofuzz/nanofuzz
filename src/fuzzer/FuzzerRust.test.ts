@@ -1,6 +1,7 @@
 import { FuzzerFactory } from "./FuzzerFactory";
 import { intOptions, initParser } from "./FuzzerTestHelper";
 import { FuzzPinnedTest, FuzzStopReason, FuzzTestResult } from "./Types";
+import { isKeyedObject } from "../Util";
 
 describe("fuzzer: rust targets", () => {
   beforeAll(async () => {
@@ -351,6 +352,41 @@ describe("fuzzer: rust targets", () => {
         (idx) => fileStats.fileMap.fnMap[idx]?.name
       );
       expect(coveredFnNames).toContain("unexported_helper");
+    }
+  });
+
+  it("Rust struct fuzz target with Random and Mutation generators", async () => {
+    const results: FuzzTestResult[] = [];
+    const fuzzResult = await FuzzerFactory(
+      "./test_fixtures/Fuzzer.testfixtures.rs",
+      "shift_point",
+      {
+        ...intOptions,
+        maxTests: 20,
+        suiteTimeout: 10000,
+      }
+    ).test([], { gen: true }, undefined, undefined, (r) => results.push(r));
+
+    expect(fuzzResult.stats.outcomes.total).toBe(20);
+    expect(fuzzResult.stats.outcomes.categories.ok).toBe(20);
+    expect(results.length).toBe(20);
+    for (const r of results) {
+      expect(r.input.length).toBe(1);
+      const inVal = r.input[0].value;
+      const outVal = r.output[0].value;
+      if (
+        isKeyedObject(inVal) &&
+        isKeyedObject(outVal) &&
+        typeof inVal.x === "number" &&
+        typeof inVal.y === "number" &&
+        typeof outVal.x === "number" &&
+        typeof outVal.y === "number"
+      ) {
+        expect(outVal.x).toBe(inVal.x + 1);
+        expect(outVal.y).toBe(inVal.y - 1);
+      } else {
+        fail("Expected inVal and outVal to be objects with numeric x and y");
+      }
     }
   });
 });

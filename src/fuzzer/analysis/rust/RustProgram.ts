@@ -89,7 +89,8 @@ export class RustProgram extends AbstractProgram {
       typeRef === "Vec" ||
       typeRef === "VecDeque" ||
       typeRef === "Box" ||
-      typeRef === "Option";
+      typeRef === "Option" ||
+      typeRef === "Result";
 
     if (typeRef && options.useTypeRefs && !isBuiltInGeneric) {
       const outerDims = arg.getTypeRefDims() ?? 0;
@@ -203,6 +204,21 @@ export class RustProgram extends AbstractProgram {
         return arg.getTypeRef() ?? "()";
       }
       case ArgTag.UNION: {
+        if (arg.getBaseTypeRef() === "Result") {
+          const children = arg.getChildren();
+          const okInner = children[0]?.getChildren()[0];
+          const errInner = children[1]?.getChildren()[0];
+          const okAnnot = okInner
+            ? RustProgram.getTypeAnnotation(okInner, options)
+            : "()";
+          const errAnnot = errInner
+            ? RustProgram.getTypeAnnotation(errInner, options)
+            : "String";
+          return `Result<${okAnnot}, ${errAnnot}>`;
+        }
+        if (arg.getTypeRef()) {
+          return arg.getTypeRef()!;
+        }
         const children = arg.getChildren();
         return children
           .map((c) => RustProgram.getTypeAnnotation(c, options))
@@ -378,6 +394,9 @@ export class RustProgram extends AbstractProgram {
   (struct_item
     name: (type_identifier) @struct.name
     body: (field_declaration_list) @struct.body) @struct.item
+  (enum_item
+    name: (type_identifier) @enum.name
+    body: (enum_variant_list) @enum.body) @enum.item
 ]
 `
     );
@@ -448,6 +467,147 @@ export class RustProgram extends AbstractProgram {
           } catch (e) {
             console.debug(
               `Error getting TypeRef from struct AST node for ${nameNode.text} in module ${this._filename}, ignoring. Reason: ${e}`
+            );
+          }
+        }
+        continue;
+      }
+
+      const enumItem = match.captures.find((c) => c.name === "enum.item")?.node;
+      if (enumItem) {
+        const nameNode = match.captures.find(
+          (c) => c.name === "enum.name"
+        )?.node;
+        const bodyNode = match.captures.find(
+          (c) => c.name === "enum.body"
+        )?.node;
+        if (nameNode && bodyNode) {
+          try {
+            const variants: TypeRef[] = [];
+            for (const child of Parser.getNamedChildrenNoComments(bodyNode)) {
+              if (child.type === "enum_variant") {
+                const vName = child.childForFieldName("name");
+                if (!vName) continue;
+                const tupleList = Parser.getNamedChildrenNoComments(child).find(
+                  (c) => c.type === "ordered_field_declaration_list"
+                );
+                const structList = Parser.getNamedChildrenNoComments(
+                  child
+                ).find((c) => c.type === "field_declaration_list");
+                if (tupleList) {
+                  const fields = Parser.getNamedChildrenNoComments(
+                    tupleList
+                  ).map((tNode) => this._getTypeRefFromAstNode(tNode));
+                  const payloadType: TypeRef = {
+                    module: this._filename,
+                    name: vName.text,
+                    dims: 0,
+                    optional: false,
+                    isExported: isNodePublic(enumItem),
+                    type: {
+                      type:
+                        fields.length === 1
+                          ? (fields[0].type?.type ?? ArgTag.OBJECT)
+                          : ArgTag.TUPLE,
+                      dims: 0,
+                      children: fields,
+                      resolved: fields.every((f) => f.type?.resolved),
+                    },
+                  };
+                  variants.push({
+                    module: this._filename,
+                    name: vName.text,
+                    dims: 0,
+                    optional: false,
+                    isExported: isNodePublic(enumItem),
+                    type: {
+                      type: ArgTag.OBJECT,
+                      dims: 0,
+                      children: [payloadType],
+                      resolved: payloadType.type?.resolved,
+                    },
+                  });
+                } else if (structList) {
+                  const fields: TypeRef[] = [];
+                  for (const f of Parser.getNamedChildrenNoComments(
+                    structList
+                  )) {
+                    if (f.type === "field_declaration") {
+                      const fN = f.childForFieldName("name");
+                      const fT = f.childForFieldName("type");
+                      if (fN && fT) {
+                        const tr = this._getTypeRefFromAstNode(fT);
+                        tr.name = fN.text;
+                        fields.push(tr);
+                      }
+                    }
+                  }
+                  const structType: TypeRef = {
+                    module: this._filename,
+                    name: vName.text,
+                    dims: 0,
+                    optional: false,
+                    isExported: isNodePublic(enumItem),
+                    type: {
+                      type: ArgTag.OBJECT,
+                      dims: 0,
+                      children: fields,
+                      resolved: fields.every((f) => f.type?.resolved),
+                    },
+                  };
+                  variants.push({
+                    module: this._filename,
+                    name: vName.text,
+                    dims: 0,
+                    optional: false,
+                    isExported: isNodePublic(enumItem),
+                    type: {
+                      type: ArgTag.OBJECT,
+                      dims: 0,
+                      children: [structType],
+                      resolved: structType.type?.resolved,
+                    },
+                  });
+                } else {
+                  // Unit variant
+                  variants.push({
+                    module: this._filename,
+                    name: vName.text,
+                    typeRefName: nameNode.text,
+                    baseTypeRef: nameNode.text,
+                    dims: 0,
+                    optional: false,
+                    isExported: isNodePublic(enumItem),
+                    type: {
+                      type: ArgTag.LITERAL,
+                      dims: 0,
+                      children: [],
+                      value: vName.text,
+                      resolved: true,
+                    },
+                  });
+                }
+              }
+            }
+            types[nameNode.text] = {
+              module: this._filename,
+              name: nameNode.text,
+              typeRefName: nameNode.text,
+              baseTypeRef: nameNode.text,
+              optional: false,
+              dims: 0,
+              isExported: isNodePublic(enumItem),
+              type: {
+                type: ArgTag.UNION,
+                dims: 0,
+                children: variants,
+                resolved: variants.every((v) => v.type?.resolved),
+                baseTypeRef: nameNode.text,
+              },
+            };
+          } catch (e) {
+            console.debug(
+              `Error getting TypeRef from enum AST node for ${nameNode.text} in module ${this._filename}, ignoring. Reason: ${e}`
             );
           }
         }
@@ -879,6 +1039,59 @@ export class RustProgram extends AbstractProgram {
             thisType.typeRefName = inner.typeRefName;
             thisType.dims = inner.dims;
             thisType.type = inner.type;
+            return thisType;
+          }
+          case "Result": {
+            if (argNodes.length < 2) {
+              throw new Error(
+                `Missing type arguments for Result in '${node.text}'`
+              );
+            }
+            const okInner = this._getTypeRefFromAstNode(argNodes[0]);
+            okInner.name = "Ok";
+            const errInner = this._getTypeRefFromAstNode(argNodes[1]);
+            errInner.name = "Err";
+
+            const okVariant: TypeRef = {
+              module: this._filename,
+              name: "Ok",
+              dims: 0,
+              optional: false,
+              isExported: true,
+              type: {
+                type: ArgTag.OBJECT,
+                dims: 0,
+                children: [okInner],
+                resolved: okInner.type?.resolved ?? false,
+              },
+            };
+
+            const errVariant: TypeRef = {
+              module: this._filename,
+              name: "Err",
+              dims: 0,
+              optional: false,
+              isExported: true,
+              type: {
+                type: ArgTag.OBJECT,
+                dims: 0,
+                children: [errInner],
+                resolved: errInner.type?.resolved ?? false,
+              },
+            };
+
+            thisType.dims = 0;
+            thisType.typeRefName = "Result";
+            thisType.baseTypeRef = "Result";
+            thisType.type = {
+              type: ArgTag.UNION,
+              dims: 0,
+              children: [okVariant, errVariant],
+              resolved:
+                (okInner.type?.resolved ?? false) &&
+                (errInner.type?.resolved ?? false),
+              baseTypeRef: "Result",
+            };
             return thisType;
           }
           case "HashMap":

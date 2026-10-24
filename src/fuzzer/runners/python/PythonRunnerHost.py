@@ -700,20 +700,17 @@ def program_files(
     return sorted(files)
 
 
-def transform_arg(val: Any, hint: Any) -> Any:
+def transform_arg(val: Any, hint: Any, arg_index: int = 0) -> Any:
     if isinstance(val, dict) and val.get("__nanofuzz_type") == "prng":
         raw_seed = val.get("seed")
-        seed = raw_seed if isinstance(raw_seed, (int, float, str, bytes, bytearray)) else (
-            str(raw_seed) if raw_seed is not None else None)
-        return random.Random(seed).random if seed is not None else random.random
+        if raw_seed is not None and (not isinstance(raw_seed, str) or len(raw_seed) > 0):
+            seed = raw_seed if isinstance(
+                raw_seed, (int, float, str, bytes, bytearray)) else str(raw_seed)
+            return random.Random(seed).random
+        return random.random
 
     if val is None:
         return None
-
-    if hint == "prng":
-        seed = val if isinstance(val, (int, float, str, bytes, bytearray)) else (
-            str(val) if val is not None else None)
-        return random.Random(seed).random if seed is not None else random.random
 
     if hint == "uuid":
         if isinstance(val, str):
@@ -898,35 +895,42 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
             _tracer_running = False
 
     error = None
+    error_name = "PythonPutError"
     skip = None
     is_timeout = False
     value = None
 
     args = list(input["args"])
     type_hints = input.get("typeHints", [])
-    for i in range(len(args)):
-        hint = type_hints[i] if i < len(type_hints) else None
-        args[i] = transform_arg(args[i], hint)
-
     try:
-        with redirect_stdout(io.StringIO()) as f:
-            with isolate_put_environment():
-                # If fn is a Hypothesis-wrapped test, bypass Hypothesis
-                # and call the original underlying function
-                if hasattr(fn, 'hypothesis') and hasattr(fn.hypothesis, 'inner_test'):
-                    # Unwrap Hypothesis test function
-                    value = call_with_timeout(
-                        fn.hypothesis.inner_test, args, timeout_ms)
-                else:
-                    # Not Hypothesis; call directly
-                    value = call_with_timeout(fn, args, timeout_ms)
-    except PutTimeoutException:
-        is_timeout = True
+        for i in range(len(args)):
+            hint = type_hints[i] if i < len(type_hints) else None
+            args[i] = transform_arg(args[i], hint, i)
     except Exception as e:
-        if e.__class__.__name__ == "UnsatisfiedAssumption":
-            skip = e
-        else:
-            error = e
+        error = e
+        error_name = "ArgumentError"
+
+    if error is None:
+        try:
+            with redirect_stdout(io.StringIO()) as f:
+                with isolate_put_environment():
+                    # If fn is a Hypothesis-wrapped test, bypass Hypothesis
+                    # and call the original underlying function
+                    if hasattr(fn, 'hypothesis') and hasattr(fn.hypothesis, 'inner_test'):
+                        # Unwrap Hypothesis test function
+                        value = call_with_timeout(
+                            fn.hypothesis.inner_test, args, timeout_ms)
+                    else:
+                        # Not Hypothesis; call directly
+                        value = call_with_timeout(fn, args, timeout_ms)
+        except PutTimeoutException:
+            is_timeout = True
+        except Exception as e:
+            if e.__class__.__name__ == "UnsatisfiedAssumption":
+                skip = e
+            else:
+                error = e
+                error_name = "PythonPutError"
 
     validator_results = {}
     req_validators = input.get("validators")
@@ -1047,7 +1051,7 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
     if error is not None:
         res_err: RunnerErrorResult = {
             "tag": "error",
-            "name": "PythonPutError",
+            "name": error_name,
             "message": str(error),
             "source": "put",
             "stack": "".join(traceback.format_exception(error)),

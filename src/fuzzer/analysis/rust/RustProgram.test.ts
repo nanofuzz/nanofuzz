@@ -327,15 +327,28 @@ pub fn with_lifetime<'a>(s: &'a str) -> &'a str {
     expect(program.functions["with_lifetime"]).toBeDefined();
   });
 
-  it("parses valid structs into Object types and supports functions using them", () => {
+  it("parses valid structs and enums into Object and Union types and supports functions using them", () => {
     const src = `
 pub struct Point {
     pub x: f64,
     pub y: f64,
 }
 
+pub enum ActionKind {
+    Start,
+    Stop,
+}
+
 pub fn move_point(p: Point, dx: f64) -> Point {
     Point { x: p.x + dx, y: p.y }
+}
+
+pub fn handle_action(kind: ActionKind) -> bool {
+    true
+}
+
+pub fn compute_result(flag: bool) -> Result<i32, String> {
+    if flag { Ok(42) } else { Err(String::from("error")) }
 }
 `;
     const program = ProgramFactory.fromSource(() => src, "rust");
@@ -343,13 +356,26 @@ pub fn move_point(p: Point, dx: f64) -> Point {
     expect(program.types["Point"].type?.type).toBe(ArgTag.OBJECT);
     expect(program.types["Point"].type?.children.length).toBe(2);
 
+    expect("ActionKind" in program.types).toBeTrue();
+    expect(program.types["ActionKind"].type?.type).toBe(ArgTag.UNION);
+    expect(program.types["ActionKind"].type?.children.length).toBe(2);
+
     expect(program.functions["move_point"]).toBeDefined();
+    expect(program.functions["handle_action"]).toBeDefined();
+    expect(program.functions["compute_result"]).toBeDefined();
+
     const fnDef = program.functions["move_point"];
     const args = fnDef.getArgDefs();
     expect(args[0].getType()).toBe(ArgTag.OBJECT);
     expect(args[0].getChildren().length).toBe(2);
     expect(args[0].getChildren()[0].getName()).toBe("x");
     expect(args[0].getChildren()[1].getName()).toBe("y");
+
+    const resFn = program.functions["compute_result"];
+    const retArg = resFn.getReturnArg();
+    expect(retArg?.getType()).toBe(ArgTag.UNION);
+    expect(retArg?.getBaseTypeRef()).toBe("Result");
+    expect(RustProgram.getTypeAnnotation(retArg!)).toBe("Result<i32, String>");
   });
 
   it("flags functions with unsupported or unresolved argument types as unsupported", () => {
@@ -358,16 +384,15 @@ pub struct BadPayload {
     pub ptr: *const i32,
 }
 
-pub enum ActionKind {
-    Start,
-    Stop,
+pub enum BadEnum {
+    Ptr(*const i32),
 }
 
 pub fn handle_bad_struct(payload: BadPayload) -> bool {
     true
 }
 
-pub fn handle_enum(kind: ActionKind) -> bool {
+pub fn handle_bad_enum(kind: BadEnum) -> bool {
     true
 }
 
@@ -397,7 +422,7 @@ pub fn handle_unresolved_collection(items: Vec<UnresolvedItem>) -> usize {
     const program = ProgramFactory.fromSource(() => src, "rust");
 
     expect(program.functions["handle_bad_struct"]).toBeUndefined();
-    expect(program.functions["handle_enum"]).toBeUndefined();
+    expect(program.functions["handle_bad_enum"]).toBeUndefined();
     expect(program.functions["handle_unknown"]).toBeUndefined();
     expect(program.functions["handle_mut_ref"]).toBeUndefined();
     expect(program.functions["handle_raw_ptr"]).toBeUndefined();
@@ -410,8 +435,10 @@ pub fn handle_unresolved_collection(items: Vec<UnresolvedItem>) -> usize {
       "payload"
     );
 
-    expect(program.functionsNotSupported["handle_enum"]).toBeDefined();
-    expect(program.functionsNotSupported["handle_enum"].argument).toBe("kind");
+    expect(program.functionsNotSupported["handle_bad_enum"]).toBeDefined();
+    expect(program.functionsNotSupported["handle_bad_enum"].argument).toBe(
+      "kind"
+    );
 
     expect(program.functionsNotSupported["handle_unknown"]).toBeDefined();
     expect(program.functionsNotSupported["handle_unknown"].argument).toBe(

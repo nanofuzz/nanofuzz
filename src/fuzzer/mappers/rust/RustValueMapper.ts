@@ -139,6 +139,14 @@ function toRustFormat(val: unknown, argDef?: ArgDefContext): string {
     if (argDef?.getTypeRef() === "&str") {
       return JSON.stringify(val);
     }
+    if (
+      argDef?.getType() === ArgTag.LITERAL &&
+      argDef.getBaseTypeRef() &&
+      argDef.getBaseTypeRef() !== "String" &&
+      argDef.getBaseTypeRef() !== "str"
+    ) {
+      return `${argDef.getBaseTypeRef()}::${val}`;
+    }
     if (argDef?.getTypeRef() === "char") {
       const ch = val.length > 0 ? val[0] : "\0";
       switch (ch) {
@@ -271,6 +279,17 @@ function toRustFormat(val: unknown, argDef?: ArgDefContext): string {
   }
 
   if (val !== null && typeof val === "object") {
+    if (isKeyedObject(val)) {
+      const keys = Object.keys(val);
+      if (keys.length === 1 && (keys[0] === "Ok" || keys[0] === "Err")) {
+        const tag = keys[0];
+        const childDef = argDef
+          ?.getChildren()
+          .find((c) => c.getName?.() === tag)
+          ?.getChildren()[0];
+        return `${tag}(${toRustFormat(val[tag], childDef)})`;
+      }
+    }
     const entries: string[] = [];
     if (isKeyedObject(val)) {
       for (const k of Object.keys(val)) {
@@ -586,6 +605,24 @@ function toJavascriptValue(text: string): unknown {
           });
           return;
         }
+        if (node.type === "scoped_identifier") {
+          if (
+            node.parent?.type !== "call_expression" &&
+            node.parent?.type !== "scoped_identifier" &&
+            !text.startsWith("std::") &&
+            !text.startsWith("core::")
+          ) {
+            const varName = node.childForFieldName("name")?.text;
+            if (varName) {
+              replacements.push({
+                start: node.startIndex,
+                end: node.endIndex,
+                text: JSON.stringify(varName),
+              });
+              return;
+            }
+          }
+        }
         break;
       }
 
@@ -646,6 +683,26 @@ function toJavascriptValue(text: string): unknown {
         const fnNode = node.childForFieldName("function");
         const argsNode = node.childForFieldName("arguments");
         const fnText = fnNode?.text;
+
+        if (fnText === "Ok" || fnText === "Err") {
+          const innerArg = argsNode
+            ? Parser.getFirstNamedChildNoComments(argsNode)
+            : undefined;
+          if (innerArg) {
+            replacements.push({
+              start: node.startIndex,
+              end: innerArg.startIndex,
+              text: `{"${fnText}":`,
+            });
+            replacements.push({
+              start: innerArg.endIndex,
+              end: node.endIndex,
+              text: "}",
+            });
+            collectReplacements(innerArg);
+            return;
+          }
+        }
 
         if (fnText === "Some") {
           const innerArg = argsNode

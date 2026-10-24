@@ -171,6 +171,24 @@ describe("fuzzer/mappers/rust/RustValueMapper: ", () => {
     });
   });
 
+  it("handles Result and Enum expressions with round-trip support", () => {
+    expect(RustValueMapper.fromRust("Ok(42)")).toEqual({ Ok: 42 });
+    expect(RustValueMapper.fromRust('Err("failure")')).toEqual({
+      Err: "failure",
+    });
+
+    expect(RustValueMapper.toRust({ Ok: 42 })).toBe("Ok(42)");
+    expect(RustValueMapper.toRust({ Err: "failure" })).toBe(
+      'Err(String::from("failure"))'
+    );
+    expect(
+      RustValueMapper.fromRust(RustValueMapper.toRust({ Ok: 42 }))
+    ).toEqual({ Ok: 42 });
+
+    expect(RustValueMapper.fromRust("Status::Active")).toBe("Active");
+    expect(RustValueMapper.fromRust("ActionKind::Stop")).toBe("Stop");
+  });
+
   it("integrates with ValueMapper dispatch", () => {
     expect(ValueMapper.toLang("rust", 42)).toBe("42");
     expect(ValueMapper.toLang("rust", true)).toBe("true");

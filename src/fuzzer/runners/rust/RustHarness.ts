@@ -15,7 +15,7 @@ import * as Config from "../../../Config";
 import { parseCoverageScope } from "../../measures/Util";
 import { CoverageScopeConfig } from "../../measures/Types";
 
-const HARNESS_TEMPLATE_VER = "RustHarness-0.4.8";
+const HARNESS_TEMPLATE_VER = "RustHarness-0.5.0";
 
 /**
  * Builds and returns the compiled Rust harness binary for testing a target function.
@@ -344,6 +344,7 @@ nanofuzz-runtime = { path = "${runtimeCratePath.replace(/\\/g, "/")}" }
 nanofuzz_prng = { package = "fastrand", version = "2" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+rmp-serde = "1.3"
 ${extraDependencies}
 ${patchSection}
 `;
@@ -479,7 +480,7 @@ function generateHarnessSource(
 
     if (arg.getName() === "prng" || typeAnnot.includes("Fn")) {
       argConversions.push(
-        `        let seed_val_${i}: u64 = {
+        `        let mut rng_opt_${i}: Option<nanofuzz_prng::Rng> = {
             let arg_val = input.args.get(${i});
             let seed_str = arg_val
                 .and_then(|v| v.get("seed").and_then(|s| s.as_str()).or_else(|| v.as_str()));
@@ -491,26 +492,19 @@ function generateHarnessSource(
                 for b in s.as_bytes() {
                     h = (h ^ (*b as u64)).wrapping_mul(0x100000001b3);
                 }
-                h
+                Some(nanofuzz_prng::Rng::with_seed(h))
             } else if let Some(n) = seed_num {
-                n
+                Some(nanofuzz_prng::Rng::with_seed(n))
             } else {
-                let resp = RunnerResultPayload::Error {
-                    name: "ArgumentError".to_string(),
-                    message: format!("Argument ${i} expects a PRNG payload with a valid seed"),
-                    source: "put",
-                    seq: input.seq,
-                    validators: None,
-                    coverage_data: None,
-                };
-                write_msg(&serde_json::to_vec(&resp).unwrap())?;
-                continue;
+                None
             }
         };
-        let mut rng_${i} = nanofuzz_prng::Rng::with_seed(seed_val_${i});
         #[allow(unused_mut)]
         let mut arg_${i} = move || -> f64 {
-            rng_${i}.f64()
+            match rng_opt_${i}.as_mut() {
+                Some(rng) => rng.f64(),
+                None => nanofuzz_prng::f64(),
+            }
         };`
       );
       if (typeAnnot.startsWith("&")) {
@@ -535,7 +529,7 @@ function generateHarnessSource(
                     validators: None,
                     coverage_data: None,
                 };
-                write_msg(&serde_json::to_vec(&resp).unwrap())?;
+                write_msg(&rmp_serde::to_vec_named(&resp).unwrap())?;
                 continue;
             }
         };`
@@ -960,6 +954,40 @@ export function instrumentRustSource(
           });
         }
       }
+    }
+  }
+
+  // Struct and Enum derive injection (Option A)
+  const itemQuery = Parser.query(
+    "rust",
+    `
+[
+  (struct_item) @item
+  (enum_item) @item
+]
+`
+  );
+  const itemMatches = itemQuery.matches(tree.rootNode);
+  for (const m of itemMatches) {
+    const itemNode = m.captures.find((c) => c.name === "item")?.node;
+    if (!itemNode) continue;
+
+    let alreadyDerives = false;
+    let prev = itemNode.previousNamedSibling;
+    while (prev && prev.type === "attribute_item") {
+      const text = prev.text;
+      if (text.includes("Serialize") && text.includes("Deserialize")) {
+        alreadyDerives = true;
+        break;
+      }
+      prev = prev.previousNamedSibling;
+    }
+
+    if (!alreadyDerives) {
+      insertions.push({
+        pos: itemNode.startIndex,
+        text: `#[derive(serde::Serialize, serde::Deserialize)]\n`,
+      });
     }
   }
 

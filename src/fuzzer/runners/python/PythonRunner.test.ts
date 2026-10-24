@@ -101,6 +101,81 @@ def process_bytes(data: bytes) -> bytes:
     }
   });
 
+  // TODO: also add oxcaml runner and parity tests once OCaml/OxCaml support is added
+  it("executes functions taking a PRNG callable with and without seed", async () => {
+    const tmpDir = getTmpDir("nanofuzz-runner-");
+    const pyPath = path.join(tmpDir, "prng_test.py");
+    const pyCode = `
+def sample(prng):
+    return prng()
+`;
+    fs.writeFileSync(pyPath, pyCode);
+
+    try {
+      const srcCode = `
+def sample(prng: int) -> float:
+    pass
+`;
+      const program = ProgramFactory.fromSource(
+        () => srcCode,
+        "python",
+        pyPath
+      );
+      const fnDef = program.functionsExported["sample"];
+      const env = createFuzzEnv(fnDef);
+
+      const runner = new PythonRunner(pyPath, "sample", env);
+      await runner.onRunStart();
+
+      // Invocation with a seeded PRNG payload succeeds deterministically
+      const res1 = await runner.run(
+        [{ __nanofuzz_type: "prng", seed: "fixed_seed_abc" }],
+        5000
+      );
+      expect(res1.result.tag).toBe("value");
+      if (res1.result.tag === "value") {
+        expect(typeof res1.result.value).toBe("number");
+        if (typeof res1.result.value === "number") {
+          expect(res1.result.value).toBeGreaterThanOrEqual(0);
+          expect(res1.result.value).toBeLessThan(1);
+        }
+      }
+
+      const res2 = await runner.run(
+        [{ __nanofuzz_type: "prng", seed: "fixed_seed_abc" }],
+        5000
+      );
+      expect(res2.result.tag).toBe("value");
+      if (res2.result.tag === "value" && res1.result.tag === "value") {
+        expect(res2.result.value).toBe(res1.result.value);
+      }
+
+      // Invocation without a seed runs unseeded / pure random and succeeds
+      const unseededRes = await runner.run([{ __nanofuzz_type: "prng" }], 5000);
+      expect(unseededRes.result.tag).toBe("value");
+      if (unseededRes.result.tag === "value") {
+        expect(typeof unseededRes.result.value).toBe("number");
+        if (typeof unseededRes.result.value === "number") {
+          expect(unseededRes.result.value).toBeGreaterThanOrEqual(0);
+          expect(unseededRes.result.value).toBeLessThan(1);
+        }
+      }
+
+      await runner.onRunEnd();
+    } finally {
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // Ignore residual file lock cleanup errors on Windows
+      }
+    }
+  });
+
   it("nested UUID inputs and outputs", async () => {
     const tmpDir = getTmpDir("nanofuzz-runner-");
     const pyPath = path.join(tmpDir, "uuid_test.py");
