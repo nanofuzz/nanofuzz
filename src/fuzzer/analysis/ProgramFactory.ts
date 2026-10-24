@@ -131,7 +131,10 @@ export function getLanguage(details: {
   if (JavaProgram.understands(details)) {
     return "java";
   }
-  return "typescript";
+  if (TypescriptProgram.understands(details)) {
+    return "typescript";
+  }
+  return "*";
 } // fn: getLanguage
 
 /**
