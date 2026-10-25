@@ -52,6 +52,7 @@ import { synthesizeTransformer } from "../fuzzer/synthesis/TransformerSynthesize
 import { synthesizeUserGenerator } from "../fuzzer/synthesis/UserGeneratorSynthesizer";
 import { FuzzerCodeSnippet } from "../fuzzer/synthesis/Types";
 import { FuzzConfigStore } from "../fuzzer/FuzzConfigStore";
+import { CoverageScope } from "../fuzzer/measures/Types";
 
 export {
   synthesizeValidator,
@@ -224,6 +225,10 @@ export async function runFuzz(
   );
   const currentModel = Config.get<string>("nanofuzz.ai.model", "");
   const currentVendor = Config.get<string>("nanofuzz.ai.vendor", "");
+  const currentCoverageScope = Config.get<string>(
+    "nanofuzz.fuzzer.coverageScope",
+    "project static"
+  );
   const shouldAutoEnableCopilot = Boolean(options.enableCopilotAi);
 
   try {
@@ -235,6 +240,9 @@ export async function runFuzz(
     }
     if (options.vendor) {
       Config.override("nanofuzz.ai.vendor", options.vendor);
+    }
+    if (options.coverageScope) {
+      Config.override("nanofuzz.fuzzer.coverageScope", options.coverageScope);
     }
 
     // Extract in-source fuzz options if present
@@ -279,9 +287,9 @@ export async function runFuzz(
     const normalizedOptions = normalizeAgentFuzzOptions({
       ...options,
       maxTests:
-        options.maxTests ??
-        fnConfig.options?.maxTests ??
-        fnFuzzOptions?.maxTests,
+        options.maxTests !== undefined
+          ? options.maxTests
+          : (fnConfig.options?.maxTests ?? fnFuzzOptions?.maxTests),
       maxDupeInputs:
         options.maxDupeInputs ??
         fnConfig.options?.maxDupeInputs ??
@@ -453,6 +461,9 @@ export async function runFuzz(
     if (options.vendor) {
       Config.override("nanofuzz.ai.vendor", currentVendor);
     }
+    if (options.coverageScope) {
+      Config.override("nanofuzz.fuzzer.coverageScope", currentCoverageScope);
+    }
   }
 } // fn: runFuzz
 
@@ -470,7 +481,7 @@ export function getDefaultFuzzOptions(): FuzzOptions {
   return {
     argDefaults: ArgDef.getDefaultOptions(),
     maxTests: Config.get("nanofuzz.fuzzer.maxTests", 1000),
-    fnTimeout: Config.get("nanofuzz.fuzzer.fnTimeout", 200),
+    fnTimeout: Config.get("nanofuzz.fuzzer.fnTimeout", 500),
     suiteTimeout: Config.get("nanofuzz.fuzzer.suiteTimeout", 3000),
     maxDupeInputs: Config.get("nanofuzz.fuzzer.maxDupeInputs", 500),
     maxFailures: Config.get("nanofuzz.fuzzer.maxFailures", 0),
@@ -512,9 +523,19 @@ export function normalizeAgentFuzzOptions(
   options: AgentFuzzOptions
 ): FuzzOptions {
   const dft = getDefaultFuzzOptions();
+  const effectiveMaxTests =
+    options.maxTests !== undefined
+      ? options.maxTests === 0
+        ? Number.MAX_SAFE_INTEGER
+        : options.maxTests
+      : options.suiteTimeout !== undefined &&
+          options.suiteTimeout > dft.suiteTimeout
+        ? Number.MAX_SAFE_INTEGER
+        : dft.maxTests;
+
   return {
     ...dft,
-    maxTests: options.maxTests ?? dft.maxTests,
+    maxTests: effectiveMaxTests,
     maxDupeInputs: options.maxDupeInputs ?? dft.maxDupeInputs,
     maxFailures: options.maxFailures ?? dft.maxFailures,
     fnTimeout: options.fnTimeout ?? dft.fnTimeout,
@@ -1152,6 +1173,12 @@ export function buildSummaryMarkdown(
       if (ce.timeout) {
         parts.push(`**Failure Reason**: Function execution timed out.`);
       }
+      if (ce.harnessErrors && ce.harnessErrors.length > 0) {
+        parts.push(
+          `\n**⚠️ Harness / Validator Error(s)**:`,
+          ...ce.harnessErrors.map((e) => `- In \`${e.fnName}\`: ${e.message}`)
+        );
+      }
       if (ce.shrunk) {
         parts.push(
           `*(Input was simplified through ${ce.shrinkSteps ?? 1} shrinking step(s))*`
@@ -1185,6 +1212,22 @@ export function buildSummaryMarkdown(
     );
   } else {
     parts.push(`### ❌ ${toolName} Run Failed on \`${result.functionName}\``);
+  }
+
+  if (result.skippedTests && result.skippedTests > 0) {
+    const totalAttempted = result.totalTests + result.skippedTests;
+    const skipPct =
+      totalAttempted > 0
+        ? Math.round((result.skippedTests / totalAttempted) * 100)
+        : 0;
+    parts.push(
+      `\n**Precondition Filtering (assume/skip)**: **${result.skippedTests}** input(s) rejected (${skipPct}%)`
+    );
+    if (skipPct >= 80) {
+      parts.push(
+        `⚠️ **High Input Rejection Rate**: Consider rewriting \`<fn>Transformer\` to construct or clamp valid inputs rather than filtering with \`assume()\`.`
+      );
+    }
   }
 
   if (result.generators) {
@@ -1314,6 +1357,7 @@ export async function formatFuzzResult(
   const passedTests = results.stats.outcomes.categories.ok;
   const failedTests = results.stats.counters.failedTests;
   const erroredTests = results.stats.counters.erroredTests;
+  const skippedTests = results.stats.counters.inputsSkipped;
   const timeouts = results.stats.outcomes.timeouts;
   const exceptions = results.stats.outcomes.exceptions;
 
@@ -1371,6 +1415,7 @@ export async function formatFuzzResult(
     passedTests,
     failedTests,
     erroredTests,
+    skippedTests,
     timeouts,
     exceptions,
     stopReason: results.stopReason,
@@ -1537,6 +1582,7 @@ export type AgentFuzzOptions = {
   useHuman?: boolean;
   useProperty?: boolean;
   useTransformer?: boolean;
+  coverageScope?: CoverageScope;
   generators?: Partial<FuzzOptions["generators"]>;
   measures?: Partial<FuzzOptions["measures"]>;
   argDefaults?: Partial<ArgOptions>;
@@ -1646,6 +1692,7 @@ export type AgentFuzzResult = {
   passedTests: number;
   failedTests: number;
   erroredTests: number;
+  skippedTests?: number;
   timeouts: number;
   exceptions: number;
   stopReason?: FuzzStopReason;

@@ -5,6 +5,7 @@ import * as ParserAdapter from "./ParserAdapter";
 import {
   ListTargetsTool,
   FuzzFunctionTool,
+  FindBugsTool,
   registerLmTools,
   resolveMatchingModel,
 } from "./VscodeLmAdapter";
@@ -231,10 +232,43 @@ describe("VscodeLmAdapter", () => {
     expect(res3.model).toBeDefined();
   });
 
+  it("findBugs: prepare and invoke", async () => {
+    const tool = new FindBugsTool();
+    const prepared = tool.prepareInvocation({
+      input: {
+        phase: "init",
+        model: "gemini-2.0-flash",
+        vendor: "google",
+      },
+    });
+    expect(prepared).toBeDefined();
+    if (prepared && !("then" in prepared)) {
+      expect(prepared.invocationMessage).toContain("Find Bugs: Phase [init]");
+    }
+
+    const token = new vscode.CancellationTokenSource().token;
+    const result = await tool.invoke(
+      {
+        input: {
+          phase: "init",
+          model: "gemini-2.0-flash",
+          vendor: "google",
+        },
+        toolInvocationToken: undefined,
+      },
+      token
+    );
+    expect(result).toBeDefined();
+    expect(getTextContent(result)).toContain("Find Bugs: Phase `init`");
+    expect(getTextContent(result)).toContain(
+      "DO NOT READ THE INTERNAL IMPLEMENTATION BODIES"
+    );
+  });
+
   it("register: success", () => {
     const subscriptions: vscode.Disposable[] = [];
     const disposables = registerLmTools({ subscriptions });
-    expect(disposables.length).toBe(2);
-    expect(subscriptions.length).toBe(2);
+    expect(disposables.length).toBe(3);
+    expect(subscriptions.length).toBe(3);
   });
 });

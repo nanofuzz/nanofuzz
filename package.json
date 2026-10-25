@@ -116,8 +116,8 @@
             },
             "maxTests": {
               "type": "integer",
-              "minimum": 1,
-              "description": "Maximum number of test cases to generate and execute (default: 1000)."
+              "minimum": 0,
+              "description": "Maximum number of test cases to generate and execute (default: 1000, 0 for no limit / run until timeoutMs)."
             },
             "timeoutMs": {
               "type": "integer",
@@ -175,11 +175,77 @@
             "exportFilePath": {
               "type": "string",
               "description": "Optional destination file path (e.g. 'tests/test_math.py', 'src/math.test.ts', 'tests/test_math.rs', or 'src/test/java/MathNanoTest.java') where the synthesized test suite will be written directly to disk."
+            },
+            "coverageScope": {
+              "type": "string",
+              "enum": [
+                "project",
+                "project static",
+                "project directimports",
+                "project directimports static"
+              ],
+              "description": "Code coverage scope (e.g. 'project directimports')."
+            },
+            "fnTimeout": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Per-test function execution timeout in milliseconds (default: 500). Should be set to at least 2x expected execution time if expected runtime exceeds 500ms."
+            },
+            "useTransformer": {
+              "type": "boolean",
+              "description": "Whether to apply the <fn>Transformer function if present (true for semantic mode, false for adversarial robustness mode)."
             }
           },
           "required": [
             "filePath",
             "functionName"
+          ]
+        }
+      },
+      {
+        "name": "nanofuzz_findBugs",
+        "displayName": "Find Bugs with NaNofuzz",
+        "modelDescription": "Guides an autonomous agent through multi-turn invariant extraction, constructive harness synthesis, and coverage-gated fuzzing to discover unknown bugs in a repository using NaNofuzz.",
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "findBugs",
+        "icon": "$(bug)",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "phase": {
+              "type": "string",
+              "enum": [
+                "init",
+                "invariants_extracted",
+                "fuzz_entrypoint",
+                "complete"
+              ],
+              "description": "Workflow phase: 'init' to start discovery and black-box invariant extraction; 'invariants_extracted' to submit invariants and receive harness/validator instructions; 'fuzz_entrypoint' to get execution and triage guidance for a specific entrypoint; 'complete' to finalize findings and choose artifact disposition."
+            },
+            "model": {
+              "type": "string",
+              "description": "The calling agent's language model family/name (e.g. 'gemini-2.0-flash', 'claude-3.5-sonnet', 'gpt-4o'). Required."
+            },
+            "vendor": {
+              "type": "string",
+              "description": "The calling agent's language model vendor/provider identifier (e.g. 'google', 'copilot', 'gemini', 'openai'). Required."
+            },
+            "targetPath": {
+              "type": "string",
+              "description": "Workspace-relative or absolute path to the project or file to test. Defaults to workspace root."
+            },
+            "repoUrl": {
+              "type": "string",
+              "description": "Optional Git repository URL to clone and test."
+            },
+            "statePayload": {
+              "type": "object",
+              "description": "Structured JSON state payload when transitioning phases (e.g. extracted invariants, entrypoint name, or final findings)."
+            }
+          },
+          "required": [
+            "model",
+            "vendor"
           ]
         }
       }
@@ -220,7 +286,7 @@
           "nanofuzz.fuzzer.fnTimeout": {
             "title": "Timeout test after (ms)",
             "type": "integer",
-            "default": 200,
+            "default": 500,
             "minimum": 0,
             "description": "Default maximum time (in ms) to allow a test function to run before making it as a timeout."
           },

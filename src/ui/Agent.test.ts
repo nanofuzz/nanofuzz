@@ -309,6 +309,22 @@ describe("Agent", () => {
     expect(normalized.fnTimeout).toBe(50);
     expect(normalized.suiteTimeout).toBe(1000);
     expect(normalized.useImplicit).toBe(true);
+
+    const unlimited: AgentFuzzOptions = {
+      filePath: tsFixture,
+      functionName: "testStandardVoidReturnUndefined",
+      maxTests: 0,
+    };
+    const normalizedUnlimited = normalizeAgentFuzzOptions(unlimited);
+    expect(normalizedUnlimited.maxTests).toBe(Number.MAX_SAFE_INTEGER);
+
+    const longTimeout: AgentFuzzOptions = {
+      filePath: tsFixture,
+      functionName: "testStandardVoidReturnUndefined",
+      suiteTimeout: 60000,
+    };
+    const normalizedLongTimeout = normalizeAgentFuzzOptions(longTimeout);
+    expect(normalizedLongTimeout.maxTests).toBe(Number.MAX_SAFE_INTEGER);
   });
 
   it("reproducer: jest output", () => {
