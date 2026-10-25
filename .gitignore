@@ -123,6 +123,9 @@ __pycache__/
 /.direnv/
 /.envrc
 
+# OCaml switch
+_opam/
+
 # OCaml / Dune build output
 _build/
 *.install
