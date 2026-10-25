@@ -4,6 +4,16 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Git tag to release (e.g. v0.4.0)"
+        required: false
+        default: ""
+      dry_run:
+        description: "Dry run (simulate without publishing to GitHub or opam-repository)"
+        type: boolean
+        required: false
+        default: true
 
 jobs:
   publish-opam:
@@ -11,6 +21,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup OCaml
         uses: ocaml/setup-ocaml@v3
@@ -34,17 +46,37 @@ jobs:
         working-directory: packages/runtime/oxcaml
         run: opam lint nanofuzz_runtime.opam
 
+      - name: Clean build artifacts
+        working-directory: packages/runtime/oxcaml
+        run: dune clean
+
       - name: Publish to opam-repository
         working-directory: packages/runtime/oxcaml
         run: |
+          TAG="${{ github.event.release.tag_name || inputs.tag }}"
+          if [ -z "$TAG" ]; then
+            TAG="$(git describe --tags --abbrev=0 2>/dev/null || echo '')"
+          fi
+
+          TAG_ARG=""
+          if [ -n "$TAG" ]; then
+            TAG_ARG="--tag $TAG"
+          fi
+
+          DRY_RUN_ARG=""
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            DRY_RUN_ARG="--dry-run"
+            echo "Running in DRY RUN mode (simulating without creating GitHub release or opam PR)"
+          fi
+
           # Use dune-release to generate release tarball and submit PR to ocaml/opam-repository
-          if [ -n "${{ secrets.OPAM_PUBLISH_TOKEN }}" ]; then
-            dune-release distrib --skip-lint --skip-build --skip-tests
-            dune-release publish distrib --yes
-            dune-release opam pkg
-            dune-release opam submit --yes --no-auto-open
+          if [ -n "${{ secrets.OPAM_PUBLISH_TOKEN }}" ] || [ "${{ inputs.dry_run }}" = "true" ]; then
+            dune-release distrib $TAG_ARG $DRY_RUN_ARG --skip-lint --skip-build --skip-tests
+            dune-release publish distrib $TAG_ARG $DRY_RUN_ARG --yes
+            dune-release opam pkg $TAG_ARG $DRY_RUN_ARG
+            dune-release opam submit $TAG_ARG $DRY_RUN_ARG --yes --no-auto-open
           else
             echo "Notice: OPAM_PUBLISH_TOKEN not set. Skipping PR submission to ocaml/opam-repository."
           fi
         env:
-          DUNE_RELEASE_DELEGATE_GITHUB_TOKEN: ${{ secrets.OPAM_PUBLISH_TOKEN || secrets.GITHUB_TOKEN }}
+          DUNE_RELEASE_GITHUB_TOKEN: ${{ secrets.OPAM_PUBLISH_TOKEN || secrets.GITHUB_TOKEN }}
