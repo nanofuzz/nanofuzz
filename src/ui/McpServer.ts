@@ -271,7 +271,7 @@ export async function createMcpServer(
         .optional()
         .describe("Optional Git repository URL to clone and test."),
       statePayload: z
-        .record(z.string(), z.unknown())
+        .record(z.string(), jsonValueSchema)
         .optional()
         .describe(
           "Structured JSON state payload when transitioning phases (e.g. extracted invariants, entrypoint name, or final findings)."
@@ -312,7 +312,10 @@ export async function createMcpServer(
         .describe("The exact name of the function under test."),
       inputs: z
         .array(
-          z.union([z.record(z.string(), z.unknown()), z.array(z.unknown())])
+          z.union([
+            z.record(z.string(), jsonValueSchema),
+            z.array(jsonValueSchema),
+          ])
         )
         .describe(
           "Array of input objects mapping parameter names to argument values to shrink."

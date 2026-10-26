@@ -48,6 +48,20 @@ describe("McpServer", () => {
     expect(toolNames).toContain("nanofuzz_shrinkInputs");
     expect(toolNames).not.toContain("nanofuzz_showResults");
 
+    // Validate that input schemas avoid empty `{}` schemas (bare `true`) that trigger MCP client warnings
+    const findBugsTool = toolsResponse.tools.find(
+      (t) => t.name === "nanofuzz_findBugs"
+    );
+    const findBugsSchemaStr = JSON.stringify(findBugsTool?.inputSchema);
+    expect(findBugsSchemaStr).not.toContain('"additionalProperties":{}');
+
+    const shrinkTool = toolsResponse.tools.find(
+      (t) => t.name === "nanofuzz_shrinkInputs"
+    );
+    const shrinkSchemaStr = JSON.stringify(shrinkTool?.inputSchema);
+    expect(shrinkSchemaStr).not.toContain('"additionalProperties":{}');
+    expect(shrinkSchemaStr).not.toContain('"items":{}');
+
     await client.close();
     await server.close();
   });
