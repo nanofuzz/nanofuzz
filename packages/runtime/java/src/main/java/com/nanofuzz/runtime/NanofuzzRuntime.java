@@ -11,5 +11,5 @@ public final class NanofuzzRuntime {
   /**
    * Version of the nanofuzz-runtime Java package.
    */
-  public static final String VERSION = "0.4.0";
+  public static final String VERSION = "0.4.1";
 }

@@ -1,7 +1,7 @@
 open OUnit2
 
 let test_version _ =
-  assert_equal "0.4.0" Nanofuzz_runtime.version ~printer:(fun s -> s)
+  assert_equal "0.4.1" Nanofuzz_runtime.version ~printer:(fun s -> s)
 
 let test_fuzz_test_result_accessors _ =
   let inputs = [ `Int 42; `String "hello"; `List [ `Int 1; `Int 2; `Int 3 ] ] in

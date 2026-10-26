@@ -1,6 +1,6 @@
 [package]
 name = "nanofuzz-runtime"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 description = "Runtime support and types for NaNofuzz test suites and property validators in Rust"
 license = "MIT"

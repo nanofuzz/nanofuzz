@@ -2,7 +2,7 @@
   "name": "nanofuzz",
   "displayName": "NaNofuzz",
   "publisher": "penrose",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "NaNofuzz is a fast and easy-to-use automatic test suite generator for TypeScript, Python, Rust, Java, and OCaml/OxCaml that runs inside VS Code",
   "repository": {
     "type": "git",
