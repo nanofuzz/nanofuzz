@@ -117,8 +117,8 @@
             },
             "maxTests": {
               "type": "integer",
-              "minimum": 1,
-              "description": "Maximum number of test cases to generate and execute (default: 1000)."
+              "minimum": 0,
+              "description": "Maximum number of test cases to generate and execute (default: 1000, 0 for no limit / run until timeoutMs)."
             },
             "timeoutMs": {
               "type": "integer",
@@ -176,11 +176,168 @@
             "exportFilePath": {
               "type": "string",
               "description": "Optional destination file path (e.g. 'tests/test_math.py', 'src/math.test.ts', 'tests/test_math.rs', or 'src/test/java/MathNanoTest.java') where the synthesized test suite will be written directly to disk."
+            },
+            "coverageScope": {
+              "type": "string",
+              "enum": [
+                "project",
+                "project static",
+                "project directimports",
+                "project directimports static"
+              ],
+              "description": "Code coverage scope (e.g. 'project directimports')."
+            },
+            "fnTimeout": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Per-test function execution timeout in milliseconds (default: 500). Should be set to at least 2x expected execution time if expected runtime exceeds 500ms."
+            },
+            "useTransformer": {
+              "type": "boolean",
+              "description": "Whether to apply the <fn>Transformer function if present (true for semantic mode, false for adversarial robustness mode)."
             }
           },
           "required": [
             "filePath",
             "functionName"
+          ]
+        }
+      },
+      {
+        "name": "nanofuzz_findBugs",
+        "displayName": "Find Bugs with NaNofuzz",
+        "modelDescription": "Guides an autonomous agent through multi-turn invariant extraction, constructive harness synthesis, and coverage-gated fuzzing to discover unknown bugs in a repository using NaNofuzz.",
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "findBugs",
+        "icon": "$(bug)",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "phase": {
+              "type": "string",
+              "enum": [
+                "init",
+                "invariants_extracted",
+                "fuzz_entrypoint",
+                "complete"
+              ],
+              "description": "Workflow phase: 'init' to start discovery and black-box invariant extraction; 'invariants_extracted' to submit invariants and receive harness/validator instructions; 'fuzz_entrypoint' to get execution and triage guidance for a specific entrypoint; 'complete' to finalize findings and choose artifact disposition."
+            },
+            "model": {
+              "type": "string",
+              "description": "The calling agent's language model family/name (e.g. 'gemini-2.0-flash', 'claude-3.5-sonnet', 'gpt-4o'). Required."
+            },
+            "vendor": {
+              "type": "string",
+              "description": "The calling agent's language model vendor/provider identifier (e.g. 'google', 'copilot', 'gemini', 'openai'). Required."
+            },
+            "targetPath": {
+              "type": "string",
+              "description": "Workspace-relative or absolute path to the project or file to test. Defaults to workspace root."
+            },
+            "repoUrl": {
+              "type": "string",
+              "description": "Optional Git repository URL to clone and test."
+            },
+            "statePayload": {
+              "type": "object",
+              "description": "Structured JSON state payload when transitioning phases (e.g. extracted invariants, entrypoint name, or final findings)."
+            }
+          },
+          "required": [
+            "model",
+            "vendor"
+          ]
+        }
+      },
+      {
+        "name": "nanofuzz_showResults",
+        "displayName": "Show NaNofuzz Results to User in FuzzPanel",
+        "modelDescription": "Opens or reveals the NaNofuzz FuzzPanel Webview beside the active editor and directly displays the latest fuzz test results, counterexamples, and code coverage heatmap for a target function to the user. Optionally focuses on a specific result category ('ok', 'badValue', 'exception', 'timeout', 'failure', 'disagree', or 'runInfo').",
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "showResults",
+        "icon": "$(layout-panel)",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "filePath": {
+              "type": "string",
+              "description": "Absolute or workspace-relative path to the source file containing the target function."
+            },
+            "functionName": {
+              "type": "string",
+              "description": "The exact name of the function whose fuzzing results should be displayed."
+            },
+            "focusCategory": {
+              "type": "string",
+              "enum": [
+                "ok",
+                "badValue",
+                "exception",
+                "timeout",
+                "failure",
+                "disagree",
+                "runInfo"
+              ],
+              "description": "Optional result category tab to focus initially in FuzzPanel (e.g. 'badValue', 'exception', 'timeout', or 'runInfo')."
+            }
+          },
+          "required": [
+            "filePath",
+            "functionName"
+          ]
+        }
+      },
+      {
+        "name": "nanofuzz_shrinkInputs",
+        "displayName": "Shrink Inputs with NaNofuzz",
+        "modelDescription": "Minimizes and shrinks one or more test inputs or counterexamples for a target function to find the simplest, canonical inputs that reproduce the same failure or execution outcome. Accepts a file path, target function name, and an array of input objects.",
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "shrinkInputs",
+        "icon": "$(fold-down)",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "filePath": {
+              "type": "string",
+              "description": "Absolute or workspace-relative path to the source file containing the target function."
+            },
+            "functionName": {
+              "type": "string",
+              "description": "The exact name of the function under test."
+            },
+            "inputs": {
+              "type": "array",
+              "description": "Array of input objects mapping parameter names to argument values to shrink.",
+              "items": {
+                "type": "object",
+                "description": "Object mapping parameter names to argument values."
+              }
+            },
+            "fnTimeout": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Per-test function execution timeout in milliseconds (default: 500)."
+            },
+            "maxShrinkTime": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Maximum time in milliseconds allowed for shrinking per input (default: 2000, 0=no limit)."
+            },
+            "maxSteps": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Maximum number of shrink steps to attempt per input (default: 100)."
+            },
+            "seed": {
+              "type": "string",
+              "description": "Optional pseudo-random generator seed for deterministic shrinking."
+            }
+          },
+          "required": [
+            "filePath",
+            "functionName",
+            "inputs"
           ]
         }
       }
@@ -221,7 +378,7 @@
           "nanofuzz.fuzzer.fnTimeout": {
             "title": "Timeout test after (ms)",
             "type": "integer",
-            "default": 200,
+            "default": 500,
             "minimum": 0,
             "description": "Default maximum time (in ms) to allow a test function to run before making it as a timeout."
           },

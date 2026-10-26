@@ -85,7 +85,7 @@ function createProgram(): Commander.Command {
     )
     .option(
       `--max-tests <integer>`,
-      `Max tests to run`,
+      `Max tests to run (0=no limit)`,
       parseIntArgGeZero,
       1000
     )
@@ -105,7 +105,7 @@ function createProgram(): Commander.Command {
       `--fn-timeout <integer>`,
       `Per-test timeout (ms)`,
       parseIntArgGeZero,
-      200
+      500
     )
     .option(
       `--host-startup-timeout <integer>`,
@@ -860,16 +860,21 @@ export async function runCliInProcess(
         precompile: false,
       };
 
+      const effectiveMaxTests = getEffectiveOption(
+        "maxTests",
+        "maxTests",
+        options["maxTests"]
+      );
+
       const fuzzer = FuzzerFactory(
         filename,
         fnname,
         {
           argDefaults: ArgDef.getDefaultOptions(),
-          maxTests: getEffectiveOption(
-            "maxTests",
-            "maxTests",
-            options["maxTests"]
-          ),
+          maxTests:
+            effectiveMaxTests === 0
+              ? Number.MAX_SAFE_INTEGER
+              : effectiveMaxTests,
           fnTimeout: getEffectiveOption(
             "fnTimeout",
             "fnTimeout",

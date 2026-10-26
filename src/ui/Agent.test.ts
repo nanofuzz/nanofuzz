@@ -2,12 +2,14 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as Config from "../Config";
+import { isKeyedObject } from "../Util";
 import * as ParserAdapter from "../fuzzer/adapters/ParserAdapter";
 import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
 import { LlmAdapter } from "../fuzzer/adapters/LlmAdapter";
 import {
   listTargets,
   runFuzz,
+  shrinkInputs,
   resolveFilePath,
   getDefaultFuzzOptions,
   normalizeAgentFuzzOptions,
@@ -309,6 +311,46 @@ describe("Agent", () => {
     expect(normalized.fnTimeout).toBe(50);
     expect(normalized.suiteTimeout).toBe(1000);
     expect(normalized.useImplicit).toBe(true);
+
+    const unlimited: AgentFuzzOptions = {
+      filePath: tsFixture,
+      functionName: "testStandardVoidReturnUndefined",
+      maxTests: 0,
+    };
+    const normalizedUnlimited = normalizeAgentFuzzOptions(unlimited);
+    expect(normalizedUnlimited.maxTests).toBe(Number.MAX_SAFE_INTEGER);
+
+    const longTimeout: AgentFuzzOptions = {
+      filePath: tsFixture,
+      functionName: "testStandardVoidReturnUndefined",
+      suiteTimeout: 60000,
+    };
+    const normalizedLongTimeout = normalizeAgentFuzzOptions(longTimeout);
+    expect(normalizedLongTimeout.maxTests).toBe(Number.MAX_SAFE_INTEGER);
+  });
+
+  it("shrinkInputs: shrinks failing input", async () => {
+    const res = await shrinkInputs({
+      filePath: tsFixture,
+      functionName: "testStandardVoidReturnException",
+      inputs: [{ _x: 9999999 }],
+      maxSteps: 50,
+      fnTimeout: 500,
+    });
+
+    expect(res).toBeDefined();
+    expect(res.functionName).toBe("testStandardVoidReturnException");
+    expect(res.totalInputs).toBe(1);
+    expect(res.shrunkInputs.length).toBe(1);
+    const item = res.shrunkInputs[0];
+    expect(item.outcome).toBe("exception");
+    expect(item.shrinkSteps).toBeGreaterThan(0);
+    expect(item.status).toBe("shrunk");
+    expect(isKeyedObject(item.shrunkenInput)).toBe(true);
+    if (isKeyedObject(item.shrunkenInput)) {
+      expect(Number(item.shrunkenInput["_x"])).toBeLessThan(9999999);
+    }
+    expect(res.summaryText).toContain("NaNofuzz Input Shrinking");
   });
 
   it("reproducer: jest output", () => {

@@ -4,8 +4,15 @@ import {
   getToolName,
   listTargets,
   runFuzz,
+  showResults,
+  shrinkInputs,
+  ShowResultsOptions,
+  ShowResultsResult,
+  AgentShrinkOptions,
   AgentTestCase,
 } from "../../ui/Agent";
+import { CoverageScope } from "../measures/Types";
+import { findBugs, FindBugsOptions, FindBugsPhase } from "../../ui/FindBugs";
 
 // -------------------------------------------------------------------------- //
 // Tool Implementations & Helpers
@@ -154,6 +161,9 @@ export class FuzzFunctionTool implements vscode.LanguageModelTool<FuzzFunctionIn
       tests,
       exportSuite,
       exportFilePath,
+      coverageScope,
+      fnTimeout,
+      useTransformer,
     } = options.input;
 
     const resolved = await resolveMatchingModel(vendor, model);
@@ -163,6 +173,7 @@ export class FuzzFunctionTool implements vscode.LanguageModelTool<FuzzFunctionIn
         filePath,
         functionName,
         maxTests,
+        fnTimeout,
         suiteTimeout: timeoutMs,
         maxFailures,
         seed,
@@ -172,6 +183,8 @@ export class FuzzFunctionTool implements vscode.LanguageModelTool<FuzzFunctionIn
         tests,
         exportSuite,
         exportFilePath,
+        coverageScope,
+        useTransformer,
         enableCopilotAi: true,
       },
       () => token.isCancellationRequested
@@ -179,6 +192,81 @@ export class FuzzFunctionTool implements vscode.LanguageModelTool<FuzzFunctionIn
 
     return new vscode.LanguageModelToolResult([
       new vscode.LanguageModelTextPart(result.summaryText),
+    ]);
+  }
+}
+
+/**
+ * Language model tool for multi-turn bug discovery workflows.
+ */
+export class FindBugsTool implements vscode.LanguageModelTool<FindBugsInput> {
+  public prepareInvocation(
+    options: vscode.LanguageModelToolInvocationPrepareOptions<FindBugsInput>
+  ): vscode.ProviderResult<vscode.PreparedToolInvocation> {
+    const toolName = getToolName();
+    const phase = options.input.phase ?? "init";
+    return {
+      invocationMessage: `${toolName} Find Bugs: Phase [${phase}]`,
+    };
+  }
+
+  public async invoke(
+    options: vscode.LanguageModelToolInvocationOptions<FindBugsInput>,
+    _token: vscode.CancellationToken
+  ): Promise<vscode.LanguageModelToolResult> {
+    const result = await findBugs(options.input);
+    return new vscode.LanguageModelToolResult([
+      new vscode.LanguageModelTextPart(result.summaryText),
+    ]);
+  }
+}
+
+/**
+ * Language model tool for displaying fuzz test results in FuzzPanel.
+ */
+export class ShowResultsTool implements vscode.LanguageModelTool<ShowResultsInput> {
+  public prepareInvocation(
+    options: vscode.LanguageModelToolInvocationPrepareOptions<ShowResultsInput>
+  ): vscode.ProviderResult<vscode.PreparedToolInvocation> {
+    const toolName = getToolName();
+    const { functionName } = options.input;
+    return {
+      invocationMessage: `Displaying ${toolName} results for \`${functionName}\` in FuzzPanel`,
+    };
+  }
+
+  public async invoke(
+    options: vscode.LanguageModelToolInvocationOptions<ShowResultsInput>,
+    _token: vscode.CancellationToken
+  ): Promise<vscode.LanguageModelToolResult> {
+    const res: ShowResultsResult = await showResults(options.input);
+    return new vscode.LanguageModelToolResult([
+      new vscode.LanguageModelTextPart(res.message),
+    ]);
+  }
+}
+
+/**
+ * Language model tool for standalone input shrinking.
+ */
+export class ShrinkInputsTool implements vscode.LanguageModelTool<ShrinkInputsInput> {
+  public prepareInvocation(
+    options: vscode.LanguageModelToolInvocationPrepareOptions<ShrinkInputsInput>
+  ): vscode.ProviderResult<vscode.PreparedToolInvocation> {
+    const toolName = getToolName();
+    const { functionName, filePath } = options.input;
+    return {
+      invocationMessage: `Shrinking test inputs for \`${functionName}\` in \`${filePath}\` with ${toolName}`,
+    };
+  }
+
+  public async invoke(
+    options: vscode.LanguageModelToolInvocationOptions<ShrinkInputsInput>,
+    _token: vscode.CancellationToken
+  ): Promise<vscode.LanguageModelToolResult> {
+    const res = await shrinkInputs(options.input);
+    return new vscode.LanguageModelToolResult([
+      new vscode.LanguageModelTextPart(res.summaryText),
     ]);
   }
 }
@@ -203,8 +291,26 @@ export function registerLmTools(context: {
       "nanofuzz_fuzzFunction",
       new FuzzFunctionTool()
     );
-    disposables.push(listTool, fuzzTool);
-    context.subscriptions.push(listTool, fuzzTool);
+    const bugsTool = vscode.lm.registerTool(
+      "nanofuzz_findBugs",
+      new FindBugsTool()
+    );
+    const showResultsTool = vscode.lm.registerTool(
+      "nanofuzz_showResults",
+      new ShowResultsTool()
+    );
+    const shrinkTool = vscode.lm.registerTool(
+      "nanofuzz_shrinkInputs",
+      new ShrinkInputsTool()
+    );
+    disposables.push(listTool, fuzzTool, bugsTool, showResultsTool, shrinkTool);
+    context.subscriptions.push(
+      listTool,
+      fuzzTool,
+      bugsTool,
+      showResultsTool,
+      shrinkTool
+    );
   }
 
   return disposables;
@@ -237,4 +343,23 @@ export type FuzzFunctionInput = {
   tests?: (AgentTestCase | Record<string, unknown> | unknown[])[];
   exportSuite?: boolean;
   exportFilePath?: string;
+  coverageScope?: CoverageScope;
+  fnTimeout?: number;
+  useTransformer?: boolean;
 };
+
+/**
+ * Input arguments for the nanofuzz_findBugs tool
+ */
+export type FindBugsInput = FindBugsOptions;
+export type { FindBugsPhase };
+
+/**
+ * Input arguments for the nanofuzz_showResults tool
+ */
+export type ShowResultsInput = ShowResultsOptions;
+
+/**
+ * Input arguments for the nanofuzz_shrinkInputs tool
+ */
+export type ShrinkInputsInput = AgentShrinkOptions;

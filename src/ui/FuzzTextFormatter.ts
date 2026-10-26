@@ -146,7 +146,7 @@ export function formatFailureBlock(
   result: FuzzTestResult,
   lang: ProgramLanguage,
   validators: FunctionRef[],
-  fnTimeout: number = 200,
+  fnTimeout: number = 500,
   termWidth: number = typeof process !== "undefined" &&
   process.stdout &&
   process.stdout.columns &&
