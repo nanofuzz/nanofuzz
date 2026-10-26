@@ -89,6 +89,9 @@ nanofuzz src/math.ts::divide --output-file results.json5
 
 # Test a specific unexported function
 nanofuzz src/internal.ts::_helperFn
+
+# Run Rust fuzzing with BorrowSanitizer enabled to detect aliasing violations
+nanofuzz src/lib.rs::my_unsafe_fn --rust-sanitizer borrow
 ```
 
 ---
@@ -136,6 +139,12 @@ nanofuzz src/internal.ts::_helperFn
 | `--no-example-oracle`      |                  | Disable example oracle                                                      |
 | `--no-coverage-measure`    |                  | Disable code coverage tracking                                              |
 | `--coverage-scope <scope>` | `project static` | Coverage tracking scope (`project`, `directimports`, `static`)              |
+
+### Language & Sanitizer Options
+
+| Option                                     | Default | Description                                                                                                |
+| :----------------------------------------- | :-----: | :--------------------------------------------------------------------------------------------------------- |
+| `--rust-sanitizer <none\|borrow\|address>` | `none`  | Enable runtime sanitizers for Rust fuzz targets (`none`, `borrow` for BorrowSanitizer, `address` for ASan) |
 
 ### Input Generators & Schedulers
 

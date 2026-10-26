@@ -14,6 +14,7 @@ import * as ProgramFactory from "../../analysis/ProgramFactory";
 import * as Config from "../../../Config";
 import { parseCoverageScope } from "../../measures/Util";
 import { CoverageScopeConfig } from "../../measures/Types";
+import { getSanitizerAdapter } from "./sanitizers/Registry";
 
 const HARNESS_TEMPLATE_VER = "RustHarness-0.5.0";
 
@@ -24,13 +25,15 @@ const HARNESS_TEMPLATE_VER = "RustHarness-0.5.0";
  * @param fnName Name of the function to test
  * @param env FuzzEnv containing function definitions and validators
  * @param tmpDir Base temporary directory for compilation outputs
+ * @param sanitizer Optional sanitizer to enable (e.g. "borrow")
  * @returns Path to the compiled harness executable, directory, and Istanbul static coverage
  */
 export function buildRustHarness(
   targetFile: string,
   fnName: string,
   env?: FuzzEnv,
-  tmpDir?: string
+  tmpDir?: string,
+  sanitizer?: string
 ): {
   binaryPath: string;
   harnessDir: string;
@@ -178,11 +181,40 @@ export function buildRustHarness(
 
   const validators = env?.validators.map((v) => v.name) ?? [];
 
-  // Compute a deterministic cache key including all project and external files
+  const sanitizerName =
+    sanitizer ?? Config.get<string>("nanofuzz.rust.sanitizer", "none");
+  const sanitizerAdapter = getSanitizerAdapter(sanitizerName);
+
+  if (sanitizerAdapter.id !== "none") {
+    const detection = sanitizerAdapter.detect();
+    if (!detection.available) {
+      throw new RustCompilerError(
+        `Rust sanitizer '${sanitizerAdapter.id}' cannot be enabled: ${detection.error ?? "Sanitizer unavailable"}`,
+        {
+          inputFile: normTarget,
+          cargoTomlPath: userCargoToml,
+          commandCli: "cargo build",
+          output: [
+            detection.error ??
+              `Rust sanitizer '${sanitizerAdapter.id}' is unavailable on this system.`,
+          ],
+        }
+      );
+    }
+  }
+
+  const sanitizerBuildConfig = sanitizerAdapter.configureBuild(process.env);
+  const cargoBin = RustCompiler.resolveCargo();
+  const rustcBin = cargoBin ? RustCompiler.resolveRustc(cargoBin) : undefined;
+  const rustcVer = rustcBin
+    ? (RustCompiler.getRustcVersion(rustcBin) ?? "")
+    : "";
+
+  // Compute a deterministic cache key including all project and external files, compiler version, and sanitizer
   const cacheHash = crypto
     .createHash("md5")
     .update(
-      `${allProjectFiles.sort().join(",")}:${fnName}:${validators.sort().join(",")}:${scopeConfig.target}:${HARNESS_TEMPLATE_VER}`
+      `${allProjectFiles.sort().join(",")}:${fnName}:${validators.sort().join(",")}:${scopeConfig.target}:${HARNESS_TEMPLATE_VER}:${rustcVer}:${sanitizerAdapter.id}`
     )
     .digest("hex")
     .substring(0, 16);
@@ -259,12 +291,24 @@ export function buildRustHarness(
   }
 
   // Return cached binary if it already exists and is up-to-date relative to all project files
+  let cachedBinaryPath = binaryPath;
+  if (!fs.existsSync(cachedBinaryPath) && fs.existsSync(sharedTargetDir)) {
+    const entries = fs.readdirSync(sharedTargetDir);
+    for (const entry of entries) {
+      const candidate = path.join(sharedTargetDir, entry, "debug", binName);
+      if (fs.existsSync(candidate)) {
+        cachedBinaryPath = candidate;
+        break;
+      }
+    }
+  }
+
   if (
-    fs.existsSync(binaryPath) &&
-    fs.statSync(binaryPath).mtimeMs >= maxMtime
+    fs.existsSync(cachedBinaryPath) &&
+    fs.statSync(cachedBinaryPath).mtimeMs >= maxMtime
   ) {
     return {
-      binaryPath,
+      binaryPath: cachedBinaryPath,
       harnessDir,
       staticCov: targetCov.staticCov,
       staticCovMap,
@@ -370,7 +414,6 @@ ${patchSection}
   );
 
   // Compile with cargo build
-  const cargoBin = RustCompiler.resolveCargo();
   if (!cargoBin) {
     throw new RustCompilerError(
       "Cargo executable not found. Please install Rust or ensure cargo is on PATH.",
@@ -383,33 +426,69 @@ ${patchSection}
     );
   }
 
-  const buildRes = ChildProcess.spawnSync(
-    cargoBin,
-    [
-      "build",
-      "--manifest-path",
-      path.join(harnessDir, "Cargo.toml"),
-      "--target-dir",
-      sharedTargetDir,
-      "--message-format=json",
-    ],
-    {
-      cwd: harnessDir,
-      encoding: "utf8",
-      windowsHide: true,
-      maxBuffer: 16 * 1024 * 1024,
-      env: {
-        ...process.env,
-        CARGO_TARGET_DIR: sharedTargetDir,
-      },
-    }
-  );
+  let combinedRustflags = process.env.RUSTFLAGS ?? "";
+  if (sanitizerBuildConfig.rustflags.length > 0) {
+    combinedRustflags =
+      `${combinedRustflags} ${sanitizerBuildConfig.rustflags.join(" ")}`.trim();
+  }
 
-  if (buildRes.status !== 0 || !fs.existsSync(binaryPath)) {
+  const spawnEnv: NodeJS.ProcessEnv = {
+    ...process.env,
+    ...sanitizerBuildConfig.env,
+    CARGO_TARGET_DIR: sharedTargetDir,
+    ...(combinedRustflags ? { RUSTFLAGS: combinedRustflags } : {}),
+  };
+
+  const subcmd = sanitizerBuildConfig.cargoCommand ?? ["build"];
+  const cargoBuildArgs = [
+    ...subcmd,
+    "--manifest-path",
+    path.join(harnessDir, "Cargo.toml"),
+    "--target-dir",
+    sharedTargetDir,
+    "--message-format=json",
+    ...sanitizerBuildConfig.cargoArgs,
+  ];
+
+  const buildRes = ChildProcess.spawnSync(cargoBin, cargoBuildArgs, {
+    cwd: harnessDir,
+    encoding: "utf8",
+    windowsHide: true,
+    maxBuffer: 16 * 1024 * 1024,
+    env: spawnEnv,
+  });
+
+  // Attempt to resolve compiled executable from cargo's artifact messages
+  let compiledBinary = binaryPath;
+  if (buildRes.stdout) {
+    const lines = buildRes.stdout.split(/\r?\n/);
+    for (const line of lines) {
+      if (!line.startsWith("{")) continue;
+      try {
+        const parsed: unknown = JSON.parse(line);
+        if (
+          parsed &&
+          typeof parsed === "object" &&
+          "reason" in parsed &&
+          parsed.reason === "compiler-artifact" &&
+          "executable" in parsed &&
+          typeof parsed.executable === "string" &&
+          parsed.executable.length > 0 &&
+          path.basename(parsed.executable) === binName
+        ) {
+          compiledBinary = parsed.executable;
+        }
+      } catch {
+        // ignore non-json lines
+      }
+    }
+  }
+
+  if (buildRes.status !== 0 || !fs.existsSync(compiledBinary)) {
     throw new RustCompilerError("Failed to build Rust fuzzing harness", {
       inputFile: normTarget,
       cargoTomlPath: userCargoToml,
-      commandCli: `${cargoBin} build --manifest-path ${path.join(harnessDir, "Cargo.toml")} --target-dir ${sharedTargetDir}`,
+      commandCli: `${cargoBin} ${cargoBuildArgs.join(" ")}`,
       output: [
         buildRes.stderr ||
           buildRes.stdout ||
@@ -419,7 +498,7 @@ ${patchSection}
   }
 
   return {
-    binaryPath,
+    binaryPath: compiledBinary,
     harnessDir,
     staticCov: targetCov.staticCov,
     staticCovMap,

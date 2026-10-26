@@ -1,5 +1,6 @@
 import { CargoTestAdapter } from "./CargoTestAdapter";
 import * as TestAdapterFactory from "../TestAdapterFactory";
+import * as Config from "../../../Config";
 import { FuzzOptions, FuzzTests } from "../../Types";
 import { ArgOptions, ArgTag } from "../../analysis/Types";
 import * as Parser from "../../adapters/ParserAdapter";
@@ -207,6 +208,54 @@ describe("fuzzer/adapters/cargo/CargoTestAdapter:", () => {
     expect(adapter.filename).toBe("/path/to/my_math_nano_test.rs");
     expect(adapter.toolname).toBe("Cargo");
   });
+
+  it("emits reproduction banner when test failed due to an active sanitizer", () => {
+    Config.override("nanofuzz.rust.sanitizer", "borrow");
+    const tests: FuzzTests = {
+      version: "0.4.0",
+      functions: {
+        badBorrowFn: {
+          options: makeOptions({ useHuman: true }),
+          validators: [],
+          tests: {
+            "0": {
+              input: [
+                {
+                  name: "0",
+                  offset: 0,
+                  value: 42,
+                  origin: {
+                    type: "generator",
+                    generator: "RandomInputGenerator",
+                  },
+                },
+              ],
+              expectedOutput: [
+                {
+                  name: "0",
+                  offset: 0,
+                  value: "BorrowSanitizerError: conflicting write",
+                  isException: true,
+                  origin: { type: "user" },
+                },
+              ],
+              output: [],
+              pinned: true,
+            },
+          },
+          isVoid: false,
+        },
+      },
+    };
+
+    const out = new CargoTestAdapter(tests, "mymodule.rs").toString();
+    expect(out).toContain(
+      "// [NaNofuzz] Note: This failure was detected by BorrowSanitizer."
+    );
+    expect(out).toContain("// Run with: cargo bsan test");
+    expect(out).toContain("#[should_panic]");
+    Config.override("nanofuzz.rust.sanitizer", "none");
+  }); // fn: emits reproduction banner
 
   it("integrates with TestAdapterFactory", () => {
     const adapter = TestAdapterFactory.fromSourceFilename("target.rs", {

@@ -8,6 +8,7 @@ describe("Config", () => {
 
   it("reads default configuration from package.json", () => {
     expect(Config.get("nanofuzz.rust.cargoPath", "fallback")).toBe("cargo");
+    expect(Config.get("nanofuzz.rust.sanitizer", "fallback")).toBe("none");
     expect(Config.get("nanofuzz.oxcaml.dunePath", "fallback")).toBe("dune");
     expect(Config.get("nanofuzz.oxcaml.ocamloptPath", "fallback")).toBe(
       "ocamlopt"
