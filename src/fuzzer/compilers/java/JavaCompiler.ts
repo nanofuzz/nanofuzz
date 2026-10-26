@@ -622,7 +622,10 @@ export class JavaCompiler {
 
     try {
       const pomContent = fs.readFileSync(this._pomXmlPath, "utf8");
-      if (!pomContent.includes("<dependency>")) {
+      if (
+        !pomContent.includes("<dependency>") &&
+        !pomContent.includes("<parent>")
+      ) {
         return jars;
       }
 

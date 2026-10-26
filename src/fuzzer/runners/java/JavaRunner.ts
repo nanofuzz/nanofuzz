@@ -338,6 +338,16 @@ export class JavaRunner extends AbstractRunner {
     const sep = process.platform === "win32" ? ";" : ":";
     const classpath = cpEntries.join(sep);
 
+    if (!this._fqClassName) {
+      try {
+        const pgm = ProgramFactory.fromFile(this._filename, "java");
+        if (pgm instanceof JavaProgram) {
+          this._fqClassName = pgm.getFqClassName(this._fn);
+        }
+      } catch {
+        // Fallback to basename below
+      }
+    }
     const fqClass = this._fqClassName ?? path.basename(this._filename, ".java");
 
     const instrumentEntries = [classesDir];

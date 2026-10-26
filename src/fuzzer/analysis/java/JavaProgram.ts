@@ -377,6 +377,17 @@ export class JavaProgram extends AbstractProgram {
         }
       }
     }
+    if (!className && this._ast) {
+      const topClass = this._ast.rootNode.children.find(
+        (c) =>
+          c.type === "class_declaration" ||
+          c.type === "record_declaration" ||
+          c.type === "interface_declaration"
+      );
+      if (topClass) {
+        className = topClass.childForFieldName("name")?.text ?? "";
+      }
+    }
     if (!className) {
       const base = path.basename(this._filename, ".java");
       className = base;

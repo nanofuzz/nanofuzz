@@ -411,8 +411,13 @@ export class LlmAdapter {
               ),
               abandonPromise,
             ]);
-            if (response.stream) {
-              for await (const part of response.stream) {
+            const streamProp = Reflect.get(response, "stream");
+            const streamSource =
+              typeof streamProp === "function"
+                ? Reflect.apply(streamProp, response, [])
+                : streamProp;
+            if (isAsyncIterable(streamSource)) {
+              for await (const part of streamSource) {
                 if (LlmAdapter._abandoned) {
                   throw new LlmAbandonedError();
                 }
@@ -424,19 +429,42 @@ export class LlmAdapter {
                 } else if (part instanceof vscode.LanguageModelTextPart) {
                   text += part.value;
                 } else if (isRecord(part)) {
-                  const partValue = part.value;
-                  if (typeof partValue === "string") {
-                    text += partValue;
+                  if (
+                    "input" in part &&
+                    part.input !== undefined &&
+                    part.input !== null
+                  ) {
+                    text =
+                      typeof part.input === "string"
+                        ? part.input
+                        : JSON.stringify(part.input);
+                  } else if (typeof part.value === "string") {
+                    text += part.value;
                   }
                 }
               }
             }
             if (!text && response.text) {
-              for await (const chunk of response.text) {
-                if (LlmAdapter._abandoned) {
-                  throw new LlmAbandonedError();
+              const textProp = Reflect.get(response, "text");
+              if (typeof textProp === "string") {
+                text += textProp;
+              } else {
+                const textSource =
+                  typeof textProp === "function"
+                    ? await Reflect.apply(textProp, response, [])
+                    : textProp;
+                if (typeof textSource === "string") {
+                  text += textSource;
+                } else if (isAsyncIterable(textSource)) {
+                  for await (const chunk of textSource) {
+                    if (LlmAdapter._abandoned) {
+                      throw new LlmAbandonedError();
+                    }
+                    if (typeof chunk === "string") {
+                      text += chunk;
+                    }
+                  }
                 }
-                text += chunk;
               }
             }
 
@@ -790,6 +818,19 @@ export function isAbandonedError(err: unknown): boolean {
   }
   return false;
 } // fn: isAbandonedError
+
+/**
+ * Checks whether an unknown value implements `Symbol.asyncIterator` or `Symbol.iterator`.
+ */
+function isAsyncIterable(val: unknown): val is AsyncIterable<unknown> {
+  if (val === null || val === undefined || typeof val !== "object") {
+    return false;
+  }
+  return (
+    typeof Reflect.get(val, Symbol.asyncIterator) === "function" ||
+    typeof Reflect.get(val, Symbol.iterator) === "function"
+  );
+} // fn: isAsyncIterable
 
 /**
  * Extended request options for Copilot Language Model requests

@@ -715,15 +715,17 @@ export async function runFuzz(
     let testSuiteFilePath: string | undefined = undefined;
 
     if (options.exportSuite || options.exportFilePath) {
+      const outPath = options.exportFilePath
+        ? resolveFilePath(options.exportFilePath)
+        : undefined;
       testSuiteCode = await synthesizeTestSuite(
         resolvedPath,
         options.functionName,
         rawResults,
-        { shrink: true }
+        { shrink: true, outputFilename: outPath }
       );
 
-      if (options.exportFilePath && testSuiteCode) {
-        const outPath = resolveFilePath(options.exportFilePath);
+      if (outPath && testSuiteCode) {
         const dir = path.dirname(outPath);
         if (!fs.existsSync(dir)) {
           fs.mkdirSync(dir, { recursive: true });
@@ -1308,6 +1310,7 @@ export async function synthesizeTestSuite(
   rawResults: FuzzTestResults,
   options?: {
     shrink?: boolean;
+    outputFilename?: string;
   }
 ): Promise<string | undefined> {
   const env = rawResults.env;
@@ -1379,7 +1382,11 @@ export async function synthesizeTestSuite(
   };
 
   try {
-    const adapter = TestAdapterFactory.fromSourceFilename(filePath, fuzzTests);
+    const adapter = TestAdapterFactory.fromSourceFilename(
+      filePath,
+      fuzzTests,
+      options?.outputFilename
+    );
     return adapter.toString();
   } catch (_e) {
     return synthesizeReproducer(filePath, functionName, finalCandidates, env);
