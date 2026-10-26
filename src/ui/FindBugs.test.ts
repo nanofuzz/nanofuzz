@@ -88,14 +88,20 @@ describe("FindBugs", () => {
     expect(result.recommendedNextPhase).toBeUndefined();
     expect(result.instructions).toContain("Structured Summary Report");
     expect(result.instructions).toContain(
-      "Interactive User Artifact Disposition"
+      "Interactive User Review & Artifact Disposition"
     );
     expect(result.instructions).toContain(
-      "Option 1: Keep bug-eliciting only (Recommended)"
+      "Option 1: Discuss the bugs with the agent"
     );
     expect(result.instructions).toContain(
-      "Option 2: Archive bug-eliciting to ZIP"
+      "Option 2: Investigate fixes for the discovered bugs"
     );
-    expect(result.instructions).toContain("Option 3: Archive all to ZIP");
+    expect(result.instructions).toContain(
+      "Option 3: Keep bug-eliciting only (Recommended)"
+    );
+    expect(result.instructions).toContain(
+      "Option 4: Archive bug-eliciting to ZIP"
+    );
+    expect(result.instructions).toContain("Option 5: Archive all to ZIP");
   });
 });
