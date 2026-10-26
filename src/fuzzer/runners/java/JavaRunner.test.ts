@@ -624,6 +624,46 @@ public class PackagedIpc {
     const runner = RunnerFactory(env, javaPath, "add");
     expect(runner instanceof JavaRunner).toBeTrue();
   });
+
+  it("resolves packaged class name when run() is called after host restart without onRunStart()", async () => {
+    const pkgDir = path.join(tempDir, "com", "example", "gen");
+    fs.mkdirSync(pkgDir, { recursive: true });
+    const javaPath = path.join(pkgDir, "PackagedGen.java");
+    fs.writeFileSync(
+      javaPath,
+      `package com.example.gen;
+
+import java.util.function.DoubleSupplier;
+
+public class PackagedGen {
+    public static int compute(int x) {
+        return x + 10;
+    }
+
+    public static Object[] computeGenerator(DoubleSupplier prng) {
+        return new Object[] { (int) (prng.getAsDouble() * 10) };
+    }
+}
+`
+    );
+
+    const program = ProgramFactory.fromFile(javaPath, "java");
+    const fnDef = program.functionsExported["compute"];
+    const env = createTestEnv(fnDef);
+
+    // Compile first via a main runner, then invoke computeGenerator on a second runner without calling onRunStart()
+    const mainRunner = new JavaRunner(javaPath, "compute", env);
+    await mainRunner.onRunStart();
+    await mainRunner.onRunEnd();
+
+    const genRunner = new JavaRunner(javaPath, "computeGenerator", env);
+    const res = await genRunner.run(
+      [{ __nanofuzz_type: "prng", seed: "test-seed" }],
+      5000
+    );
+    expect(res.result.tag).toBe("value");
+    await genRunner.onRunEnd();
+  });
 });
 
 // ============================================================================

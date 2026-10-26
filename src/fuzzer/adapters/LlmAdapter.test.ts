@@ -453,4 +453,34 @@ describe("src/fuzzer/adapters/LlmAdapter:", () => {
       JSON.stringify({ programInputs: [{ expr: "1 + 1" }] })
     );
   });
+
+  it("query: handles non-iterable or function-valued stream/text properties on vscode lm response", async () => {
+    Config.override("nanofuzz.ai.provider", "copilot");
+    Config.override("nanofuzz.ai.model", "gemini-3.7-flash");
+    Config.override("nanofuzz.ai.vendor", "google");
+
+    const models = await vscode.lm.selectChatModels({
+      family: "gemini-3.7-flash",
+    });
+    const model = models[0];
+
+    const fakeResponse = {
+      stream: () => {
+        // non-iterable function
+      },
+      text: async () => '{"programInputs":[{"expr":"2 + 2"}]}',
+    };
+    spyOn(model, "sendRequest").and.callFake(async () =>
+      cast<vscode.LanguageModelChatResponse>(fakeResponse)
+    );
+
+    const adapter = new LlmAdapter();
+    const result = await adapter.query("generate inputs");
+    expect(result.text).toBe('{"programInputs":[{"expr":"2 + 2"}]}');
+  });
 });
+
+function cast<T>(val: unknown): T;
+function cast(val: unknown): unknown {
+  return val;
+}

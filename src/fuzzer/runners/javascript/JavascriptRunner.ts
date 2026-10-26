@@ -24,6 +24,8 @@ import { findInAncestor, isError, normalizePathForKey } from "../../Util";
 import { parseCoverageScope } from "../../measures/Util";
 import { PutTimeoutName } from "../AbstractHost";
 import * as CompilerFactory from "../../compilers/CompilerFactory";
+import * as ProgramFactory from "../../analysis/ProgramFactory";
+import { ProgramImport } from "../../analysis/Types";
 import * as Config from "../../../Config";
 import vscode from "vscode";
 import { serialize, deserialize } from "node:v8";
@@ -68,7 +70,9 @@ export class JavascriptRunner extends AbstractRunner {
     this._overrides = overrides;
 
     let targetPath = getModuleFilename(module, env);
-    this._originalFilename = targetPath;
+    this._originalFilename = env?.function
+      ? env.function.getModule()
+      : targetPath;
 
     if (targetPath) {
       const compiler = CompilerFactory.fromSourcefile(targetPath);
@@ -362,11 +366,29 @@ export class JavascriptRunner extends AbstractRunner {
       this._overrides.acceptsStaticCoverage === true &&
       scopeConfig.collectStaticCoverage;
 
+    let directPkgs: string[] = [];
+    if (scopeConfig.target.includes("directimports")) {
+      const srcFile =
+        this._originalFilename.endsWith(".js") &&
+        fs.existsSync(this._originalFilename.replace(/\.js$/, ".ts"))
+          ? this._originalFilename.replace(/\.js$/, ".ts")
+          : this._originalFilename;
+      if (fs.existsSync(srcFile)) {
+        try {
+          const program = ProgramFactory.fromFile(srcFile, "typescript");
+          directPkgs = extractDirectPackages(program.imports);
+        } catch {
+          // Fall back gracefully if file resolution or parsing fails
+        }
+      }
+    }
+
     const args = [
       runnerHost,
       this._filename,
       this._jsFn,
       scopeConfig.target,
+      JSON.stringify(directPkgs),
       isRespawn ? "respawn" : String(collectStaticCoverage),
     ];
     const host = new NodeHost(args, path.dirname(this._filename), env);
@@ -589,4 +611,46 @@ function getTypeHint(arg: ArgDef): TypeHint {
     hint = { kind: "array", element: hint };
   }
   return hint;
-}
+} // fn: getTypeHint
+
+const TEST_FRAMEWORK_PACKAGES = new Set([
+  "nanofuzz",
+  "nanofuzz-runtime",
+  "@nanofuzz/runtime",
+  "istanbul-lib-coverage",
+  "istanbul-lib-instrument",
+  "istanbul-lib-hook",
+]);
+
+/**
+ * Extracts top-level 3rd-party package names directly imported by the program
+ * using `program.imports`.
+ */
+function extractDirectPackages(
+  imports: Record<string, ProgramImport>
+): string[] {
+  const packages = new Set<string>();
+
+  for (const imp of Object.values(imports)) {
+    const pPath = imp.programPath;
+    if (pPath) {
+      const normalized = pPath.replace(/\\/g, "/");
+      const idx = normalized.lastIndexOf("/node_modules/");
+      if (idx !== -1) {
+        const sub = normalized.substring(idx + "/node_modules/".length);
+        const parts = sub.split("/");
+        if (parts.length > 0 && parts[0]) {
+          const pkg =
+            parts[0].startsWith("@") && parts.length > 1
+              ? `${parts[0]}/${parts[1]}`
+              : parts[0];
+          if (!TEST_FRAMEWORK_PACKAGES.has(pkg.toLowerCase())) {
+            packages.add(pkg);
+          }
+        }
+      }
+    }
+  }
+
+  return Array.from(packages);
+} // fn: extractDirectPackages

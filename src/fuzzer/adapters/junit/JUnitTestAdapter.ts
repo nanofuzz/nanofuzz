@@ -14,11 +14,13 @@ import { AbstractTestAdapter } from "../AbstractTestAdapter";
 export class JUnitTestAdapter extends AbstractTestAdapter {
   protected _testSet: FuzzTests;
   protected _module: string;
+  protected _outputFilename?: string;
 
-  constructor(testSet: FuzzTests, module: string) {
+  constructor(testSet: FuzzTests, module: string, outputFilename?: string) {
     super();
     this._testSet = testSet;
     this._module = module;
+    this._outputFilename = outputFilename;
   } // constructor
 
   /**
@@ -32,6 +34,9 @@ export class JUnitTestAdapter extends AbstractTestAdapter {
    * Returns the filename where JUnit/Java tests are persisted.
    */
   public get filename(): string {
+    if (this._outputFilename) {
+      return this._outputFilename;
+    }
     const ext = path.extname(this._module);
     const base = ext ? this._module.slice(0, -ext.length) : this._module;
     return `${base}NanoTest.java`;
@@ -45,7 +50,9 @@ export class JUnitTestAdapter extends AbstractTestAdapter {
   public toString(): string {
     const javaData: string[] = [];
     const baseClassName = path.basename(this._module, ".java");
-    const testClassName = `${baseClassName}NanoTest`;
+    const testClassName = this._outputFilename
+      ? path.basename(this._outputFilename, ".java")
+      : `${baseClassName}NanoTest`;
 
     let pgm: AbstractProgram | undefined;
     try {
@@ -55,7 +62,14 @@ export class JUnitTestAdapter extends AbstractTestAdapter {
     }
 
     const javaPgm = pgm instanceof JavaProgram ? pgm : undefined;
-    const packageName = javaPgm ? javaPgm.getPackageName() : "";
+    const sourcePackageName = javaPgm ? javaPgm.getPackageName() : "";
+    const packageName = this._outputFilename
+      ? inferPackageFromOutputPath(this._outputFilename, sourcePackageName)
+      : sourcePackageName;
+    const fqSourceClass =
+      sourcePackageName && sourcePackageName !== packageName
+        ? `${sourcePackageName}.${baseClassName}`
+        : baseClassName;
 
     // Header comment
     javaData.push(
@@ -106,7 +120,7 @@ export class JUnitTestAdapter extends AbstractTestAdapter {
 
       const isStatic = isMethodStatic(fnObj);
       const rawMethodName = getRawMethodName(fn, fnObj);
-      const targetCallClass = baseClassName;
+      const targetCallClass = fqSourceClass;
 
       let i = -1;
       for (const testId in thisFn.tests) {
@@ -171,11 +185,14 @@ export class JUnitTestAdapter extends AbstractTestAdapter {
               expectedOutput[0].value,
               returnArg
             );
+            const assertFn = isJavaCollectionReturn(returnArg, expectedStr)
+              ? "assertEquals"
+              : "assertArrayEquals";
             javaData.push(
               `    @Test`,
               `    void test_${fn}_${i}_expect() {`,
               `        var actual = ${callStr};`,
-              `        assertArrayEquals(${expectedStr}, actual);`,
+              `        ${assertFn}(${expectedStr}, actual);`,
               `    }`,
               ``
             );
@@ -373,3 +390,63 @@ function getRawMethodName(registeredName: string, fnDef?: FunctionDef): string {
   }
   return registeredName;
 } // fn: getRawMethodName
+
+/**
+ * Checks whether a return type or rendered Java expression represents a Java Collection/List
+ * rather than a primitive/object array (`T[]`), so `assertEquals` is used instead of `assertArrayEquals`.
+ */
+function isJavaCollectionReturn(
+  returnArg?: ArgDef,
+  expectedStr?: string
+): boolean {
+  const listType = returnArg?.getBaseTypeRef() ?? returnArg?.getTypeRef();
+  if (
+    listType === "List" ||
+    listType === "ArrayList" ||
+    listType === "LinkedList" ||
+    listType === "Vector" ||
+    listType === "Collection" ||
+    listType === "Iterable" ||
+    listType === "Queue" ||
+    listType === "Deque" ||
+    listType === "ArrayDeque" ||
+    listType === "PriorityQueue"
+  ) {
+    return true;
+  }
+  if (
+    expectedStr &&
+    (expectedStr.startsWith("new java.util.") ||
+      expectedStr.startsWith("java.util.List.") ||
+      expectedStr.startsWith("java.util.Arrays.asList("))
+  ) {
+    return true;
+  }
+  return false;
+} // fn: isJavaCollectionReturn
+
+/**
+ * Infers the Java package declaration from an output file path (e.g. under `src/test/java/com/foo/BarTest.java`
+ * or `src/main/java/com/foo/BarTest.java`), falling back to `defaultPkg` if no standard root is matched.
+ */
+function inferPackageFromOutputPath(
+  outputFilename: string,
+  defaultPkg: string
+): string {
+  const norm = outputFilename.replace(/\\/g, "/");
+  const dir = path.posix.dirname(norm);
+  const markers = ["/src/test/java", "/src/main/java", "/src"];
+  for (const marker of markers) {
+    const idx = dir.lastIndexOf(marker);
+    if (idx !== -1) {
+      const rel = dir.slice(idx + marker.length).replace(/^\/+|\/+$/g, "");
+      if (!rel) {
+        return "";
+      }
+      if (/^[a-zA-Z_][a-zA-Z0-9_]*(\/[a-zA-Z_][a-zA-Z0-9_]*)*$/.test(rel)) {
+        return rel.replace(/\//g, ".");
+      }
+    }
+  }
+  return defaultPkg;
+} // fn: inferPackageFromOutputPath

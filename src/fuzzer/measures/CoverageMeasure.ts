@@ -496,10 +496,16 @@ export class CoverageMeasure extends AbstractMeasure {
     // 3. Format per-file stats and summary totals
     const coverageSummary = finalMap.getCoverageSummary();
     const files: CodeCoverageFileStats[] = finalMap.files().map((filePath) => {
-      const fileSummary = finalMap.fileCoverageFor(filePath).toSummary();
-      const fileMap = createFileCoverage(
-        structuredClone(finalMap.fileCoverageFor(filePath).data)
-      );
+      const fileCov = finalMap.fileCoverageFor(filePath);
+      const fileSummary = fileCov.toSummary();
+      const raw = fileCov.data;
+      const data =
+        typeof raw === "object" && raw !== null && "data" in raw && isFileCoverageData(raw.data)
+          ? raw.data
+          : isFileCoverageData(raw)
+            ? raw
+            : createFileCoverage(filePath).data;
+      const fileMap = createFileCoverage(structuredClone(data));
 
       // Omit functions and branches with no hits
       for (const k of Object.keys(fileMap.f)) {
@@ -1416,6 +1422,10 @@ export function isRecordOfFileCoverageData(
 ): val is Record<string, FileCoverageData> {
   return typeof val === "object" && val !== null;
 } // fn: isRecordOfFileCoverageData
+
+function isFileCoverageData(obj: unknown): obj is FileCoverageData {
+  return typeof obj === "object" && obj !== null && "statementMap" in obj;
+} // fn: isFileCoverageData
 
 /**
  * Summary of uncovered and partially covered lines across files.
