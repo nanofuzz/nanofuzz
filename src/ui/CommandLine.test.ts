@@ -148,6 +148,12 @@ describe("cli:", () => {
     const versionRes = await runCli(["--version"]);
     expect(versionRes.status).toBe(0);
     expect(versionRes.stdout).toContain("NaNofuzz");
+
+    const mcpHelpRes = await runCli(["mcp", "--help"]);
+    expect(mcpHelpRes.status).toBe(0);
+    expect(mcpHelpRes.stdout).toContain("Usage: nanofuzz mcp");
+    expect(mcpHelpRes.stdout).toContain("--transport");
+    expect(mcpHelpRes.stdout).toContain("--model-provider");
   });
 
   it("returns exit code 4 with reason when target function is unsupported", async () => {

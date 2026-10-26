@@ -17,7 +17,8 @@
   "license": "MIT",
   "main": "build/extension/extension.js",
   "bin": {
-    "nanofuzz": "./build/cli/cli.cjs"
+    "nanofuzz": "./build/cli/cli.cjs",
+    "cli": "./build/cli/cli.cjs"
   },
   "engines": {
     "vscode": "^1.93.0",
@@ -1016,12 +1017,13 @@
     ]
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "@nanofuzz/runtime": "link:./packages/runtime/typescript",
     "@vscode/codicons": "^0.0.46-37",
     "@vscode/webview-ui-toolkit": "^1.2.2",
     "pidusage": "^4.0.1",
-    "tree-sitter-ocaml": "^0.24.2",
     "tree-sitter-java": "^0.23.5",
+    "tree-sitter-ocaml": "^0.24.2",
     "tree-sitter-python": "^0.25.0",
     "tree-sitter-rust": "^0.23.2",
     "tree-sitter-typescript": "^0.23.2",
