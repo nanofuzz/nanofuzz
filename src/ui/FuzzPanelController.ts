@@ -1417,6 +1417,9 @@ export class FuzzPanel {
         this._tester.options = this._fuzzEnv.options;
         this._pauseTesting = false;
 
+        // Yield event loop to DOM re-render and message listener
+        await new Promise((resolve) => setImmediate(resolve));
+
         // Test the function & store the results
         const result = await this._tester.test(
           testsToInject,
