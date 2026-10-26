@@ -35,6 +35,27 @@ module.exports = {
     onDidCloseTerminal: {},
     onDidChangeActiveTerminal: {},
     onDidOpenTerminal: {},
+    createWebviewPanel: () => ({
+      webview: {
+        options: {},
+        html: "",
+        onDidReceiveMessage: () => ({ dispose: () => {} }),
+        postMessage: () => Promise.resolve(true),
+        cspSource: "vscode-webview:",
+        asWebviewUri: (uri) => uri,
+      },
+      reveal: () => {},
+      dispose: () => {},
+      onDidDispose: () => ({ dispose: () => {} }),
+      onDidChangeViewState: () => ({ dispose: () => {} }),
+      viewColumn: 2,
+    }),
+  },
+  ViewColumn: {
+    Active: -1,
+    Beside: -2,
+    One: 1,
+    Two: 2,
   },
   commands: {
     executeCommand: () => null,
@@ -58,6 +79,15 @@ module.exports = {
     file: (k) => {
       return {
         fsPath: k,
+        path: k,
+      };
+    },
+    joinPath: (base, ...segments) => {
+      const p = require("path");
+      const baseFs = base?.fsPath ?? base?.path ?? "";
+      return {
+        fsPath: p.join(baseFs, ...segments),
+        path: p.join(baseFs, ...segments),
       };
     },
   },
