@@ -504,6 +504,65 @@ pub fn calculate(x: i32) -> i32 {
       Config.override("nanofuzz.fuzzer.coverageScope", "project static");
     }
   });
+
+  it("coverage scope: workspace inheritance and [workspace.dependencies] support for Rust directimports", async () => {
+    const wsDir = path.join(tempDir, "test_ws");
+    const wsExtDep = path.join(wsDir, "crates", "ext_dep");
+    const wsApp = path.join(wsDir, "crates", "my_app");
+    fs.mkdirSync(path.join(wsExtDep, "src"), { recursive: true });
+    fs.mkdirSync(path.join(wsApp, "src"), { recursive: true });
+
+    // Workspace root Cargo.toml
+    fs.writeFileSync(
+      path.join(wsDir, "Cargo.toml"),
+      `[workspace]\nmembers = ["crates/*"]\n\n[workspace.package]\nedition = "2021"\nlicense = "MIT"\n\n[workspace.lints.rust]\nunused_variables = "allow"\n\n[workspace.dependencies]\next_dep = { path = "crates/ext_dep" }\n`
+    );
+
+    // Vendored dependency crate using workspace inheritance and [lints]
+    fs.writeFileSync(
+      path.join(wsExtDep, "Cargo.toml"),
+      `[package]\nname = "ext_dep"\nversion = "0.1.0"\nedition.workspace = true\nlicense.workspace = true\n\n[lints]\nworkspace = true\n`
+    );
+    fs.writeFileSync(
+      path.join(wsExtDep, "src", "lib.rs"),
+      `pub fn double(x: i32) -> i32 {\n    x * 2\n}\n`
+    );
+
+    // App crate using workspace dependency
+    fs.writeFileSync(
+      path.join(wsApp, "Cargo.toml"),
+      `[package]\nname = "my_app"\nversion = "0.1.0"\nedition.workspace = true\n\n[dependencies]\next_dep = { workspace = true }\n`
+    );
+    const mainRs = path.join(wsApp, "src", "main.rs");
+    fs.writeFileSync(
+      mainRs,
+      `use ext_dep::double;\n\npub fn run(n: i32) -> i32 {\n    double(n)\n}\n\nfn main() {}\n`
+    );
+
+    const program = ProgramFactory.fromFile(mainRs, "rust");
+    const fnDef = program.functionsExported["run"];
+    const env = createTestEnv(fnDef);
+
+    try {
+      Config.override(
+        "nanofuzz.fuzzer.coverageScope",
+        "project directimports static"
+      );
+      const runner = new RustRunner(mainRs, "run", env);
+      await runner.onRunStart();
+      const res = await runner.run([5], 5000);
+      expect(res.result.tag).toBe("value");
+      if (res.result.tag === "value") {
+        expect(res.result.value).toBe(10);
+      }
+      expect(runner.coverageInfo).toBeDefined();
+      const files = Object.keys(runner.coverageInfo!);
+      expect(files.some((f) => f.includes("ext_dep"))).toBeTrue();
+      await runner.onRunEnd();
+    } finally {
+      Config.override("nanofuzz.fuzzer.coverageScope", "project static");
+    }
+  });
 });
 
 // ============================================================================
