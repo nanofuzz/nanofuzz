@@ -94,14 +94,12 @@ describe("FindBugs", () => {
       "Interactive User Review & Artifact Disposition"
     );
     expect(result.instructions).toContain(
-      "Option 1: Discuss the bugs with the agent"
+      "Option 1: Discuss the bugs with the agent (Recommended)"
     );
     expect(result.instructions).toContain(
       "Option 2: Investigate fixes for the discovered bugs"
     );
-    expect(result.instructions).toContain(
-      "Option 3: Keep bug-eliciting only (Recommended)"
-    );
+    expect(result.instructions).toContain("Option 3: Keep bug-eliciting only");
     expect(result.instructions).toContain(
       "Option 4: Archive bug-eliciting to ZIP"
     );
