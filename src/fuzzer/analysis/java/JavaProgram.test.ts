@@ -495,6 +495,51 @@ public class SignatureDemo {
     expect(sig).toBe("public int multiply(int a, int b)");
   });
 
+  it("retains AST after construction to resolve package name and fully qualified class name", () => {
+    const src = `
+package com.example.demo;
+
+import java.util.Map;
+
+public class PackagedHarness {
+    public static class CustomType {}
+
+    public static Map<String, Object> parseToMap(String input) {
+        return null;
+    }
+
+    public static Map<String, CustomType> parseToCustomMap(String input) {
+        return null;
+    }
+}
+`;
+    const program = ProgramFactory.fromSource(
+      () => src,
+      "java",
+      "PackagedHarness.java"
+    );
+
+    expect(program instanceof JavaProgram).toBeTrue();
+    if (program instanceof JavaProgram) {
+      expect(program.getPackageName()).toBe("com.example.demo");
+      expect(program.getFqClassName("parseToMap")).toBe(
+        "com.example.demo.PackagedHarness"
+      );
+    }
+
+    const parseToMapFn = program.functionsExported["parseToMap"];
+    expect(parseToMapFn).toBeDefined();
+    const returnArg = parseToMapFn.getReturnArg();
+    expect(returnArg).toBeDefined();
+    expect(
+      JavaProgram.getTypeAnnotation(returnArg!, { useTypeRefs: true })
+    ).toBe("Map<String, Object>");
+
+    const customMapFn = program.functionsExported["parseToCustomMap"];
+    expect(customMapFn).toBeDefined();
+    expect(customMapFn.getReturnArg()).toBeUndefined();
+  });
+
   it("finds local sibling Java source files in the same directory", () => {
     const tmpDir = fs.mkdtempSync(
       path.join(fs.realpathSync(os.tmpdir()), "nanofuzz-java-test-")
