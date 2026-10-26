@@ -168,6 +168,16 @@ export abstract class AbstractHost {
     return this._isActive;
   } // get: isActive
 
+  public get stderr(): string {
+    return this._stderrChunks.length > 0
+      ? Buffer.concat(this._stderrChunks).toString("utf-8")
+      : "";
+  } // get: stderr
+
+  public get exitCode(): number | null {
+    return this._proc ? this._proc.exitCode : null;
+  } // get: exitCode
+
   protected _onStdout = (chunk: Buffer): void => {
     this._stdoutChunks.push(chunk);
     this._stdoutBytes += chunk.length;

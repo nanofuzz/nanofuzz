@@ -14,6 +14,7 @@ import * as JSONN from "../../../Jsonn";
 import { PutTimeoutName } from "../AbstractHost";
 import { RustHost } from "./RustHost";
 import { buildRustHarness } from "./RustHarness";
+import { getSanitizerAdapter } from "./sanitizers/Registry";
 
 /**
  * Test runner for compiled Rust targets.
@@ -24,6 +25,7 @@ export class RustRunner extends AbstractRunner {
   protected _env: FuzzEnv | undefined;
   protected _overrides: RunnerOverrides;
   protected _host: RustHost | undefined = undefined;
+  protected _sanitizerName: string = "none";
   protected _seq = 0;
   protected _harnessBinary: string | undefined = undefined;
   protected _harnessDir: string | undefined = undefined;
@@ -58,8 +60,15 @@ export class RustRunner extends AbstractRunner {
       this._coverageEnabled =
         this._env.options.measures.CoverageMeasure.enabled;
     }
+    this._sanitizerName = Config.get<string>("nanofuzz.rust.sanitizer", "none");
     const { binaryPath, harnessDir, staticCov, staticCovMap } =
-      buildRustHarness(this._filename, this._fn, this._env);
+      buildRustHarness(
+        this._filename,
+        this._fn,
+        this._env,
+        undefined,
+        this._sanitizerName
+      );
     this._harnessBinary = binaryPath;
     this._harnessDir = harnessDir;
     const realFile = fs.existsSync(this._filename)
@@ -196,6 +205,8 @@ export class RustRunner extends AbstractRunner {
         env: {},
       };
     } catch (e: unknown) {
+      const hostStderr = this._host ? this._host.stderr : "";
+      const hostExitCode = this._host ? this._host.exitCode : null;
       this.killHost();
       if (!isError(e)) {
         throw e;
@@ -203,6 +214,21 @@ export class RustRunner extends AbstractRunner {
       if (e.name === PutTimeoutName) {
         return { result: { tag: "timeout", seq: thisSeq }, env: {} };
       } else {
+        const sanitizerAdapter = getSanitizerAdapter(this._sanitizerName);
+        const diag = sanitizerAdapter.parseAbort(hostStderr, hostExitCode);
+        if (diag) {
+          return {
+            result: {
+              tag: "error",
+              name: diag.name,
+              message: diag.summary,
+              stack: diag.stack ?? diag.rawReport,
+              source: "put",
+              seq: thisSeq,
+            },
+            env: {},
+          };
+        }
         return {
           result: {
             tag: "error",
@@ -226,8 +252,18 @@ export class RustRunner extends AbstractRunner {
     }
 
     if (!this._harnessBinary) {
+      this._sanitizerName = Config.get<string>(
+        "nanofuzz.rust.sanitizer",
+        "none"
+      );
       const { binaryPath, harnessDir, staticCov, staticCovMap } =
-        buildRustHarness(this._filename, this._fn, this._env);
+        buildRustHarness(
+          this._filename,
+          this._fn,
+          this._env,
+          undefined,
+          this._sanitizerName
+        );
       this._harnessBinary = binaryPath;
       this._harnessDir = harnessDir;
       const realFile = fs.existsSync(this._filename)
@@ -245,7 +281,14 @@ export class RustRunner extends AbstractRunner {
       this._pgmFiles = Object.keys(allStaticCov);
     }
 
-    const host = new RustHost(this._harnessBinary, [], this._harnessDir);
+    const sanitizerAdapter = getSanitizerAdapter(this._sanitizerName);
+    const hostEnv = sanitizerAdapter.configureHostEnv(process.env);
+    const host = new RustHost(
+      this._harnessBinary,
+      [],
+      this._harnessDir,
+      hostEnv
+    );
     const hostStartupTimeout = Config.get<number>(
       "nanofuzz.fuzzer.hostStartupTimeout",
       20000

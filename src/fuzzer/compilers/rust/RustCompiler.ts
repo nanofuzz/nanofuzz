@@ -53,6 +53,8 @@ export class RustCompiler {
 
     this._cargoPath = RustCompiler.resolveCargo();
     this._rustcPath = RustCompiler.resolveRustc(this._cargoPath);
+    this._cargoVersion = RustCompiler.getCargoVersion(this._cargoPath);
+    this._rustcVersion = RustCompiler.getRustcVersion(this._rustcPath);
     this._options = structuredClone(defaultRustCompilerOptions);
   } // constructor
 
@@ -97,6 +99,13 @@ export class RustCompiler {
   get rustcPath(): string | undefined {
     return this._rustcPath;
   } // get: rustcPath
+
+  /**
+   * Sets the rustc version for testing staleness detection.
+   */
+  public setRustcVersionForTest(version: string): void {
+    this._rustcVersion = version;
+  } // fn: setRustcVersionForTest
 
   /**
    * Returns clean source file paths for all dependencies required during compilation.
@@ -179,6 +188,32 @@ export class RustCompiler {
       return "compilerchanged";
     }
 
+    const currentRustc =
+      this._rustcPath ?? RustCompiler.resolveRustc(currentCargo);
+    if (compRec.rustcPath && compRec.rustcPath !== (currentRustc ?? "")) {
+      return "compilerchanged";
+    }
+
+    const currentCargoVer =
+      this._cargoVersion ?? RustCompiler.getCargoVersion(currentCargo);
+    if (
+      compRec.cargoVersion &&
+      currentCargoVer &&
+      compRec.cargoVersion !== currentCargoVer
+    ) {
+      return "compilerchanged";
+    }
+
+    const currentRustcVer =
+      this._rustcVersion ?? RustCompiler.getRustcVersion(currentRustc);
+    if (
+      compRec.rustcVersion &&
+      currentRustcVer &&
+      compRec.rustcVersion !== currentRustcVer
+    ) {
+      return "compilerchanged";
+    }
+
     return false;
   } // fn: isStale
 
@@ -213,7 +248,8 @@ export class RustCompiler {
     let cmd: string;
     let args: string[];
     let cwd: string;
-    const runtimeRlib = findRuntimeRlib(this._projectPath);
+    const rustcVer = this._rustcVersion ?? RustCompiler.getRustcVersion(rustc);
+    const runtimeRlib = findRuntimeRlib(this._projectPath, rustcVer);
     const spawnEnv: NodeJS.ProcessEnv = { ...process.env };
 
     if (this._cargoTomlPath && cargo) {
@@ -331,6 +367,14 @@ export class RustCompiler {
         // ignore parallel worker cleanup collisions
       }
     }
+
+    const runtimeCrate = findRuntimeCrate();
+    if (runtimeCrate) {
+      const stamp = path.join(runtimeCrate, "target", ".nanofuzz_rustc_stamp");
+      if (fs.existsSync(stamp)) {
+        fs.rmSync(stamp, { force: true });
+      }
+    }
   } // fn: clean
 
   /**
@@ -425,6 +469,54 @@ export class RustCompiler {
 
     return undefined;
   } // fn: resolveRustc
+
+  /**
+   * Returns the version string for cargo (e.g. from `cargo --version`).
+   */
+  public static getCargoVersion(
+    cargoBin?: string,
+    env?: Record<string, string | undefined>
+  ): string | undefined {
+    const bin = cargoBin ?? RustCompiler.resolveCargo(undefined, env);
+    if (!bin) return undefined;
+    const res = ChildProcess.spawnSync(bin, ["--version"], {
+      env: env ? { ...process.env, ...env } : process.env,
+      encoding: "utf8",
+      windowsHide: true,
+      timeout: 2000,
+    });
+    if (res.error) {
+      throw res.error;
+    }
+    if (res.status === 0 && res.stdout) {
+      return res.stdout.trim();
+    }
+    return undefined;
+  } // fn: getCargoVersion
+
+  /**
+   * Returns the version string for rustc (e.g. from `rustc --version`).
+   */
+  public static getRustcVersion(
+    rustcBin?: string,
+    env?: Record<string, string | undefined>
+  ): string | undefined {
+    const bin = rustcBin ?? RustCompiler.resolveRustc(undefined, env);
+    if (!bin) return undefined;
+    const res = ChildProcess.spawnSync(bin, ["--version"], {
+      env: env ? { ...process.env, ...env } : process.env,
+      encoding: "utf8",
+      windowsHide: true,
+      timeout: 2000,
+    });
+    if (res.error) {
+      throw res.error;
+    }
+    if (res.status === 0 && res.stdout) {
+      return res.stdout.trim();
+    }
+    return undefined;
+  } // fn: getRustcVersion
 
   /**
    * Probes whether an executable can be spawned successfully.
@@ -546,13 +638,15 @@ export class RustCompiler {
       : undefined;
 
     return {
-      fileVersion: "RustCompilationRecord-0.4.0",
+      fileVersion: "RustCompilationRecord-0.4.1",
       srcFile: this._moduleFile,
       srcDatetime: srcMtime,
       cargoTomlFile: this._cargoTomlPath,
       cargoTomlDatetime: cargoTomlMtime,
       cargoPath: this._cargoPath ?? "",
+      cargoVersion: this._cargoVersion,
       rustcPath: this._rustcPath ?? "",
+      rustcVersion: this._rustcVersion,
       compiledAt: new Date().toISOString(),
     };
   } // fn: _newCompilationRecord
@@ -577,7 +671,9 @@ type RustCompilationRecord = {
   cargoTomlFile?: string;
   cargoTomlDatetime?: string;
   cargoPath: string;
+  cargoVersion?: string;
   rustcPath: string;
+  rustcVersion?: string;
   compiledAt: string;
 };
 
@@ -587,7 +683,8 @@ function isRustCompilationRecord(obj: unknown): obj is RustCompilationRecord {
     obj !== null &&
     !Array.isArray(obj) &&
     "fileVersion" in obj &&
-    obj.fileVersion === "RustCompilationRecord-0.4.0" &&
+    (obj.fileVersion === "RustCompilationRecord-0.4.1" ||
+      obj.fileVersion === "RustCompilationRecord-0.4.0") &&
     "srcFile" in obj &&
     "srcDatetime" in obj &&
     "compiledAt" in obj
@@ -677,7 +774,69 @@ function parseRustCompilerOutput(
   };
 } // fn: parseRustCompilerOutput
 
-function findRuntimeRlib(userProjectPath?: string): string | undefined {
+function findRuntimeCrate(): string | undefined {
+  const currModuleDir = path.dirname(path.resolve(module.filename));
+  const projectRoot = findInAncestor(currModuleDir, "package.json");
+  const candidates: string[] = [];
+
+  if (projectRoot) {
+    const rootDir = path.dirname(projectRoot);
+    candidates.push(path.join(rootDir, "packages", "runtime", "rust"));
+    candidates.push(
+      path.join(rootDir, "build", "extension", "nanofuzz-runtime")
+    );
+  }
+
+  candidates.push(path.resolve("./packages/runtime/rust"));
+  candidates.push(path.resolve("./build/extension/nanofuzz-runtime"));
+
+  for (const c of candidates) {
+    if (fs.existsSync(path.join(c, "Cargo.toml"))) {
+      return c;
+    }
+  }
+
+  return undefined;
+} // fn: findRuntimeCrate
+
+function findRuntimeRlib(
+  userProjectPath?: string,
+  rustcVer?: string
+): string | undefined {
+  const runtimeCrate = findRuntimeCrate();
+  if (runtimeCrate && rustcVer) {
+    const targetDir = path.join(runtimeCrate, "target");
+    const stampFile = path.join(targetDir, ".nanofuzz_rustc_stamp");
+    let needsRebuild = true;
+
+    if (fs.existsSync(stampFile)) {
+      const recordedVer = fs.readFileSync(stampFile, "utf8").trim();
+      if (recordedVer === rustcVer.trim()) {
+        needsRebuild = false;
+      }
+    }
+
+    if (needsRebuild) {
+      const cargo = RustCompiler.resolveCargo();
+      if (cargo) {
+        const res = ChildProcess.spawnSync(
+          cargo,
+          ["build", "--manifest-path", path.join(runtimeCrate, "Cargo.toml")],
+          {
+            cwd: runtimeCrate,
+            stdio: "ignore",
+            windowsHide: true,
+            timeout: 60000,
+          }
+        );
+        if (res.status === 0) {
+          fs.mkdirSync(targetDir, { recursive: true });
+          fs.writeFileSync(stampFile, rustcVer.trim(), "utf8");
+        }
+      }
+    }
+  }
+
   const currModuleDir = path.dirname(path.resolve(module.filename));
   const projectRoot = findInAncestor(currModuleDir, "package.json");
   const candidates: string[] = [];

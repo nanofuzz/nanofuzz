@@ -308,6 +308,19 @@
               "experimental"
             ]
           },
+          "nanofuzz.rust.sanitizer": {
+            "title": "Rust Sanitizer",
+            "type": "string",
+            "enum": [
+              "none",
+              "borrow"
+            ],
+            "default": "none",
+            "description": "Sanitizer to enable when compiling and executing Rust fuzz targets (e.g. 'none', 'borrow').",
+            "tags": [
+              "experimental"
+            ]
+          },
           "nanofuzz.oxcaml.dunePath": {
             "title": "Path to dune executable",
             "type": "string",
