@@ -9,7 +9,8 @@ import { JUnitTestAdapter } from "./junit/JUnitTestAdapter";
 
 export function fromSourceFilename(
   filename: string,
-  testSet: FuzzTests
+  testSet: FuzzTests,
+  outputFilename?: string
 ): AbstractTestAdapter {
   const lang = ProgramFactory.getLanguage({ filename });
   switch (lang) {
@@ -22,9 +23,9 @@ export function fromSourceFilename(
     case "oxcaml":
       return new DuneTestAdapter(testSet, filename);
     case "java":
-      return new JUnitTestAdapter(testSet, filename);
+      return new JUnitTestAdapter(testSet, filename, outputFilename);
     case "*":
     default:
       throw new Error(`Unsupported program type: ${filename}`);
   }
-}
+} // fn: fromSourceFilename
