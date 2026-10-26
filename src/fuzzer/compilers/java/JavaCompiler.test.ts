@@ -186,6 +186,36 @@ public class HarnessSample {
     expect(compiler.isStale()).toBe("configchanged");
   });
 
+  it("includes dependency JARs from target/dependency and lib in getProjectClasspathEntries", () => {
+    const projDir = path.join(tempDir, "maven_deps_proj");
+    const srcMainDir = path.join(projDir, "src", "main", "java");
+    const srcTestDir = path.join(projDir, "src", "test", "java");
+    const targetDepDir = path.join(projDir, "target", "dependency");
+    fs.mkdirSync(srcMainDir, { recursive: true });
+    fs.mkdirSync(srcTestDir, { recursive: true });
+    fs.mkdirSync(targetDepDir, { recursive: true });
+
+    fs.writeFileSync(
+      path.join(projDir, "pom.xml"),
+      `<project><modelVersion>4.0.0</modelVersion><groupId>test</groupId><artifactId>test</artifactId><version>1.0</version></project>`
+    );
+    const dummyJar = path.join(targetDepDir, "helper.jar");
+    fs.writeFileSync(dummyJar, "");
+
+    const mainFile = path.join(srcMainDir, "Main.java");
+    const testFile = path.join(srcTestDir, "MainTest.java");
+    fs.writeFileSync(mainFile, "public class Main {}");
+    fs.writeFileSync(testFile, "public class MainTest {}");
+
+    const compiler = new JavaCompiler(mainFile);
+    expect(compiler.getProjectClasspathEntries()).toContain(dummyJar);
+    expect(compiler.getCompiledDependencies()).toContain(mainFile);
+    expect(compiler.getCompiledDependencies()).not.toContain(testFile);
+
+    const testCompiler = new JavaCompiler(testFile);
+    expect(testCompiler.getCompiledDependencies()).toContain(testFile);
+  });
+
   it("throws JavaCompilerError with diagnostic line and col on syntax errors", () => {
     const brokenJava = path.join(tempDir, "Broken.java");
     fs.writeFileSync(
