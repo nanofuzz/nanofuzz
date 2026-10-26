@@ -7,7 +7,8 @@ import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { z } from "zod";
 import * as Config from "../Config";
 import * as JSONN from "../Jsonn";
-import { listTargets, runFuzz } from "./Agent";
+import { listTargets, runFuzz, shrinkInputs } from "./Agent";
+import { findBugs } from "./FindBugs";
 import { LlmAdapter } from "../fuzzer/adapters/LlmAdapter";
 import * as CompilerFactory from "../fuzzer/compilers/CompilerFactory";
 import pkg from "../../package.json";
@@ -96,10 +97,10 @@ export async function createMcpServer(
       maxTests: z
         .number()
         .int()
-        .positive()
+        .nonnegative()
         .optional()
         .describe(
-          "Maximum number of test cases to generate and execute (default: 1000)."
+          "Maximum number of test cases to generate and execute (default: 1000, 0 for no limit / run until timeoutMs)."
         ),
       timeoutMs: z
         .number()
@@ -171,6 +172,29 @@ export async function createMcpServer(
         .describe(
           "Optional destination file path (e.g. 'tests/test_math.py', 'src/math.test.ts', 'tests/test_math.rs', or 'src/test/java/MathNanoTest.java') where the synthesized test suite will be written directly to disk."
         ),
+      coverageScope: z
+        .enum([
+          "project",
+          "project static",
+          "project directimports",
+          "project directimports static",
+        ])
+        .optional()
+        .describe("Code coverage scope (e.g. 'project directimports')."),
+      fnTimeout: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe(
+          "Per-test function execution timeout in milliseconds (default: 500)."
+        ),
+      useTransformer: z
+        .boolean()
+        .optional()
+        .describe(
+          "Whether to apply the <fn>Transformer function if present (true for semantic mode, false for adversarial robustness mode)."
+        ),
     },
     async (args, extra) => {
       const isAiConfigured =
@@ -183,6 +207,7 @@ export async function createMcpServer(
           filePath: args.filePath,
           functionName: args.functionName,
           maxTests: args.maxTests,
+          fnTimeout: args.fnTimeout,
           suiteTimeout: args.timeoutMs,
           maxFailures: args.maxFailures,
           seed: args.seed,
@@ -192,6 +217,8 @@ export async function createMcpServer(
           tests: args.tests,
           exportSuite: args.exportSuite,
           exportFilePath: args.exportFilePath,
+          coverageScope: args.coverageScope,
+          useTransformer: args.useTransformer,
           enableCopilotAi: false,
           noConfigFile: options?.noConfigFile,
           generators: {
@@ -209,6 +236,136 @@ export async function createMcpServer(
           },
         ],
         ...(result.status === "error" ? { isError: true } : {}),
+      };
+    }
+  );
+
+  server.tool(
+    "nanofuzz_findBugs",
+    "Guides an autonomous agent through multi-turn invariant extraction, constructive harness synthesis, and coverage-gated fuzzing to discover unknown bugs in a repository using NaNofuzz.",
+    {
+      phase: z
+        .enum(["init", "invariants_extracted", "fuzz_entrypoint", "complete"])
+        .optional()
+        .describe(
+          "Workflow phase: 'init' to start discovery and black-box invariant extraction; 'invariants_extracted' to submit invariants and receive harness/validator instructions; 'fuzz_entrypoint' to get execution and triage guidance for a specific entrypoint; 'complete' to finalize findings and choose artifact disposition."
+        ),
+      model: z
+        .string()
+        .describe(
+          "The calling agent's language model family/name (e.g. 'gemini-2.0-flash', 'claude-3.5-sonnet', 'gpt-4o'). Required."
+        ),
+      vendor: z
+        .string()
+        .describe(
+          "The calling agent's language model vendor/provider identifier (e.g. 'google', 'copilot', 'gemini', 'openai'). Required."
+        ),
+      targetPath: z
+        .string()
+        .optional()
+        .describe(
+          "Workspace-relative or absolute path to the project or file to test. Defaults to workspace root."
+        ),
+      repoUrl: z
+        .string()
+        .optional()
+        .describe("Optional Git repository URL to clone and test."),
+      statePayload: z
+        .record(z.string(), z.unknown())
+        .optional()
+        .describe(
+          "Structured JSON state payload when transitioning phases (e.g. extracted invariants, entrypoint name, or final findings)."
+        ),
+    },
+    async (args) => {
+      const result = await findBugs({
+        phase: args.phase,
+        model: args.model,
+        vendor: args.vendor,
+        targetPath: args.targetPath,
+        repoUrl: args.repoUrl,
+        statePayload: args.statePayload,
+      });
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: result.summaryText,
+          },
+        ],
+      };
+    }
+  );
+
+  server.tool(
+    "nanofuzz_shrinkInputs",
+    "Minimizes and shrinks one or more test inputs or counterexamples for a target function to find the simplest, canonical inputs that reproduce the same failure or execution outcome. Accepts a file path, target function name, and an array of input objects.",
+    {
+      filePath: z
+        .string()
+        .describe(
+          "Absolute or workspace-relative path to the source file containing the target function."
+        ),
+      functionName: z
+        .string()
+        .describe("The exact name of the function under test."),
+      inputs: z
+        .array(
+          z.union([z.record(z.string(), z.unknown()), z.array(z.unknown())])
+        )
+        .describe(
+          "Array of input objects mapping parameter names to argument values to shrink."
+        ),
+      fnTimeout: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe(
+          "Per-test function execution timeout in milliseconds (default: 500)."
+        ),
+      maxShrinkTime: z
+        .number()
+        .int()
+        .nonnegative()
+        .optional()
+        .describe(
+          "Maximum time in milliseconds allowed for shrinking per input (default: 2000, 0=no limit)."
+        ),
+      maxSteps: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe(
+          "Maximum number of shrink steps to attempt per input (default: 100)."
+        ),
+      seed: z
+        .string()
+        .optional()
+        .describe(
+          "Optional pseudo-random generator seed for deterministic shrinking."
+        ),
+    },
+    async (args) => {
+      const result = await shrinkInputs({
+        filePath: args.filePath,
+        functionName: args.functionName,
+        inputs: args.inputs,
+        fnTimeout: args.fnTimeout,
+        maxShrinkTime: args.maxShrinkTime,
+        maxSteps: args.maxSteps,
+        seed: args.seed,
+      });
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: result.summaryText,
+          },
+        ],
       };
     }
   );

@@ -44,6 +44,9 @@ describe("McpServer", () => {
 
     expect(toolNames).toContain("nanofuzz_listTargets");
     expect(toolNames).toContain("nanofuzz_fuzzFunction");
+    expect(toolNames).toContain("nanofuzz_findBugs");
+    expect(toolNames).toContain("nanofuzz_shrinkInputs");
+    expect(toolNames).not.toContain("nanofuzz_showResults");
 
     await client.close();
     await server.close();
@@ -104,6 +107,127 @@ describe("McpServer", () => {
         functionName: "testStandardVoidReturnUndefined",
         maxTests: 5,
         timeoutMs: 2000,
+      },
+    });
+
+    expect(result).toBeDefined();
+    expect(Array.isArray(result.content)).toBeTrue();
+    if (Array.isArray(result.content)) {
+      expect(result.content.length).toBeGreaterThan(0);
+      const firstContent = result.content[0];
+      expect(isTextContent(firstContent)).toBeTrue();
+      if (isTextContent(firstContent)) {
+        expect(firstContent.text).toContain("testStandardVoidReturnUndefined");
+      }
+    }
+
+    await client.close();
+    await server.close();
+  });
+
+  it("invokes nanofuzz_findBugs", async () => {
+    const server = await createMcpServer();
+    const client = new Client(
+      { name: "test-client", version: "1.0.0" },
+      { capabilities: {} }
+    );
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      server.connect(serverTransport),
+    ]);
+
+    const result = await client.callTool({
+      name: "nanofuzz_findBugs",
+      arguments: {
+        phase: "init",
+        model: "gemini-2.0-flash",
+        vendor: "google",
+      },
+    });
+
+    expect(result).toBeDefined();
+    expect(Array.isArray(result.content)).toBeTrue();
+    if (Array.isArray(result.content)) {
+      expect(result.content.length).toBeGreaterThan(0);
+      const firstContent = result.content[0];
+      expect(isTextContent(firstContent)).toBeTrue();
+      if (isTextContent(firstContent)) {
+        expect(firstContent.text).toContain("Find Bugs: Phase `init`");
+        expect(firstContent.text).toContain(
+          "DO NOT READ THE INTERNAL IMPLEMENTATION BODIES"
+        );
+      }
+    }
+
+    await client.close();
+    await server.close();
+  });
+
+  it("invokes nanofuzz_shrinkInputs", async () => {
+    const server = await createMcpServer();
+    const client = new Client(
+      { name: "test-client", version: "1.0.0" },
+      { capabilities: {} }
+    );
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      server.connect(serverTransport),
+    ]);
+
+    const result = await client.callTool({
+      name: "nanofuzz_shrinkInputs",
+      arguments: {
+        filePath: tsFixture,
+        functionName: "testStandardVoidReturnException",
+        inputs: [{ _x: 99999 }],
+      },
+    });
+
+    expect(result).toBeDefined();
+    expect(Array.isArray(result.content)).toBeTrue();
+    if (Array.isArray(result.content)) {
+      expect(result.content.length).toBeGreaterThan(0);
+      const firstContent = result.content[0];
+      expect(isTextContent(firstContent)).toBeTrue();
+      if (isTextContent(firstContent)) {
+        expect(firstContent.text).toContain("NaNofuzz Input Shrinking");
+      }
+    }
+
+    await client.close();
+    await server.close();
+  });
+
+  it("invokes nanofuzz_fuzzFunction with extended options (coverageScope, fnTimeout, useTransformer, maxTests: 0)", async () => {
+    const server = await createMcpServer();
+    const client = new Client(
+      { name: "test-client", version: "1.0.0" },
+      { capabilities: {} }
+    );
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      server.connect(serverTransport),
+    ]);
+
+    const result = await client.callTool({
+      name: "nanofuzz_fuzzFunction",
+      arguments: {
+        filePath: tsFixture,
+        functionName: "testStandardVoidReturnUndefined",
+        maxTests: 0,
+        timeoutMs: 1000,
+        fnTimeout: 300,
+        coverageScope: "project",
+        useTransformer: false,
       },
     });
 
