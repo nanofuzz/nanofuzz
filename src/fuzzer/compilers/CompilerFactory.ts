@@ -3,6 +3,7 @@ import { TypescriptCompiler } from "./TypescriptCompiler";
 import { RustCompiler } from "./rust/RustCompiler";
 import { OxcamlCompiler } from "./oxcaml/OxcamlCompiler";
 import { JavaCompiler } from "./java/JavaCompiler";
+import { Instrumenter } from "./Instrumenter";
 
 export { TypescriptCompiler, RustCompiler, OxcamlCompiler, JavaCompiler };
 
@@ -40,6 +41,7 @@ export function needsCompilation(fqSrcFile: string): boolean {
  */
 export function clean(): void {
   TypescriptCompiler.clean();
+  Instrumenter.clean();
   RustCompiler.clean();
   OxcamlCompiler.clean();
   JavaCompiler.clean();
