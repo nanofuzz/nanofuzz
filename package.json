@@ -313,10 +313,11 @@
             "type": "string",
             "enum": [
               "none",
-              "borrow"
+              "borrow",
+              "address"
             ],
             "default": "none",
-            "description": "Sanitizer to enable when compiling and executing Rust fuzz targets (e.g. 'none', 'borrow').",
+            "description": "Sanitizer to enable when compiling and executing Rust fuzz targets (e.g. 'none', 'borrow', 'address').",
             "tags": [
               "experimental"
             ]

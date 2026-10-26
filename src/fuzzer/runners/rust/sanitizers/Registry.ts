@@ -1,6 +1,7 @@
 import { RustSanitizerAdapter, SanitizerId } from "./Types";
 import { NoneSanitizer } from "./NoneSanitizer";
 import { BorrowSanitizer } from "./BorrowSanitizer";
+import { AddressSanitizer } from "./AddressSanitizer";
 
 const registry: Map<SanitizerId, RustSanitizerAdapter> = new Map();
 
@@ -11,6 +12,7 @@ function initRegistry(): void {
   if (registry.size === 0) {
     registry.set("none", new NoneSanitizer());
     registry.set("borrow", new BorrowSanitizer());
+    registry.set("address", new AddressSanitizer());
   }
 } // fn: initRegistry
 

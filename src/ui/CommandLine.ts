@@ -295,8 +295,8 @@ function createProgram(): Commander.Command {
     // -------------------------------- Language --------------------------------- //
 
     .option(
-      `--rust-sanitizer <none|borrow>`,
-      `Rust sanitizer: none, borrow`,
+      `--rust-sanitizer <none|borrow|address>`,
+      `Rust sanitizer: none, borrow, address`,
       "none"
     )
 

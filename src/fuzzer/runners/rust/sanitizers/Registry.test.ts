@@ -1,6 +1,7 @@
 import { getSanitizerAdapter } from "./Registry";
 import { NoneSanitizer } from "./NoneSanitizer";
 import { BorrowSanitizer } from "./BorrowSanitizer";
+import { AddressSanitizer } from "./AddressSanitizer";
 
 describe("fuzzer/runners/rust/sanitizers/Registry", () => {
   it("resolves default 'none' sanitizer", () => {
@@ -21,6 +22,13 @@ describe("fuzzer/runners/rust/sanitizers/Registry", () => {
     expect(adapter).toBeDefined();
     expect(adapter instanceof BorrowSanitizer).toBeTrue();
     expect(adapter.id).toBe("borrow");
+  });
+
+  it("resolves 'address' sanitizer", () => {
+    const adapter = getSanitizerAdapter("address");
+    expect(adapter).toBeDefined();
+    expect(adapter instanceof AddressSanitizer).toBeTrue();
+    expect(adapter.id).toBe("address");
   });
 
   it("throws on unknown sanitizer name without fallback", () => {
