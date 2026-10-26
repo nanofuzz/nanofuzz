@@ -366,6 +366,7 @@ public class Calc {
     );
 
     if (
+      runtimeJar &&
       fs.existsSync(runtimeJar) &&
       fs.existsSync(junitApiJar) &&
       fs.existsSync(opentestJar)
