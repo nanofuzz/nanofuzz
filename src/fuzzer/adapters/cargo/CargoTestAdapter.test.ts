@@ -252,9 +252,7 @@ describe("fuzzer/adapters/cargo/CargoTestAdapter:", () => {
     expect(out).toContain(
       "// [NaNofuzz] Note: This failure was detected by BorrowSanitizer."
     );
-    expect(out).toContain(
-      '// Run with: RUSTFLAGS="-Zsanitizer=borrow" cargo test'
-    );
+    expect(out).toContain("// Run with: cargo bsan test");
     expect(out).toContain("#[should_panic]");
     Config.override("nanofuzz.rust.sanitizer", "none");
   }); // fn: emits reproduction banner

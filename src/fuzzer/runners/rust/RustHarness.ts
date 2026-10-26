@@ -291,12 +291,24 @@ export function buildRustHarness(
   }
 
   // Return cached binary if it already exists and is up-to-date relative to all project files
+  let cachedBinaryPath = binaryPath;
+  if (!fs.existsSync(cachedBinaryPath) && fs.existsSync(sharedTargetDir)) {
+    const entries = fs.readdirSync(sharedTargetDir);
+    for (const entry of entries) {
+      const candidate = path.join(sharedTargetDir, entry, "debug", binName);
+      if (fs.existsSync(candidate)) {
+        cachedBinaryPath = candidate;
+        break;
+      }
+    }
+  }
+
   if (
-    fs.existsSync(binaryPath) &&
-    fs.statSync(binaryPath).mtimeMs >= maxMtime
+    fs.existsSync(cachedBinaryPath) &&
+    fs.statSync(cachedBinaryPath).mtimeMs >= maxMtime
   ) {
     return {
-      binaryPath,
+      binaryPath: cachedBinaryPath,
       harnessDir,
       staticCov: targetCov.staticCov,
       staticCovMap,
@@ -427,8 +439,9 @@ ${patchSection}
     ...(combinedRustflags ? { RUSTFLAGS: combinedRustflags } : {}),
   };
 
+  const subcmd = sanitizerBuildConfig.cargoCommand ?? ["build"];
   const cargoBuildArgs = [
-    "build",
+    ...subcmd,
     "--manifest-path",
     path.join(harnessDir, "Cargo.toml"),
     "--target-dir",
@@ -445,7 +458,33 @@ ${patchSection}
     env: spawnEnv,
   });
 
-  if (buildRes.status !== 0 || !fs.existsSync(binaryPath)) {
+  // Attempt to resolve compiled executable from cargo's artifact messages
+  let compiledBinary = binaryPath;
+  if (buildRes.stdout) {
+    const lines = buildRes.stdout.split(/\r?\n/);
+    for (const line of lines) {
+      if (!line.startsWith("{")) continue;
+      try {
+        const parsed: unknown = JSON.parse(line);
+        if (
+          parsed &&
+          typeof parsed === "object" &&
+          "reason" in parsed &&
+          parsed.reason === "compiler-artifact" &&
+          "executable" in parsed &&
+          typeof parsed.executable === "string" &&
+          parsed.executable.length > 0 &&
+          path.basename(parsed.executable) === binName
+        ) {
+          compiledBinary = parsed.executable;
+        }
+      } catch {
+        // ignore non-json lines
+      }
+    }
+  }
+
+  if (buildRes.status !== 0 || !fs.existsSync(compiledBinary)) {
     throw new RustCompilerError("Failed to build Rust fuzzing harness", {
       inputFile: normTarget,
       cargoTomlPath: userCargoToml,
@@ -459,7 +498,7 @@ ${patchSection}
   }
 
   return {
-    binaryPath,
+    binaryPath: compiledBinary,
     harnessDir,
     staticCov: targetCov.staticCov,
     staticCovMap,

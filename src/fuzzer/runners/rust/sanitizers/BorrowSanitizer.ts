@@ -23,7 +23,7 @@ export class BorrowSanitizer implements RustSanitizerAdapter {
    * @returns Cargo invocation required to reproduce borrow errors
    */
   public getReproductionCommand(): string {
-    return 'RUSTFLAGS="-Zsanitizer=borrow" cargo test -Zbuild-std=core,alloc,std';
+    return "cargo bsan test";
   } // fn: getReproductionCommand
 
   /**
@@ -78,7 +78,17 @@ export class BorrowSanitizer implements RustSanitizerAdapter {
     const env: NodeJS.ProcessEnv = { ...baseEnv };
     env.RUSTUP_TOOLCHAIN = "bsan";
 
+    if (this._isCargoBsanAvailable(baseEnv)) {
+      return {
+        cargoCommand: ["bsan", "build"],
+        rustflags: [],
+        cargoArgs: [],
+        env,
+      };
+    }
+
     return {
+      cargoCommand: ["build"],
       rustflags: ["-Zsanitizer=borrow"],
       cargoArgs: ["-Zbuild-std=core,alloc,std"],
       env,
@@ -124,13 +134,18 @@ export class BorrowSanitizer implements RustSanitizerAdapter {
     if (headerMatch) {
       summary = headerMatch[1].trim();
     } else {
+      const ubMatch = stderr.match(
+        /error:\s*Undefined Behavior:\s*([^\n\r]+)/i
+      );
       const fatalMatch = stderr.match(
         /fatal error:\s*(?:BorrowSanitizer|bsan)\s*(?:detected\s*)?:?\s*([^\n\r]+)/i
       );
-      if (fatalMatch) {
+      if (ubMatch) {
+        summary = `Undefined Behavior: ${ubMatch[1].trim()}`;
+      } else if (fatalMatch) {
         summary = fatalMatch[1].trim();
       } else {
-        const bsanTrap = stderr.match(/(?:BorrowSanitizer|bsan)/i);
+        const bsanTrap = stderr.match(/(?:BorrowSanitizer|bsan|BSAN_OPTIONS)/i);
         if (!bsanTrap) {
           return null;
         }

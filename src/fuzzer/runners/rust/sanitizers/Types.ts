@@ -19,6 +19,7 @@ export interface SanitizerDetectionResult {
 }
 
 export interface SanitizerBuildConfig {
+  cargoCommand?: string[];
   rustflags: string[];
   cargoArgs: string[];
   env: NodeJS.ProcessEnv;
