@@ -1,3 +1,4 @@
+import * as path from "node:path";
 import {
   formatTestingStatus,
   formatWaitingStatus,
@@ -286,6 +287,22 @@ describe("ui/FuzzTextFormatter", () => {
       file: "/path/to/foo.ts",
     });
     expect(msg).toBe(" - Compile...: /path/to/foo.ts");
+  });
+
+  it("formatCompilingStatus and formatInstrumentingStatus normalize paths relative to cwd", () => {
+    const cwdFile = path.join(process.cwd(), "src", "fuzzer", "Types.ts");
+    const msgCompile = formatCompilingStatus({
+      type: "compiling",
+      file: cwdFile,
+    });
+    expect(msgCompile).toBe(" - Compile...: src/fuzzer/Types.ts");
+
+    const cwdJsFile = path.join(process.cwd(), "src", "fuzzer", "Types.js");
+    const msgInstrument = formatInstrumentingStatus({
+      type: "instrumenting",
+      file: cwdJsFile,
+    });
+    expect(msgInstrument).toBe(" - Instrument: src/fuzzer/Types.ts");
   });
 
   it("formatInstrumentingStatus formats instrumentation message", () => {

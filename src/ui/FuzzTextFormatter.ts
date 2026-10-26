@@ -438,7 +438,7 @@ export function formatWaitingStatus(
  * @returns Formatted message string.
  */
 export function formatCompilingStatus(msg: FuzzCompilingMessage): string {
-  return ` - Compile...: ${msg.file}`;
+  return ` - Compile...: ${normalizePathForDisplay(msg.file)}`;
 } // fn: formatCompilingStatus
 
 /**
@@ -450,7 +450,7 @@ export function formatCompilingStatus(msg: FuzzCompilingMessage): string {
 export function formatInstrumentingStatus(
   msg: FuzzInstrumentingMessage
 ): string {
-  return ` - Instrument: ${msg.file}`;
+  return ` - Instrument: ${normalizePathForDisplay(msg.file)}`;
 } // fn: formatInstrumentingStatus
 
 /**
@@ -493,3 +493,24 @@ export function normalizeDisplayPath(
   }
   return displayPath;
 } // fn: normalizeDisplayPath
+
+/**
+ * Normalizes a file path relative to current working directory when located within it.
+ * Maps compiled JavaScript files back to their TypeScript source if the source exists.
+ *
+ * @param filePath Path to normalize for display
+ * @returns Normalized user-facing path
+ */
+function normalizePathForDisplay(filePath: string): string {
+  let displayPath = filePath.replace(/\\/g, "/");
+  if (typeof process !== "undefined" && typeof process.cwd === "function") {
+    const cwd = process.cwd().replace(/\\/g, "/");
+    if (displayPath.startsWith(cwd + "/")) {
+      displayPath = displayPath.slice(cwd.length + 1);
+    }
+  }
+  if (displayPath.endsWith(".js")) {
+    displayPath = displayPath.slice(0, -3) + ".ts";
+  }
+  return displayPath;
+} // fn: normalizePathForDisplay
