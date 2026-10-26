@@ -59,6 +59,10 @@ let get_int = function
   | Msgpck.Uint32 n -> Int32.to_int n
   | Msgpck.Uint64 n -> Int64.to_int n
   | Msgpck.String s -> (try int_of_string s with _ -> 0)
+  | Msgpck.Map m ->
+    (match List.find_opt (fun (k, _) -> k = Msgpck.String "____JSONN____61581952310____BIGINT____") m with
+     | Some (_, Msgpck.String s) -> (try int_of_string s with _ -> 0)
+     | _ -> 0)
   | _ -> 0
 
 let get_int32 = function
@@ -67,6 +71,10 @@ let get_int32 = function
   | Msgpck.Int64 n -> Int64.to_int32 n
   | Msgpck.Uint32 n -> n
   | Msgpck.String s -> (try Int32.of_string s with _ -> 0l)
+  | Msgpck.Map m ->
+    (match List.find_opt (fun (k, _) -> k = Msgpck.String "____JSONN____61581952310____BIGINT____") m with
+     | Some (_, Msgpck.String s) -> (try Int32.of_string s with _ -> 0l)
+     | _ -> 0l)
   | _ -> 0l
 
 let get_int64 = function
@@ -75,6 +83,10 @@ let get_int64 = function
   | Msgpck.Int32 n -> Int64.of_int32 n
   | Msgpck.Uint64 n -> n
   | Msgpck.String s -> (try Int64.of_string s with _ -> 0L)
+  | Msgpck.Map m ->
+    (match List.find_opt (fun (k, _) -> k = Msgpck.String "____JSONN____61581952310____BIGINT____") m with
+     | Some (_, Msgpck.String s) -> (try Int64.of_string s with _ -> 0L)
+     | _ -> 0L)
   | _ -> 0L
 
 let get_nativeint = function
@@ -82,6 +94,10 @@ let get_nativeint = function
   | Msgpck.Int32 n -> Nativeint.of_int32 n
   | Msgpck.Int64 n -> Int64.to_nativeint n
   | Msgpck.String s -> (try Nativeint.of_string s with _ -> 0n)
+  | Msgpck.Map m ->
+    (match List.find_opt (fun (k, _) -> k = Msgpck.String "____JSONN____61581952310____BIGINT____") m with
+     | Some (_, Msgpck.String s) -> (try Nativeint.of_string s with _ -> 0n)
+     | _ -> 0n)
   | _ -> 0n
 
 let get_float = function
@@ -118,6 +134,7 @@ let get_map = function
   | _ -> []
 
 let () =
+  Random.self_init ();
   set_binary_mode_in stdin true;
   set_binary_mode_out stdout true;
   Printexc.record_backtrace true;

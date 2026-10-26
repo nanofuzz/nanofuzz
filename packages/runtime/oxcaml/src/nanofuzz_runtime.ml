@@ -118,18 +118,21 @@ let rec msgpck_to_yojson : Msgpck.t -> Yojson.Safe.t = function
   | Ext (_, s) -> `String s
   | List l -> `List (List.map msgpck_to_yojson l)
   | Map m ->
-    let assoc =
-      List.map
-        (fun (k, v) ->
-          let key =
-            match k with
-            | Msgpck.String s -> s
-            | _ -> Msgpck.show k
-          in
-          (key, msgpck_to_yojson v))
-        m
-    in
-    `Assoc assoc
+    (match List.find_opt (fun (k, _) -> k = Msgpck.String "____JSONN____61581952310____BIGINT____") m with
+     | Some (_, Msgpck.String s) -> `Intlit s
+     | _ ->
+       let assoc =
+         List.map
+           (fun (k, v) ->
+             let key =
+               match k with
+               | Msgpck.String s -> s
+               | _ -> Msgpck.show k
+             in
+             (key, msgpck_to_yojson v))
+           m
+       in
+       `Assoc assoc)
 
 let rec implicit_oracle_value (v : Yojson.Safe.t) : bool =
   match v with
