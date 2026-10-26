@@ -2876,7 +2876,7 @@ export class FuzzPanel {
               <div id="fuzzBusyStatusBar" style="width: 0%;">0%</div>
             </div>
             <div id="fuzzBusyMessage">
-              <pre id="fuzzBusyMessageNonMilestone">Initializing...</pre>
+              <pre id="fuzzBusyMessageNonMilestone">Initializing<span class="loading-dots">............</span></pre>
             </div>`;
       }
 
