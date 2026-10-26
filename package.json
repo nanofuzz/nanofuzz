@@ -17,7 +17,8 @@
   "license": "MIT",
   "main": "build/extension/extension.js",
   "bin": {
-    "nanofuzz": "./build/cli/cli.cjs"
+    "nanofuzz": "./build/cli/cli.cjs",
+    "cli": "./build/cli/cli.cjs"
   },
   "engines": {
     "vscode": "^1.93.0",
