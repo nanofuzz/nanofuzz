@@ -575,7 +575,43 @@ function parseOxcamlCompilerOutput(
  */
 function findRuntimeIncludeDirs(): string[] {
   const dirs: string[] = [];
-  const candidates = [
+  const currModuleDir = path.dirname(path.resolve(module.filename));
+  const projectRoot = findInAncestor(currModuleDir, "package.json");
+  const candidates: string[] = [
+    path.join(__dirname, "nanofuzz_runtime_oxcaml", "src"),
+    path.resolve(currModuleDir, "nanofuzz_runtime_oxcaml", "src"),
+  ];
+
+  if (projectRoot) {
+    const rootDir = path.dirname(projectRoot);
+    candidates.push(
+      path.join(
+        rootDir,
+        "packages/runtime/oxcaml/_build/install/default/lib/nanofuzz_runtime"
+      ),
+      path.join(
+        rootDir,
+        "build/extension/nanofuzz_runtime_oxcaml/_build/install/default/lib/nanofuzz_runtime"
+      ),
+      path.join(
+        rootDir,
+        "packages/runtime/oxcaml/_build/default/src/.nanofuzz_runtime.objs/byte"
+      ),
+      path.join(
+        rootDir,
+        "packages/runtime/oxcaml/_build/default/src/.nanofuzz_runtime.objs/native"
+      ),
+      path.join(rootDir, "packages/runtime/oxcaml/_build/default/src"),
+      path.join(
+        rootDir,
+        "build/extension/nanofuzz_runtime_oxcaml/_build/default/src"
+      ),
+      path.join(rootDir, "packages/runtime/oxcaml/src"),
+      path.join(rootDir, "build/extension/nanofuzz_runtime_oxcaml/src")
+    );
+  }
+
+  candidates.push(
     path.resolve(
       "./packages/runtime/oxcaml/_build/install/default/lib/nanofuzz_runtime"
     ),
@@ -593,8 +629,8 @@ function findRuntimeIncludeDirs(): string[] {
       "./build/extension/nanofuzz_runtime_oxcaml/_build/default/src"
     ),
     path.resolve("./packages/runtime/oxcaml/src"),
-    path.resolve("./build/extension/nanofuzz_runtime_oxcaml/src"),
-  ];
+    path.resolve("./build/extension/nanofuzz_runtime_oxcaml/src")
+  );
 
   for (const c of candidates) {
     if (fs.existsSync(c)) {

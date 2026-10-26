@@ -20,6 +20,15 @@ import { CoverageScopeConfig } from "../../measures/Types";
 
 const HARNESS_TEMPLATE_VER = "OxcamlHarness-0.4.0";
 
+const _instrumentCache = new Map<
+  string,
+  {
+    instrumentedSrc: string;
+    staticCov: FileCoverageData;
+    branchArms: Array<[number, number]>;
+  }
+>();
+
 /**
  * Builds and returns the compiled OCaml harness executable for testing a target function.
  *
@@ -158,19 +167,6 @@ export function buildOxcamlHarness(
   const harnessDir = path.join(baseTmp, `harness-${cacheKey.slice(0, 16)}`);
   const binaryPath = path.join(harnessDir, "_build", "default", "harness.exe");
 
-  // Return cached binary if up-to-date
-  if (
-    fs.existsSync(binaryPath) &&
-    fs.statSync(binaryPath).mtimeMs >= maxMtime
-  ) {
-    return {
-      binaryPath,
-      harnessDir,
-      staticCov: targetCov.staticCov,
-      staticCovMap,
-    };
-  }
-
   const instrumentedModules: Array<{
     instPath: string;
     instrumentedSrc: string;
@@ -226,6 +222,19 @@ export function buildOxcamlHarness(
         instrumentedSrc: `# 1 "${item.origPath.replace(/\\/g, "/")}"\n${extSrc}`,
       });
     }
+  }
+
+  // Return cached binary if up-to-date (after populating staticCovMap for all tracked files)
+  if (
+    fs.existsSync(binaryPath) &&
+    fs.statSync(binaryPath).mtimeMs >= maxMtime
+  ) {
+    return {
+      binaryPath,
+      harnessDir,
+      staticCov: targetCov.staticCov,
+      staticCovMap,
+    };
   }
 
   fs.mkdirSync(harnessDir, { recursive: true });
@@ -414,6 +423,16 @@ export function instrumentOxcamlSource(
   staticCov: FileCoverageData;
   branchArms: Array<[number, number]>;
 } {
+  const cacheKey = `${targetFile}:${fileId}:${crypto.createHash("md5").update(src).digest("hex")}`;
+  const cached = _instrumentCache.get(cacheKey);
+  if (cached) {
+    return {
+      instrumentedSrc: cached.instrumentedSrc,
+      staticCov: structuredClone(cached.staticCov),
+      branchArms: [...cached.branchArms],
+    };
+  }
+
   const tree = Parser.parse("oxcaml", src);
   if (!tree) {
     throw new Error("Parser failed to parse OCaml source for instrumentation");
@@ -426,7 +445,12 @@ export function instrumentOxcamlSource(
   const f: FileCoverageData["f"] = {};
   const b: FileCoverageData["b"] = {};
   const branchArms: Array<[number, number]> = [];
-  const insertions: Array<{ pos: number; text: string }> = [];
+  const insertions: Array<{
+    pos: number;
+    text: string;
+    isClose: boolean;
+    spanLen: number;
+  }> = [];
 
   let sIdx = 0;
   let fIdx = 0;
@@ -500,13 +524,18 @@ export function instrumentOxcamlSource(
     };
     s[currentSIdx] = 0;
 
+    const spanLen = bodyNode.endIndex - bodyNode.startIndex;
     insertions.push({
       pos: bodyNode.startIndex,
       text: `(Nanofuzz_runtime.Coverage.hit_fn ${fileId} ${currentFIdx}; Nanofuzz_runtime.Coverage.hit_stmt ${fileId} ${currentSIdx}; `,
+      isClose: false,
+      spanLen,
     });
     insertions.push({
       pos: bodyNode.endIndex,
       text: `)`,
+      isClose: true,
+      spanLen,
     });
   }
 
@@ -525,8 +554,12 @@ export function instrumentOxcamlSource(
 
     const thenClause = exprNode.children.find((c) => c.type === "then_clause");
     const elseClause = exprNode.children.find((c) => c.type === "else_clause");
-    const thenNode = thenClause?.namedChildren[0];
-    const elseNode = elseClause?.namedChildren[0];
+    const thenNode = thenClause
+      ? Parser.getNamedChildrenNoComments(thenClause)[0]
+      : undefined;
+    const elseNode = elseClause
+      ? Parser.getNamedChildrenNoComments(elseClause)[0]
+      : undefined;
     if (!thenNode) continue;
 
     const currentBIdx = String(bIdx++);
@@ -581,28 +614,41 @@ export function instrumentOxcamlSource(
     };
     b[currentBIdx] = [0, 0];
 
+    const thenSpan = thenNode.endIndex - thenNode.startIndex;
     insertions.push({
       pos: thenNode.startIndex,
       text: `(Nanofuzz_runtime.Coverage.hit_branch ${fileId} ${currentBIdx} 0; `,
+      isClose: false,
+      spanLen: thenSpan,
     });
     insertions.push({
       pos: thenNode.endIndex,
       text: `)`,
+      isClose: true,
+      spanLen: thenSpan,
     });
 
     if (elseNode) {
+      const elseSpan = elseNode.endIndex - elseNode.startIndex;
       insertions.push({
         pos: elseNode.startIndex,
         text: `(Nanofuzz_runtime.Coverage.hit_branch ${fileId} ${currentBIdx} 1; `,
+        isClose: false,
+        spanLen: elseSpan,
       });
       insertions.push({
         pos: elseNode.endIndex,
         text: `)`,
+        isClose: true,
+        spanLen: elseSpan,
       });
     } else {
+      const exprSpan = exprNode.endIndex - exprNode.startIndex;
       insertions.push({
         pos: exprNode.endIndex,
         text: ` else (Nanofuzz_runtime.Coverage.hit_branch ${fileId} ${currentBIdx} 1; ())`,
+        isClose: true,
+        spanLen: exprSpan,
       });
     }
   }
@@ -633,9 +679,9 @@ export function instrumentOxcamlSource(
 
     for (let i = 0; i < cases.length; i++) {
       const caseNode = cases[i];
+      const noComments = Parser.getNamedChildrenNoComments(caseNode);
       const bodyNode =
-        caseNode.childForFieldName("body") ??
-        caseNode.namedChildren[caseNode.namedChildren.length - 1];
+        caseNode.childForFieldName("body") ?? noComments[noComments.length - 1];
       if (!bodyNode) continue;
 
       locations.push({
@@ -649,13 +695,18 @@ export function instrumentOxcamlSource(
         },
       });
 
+      const bodySpan = bodyNode.endIndex - bodyNode.startIndex;
       insertions.push({
         pos: bodyNode.startIndex,
         text: `(Nanofuzz_runtime.Coverage.hit_branch ${fileId} ${currentBIdx} ${i}; `,
+        isClose: false,
+        spanLen: bodySpan,
       });
       insertions.push({
         pos: bodyNode.endIndex,
         text: `)`,
+        isClose: true,
+        spanLen: bodySpan,
       });
     }
 
@@ -676,8 +727,18 @@ export function instrumentOxcamlSource(
     };
   }
 
-  // Sort insertions from end to start to preserve character offsets
-  insertions.sort((a, bPos) => bPos.pos - a.pos);
+  // Sort insertions from end to start to preserve character offsets.
+  // At identical positions:
+  // 1. Closing insertions (`isClose: true`) come before opening insertions (`isClose: false`)
+  //    so `endExpr) (startExpr` is ordered correctly.
+  // 2. For two closing insertions at the same pos, larger `spanLen` is applied first (ends up outermost).
+  // 3. For two opening insertions at the same pos, smaller `spanLen` is applied first (ends up innermost).
+  insertions.sort((a, bPos) => {
+    if (bPos.pos !== a.pos) return bPos.pos - a.pos;
+    if (a.isClose !== bPos.isClose) return a.isClose ? 1 : -1;
+    if (a.isClose) return bPos.spanLen - a.spanLen;
+    return a.spanLen - bPos.spanLen;
+  });
 
   let instrumentedSrc = src;
   for (const ins of insertions) {
@@ -697,10 +758,16 @@ export function instrumentOxcamlSource(
     b,
   };
 
-  return {
+  const res = {
     instrumentedSrc,
     staticCov,
     branchArms,
+  };
+  _instrumentCache.set(cacheKey, res);
+  return {
+    instrumentedSrc,
+    staticCov: structuredClone(staticCov),
+    branchArms: [...branchArms],
   };
 } // fn: instrumentOxcamlSource
 
@@ -736,22 +803,28 @@ function generateHarnessSource(
 
   if (isGenerator) {
     argConversions.push(
-      `let seed_val_0 = ref (
-          let h = ref 0x811c9dc5 in
-          (match List.nth_opt args 0 with
-           | Some v ->
-             let m = get_map v in
-             (match List.find_opt (fun (k, _) -> k = Msgpck.String "seed") m with
-              | Some (_, s_val) ->
-                let s = get_string s_val in
-                String.iter (fun c -> h := (!h * 0x1000193) lxor (Char.code c)) s
-              | _ -> ())
-           | _ -> ());
-          !h
-        ) in
+      `let seed_opt_0 =
+          match List.nth_opt args 0 with
+          | Some v ->
+            let m = get_map v in
+            (match List.find_opt (fun (k, _) -> k = Msgpck.String "seed") m with
+             | Some (_, s_val) ->
+               let s = get_string s_val in
+               if String.length s > 0 then begin
+                 let h = ref 0x811c9dc5 in
+                 String.iter (fun c -> h := (!h * 0x1000193) lxor (Char.code c)) s;
+                 Some (ref !h)
+               end else None
+             | None -> None)
+          | None -> None
+        in
         let arg_0 () : float =
-          seed_val_0 := (!seed_val_0 * 1103515245 + 12345) land 0x7FFFFFFF;
-          float_of_int (!seed_val_0) /. 2147483648.0
+          match seed_opt_0 with
+          | Some seed_ref ->
+            seed_ref := (!seed_ref * 1103515245 + 12345) land 0x7FFFFFFF;
+            float_of_int (!seed_ref) /. 2147483648.0
+          | None ->
+            Random.float 1.0
         in`
     );
     callArgs.push("arg_0");
@@ -1221,9 +1294,7 @@ function buildDeserializer(
     return `(match List.nth_opt args ${idx} with Some v -> Array.of_list (List.map (fun item -> ${buildSingleValDeserializer(elemType, "item", elemChild, progTypes)}) (get_list v)) | None -> [||])`;
   }
 
-  throw new Error(
-    `Unsupported OCaml type for deserialization: '${cleanType}'`
-  );
+  throw new Error(`Unsupported OCaml type for deserialization: '${cleanType}'`);
 } // fn: buildDeserializer
 
 /**
@@ -1530,9 +1601,7 @@ function buildSerializer(
         c.tuplePayloadTypes &&
         c.tuplePayloadTypes.length > 1
       ) {
-        const binders = c.tuplePayloadTypes
-          .map((_, i) => `p_${i}`)
-          .join(", ");
+        const binders = c.tuplePayloadTypes.map((_, i) => `p_${i}`).join(", ");
         const listItems = c.tuplePayloadTypes
           .map((t, i) => buildSerializer(t, `p_${i}`, undefined, progTypes))
           .join("; ");
@@ -1681,13 +1750,13 @@ function buildSerializer(
   }
 
   if (cleanType === "int" || cleanType === "#int") {
-    return `Msgpck.Int ${valVar}`;
+    return `(if ${valVar} >= -2147483648 && ${valVar} <= 2147483647 then Msgpck.Int ${valVar} else Msgpck.Int64 (Int64.of_int ${valVar}))`;
   }
   if (cleanType === "int32") {
     return `Msgpck.Int32 ${valVar}`;
   }
   if (cleanType === "int64") {
-    return `Msgpck.Int64 ${valVar}`;
+    return `Msgpck.Map [(Msgpck.String "____JSONN____61581952310____BIGINT____", Msgpck.String (Int64.to_string ${valVar}))]`;
   }
   if (cleanType === "nativeint") {
     return `Msgpck.Int64 (Int64.of_nativeint ${valVar})`;
@@ -1730,18 +1799,39 @@ function buildSerializer(
  * Loads the runner host template from file or returns the embedded fallback.
  */
 function getTemplate(): string {
-  const templatePath = path.resolve(
-    path.join(__dirname, "OxcamlRunnerHost.template.ml")
-  );
-  if (fs.existsSync(templatePath)) {
-    return fs.readFileSync(templatePath, "utf8");
+  const currModuleDir = path.dirname(path.resolve(module.filename));
+  const candidates: string[] = [
+    path.join(__dirname, "OxcamlRunnerHost.template.ml"),
+    path.resolve(currModuleDir, "OxcamlRunnerHost.template.ml"),
+  ];
+
+  const projectRoot = findInAncestor(currModuleDir, "package.json");
+  if (projectRoot) {
+    const rootDir = path.dirname(projectRoot);
+    candidates.push(
+      path.join(
+        rootDir,
+        "src",
+        "fuzzer",
+        "runners",
+        "oxcaml",
+        "OxcamlRunnerHost.template.ml"
+      ),
+      path.join(rootDir, "build", "extension", "OxcamlRunnerHost.template.ml")
+    );
   }
-  const buildExtPath = path.resolve(
-    "./build/extension/OxcamlRunnerHost.template.ml"
+
+  candidates.push(
+    path.resolve("./src/fuzzer/runners/oxcaml/OxcamlRunnerHost.template.ml"),
+    path.resolve("./build/extension/OxcamlRunnerHost.template.ml")
   );
-  if (fs.existsSync(buildExtPath)) {
-    return fs.readFileSync(buildExtPath, "utf8");
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      return fs.readFileSync(candidate, "utf8");
+    }
   }
+
   throw new Error("Could not find OxcamlRunnerHost.template.ml template file");
 } // fn: getTemplate
 
@@ -1772,10 +1862,25 @@ function extractDuneLibraries(dunePath: string): string[] {
  * Searches for the local nanofuzz_runtime package directory.
  */
 function findRuntimePackage(): string | undefined {
-  const candidates = [
-    path.resolve("./packages/runtime/oxcaml"),
-    path.resolve("./build/extension/nanofuzz_runtime_oxcaml"),
+  const currModuleDir = path.dirname(path.resolve(module.filename));
+  const projectRoot = findInAncestor(currModuleDir, "package.json");
+  const candidates: string[] = [
+    path.join(__dirname, "nanofuzz_runtime_oxcaml"),
+    path.resolve(currModuleDir, "nanofuzz_runtime_oxcaml"),
   ];
+
+  if (projectRoot) {
+    const rootDir = path.dirname(projectRoot);
+    candidates.push(
+      path.join(rootDir, "packages", "runtime", "oxcaml"),
+      path.join(rootDir, "build", "extension", "nanofuzz_runtime_oxcaml")
+    );
+  }
+
+  candidates.push(
+    path.resolve("./packages/runtime/oxcaml"),
+    path.resolve("./build/extension/nanofuzz_runtime_oxcaml")
+  );
 
   for (const c of candidates) {
     if (fs.existsSync(path.join(c, "dune-project"))) {
@@ -1957,9 +2062,7 @@ function getVariantConstructors(
           });
         }
       } else if (child.getType() === ArgTag.OBJECT) {
-        const tagChild = child
-          .getChildren()
-          .find((c) => c.getName() === "tag");
+        const tagChild = child.getChildren().find((c) => c.getName() === "tag");
         const valChild = child
           .getChildren()
           .find((c) => c.getName() === "value");

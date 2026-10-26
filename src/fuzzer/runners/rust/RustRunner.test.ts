@@ -543,6 +543,56 @@ pub fn doubleValidator(r: &FuzzTestResult) -> &'static str {
     const runner = RunnerFactory(env, rsPath, "add");
     expect(runner instanceof RustRunner).toBeTrue();
   });
+
+  it("recovers from host abort with sanitizer diagnostic and respawns host", async () => {
+    const rsPath = path.join(tempDir, "sanitizer_abort.rs");
+    fs.writeFileSync(
+      rsPath,
+      `pub fn add(a: i32, b: i32) -> i32 {
+    a + b
+}
+`
+    );
+
+    const program = ProgramFactory.fromFile(rsPath, "rust");
+    const fnDef = program.functionsExported["add"];
+    const env = createTestEnv(fnDef);
+
+    const runner = new RustRunner(rsPath, "add", env);
+    await runner.onRunStart();
+
+    // Verify initial run succeeds
+    const res1 = await runner.run([1, 2], 5000);
+    expect(res1.result.tag).toBe("value");
+
+    // Simulate active borrow sanitizer on the runner
+    runner.setSanitizerNameForTest("borrow");
+
+    runner.simulateHostAbortForTest(
+      "==12345==ERROR: BorrowSanitizer: conflicting write to active shared borrow at 0x7fff\n" +
+        "    #0 0x555555562143 in target::add (src/target_instrumented.rs:2)\n"
+    );
+
+    // Next run should detect the sanitizer abort and return BorrowSanitizerError
+    const res2 = await runner.run([3, 4], 5000);
+    expect(res2.result.tag).toBe("error");
+    if (res2.result.tag === "error") {
+      expect(res2.result.name).toBe("BorrowSanitizerError");
+      expect(res2.result.message).toContain(
+        "conflicting write to active shared borrow"
+      );
+    }
+
+    // Runner should re-arm and run subsequent inputs cleanly
+    runner.setSanitizerNameForTest("none");
+    const res3 = await runner.run([5, 6], 5000);
+    expect(res3.result.tag).toBe("value");
+    if (res3.result.tag === "value") {
+      expect(res3.result.value).toBe(11);
+    }
+
+    await runner.onRunEnd();
+  });
 });
 
 // ============================================================================

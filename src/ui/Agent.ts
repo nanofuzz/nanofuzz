@@ -6,7 +6,7 @@ import seedrandom from "seedrandom";
 import * as Config from "../Config";
 import * as JSONN from "../Jsonn";
 import { getToolVersion } from "../ToolVersion";
-import { getIoKey, isError } from "../fuzzer/Util";
+import { getIoKey, isError, normalizePathForKey } from "../fuzzer/Util";
 import { isKeyedObject } from "../Util";
 import { isArgValueType } from "../fuzzer/analysis/Util";
 import * as ParserAdapter from "../fuzzer/adapters/ParserAdapter";
@@ -14,11 +14,15 @@ import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
 import { FunctionDef } from "../fuzzer/analysis/FunctionDef";
 import { ArgDef } from "../fuzzer/analysis/ArgDef";
 import { ArgDefShrinker } from "../fuzzer/analysis/ArgDefShrinker";
+import { CompanionManager } from "../fuzzer/analysis/CompanionManager";
+import * as CompilerFactory from "../fuzzer/compilers/CompilerFactory";
 import { RunnerFactory } from "../fuzzer/runners/RunnerFactory";
-import { AbstractRunner } from "../fuzzer/runners/AbstractRunner";
+import { AbstractRunner, RunnerResult } from "../fuzzer/runners/AbstractRunner";
 import {
   ArgOptions,
+  ArgTag,
   ArgValueType,
+  ArgValueTypeWrapped,
   FunctionRef,
   ProgramLanguage,
 } from "../fuzzer/analysis/Types";
@@ -35,6 +39,7 @@ import {
   FuzzTestResult,
   FuzzTestResults,
   FuzzTests,
+  FuzzTestsFunction,
   HarnessError,
 } from "../fuzzer/Types";
 import { FuzzerFactory } from "../fuzzer/FuzzerFactory";
@@ -52,6 +57,8 @@ import { synthesizeTransformer } from "../fuzzer/synthesis/TransformerSynthesize
 import { synthesizeUserGenerator } from "../fuzzer/synthesis/UserGeneratorSynthesizer";
 import { FuzzerCodeSnippet } from "../fuzzer/synthesis/Types";
 import { FuzzConfigStore } from "../fuzzer/FuzzConfigStore";
+import { CoverageScope } from "../fuzzer/measures/Types";
+import { showResultsInFuzzPanel } from "./FuzzPanelController";
 
 export {
   synthesizeValidator,
@@ -59,6 +66,44 @@ export {
   synthesizeUserGenerator,
   FuzzerCodeSnippet,
 };
+
+// Cached raw results from previous fuzzing runs by normalized module + function name
+const _rawResultsCache = new Map<string, FuzzTestResults>();
+
+/**
+ * Returns the cache key for storing raw fuzz results.
+ */
+function getRawResultsCacheKey(filePath: string, functionName: string): string {
+  return `${normalizePathForKey(filePath)}::${functionName}`;
+} // fn: getRawResultsCacheKey
+
+/**
+ * Caches the raw fuzz results for a module and function.
+ */
+export function cacheRawResults(
+  filePath: string,
+  functionName: string,
+  results: FuzzTestResults
+): void {
+  _rawResultsCache.set(getRawResultsCacheKey(filePath, functionName), results);
+} // fn: cacheRawResults
+
+/**
+ * Retrieves cached raw fuzz results for a module and function, if available.
+ */
+export function getCachedRawResults(
+  filePath: string,
+  functionName: string
+): FuzzTestResults | undefined {
+  return _rawResultsCache.get(getRawResultsCacheKey(filePath, functionName));
+} // fn: getCachedRawResults
+
+/**
+ * Clears the raw results cache (primarily for tests).
+ */
+export function clearCachedRawResults(): void {
+  _rawResultsCache.clear();
+} // fn: clearCachedRawResults
 
 // -------------------------------------------------------------------------- //
 // Primary Public API
@@ -198,6 +243,288 @@ export async function listTargets(filePath: string): Promise<TargetListResult> {
 } // fn: listTargets
 
 /**
+ * Options for showing fuzz results in FuzzPanel
+ */
+export type ShowResultsOptions = {
+  filePath: string;
+  functionName: string;
+  focusCategory?: FuzzResultCategory | "runInfo";
+};
+
+/**
+ * Result returned after displaying results in FuzzPanel
+ */
+export type ShowResultsResult = {
+  success: boolean;
+  message: string;
+  totalTests?: number;
+};
+
+/**
+ * Opens or reveals FuzzPanel and directly displays fuzz results.
+ * Uses cached raw results from a previous runFuzz call if available, or renders an active panel.
+ *
+ * @param options Target file path, function name, and optional category to focus
+ * @returns Status of the display operation
+ */
+export async function showResults(
+  options: ShowResultsOptions
+): Promise<ShowResultsResult> {
+  const resolvedPath = resolveFilePath(options.filePath);
+
+  if (!fs.existsSync(resolvedPath)) {
+    throw new Error(`Target file does not exist: ${options.filePath}`);
+  }
+
+  const cached = getCachedRawResults(resolvedPath, options.functionName);
+  const toolName = getToolName();
+
+  if (cached) {
+    await showResultsInFuzzPanel(
+      resolvedPath,
+      options.functionName,
+      cached,
+      options.focusCategory
+    );
+    const total = cached.stats?.outcomes?.total ?? cached.results?.length ?? 0;
+    return {
+      success: true,
+      message: `Displayed ${total} test result(s) for \`${options.functionName}\` in ${toolName} FuzzPanel.`,
+      totalTests: total,
+    };
+  }
+
+  // If no cached results exist, open the FuzzPanel in initial state
+  await showResultsInFuzzPanel(
+    resolvedPath,
+    options.functionName,
+    undefined,
+    options.focusCategory
+  );
+
+  return {
+    success: true,
+    message: `Opened ${toolName} FuzzPanel for \`${options.functionName}\`.`,
+  };
+} // fn: showResults
+
+/**
+ * Shrinks one or more test inputs/counterexamples for a target function to find minimal, canonical inputs.
+ *
+ * @param options Target file, function name, and inputs to shrink
+ * @returns Comprehensive AgentShrinkResult containing shrunken inputs and summary markdown
+ */
+export async function shrinkInputs(
+  options: AgentShrinkOptions
+): Promise<AgentShrinkResult> {
+  await ParserAdapter.init();
+
+  const resolvedPath = resolveFilePath(options.filePath);
+
+  if (!fs.existsSync(resolvedPath)) {
+    throw new Error(`Target file does not exist: ${options.filePath}`);
+  }
+
+  const program = ProgramFactory.fromFile(resolvedPath);
+  const targetFnDef = program.functions[options.functionName];
+  if (!targetFnDef) {
+    throw new Error(
+      `Function '${options.functionName}' not found in ${resolvedPath}`
+    );
+  }
+
+  const argDefs = targetFnDef.getArgDefs();
+  const dft = getDefaultFuzzOptions();
+  const fnTimeout = options.fnTimeout ?? dft.fnTimeout;
+  const maxShrinkTime =
+    options.maxShrinkTime ?? Config.get("nanofuzz.fuzzer.maxShrinkTime", 2000);
+  const maxSteps = options.maxSteps ?? 100;
+  const prng = seedrandom(options.seed ?? "shrink-inputs-seed");
+
+  const validators = CompanionManager.getValidators(program, targetFnDef);
+  const validatorNames = validators.map((v) => v.name);
+
+  // Prepare a dedicated environment for shrinking
+  const shrinkEnv: FuzzEnv = {
+    function: targetFnDef,
+    options: {
+      ...dft,
+      fnTimeout,
+      measures: {
+        FailedTestMeasure: { enabled: false, weight: 0 },
+        CoverageMeasure: { enabled: false, weight: 0 },
+      },
+    },
+    executionOptions: {
+      engine: "auto",
+      workers: 1,
+      outputResults: "all",
+      precompile: false,
+    },
+    validators,
+    transformers: CompanionManager.getTransformers(program, targetFnDef),
+    userGenerators: [],
+  };
+
+  const pinnedTests = convertAgentInputsToPinnedTests(options.inputs, argDefs);
+
+  const fqSrcFile = fs.realpathSync(targetFnDef.getModule());
+  const compiler = CompilerFactory.fromSourcefile(fqSrcFile);
+  const targetMod = compiler ? compiler.compileSync() : fqSrcFile;
+
+  let runner: AbstractRunner | undefined;
+  const shrunkInputs: AgentShrunkInput[] = [];
+
+  try {
+    runner = RunnerFactory(shrinkEnv, targetMod, targetFnDef.getName());
+    await runner.onRunStart();
+
+    for (let i = 0; i < pinnedTests.length; i++) {
+      const pTest = pinnedTests[i];
+      const origInput = options.inputs[i];
+
+      if (argDefs.length === 0) {
+        shrunkInputs.push({
+          originalInput: origInput,
+          shrunkenInput: origInput,
+          shrinkSteps: 0,
+          status: "unchanged",
+          outcome: "ok",
+        });
+        continue;
+      }
+
+      let currentValues: ArgValueTypeWrapped[] = pTest.input.map((inp) => ({
+        tag: "ArgValueTypeWrapped",
+        value: inp.value,
+      }));
+
+      // Execute baseline run to establish reference behavior
+      let baselineRes: RunnerResult;
+      try {
+        baselineRes = await runner.run(
+          currentValues.map((w) => w.value),
+          Math.max(fnTimeout, 100),
+          validatorNames
+        );
+      } catch (e: unknown) {
+        shrunkInputs.push({
+          originalInput: origInput,
+          shrunkenInput: origInput,
+          shrinkSteps: 0,
+          status: "error",
+          outcome: "unknown",
+          errorMessage: isError(e) ? e.message : String(e),
+        });
+        continue;
+      }
+
+      const outcome = determineRunnerOutcome(baselineRes);
+
+      let shrinkSteps = 0;
+      const startTime = performance.now();
+
+      for (let step = 0; step < maxSteps; step++) {
+        if (
+          maxShrinkTime > 0 &&
+          performance.now() - startTime >= maxShrinkTime
+        ) {
+          break;
+        }
+
+        const candidateValues = structuredClone(currentValues);
+        const shrinkers = ArgDefShrinker.getShrinkers(
+          argDefs,
+          candidateValues,
+          prng
+        );
+        if (shrinkers.length === 0) break;
+
+        let improved = false;
+        for (let sIdx = 0; sIdx < shrinkers.length; sIdx++) {
+          if (
+            maxShrinkTime > 0 &&
+            performance.now() - startTime >= maxShrinkTime
+          ) {
+            break;
+          }
+
+          const testValues = structuredClone(currentValues);
+          const freshShrinkers = ArgDefShrinker.getShrinkers(
+            argDefs,
+            testValues,
+            prng
+          );
+          if (!freshShrinkers[sIdx]) continue;
+          freshShrinkers[sIdx].fn();
+
+          try {
+            const testRes = await runner.run(
+              testValues.map((w) => w.value),
+              Math.max(fnTimeout, 100),
+              validatorNames
+            );
+
+            if (isSameRunnerOutcome(baselineRes, testRes)) {
+              currentValues = testValues;
+              improved = true;
+              shrinkSteps++;
+              break;
+            }
+          } catch {
+            // Ignore execution failure during shrink probe
+          }
+        }
+
+        if (!improved) break;
+      }
+
+      const isArr = Array.isArray(origInput);
+      const shrunkenObj: Record<string, unknown> = {};
+      const shrunkenArr: unknown[] = [];
+      argDefs.forEach((def, idx) => {
+        const val = currentValues[idx]?.value;
+        shrunkenObj[def.getName()] = val;
+        shrunkenArr.push(val);
+      });
+      const finalShrunkenInput = isArr ? shrunkenArr : shrunkenObj;
+
+      shrunkInputs.push({
+        originalInput: origInput,
+        shrunkenInput: finalShrunkenInput,
+        shrinkSteps,
+        status: shrinkSteps > 0 ? "shrunk" : "unchanged",
+        outcome: outcome.outcome,
+        exceptionMessage: outcome.exceptionMessage,
+        failingValidator: outcome.failingValidator,
+      });
+    }
+  } finally {
+    if (runner) {
+      try {
+        await runner.onRunEnd();
+      } catch {
+        // Ignore shutdown error
+      }
+    }
+  }
+
+  const summaryText = buildShrinkSummaryMarkdown(
+    resolvedPath,
+    options.functionName,
+    shrunkInputs
+  );
+
+  return {
+    filePath: resolvedPath,
+    functionName: options.functionName,
+    totalInputs: shrunkInputs.length,
+    shrunkInputs,
+    summaryText,
+  };
+} // fn: shrinkInputs
+
+/**
  * Runs a fuzzing session on a given target function (synchronous or asynchronous) in headless agent mode.
  *
  * @param options Fuzzing parameters (filePath, functionName, timeouts, etc.)
@@ -224,6 +551,10 @@ export async function runFuzz(
   );
   const currentModel = Config.get<string>("nanofuzz.ai.model", "");
   const currentVendor = Config.get<string>("nanofuzz.ai.vendor", "");
+  const currentCoverageScope = Config.get<string>(
+    "nanofuzz.fuzzer.coverageScope",
+    "project static"
+  );
   const shouldAutoEnableCopilot = Boolean(options.enableCopilotAi);
 
   try {
@@ -236,6 +567,9 @@ export async function runFuzz(
     if (options.vendor) {
       Config.override("nanofuzz.ai.vendor", options.vendor);
     }
+    if (options.coverageScope) {
+      Config.override("nanofuzz.fuzzer.coverageScope", options.coverageScope);
+    }
 
     // Extract in-source fuzz options if present
     const program = ProgramFactory.fromFile(resolvedPath);
@@ -244,12 +578,16 @@ export async function runFuzz(
     const fnFuzzOptions = fnRef?.fuzzOptions;
 
     // Load any companion .nano.json5 configuration and saved tests
-    const fnConfig = FuzzConfigStore.loadForFunction(
-      resolvedPath,
-      options.functionName,
-      undefined,
-      false
-    );
+    const fnConfig: FuzzTestsFunction = options.noConfigFile
+      ? FuzzConfigStore.createDefaultFunctionConfig(options.functionName, {
+          options: cast<FuzzOptions>({}),
+        })
+      : FuzzConfigStore.loadForFunction(
+          resolvedPath,
+          options.functionName,
+          undefined,
+          false
+        );
     const persistedTests: FuzzPinnedTest[] = Object.values(
       fnConfig.tests ?? {}
     );
@@ -279,9 +617,9 @@ export async function runFuzz(
     const normalizedOptions = normalizeAgentFuzzOptions({
       ...options,
       maxTests:
-        options.maxTests ??
-        fnConfig.options?.maxTests ??
-        fnFuzzOptions?.maxTests,
+        options.maxTests !== undefined
+          ? options.maxTests
+          : (fnConfig.options?.maxTests ?? fnFuzzOptions?.maxTests),
       maxDupeInputs:
         options.maxDupeInputs ??
         fnConfig.options?.maxDupeInputs ??
@@ -397,6 +735,9 @@ export async function runFuzz(
 
     const generatorDiagnostics = tester.getInputGeneratorDiagnostics();
 
+    // Cache the raw results for immediate display via showResults / FuzzPanel
+    cacheRawResults(resolvedPath, options.functionName, rawResults);
+
     return await formatFuzzResult(
       rawResults,
       resolvedPath,
@@ -453,6 +794,9 @@ export async function runFuzz(
     if (options.vendor) {
       Config.override("nanofuzz.ai.vendor", currentVendor);
     }
+    if (options.coverageScope) {
+      Config.override("nanofuzz.fuzzer.coverageScope", currentCoverageScope);
+    }
   }
 } // fn: runFuzz
 
@@ -470,7 +814,7 @@ export function getDefaultFuzzOptions(): FuzzOptions {
   return {
     argDefaults: ArgDef.getDefaultOptions(),
     maxTests: Config.get("nanofuzz.fuzzer.maxTests", 1000),
-    fnTimeout: Config.get("nanofuzz.fuzzer.fnTimeout", 200),
+    fnTimeout: Config.get("nanofuzz.fuzzer.fnTimeout", 500),
     suiteTimeout: Config.get("nanofuzz.fuzzer.suiteTimeout", 3000),
     maxDupeInputs: Config.get("nanofuzz.fuzzer.maxDupeInputs", 500),
     maxFailures: Config.get("nanofuzz.fuzzer.maxFailures", 0),
@@ -512,9 +856,19 @@ export function normalizeAgentFuzzOptions(
   options: AgentFuzzOptions
 ): FuzzOptions {
   const dft = getDefaultFuzzOptions();
+  const effectiveMaxTests =
+    options.maxTests !== undefined
+      ? options.maxTests === 0
+        ? Number.MAX_SAFE_INTEGER
+        : options.maxTests
+      : options.suiteTimeout !== undefined &&
+          options.suiteTimeout > dft.suiteTimeout
+        ? Number.MAX_SAFE_INTEGER
+        : dft.maxTests;
+
   return {
     ...dft,
-    maxTests: options.maxTests ?? dft.maxTests,
+    maxTests: effectiveMaxTests,
     maxDupeInputs: options.maxDupeInputs ?? dft.maxDupeInputs,
     maxFailures: options.maxFailures ?? dft.maxFailures,
     fnTimeout: options.fnTimeout ?? dft.fnTimeout,
@@ -628,7 +982,7 @@ export function convertAgentInputsToPinnedTests(
       const arr = inputData;
       pinnedTests.push({
         input: argDefs.map((def, idx) => {
-          const rawVal = arr[idx];
+          const rawVal = coerceAgentInputForArgDef(arr[idx], def);
           return {
             name: def.getName(),
             offset: idx,
@@ -644,7 +998,7 @@ export function convertAgentInputsToPinnedTests(
       const obj = inputData;
       pinnedTests.push({
         input: argDefs.map((def, idx) => {
-          const rawVal = obj[def.getName()];
+          const rawVal = coerceAgentInputForArgDef(obj[def.getName()], def);
           return {
             name: def.getName(),
             offset: idx,
@@ -882,9 +1236,15 @@ export async function shrinkCoveringResults(
           if (shrinkers.length === 0) break;
 
           let improved = false;
-          for (const shrinker of shrinkers) {
-            const testValues = structuredClone(candidateValues);
-            shrinker.fn();
+          for (let sIdx = 0; sIdx < shrinkers.length; sIdx++) {
+            const testValues = structuredClone(currentValues);
+            const freshShrinkers = ArgDefShrinker.getShrinkers(
+              argDefs,
+              testValues,
+              prng
+            );
+            if (!freshShrinkers[sIdx]) continue;
+            freshShrinkers[sIdx].fn();
 
             try {
               const runRes = await runner.run(
@@ -1152,6 +1512,12 @@ export function buildSummaryMarkdown(
       if (ce.timeout) {
         parts.push(`**Failure Reason**: Function execution timed out.`);
       }
+      if (ce.harnessErrors && ce.harnessErrors.length > 0) {
+        parts.push(
+          `\n**⚠️ Harness / Validator Error(s)**:`,
+          ...ce.harnessErrors.map((e) => `- In \`${e.fnName}\`: ${e.message}`)
+        );
+      }
       if (ce.shrunk) {
         parts.push(
           `*(Input was simplified through ${ce.shrinkSteps ?? 1} shrinking step(s))*`
@@ -1185,6 +1551,22 @@ export function buildSummaryMarkdown(
     );
   } else {
     parts.push(`### ❌ ${toolName} Run Failed on \`${result.functionName}\``);
+  }
+
+  if (result.skippedTests && result.skippedTests > 0) {
+    const totalAttempted = result.totalTests + result.skippedTests;
+    const skipPct =
+      totalAttempted > 0
+        ? Math.round((result.skippedTests / totalAttempted) * 100)
+        : 0;
+    parts.push(
+      `\n**Precondition Filtering (assume/skip)**: **${result.skippedTests}** input(s) rejected (${skipPct}%)`
+    );
+    if (skipPct >= 80) {
+      parts.push(
+        `⚠️ **High Input Rejection Rate**: Consider rewriting \`<fn>Transformer\` to construct or clamp valid inputs rather than filtering with \`assume()\`.`
+      );
+    }
   }
 
   if (result.generators) {
@@ -1314,6 +1696,7 @@ export async function formatFuzzResult(
   const passedTests = results.stats.outcomes.categories.ok;
   const failedTests = results.stats.counters.failedTests;
   const erroredTests = results.stats.counters.erroredTests;
+  const skippedTests = results.stats.counters.inputsSkipped;
   const timeouts = results.stats.outcomes.timeouts;
   const exceptions = results.stats.outcomes.exceptions;
 
@@ -1371,6 +1754,7 @@ export async function formatFuzzResult(
     passedTests,
     failedTests,
     erroredTests,
+    skippedTests,
     timeouts,
     exceptions,
     stopReason: results.stopReason,
@@ -1537,6 +1921,7 @@ export type AgentFuzzOptions = {
   useHuman?: boolean;
   useProperty?: boolean;
   useTransformer?: boolean;
+  coverageScope?: CoverageScope;
   generators?: Partial<FuzzOptions["generators"]>;
   measures?: Partial<FuzzOptions["measures"]>;
   argDefaults?: Partial<ArgOptions>;
@@ -1544,6 +1929,7 @@ export type AgentFuzzOptions = {
   inputs?: (Record<string, unknown> | unknown[])[];
   tests?: (AgentTestCase | Record<string, unknown> | unknown[])[];
   enableCopilotAi?: boolean;
+  noConfigFile?: boolean;
   exportSuite?: boolean;
   exportFilePath?: string;
   workers?: number | "auto";
@@ -1646,6 +2032,7 @@ export type AgentFuzzResult = {
   passedTests: number;
   failedTests: number;
   erroredTests: number;
+  skippedTests?: number;
   timeouts: number;
   exceptions: number;
   stopReason?: FuzzStopReason;
@@ -1661,6 +2048,44 @@ export type AgentFuzzResult = {
   summaryText: string;
 };
 
+/**
+ * Options for standalone input shrinking via shrinkInputs
+ */
+export type AgentShrinkOptions = {
+  filePath: string;
+  functionName: string;
+  inputs: (Record<string, unknown> | unknown[])[];
+  fnTimeout?: number;
+  maxShrinkTime?: number;
+  maxSteps?: number;
+  seed?: string;
+};
+
+/**
+ * Details of an individual shrunken input
+ */
+export type AgentShrunkInput = {
+  originalInput: Record<string, unknown> | unknown[];
+  shrunkenInput: Record<string, unknown> | unknown[];
+  shrinkSteps: number;
+  status: "shrunk" | "unchanged" | "error";
+  outcome: "exception" | "timeout" | "validator_fail" | "ok" | "unknown";
+  exceptionMessage?: string;
+  failingValidator?: string;
+  errorMessage?: string;
+};
+
+/**
+ * Comprehensive result returned by shrinkInputs
+ */
+export type AgentShrinkResult = {
+  filePath: string;
+  functionName: string;
+  totalInputs: number;
+  shrunkInputs: AgentShrunkInput[];
+  summaryText: string;
+};
+
 // -------------------------------------------------------------------------- //
 // Helper Functions
 // -------------------------------------------------------------------------- //
@@ -1669,3 +2094,197 @@ function cast<T>(val: unknown): T;
 function cast(val: unknown): unknown {
   return val;
 } // fn: cast()
+
+/**
+ * Categorizes a runner execution result into an outcome summary for shrinking baseline.
+ */
+function determineRunnerOutcome(res: RunnerResult): {
+  outcome: "exception" | "timeout" | "validator_fail" | "ok" | "unknown";
+  exceptionMessage?: string;
+  failingValidator?: string;
+} {
+  if (res.result.tag === "error") {
+    return {
+      outcome: "exception",
+      exceptionMessage: res.result.message ?? res.result.name,
+    };
+  }
+  if (res.result.tag === "timeout") {
+    return { outcome: "timeout" };
+  }
+  if (res.result.validators) {
+    for (const [vName, vRes] of Object.entries(res.result.validators)) {
+      if (
+        vRes.tag === "value" &&
+        (vRes.value === false || vRes.value === "fail")
+      ) {
+        return { outcome: "validator_fail", failingValidator: vName };
+      }
+    }
+  }
+  if (res.result.tag === "value") {
+    return { outcome: "ok" };
+  }
+  return { outcome: "unknown" };
+} // fn: determineRunnerOutcome
+
+/**
+ * Returns whether a candidate run reproduces the same failure/outcome as the baseline run.
+ */
+function isSameRunnerOutcome(
+  baseline: RunnerResult,
+  candidate: RunnerResult
+): boolean {
+  if (baseline.result.tag === "error") {
+    if (candidate.result.tag !== "error") return false;
+    if (baseline.result.name && candidate.result.name) {
+      return baseline.result.name === candidate.result.name;
+    }
+    return true;
+  }
+  if (baseline.result.tag === "timeout") {
+    return candidate.result.tag === "timeout";
+  }
+  const baseValFails = Object.entries(baseline.result.validators ?? {})
+    .filter(
+      ([_, r]) => r.tag === "value" && (r.value === false || r.value === "fail")
+    )
+    .map(([k]) => k);
+  if (baseValFails.length > 0) {
+    const candValFails = Object.entries(candidate.result.validators ?? {})
+      .filter(
+        ([_, r]) =>
+          r.tag === "value" && (r.value === false || r.value === "fail")
+      )
+      .map(([k]) => k);
+    return baseValFails.some((v) => candValFails.includes(v));
+  }
+  if (baseline.result.tag === "value") {
+    return candidate.result.tag === "value";
+  }
+  return false;
+} // fn: isSameRunnerOutcome
+
+/**
+ * Builds formatted markdown summary of shrunken inputs.
+ */
+function buildShrinkSummaryMarkdown(
+  _filePath: string,
+  functionName: string,
+  shrunkInputs: AgentShrunkInput[]
+): string {
+  const parts: string[] = [
+    `### 🔬 NaNofuzz Input Shrinking on \`${functionName}\``,
+    `Processed **${shrunkInputs.length}** input(s).`,
+  ];
+
+  shrunkInputs.forEach((item, idx) => {
+    parts.push(`\n#### Input #${idx + 1} (${item.status})`);
+    parts.push(`- **Outcome**: \`${item.outcome}\``);
+    if (item.exceptionMessage) {
+      parts.push(`- **Exception**: \`${item.exceptionMessage}\``);
+    }
+    if (item.failingValidator) {
+      parts.push(`- **Failing Validator**: \`${item.failingValidator}\``);
+    }
+    parts.push(`- **Shrink Steps**: ${item.shrinkSteps}`);
+    parts.push(
+      `**Shrunken Input**:`,
+      "```json",
+      JSONN.stringify(item.shrunkenInput, null, 2),
+      "```"
+    );
+  });
+
+  return parts.join("\n");
+} // fn: buildShrinkSummaryMarkdown
+
+/**
+ * Coerces JSON-deserialized seed values (e.g. numbers/strings for BIGINT, arrays for SET)
+ * to match the runtime types expected by ArgDef.
+ */
+function coerceAgentInputForArgDef(
+  val: unknown,
+  def: ArgDef | undefined,
+  dims: number | undefined = def?.getDim()
+): unknown {
+  if (!def || val === null || val === undefined) {
+    return val;
+  }
+  if (dims && dims > 0 && Array.isArray(val)) {
+    return val.map((item) => coerceAgentInputForArgDef(item, def, dims - 1));
+  }
+
+  switch (def.getType()) {
+    case ArgTag.BIGINT: {
+      if (typeof val === "bigint") return val;
+      if (typeof val === "number" && Number.isFinite(val)) {
+        return BigInt(Math.trunc(val));
+      }
+      if (typeof val === "string" && /^-?\d+n?$/.test(val.trim())) {
+        return BigInt(val.trim().replace(/n$/, ""));
+      }
+      return val;
+    }
+    case ArgTag.SET: {
+      const elemDef = def.getChildren()[0];
+      if (Array.isArray(val)) {
+        return new Set(
+          val.map((item) =>
+            elemDef ? coerceAgentInputForArgDef(item, elemDef) : item
+          )
+        );
+      }
+      if (val instanceof Set) {
+        return new Set(
+          Array.from(val, (item) =>
+            elemDef ? coerceAgentInputForArgDef(item, elemDef) : item
+          )
+        );
+      }
+      return val;
+    }
+    case ArgTag.DICTIONARY: {
+      const [, valDef] = def.getChildren();
+      if (isKeyedObject(val) && valDef) {
+        const coerced: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(val)) {
+          coerced[k] = coerceAgentInputForArgDef(v, valDef);
+        }
+        return coerced;
+      }
+      return val;
+    }
+    case ArgTag.OBJECT: {
+      const children = def.getChildren();
+      if (isKeyedObject(val) && children.length > 0) {
+        const coerced: Record<string, unknown> = { ...val };
+        for (const child of children) {
+          const name = child.getName();
+          if (name in coerced) {
+            coerced[name] = coerceAgentInputForArgDef(coerced[name], child);
+          }
+        }
+        return coerced;
+      }
+      return val;
+    }
+    case ArgTag.TUPLE: {
+      const children = def.getChildren();
+      if (Array.isArray(val) && children.length > 0) {
+        return val.map((item, idx) =>
+          children[idx] ? coerceAgentInputForArgDef(item, children[idx]) : item
+        );
+      }
+      return val;
+    }
+    case ArgTag.NUMBER:
+    case ArgTag.STRING:
+    case ArgTag.BOOLEAN:
+    case ArgTag.LITERAL:
+    case ArgTag.UNION:
+    case ArgTag.UNRESOLVED:
+    case ArgTag.BYTES:
+      return val;
+  }
+} // fn: coerceAgentInputForArgDef

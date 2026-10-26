@@ -28,11 +28,11 @@ To use NaNofuzz in your own projects:
         <dependency>
             <groupId>com.nanofuzz</groupId>
             <artifactId>nanofuzz-runtime</artifactId>
-            <version>0.4.0</version>
+            <version>0.4.1</version>
             <scope>test</scope>
         </dependency>
         ```
-      - **Gradle**: `testImplementation 'com.nanofuzz:nanofuzz-runtime:0.4.0'`
+      - **Gradle**: `testImplementation 'com.nanofuzz:nanofuzz-runtime:0.4.1'`
     - OCaml / OxCaml projects:
       - **dune**: add `nanofuzz_runtime` to your `dune` libraries
 - **Step 2**: Add the NaNofuzz extension to your repo's `./.vscode/settings.json` recommendations:

@@ -1354,8 +1354,8 @@ export class OxcamlProgram extends AbstractProgram {
       "oxcaml",
       `
 [
-  (open_module (module_path) @mod.name)
-  (value_path (module_path) @mod.name)
+  (module_path) @mod.name
+  (extended_module_path) @mod.name
 ]
 `
     );

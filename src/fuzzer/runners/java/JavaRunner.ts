@@ -319,46 +319,19 @@ export class JavaRunner extends AbstractRunner {
     const projectPath = this._compiler.projectPath;
     const classesDir = this._classesDir ?? this._compiler.classesDir;
 
-    const runtimeJar =
-      findRuntimeJar(projectPath) ??
-      path.resolve("./packages/runtime/java/target/nanofuzz-runtime-0.4.0.jar");
+    const runtimeJar = findRuntimeJar(projectPath);
 
     const cpEntries: string[] = [];
-    if (fs.existsSync(runtimeJar)) {
+    if (runtimeJar && fs.existsSync(runtimeJar)) {
       cpEntries.push(runtimeJar);
     }
     if (classesDir && fs.existsSync(classesDir)) {
       cpEntries.push(classesDir);
     }
 
-    if (this._compiler.projectType === "maven") {
-      const targetClasses = path.join(projectPath, "target", "classes");
-      if (fs.existsSync(targetClasses)) cpEntries.push(targetClasses);
-      const testClasses = path.join(projectPath, "target", "test-classes");
-      if (fs.existsSync(testClasses)) cpEntries.push(testClasses);
-    } else if (this._compiler.projectType === "gradle") {
-      const mainClasses = path.join(
-        projectPath,
-        "build",
-        "classes",
-        "java",
-        "main"
-      );
-      if (fs.existsSync(mainClasses)) cpEntries.push(mainClasses);
-      const testClasses = path.join(
-        projectPath,
-        "build",
-        "classes",
-        "java",
-        "test"
-      );
-      if (fs.existsSync(testClasses)) cpEntries.push(testClasses);
-    }
-
-    const extraClasspath = this._compiler.options.extraClasspath;
-    if (extraClasspath) {
-      for (const cp of extraClasspath) {
-        if (fs.existsSync(cp)) cpEntries.push(cp);
+    for (const entry of this._compiler.getProjectClasspathEntries()) {
+      if (!cpEntries.includes(entry)) {
+        cpEntries.push(entry);
       }
     }
 

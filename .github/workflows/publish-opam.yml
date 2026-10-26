@@ -4,6 +4,19 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Git tag to release (e.g. v0.4.0)"
+        required: false
+        default: ""
+      dry_run:
+        description: "Dry run (simulate without publishing to GitHub or opam-repository)"
+        type: boolean
+        required: false
+        default: true
+
+permissions:
+  contents: write
 
 jobs:
   publish-opam:
@@ -19,12 +32,8 @@ jobs:
 
       - name: Install dependencies
         run: |
-          opam install dune yojson msgpck ounit2 dune-release opam-publish -y
-
-      - name: Add OCaml switch to GITHUB_PATH
-        run: |
+          opam install dune yojson msgpck ounit2 opam-publish -y
           opam var bin >> "$GITHUB_PATH"
-          echo "OPAM_SWITCH_PREFIX=$(opam var prefix)" >> "$GITHUB_ENV"
 
       - name: Test runtime package
         working-directory: packages/runtime/oxcaml
@@ -34,17 +43,86 @@ jobs:
         working-directory: packages/runtime/oxcaml
         run: opam lint nanofuzz_runtime.opam
 
-      - name: Publish to opam-repository
-        working-directory: packages/runtime/oxcaml
-        run: |
-          # Use dune-release to generate release tarball and submit PR to ocaml/opam-repository
-          if [ -n "${{ secrets.OPAM_PUBLISH_TOKEN }}" ]; then
-            dune-release distrib --skip-lint --skip-build --skip-tests
-            dune-release publish distrib --yes
-            dune-release opam pkg
-            dune-release opam submit --yes --no-auto-open
-          else
-            echo "Notice: OPAM_PUBLISH_TOKEN not set. Skipping PR submission to ocaml/opam-repository."
-          fi
+      - name: Package & Publish to opam-repository
         env:
-          DUNE_RELEASE_DELEGATE_GITHUB_TOKEN: ${{ secrets.OPAM_PUBLISH_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPAM_PUBLISH_TOKEN: ${{ secrets.OPAM_PUBLISH_TOKEN }}
+        run: |
+          TAG="${{ github.event.release.tag_name || inputs.tag }}"
+          if [ -z "$TAG" ]; then
+            TAG="$(git describe --tags --abbrev=0 2>/dev/null || echo '')"
+          fi
+          if [ -z "$TAG" ]; then
+            echo "Error: No tag specified or found."
+            exit 1
+          fi
+
+          VERSION="${TAG#v}"
+          echo "Packaging nanofuzz_runtime version $VERSION for git tag $TAG..."
+
+          TARBALL="nanofuzz_runtime-${VERSION}.tar.gz"
+          tar -czf "$TARBALL" \
+            --exclude='_build' \
+            --exclude='.git*' \
+            --exclude='*.cm*' \
+            --exclude='*.o' \
+            --exclude='*.a' \
+            -C packages/runtime/oxcaml .
+
+          SHA256="$(sha256sum "$TARBALL" | awk '{print $1}')"
+          SIZE="$(du -h "$TARBALL" | cut -f1)"
+          echo "Created $TARBALL ($SIZE, sha256: $SHA256)"
+
+          # Display archive contents
+          echo "Archive contents:"
+          tar -tzf "$TARBALL"
+
+          TAR_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/${TARBALL}"
+          OPAM_FILE="packages/runtime/oxcaml/nanofuzz_runtime.opam"
+
+          # Update version field in opam file if needed
+          sed -i "s/^version: \".*\"/version: \"$VERSION\"/" "$OPAM_FILE"
+
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            echo "=== DRY RUN MODE ==="
+            echo "Target release asset URL: $TAR_URL"
+            echo "Archive checksum: sha256=$SHA256"
+
+            TMP_OPAM="$(mktemp --suffix=.opam)"
+            cp "$OPAM_FILE" "$TMP_OPAM"
+            printf '\nurl {\n  src: "%s"\n  checksum: [\n    "sha256=%s"\n  ]\n}\n' "$TAR_URL" "$SHA256" >> "$TMP_OPAM"
+            echo "Generated opam definition for submission:"
+            cat "$TMP_OPAM"
+            echo "Linting generated opam definition:"
+            opam lint "$TMP_OPAM"
+            rm -f "$TMP_OPAM"
+
+            if [ -n "$OPAM_PUBLISH_TOKEN" ]; then
+              echo "OPAM_PUBLISH_TOKEN is set. Ready to publish in non-dry-run mode."
+            else
+              echo "Note: OPAM_PUBLISH_TOKEN secret is not set. Remember to configure it before live publish."
+            fi
+            echo "Dry run completed successfully!"
+          else
+            echo "=== LIVE PUBLISH MODE ==="
+            if [ -z "$OPAM_PUBLISH_TOKEN" ]; then
+              echo "Error: OPAM_PUBLISH_TOKEN secret is required to submit PR to opam-repository."
+              exit 1
+            fi
+
+            # 1. Attach the tarball to the GitHub release
+            echo "Uploading $TARBALL to GitHub release $TAG..."
+            gh release upload "$TAG" "$TARBALL" --repo "${{ github.repository }}" --clobber || \
+              gh release create "$TAG" "$TARBALL" --repo "${{ github.repository }}" --title "$TAG" --notes "Release $TAG"
+
+            # 2. Submit PR to ocaml/opam-repository using opam-publish
+            echo "Submitting pull request to ocaml/opam-repository..."
+            opam-publish \
+              --token "$OPAM_PUBLISH_TOKEN" \
+              --tag "$TAG" \
+              --version "$VERSION" \
+              --no-confirmation \
+              --no-browser \
+              "$TAR_URL" \
+              "$OPAM_FILE"
+          fi

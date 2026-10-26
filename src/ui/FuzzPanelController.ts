@@ -344,6 +344,74 @@ export class FuzzPanel {
   } // fn: constructor
 
   /**
+   * Directly sets pre-computed fuzz test results into this panel,
+   * transitioning it to the done state and displaying results immediately.
+   *
+   * @param results FuzzTestResults to display
+   * @param focusCategory Optional tab category to focus initially
+   */
+  public async displayResults(
+    results: fuzzer.FuzzTestResults,
+    focusCategory?: fuzzer.FuzzResultCategory | "runInfo"
+  ): Promise<void> {
+    this._results = results;
+    this._errorMessage = undefined;
+    this._errorStack = undefined;
+    this._state = FuzzPanelState.done;
+    this._retestingReason = false;
+
+    // Apply focus category or initial tab
+    if (focusCategory) {
+      if (focusCategory === "runInfo") {
+        this._lastTab = "runInfo";
+      } else {
+        this._focusInput = [focusCategory, 0];
+      }
+    } else {
+      const hasFailures = results.results?.some(
+        (r) =>
+          r.category === "badValue" ||
+          r.category === "exception" ||
+          r.category === "timeout" ||
+          r.category === "failure" ||
+          r.category === "disagree"
+      );
+      if (hasFailures) {
+        const firstFail = results.results?.find(
+          (r) =>
+            r.category === "badValue" ||
+            r.category === "exception" ||
+            r.category === "timeout" ||
+            r.category === "failure" ||
+            r.category === "disagree"
+        );
+        if (firstFail) {
+          this._focusInput = [firstFail.category, 0];
+        }
+      }
+    }
+
+    // Persist tests/options
+    this._updateFuzzTests();
+
+    // Get coverage data
+    this._coverageStats = results.stats.measures.CodeCoverageMeasure
+      ? await results.stats.measures.CodeCoverageMeasure()
+      : undefined;
+
+    // Update the UI
+    const message: FuzzPanelMessageToWebView = {
+      command: "busy.ending",
+    };
+    this._postToView(message);
+    this._updateHtml();
+    this._focusInput = undefined;
+
+    // Reveal the panel
+    this._panel.reveal();
+  } // fn: displayResults
+
+  /**
    * Returns the state of the FuzzPanel for serialization.
    *
    * @returns the state of the FuzzPanel
@@ -2876,7 +2944,7 @@ export class FuzzPanel {
               <div id="fuzzBusyStatusBar" style="width: 0%;">0%</div>
             </div>
             <div id="fuzzBusyMessage">
-              <pre id="fuzzBusyMessageNonMilestone">Initializing...</pre>
+              <pre id="fuzzBusyMessageNonMilestone">Initializing<span class="loading-dots">............</span></pre>
             </div>`;
       }
 
@@ -3561,6 +3629,30 @@ export async function handleFuzzWithValidatorCommand(
 
   return;
 } // fn: handleFuzzWithValidatorCommand()
+
+/**
+ * Renders or reveals the FuzzPanel for a target function.
+ * If pre-computed fuzz test results are provided, directly injects them into the panel.
+ *
+ * @param srcFile Absolute path to the source file
+ * @param fnName Name of the function under test
+ * @param results Optional pre-computed FuzzTestResults
+ * @param focusCategory Optional result tab to select initially
+ */
+export async function showResultsInFuzzPanel(
+  srcFile: string,
+  fnName: string,
+  results?: fuzzer.FuzzTestResults,
+  focusCategory?: fuzzer.FuzzResultCategory | "runInfo"
+): Promise<FuzzPanel> {
+  const extUri = FuzzPanel.context?.extensionUri ?? vscode.Uri.file(__dirname);
+  const fuzzOptions = results?.env?.options ?? getDefaultFuzzOptions();
+  const panel = FuzzPanel.render(extUri, srcFile, fnName, fuzzOptions);
+  if (results) {
+    await panel.displayResults(results, focusCategory);
+  }
+  return panel;
+} // fn: showResultsInFuzzPanel()
 
 /**
  * Finds the function under test (FUT) for a given validator function.

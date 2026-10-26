@@ -81,6 +81,10 @@ export class OxcamlRunner extends AbstractRunner {
     this._staticCoverage = structuredClone(this._coverageInfo);
     this._pgmFiles = Object.keys(allStaticCov);
 
+    // Yield so all runners in Promise.all finish synchronous compilation
+    // before any runner spawns its host process and starts startup timeout timers.
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
     await this._getHost();
   } // fn: onRunStart
 

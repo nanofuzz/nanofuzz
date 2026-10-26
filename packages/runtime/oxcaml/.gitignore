@@ -1,3 +1,6 @@
 _build/
 .merlin
 *.install
+*.cm*
+*.o
+*.a

@@ -2,12 +2,14 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as Config from "../Config";
+import { isKeyedObject } from "../Util";
 import * as ParserAdapter from "../fuzzer/adapters/ParserAdapter";
 import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
 import { LlmAdapter } from "../fuzzer/adapters/LlmAdapter";
 import {
   listTargets,
   runFuzz,
+  shrinkInputs,
   resolveFilePath,
   getDefaultFuzzOptions,
   normalizeAgentFuzzOptions,
@@ -21,6 +23,7 @@ import {
   synthesizeValidator,
   synthesizeTransformer,
   synthesizeUserGenerator,
+  convertAgentInputsToPinnedTests,
   AgentFuzzOptions,
 } from "./Agent";
 import { FuzzTestResult, FuzzStopReason } from "../fuzzer/Types";
@@ -309,6 +312,46 @@ describe("Agent", () => {
     expect(normalized.fnTimeout).toBe(50);
     expect(normalized.suiteTimeout).toBe(1000);
     expect(normalized.useImplicit).toBe(true);
+
+    const unlimited: AgentFuzzOptions = {
+      filePath: tsFixture,
+      functionName: "testStandardVoidReturnUndefined",
+      maxTests: 0,
+    };
+    const normalizedUnlimited = normalizeAgentFuzzOptions(unlimited);
+    expect(normalizedUnlimited.maxTests).toBe(Number.MAX_SAFE_INTEGER);
+
+    const longTimeout: AgentFuzzOptions = {
+      filePath: tsFixture,
+      functionName: "testStandardVoidReturnUndefined",
+      suiteTimeout: 60000,
+    };
+    const normalizedLongTimeout = normalizeAgentFuzzOptions(longTimeout);
+    expect(normalizedLongTimeout.maxTests).toBe(Number.MAX_SAFE_INTEGER);
+  });
+
+  it("shrinkInputs: shrinks failing input", async () => {
+    const res = await shrinkInputs({
+      filePath: tsFixture,
+      functionName: "testStandardVoidReturnException",
+      inputs: [{ _x: 9999999 }],
+      maxSteps: 50,
+      fnTimeout: 500,
+    });
+
+    expect(res).toBeDefined();
+    expect(res.functionName).toBe("testStandardVoidReturnException");
+    expect(res.totalInputs).toBe(1);
+    expect(res.shrunkInputs.length).toBe(1);
+    const item = res.shrunkInputs[0];
+    expect(item.outcome).toBe("exception");
+    expect(item.shrinkSteps).toBeGreaterThan(0);
+    expect(item.status).toBe("shrunk");
+    expect(isKeyedObject(item.shrunkenInput)).toBe(true);
+    if (isKeyedObject(item.shrunkenInput)) {
+      expect(Number(item.shrunkenInput["_x"])).toBeLessThan(9999999);
+    }
+    expect(res.summaryText).toContain("NaNofuzz Input Shrinking");
   });
 
   it("reproducer: jest output", () => {
@@ -423,6 +466,40 @@ describe("Agent", () => {
     expect(selected[0].category).toBe("exception");
     expect(selected[1].category).toBe("ok");
     expect(selected[1].interestingReasons).toContain("CoverageMeasure");
+  });
+
+  it("convertAgentInputsToPinnedTests: coerces number/string seeds for BIGINT and arrays for SET", () => {
+    const javaSrc = `
+import java.util.List;
+import java.util.Set;
+public class SeedCoercionDemo {
+    public static void target(long count, List<Long> history, Set<String> tags) {}
+}
+`;
+    const pgm = ProgramFactory.fromSource(() => javaSrc, "java");
+    const argDefs = pgm.functionsExported["target"].getArgDefs();
+    const pinned = convertAgentInputsToPinnedTests(
+      [
+        { count: 42, history: [10, "20"], tags: ["a", "b"] },
+        [99, [1, 2], ["c"]],
+      ],
+      argDefs
+    );
+
+    expect(pinned.length).toBe(2);
+    const val0: unknown = pinned[0].input[0].value;
+    const val1: unknown = pinned[0].input[1].value;
+    const val2: unknown = pinned[0].input[2].value;
+    expect(val0).toEqual(42n);
+    expect(val1).toEqual([10n, 20n]);
+    expect(val2).toEqual(new Set(["a", "b"]));
+
+    const val3: unknown = pinned[1].input[0].value;
+    const val4: unknown = pinned[1].input[1].value;
+    const val5: unknown = pinned[1].input[2].value;
+    expect(val3).toEqual(99n);
+    expect(val4).toEqual([1n, 2n]);
+    expect(val5).toEqual(new Set(["c"]));
   });
 
   it("synthesizeTestSuite: directly synthesizes multi-test suite from results", async () => {

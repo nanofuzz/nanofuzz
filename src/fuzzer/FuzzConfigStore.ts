@@ -92,7 +92,7 @@ export class FuzzConfigStore {
     return {
       argDefaults: ArgDef.getDefaultOptions(),
       maxTests: Config.get("nanofuzz.fuzzer.maxTests", 1000),
-      fnTimeout: Config.get("nanofuzz.fuzzer.fnTimeout", 100),
+      fnTimeout: Config.get("nanofuzz.fuzzer.fnTimeout", 500),
       suiteTimeout: Config.get("nanofuzz.fuzzer.suiteTimeout", 3000),
       maxDupeInputs: Config.get("nanofuzz.fuzzer.maxDupeInputs", 500),
       maxFailures: Config.get("nanofuzz.fuzzer.maxFailures", 0),

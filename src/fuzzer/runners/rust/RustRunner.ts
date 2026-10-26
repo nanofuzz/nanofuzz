@@ -14,6 +14,7 @@ import * as JSONN from "../../../Jsonn";
 import { PutTimeoutName } from "../AbstractHost";
 import { RustHost } from "./RustHost";
 import { buildRustHarness } from "./RustHarness";
+import { getSanitizerAdapter } from "./sanitizers/Registry";
 
 /**
  * Test runner for compiled Rust targets.
@@ -24,6 +25,7 @@ export class RustRunner extends AbstractRunner {
   protected _env: FuzzEnv | undefined;
   protected _overrides: RunnerOverrides;
   protected _host: RustHost | undefined = undefined;
+  protected _sanitizerName: string = "none";
   protected _seq = 0;
   protected _harnessBinary: string | undefined = undefined;
   protected _harnessDir: string | undefined = undefined;
@@ -33,6 +35,7 @@ export class RustRunner extends AbstractRunner {
   protected _pgmFiles: string[] = [];
   protected _coverageEnabled = true;
   protected _coverageCallback?: (covData: unknown) => void;
+  protected _abortSimulation?: { stderr: string; exitCode: number };
 
   constructor(
     filename: string,
@@ -58,8 +61,15 @@ export class RustRunner extends AbstractRunner {
       this._coverageEnabled =
         this._env.options.measures.CoverageMeasure.enabled;
     }
+    this._sanitizerName = Config.get<string>("nanofuzz.rust.sanitizer", "none");
     const { binaryPath, harnessDir, staticCov, staticCovMap } =
-      buildRustHarness(this._filename, this._fn, this._env);
+      buildRustHarness(
+        this._filename,
+        this._fn,
+        this._env,
+        undefined,
+        this._sanitizerName
+      );
     this._harnessBinary = binaryPath;
     this._harnessDir = harnessDir;
     const realFile = fs.existsSync(this._filename)
@@ -93,9 +103,19 @@ export class RustRunner extends AbstractRunner {
     validators: string[] = []
   ): Promise<RunnerResult> {
     const thisSeq = this._seq++;
+    let host: RustHost | undefined = undefined;
 
     try {
-      const host = await this._getHost();
+      host = await this._getHost();
+
+      if (this._abortSimulation) {
+        const sim = this._abortSimulation;
+        this._abortSimulation = undefined;
+        host.appendStderrForTest(sim.stderr);
+        throw new Error(
+          `Host exited unexpectedly (exit code: ${sim.exitCode}, stderr: ${sim.stderr})`
+        );
+      }
 
       const input = {
         seq: thisSeq,
@@ -196,6 +216,9 @@ export class RustRunner extends AbstractRunner {
         env: {},
       };
     } catch (e: unknown) {
+      const activeHost = host ?? this._host;
+      const hostStderr = activeHost ? activeHost.stderr : "";
+      const hostExitCode = activeHost ? activeHost.exitCode : null;
       this.killHost();
       if (!isError(e)) {
         throw e;
@@ -203,6 +226,21 @@ export class RustRunner extends AbstractRunner {
       if (e.name === PutTimeoutName) {
         return { result: { tag: "timeout", seq: thisSeq }, env: {} };
       } else {
+        const sanitizerAdapter = getSanitizerAdapter(this._sanitizerName);
+        const diag = sanitizerAdapter.parseAbort(hostStderr, hostExitCode);
+        if (diag) {
+          return {
+            result: {
+              tag: "error",
+              name: diag.name,
+              message: diag.summary,
+              stack: diag.stack ?? diag.rawReport,
+              source: "put",
+              seq: thisSeq,
+            },
+            env: {},
+          };
+        }
         return {
           result: {
             tag: "error",
@@ -226,8 +264,18 @@ export class RustRunner extends AbstractRunner {
     }
 
     if (!this._harnessBinary) {
+      this._sanitizerName = Config.get<string>(
+        "nanofuzz.rust.sanitizer",
+        "none"
+      );
       const { binaryPath, harnessDir, staticCov, staticCovMap } =
-        buildRustHarness(this._filename, this._fn, this._env);
+        buildRustHarness(
+          this._filename,
+          this._fn,
+          this._env,
+          undefined,
+          this._sanitizerName
+        );
       this._harnessBinary = binaryPath;
       this._harnessDir = harnessDir;
       const realFile = fs.existsSync(this._filename)
@@ -245,7 +293,14 @@ export class RustRunner extends AbstractRunner {
       this._pgmFiles = Object.keys(allStaticCov);
     }
 
-    const host = new RustHost(this._harnessBinary, [], this._harnessDir);
+    const sanitizerAdapter = getSanitizerAdapter(this._sanitizerName);
+    const hostEnv = sanitizerAdapter.configureHostEnv(process.env);
+    const host = new RustHost(
+      this._harnessBinary,
+      [],
+      this._harnessDir,
+      hostEnv
+    );
     const hostStartupTimeout = Config.get<number>(
       "nanofuzz.fuzzer.hostStartupTimeout",
       20000
@@ -322,6 +377,28 @@ export class RustRunner extends AbstractRunner {
     await super.onRunEnd();
     this.killHost();
   } // fn: onRunEnd
+
+  /**
+   * Sets the active sanitizer name for testing without reading global configuration.
+   *
+   * @param name Sanitizer name identifier (e.g. "borrow", "none")
+   */
+  public setSanitizerNameForTest(name: string): void {
+    this._sanitizerName = name;
+  } // fn: setSanitizerNameForTest
+
+  /**
+   * Sets mock abort simulation details for testing crash recovery without exposing host.
+   *
+   * @param stderr Diagnostic error output to simulate on the active host
+   * @param exitCode Exit code to simulate (default 134 for SIGABRT)
+   */
+  public simulateHostAbortForTest(
+    stderr: string,
+    exitCode: number = 134
+  ): void {
+    this._abortSimulation = { stderr, exitCode };
+  } // fn: simulateHostAbortForTest
 } // class: RustRunner
 
 type RustHostResponse = {

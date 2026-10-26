@@ -128,6 +128,22 @@ pub fn add(a: i32, b: i32) -> i32 {
     expect(compiler.isStale()).toBe("sourcechanged");
   });
 
+  it("detects compiler change and reports compilerchanged staleness", () => {
+    const standaloneRs = path.join(tempDir, "compiler_test.rs");
+    fs.writeFileSync(
+      standaloneRs,
+      "pub fn add(a: i32, b: i32) -> i32 { a + b }"
+    );
+
+    const compiler = new RustCompiler(standaloneRs);
+    compiler.compileSync();
+    expect(compiler.isStale()).toBeFalse();
+
+    // Simulate compiler change
+    compiler.setRustcVersionForTest("rustc 9.99.9-fake");
+    expect(compiler.isStale()).toBe("compilerchanged");
+  });
+
   it("throws RustCompilerError with diagnostic details on compilation failure", () => {
     const badRs = path.join(tempDir, "bad.rs");
     fs.writeFileSync(
