@@ -23,6 +23,7 @@ import {
   synthesizeValidator,
   synthesizeTransformer,
   synthesizeUserGenerator,
+  convertAgentInputsToPinnedTests,
   AgentFuzzOptions,
 } from "./Agent";
 import { FuzzTestResult, FuzzStopReason } from "../fuzzer/Types";
@@ -465,6 +466,40 @@ describe("Agent", () => {
     expect(selected[0].category).toBe("exception");
     expect(selected[1].category).toBe("ok");
     expect(selected[1].interestingReasons).toContain("CoverageMeasure");
+  });
+
+  it("convertAgentInputsToPinnedTests: coerces number/string seeds for BIGINT and arrays for SET", () => {
+    const javaSrc = `
+import java.util.List;
+import java.util.Set;
+public class SeedCoercionDemo {
+    public static void target(long count, List<Long> history, Set<String> tags) {}
+}
+`;
+    const pgm = ProgramFactory.fromSource(() => javaSrc, "java");
+    const argDefs = pgm.functionsExported["target"].getArgDefs();
+    const pinned = convertAgentInputsToPinnedTests(
+      [
+        { count: 42, history: [10, "20"], tags: ["a", "b"] },
+        [99, [1, 2], ["c"]],
+      ],
+      argDefs
+    );
+
+    expect(pinned.length).toBe(2);
+    const val0: unknown = pinned[0].input[0].value;
+    const val1: unknown = pinned[0].input[1].value;
+    const val2: unknown = pinned[0].input[2].value;
+    expect(val0).toEqual(42n);
+    expect(val1).toEqual([10n, 20n]);
+    expect(val2).toEqual(new Set(["a", "b"]));
+
+    const val3: unknown = pinned[1].input[0].value;
+    const val4: unknown = pinned[1].input[1].value;
+    const val5: unknown = pinned[1].input[2].value;
+    expect(val3).toEqual(99n);
+    expect(val4).toEqual([1n, 2n]);
+    expect(val5).toEqual(new Set(["c"]));
   });
 
   it("synthesizeTestSuite: directly synthesizes multi-test suite from results", async () => {

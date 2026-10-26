@@ -151,12 +151,23 @@ if (fs.existsSync(oxRuntimeDir)) {
 // Build and copy Java runtime package (nanofuzz-runtime)
 const javaRuntimeDir = path.resolve("./packages/runtime/java");
 if (fs.existsSync(javaRuntimeDir)) {
-  const javaTargetJar = path.join(
-    javaRuntimeDir,
-    "target",
-    "nanofuzz-runtime-0.4.0.jar"
-  );
-  if (!fs.existsSync(javaTargetJar)) {
+  const javaTargetDir = path.join(javaRuntimeDir, "target");
+  // Locate the versioned shaded runtime JAR
+  const findJar = () => {
+    if (!fs.existsSync(javaTargetDir)) return undefined;
+    const files = fs.readdirSync(javaTargetDir);
+    const jar = files.find(
+      (f) =>
+        f.startsWith("nanofuzz-runtime") &&
+        f.endsWith(".jar") &&
+        !f.includes("sources") &&
+        !f.startsWith("original-")
+    );
+    return jar ? path.join(javaTargetDir, jar) : undefined;
+  };
+
+  let javaTargetJar = findJar();
+  if (!javaTargetJar) {
     const mvnBin = resolveMaven();
     if (mvnBin) {
       ChildProcess.execFileSync(mvnBin, ["clean", "package", "-DskipTests"], {
@@ -164,6 +175,7 @@ if (fs.existsSync(javaRuntimeDir)) {
         stdio: "inherit",
         shell: process.platform === "win32",
       });
+      javaTargetJar = findJar();
     } else {
       throw new Error(
         "Maven (mvn) not found. Java runtime JAR cannot be built (see ./CONTRIBUTING.md)"
@@ -171,9 +183,9 @@ if (fs.existsSync(javaRuntimeDir)) {
     }
   }
 
-  if (!fs.existsSync(javaTargetJar)) {
+  if (!javaTargetJar || !fs.existsSync(javaTargetJar)) {
     throw new Error(
-      `Java runtime JAR was not found at ${javaTargetJar} after build.`
+      `Java runtime JAR was not found in ${javaTargetDir} after build.`
     );
   }
 

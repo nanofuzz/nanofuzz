@@ -830,39 +830,36 @@ function parseJavaCompilerOutput(
 export function findRuntimeJar(userProjectPath?: string): string | undefined {
   const currModuleDir = path.dirname(path.resolve(module.filename));
   const projectRoot = findInAncestor(currModuleDir, "package.json");
-  const candidates: string[] = [];
+  const searchDirs: string[] = [];
 
   if (userProjectPath) {
-    candidates.push(
-      path.join(userProjectPath, "target", "nanofuzz-runtime-0.4.0.jar"),
-      path.join(userProjectPath, "target", "nanofuzz-runtime.jar")
+    searchDirs.push(
+      path.join(userProjectPath, "target"),
+      path.join(userProjectPath, "build", "libs")
     );
   }
 
   if (projectRoot) {
     const rootDir = path.dirname(projectRoot);
-    candidates.push(
-      path.join(
-        rootDir,
-        "packages",
-        "runtime",
-        "java",
-        "target",
-        "nanofuzz-runtime-0.4.0.jar"
-      ),
-      path.join(
-        rootDir,
-        "build",
-        "extension",
-        "nanofuzz-runtime-java",
-        "nanofuzz-runtime.jar"
-      )
+    searchDirs.push(
+      path.join(rootDir, "packages", "runtime", "java", "target"),
+      path.join(rootDir, "build", "extension", "nanofuzz-runtime-java")
     );
   }
 
-  for (const c of candidates) {
-    if (fs.existsSync(c)) {
-      return fs.realpathSync(c);
+  for (const dir of searchDirs) {
+    if (fs.existsSync(dir) && fs.statSync(dir).isDirectory()) {
+      const files = fs.readdirSync(dir);
+      const jar = files.find(
+        (f) =>
+          f.startsWith("nanofuzz-runtime") &&
+          f.endsWith(".jar") &&
+          !f.includes("sources") &&
+          !f.startsWith("original-")
+      );
+      if (jar) {
+        return fs.realpathSync(path.join(dir, jar));
+      }
     }
   }
 

@@ -2,7 +2,7 @@
   "name": "nanofuzz",
   "displayName": "NaNofuzz",
   "publisher": "penrose",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "NaNofuzz is a fast and easy-to-use automatic test suite generator for TypeScript, Python, Rust, Java, and OCaml/OxCaml that runs inside VS Code",
   "repository": {
     "type": "git",
@@ -462,6 +462,20 @@
             "type": "string",
             "default": "cargo",
             "description": "Path to the cargo executable for compiling and testing Rust projects.",
+            "tags": [
+              "experimental"
+            ]
+          },
+          "nanofuzz.rust.sanitizer": {
+            "title": "Rust Sanitizer",
+            "type": "string",
+            "enum": [
+              "none",
+              "borrow",
+              "address"
+            ],
+            "default": "none",
+            "description": "Sanitizer to enable when compiling and executing Rust fuzz targets (e.g. 'none', 'borrow', 'address').",
             "tags": [
               "experimental"
             ]

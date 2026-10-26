@@ -1,5 +1,5 @@
 import * as Config from "../../../Config";
-import { FuzzTests } from "../../Types";
+import { FuzzIoElement, FuzzPinnedTest, FuzzTests } from "../../Types";
 import * as ValueMapper from "../../mappers/ValueMapper";
 import * as ProgramFactory from "../../analysis/ProgramFactory";
 import { AbstractProgram } from "../../analysis/AbstractProgram";
@@ -8,6 +8,8 @@ import { ArgDef } from "../../analysis/ArgDef";
 import * as os from "os";
 import * as path from "path";
 import { AbstractTestAdapter } from "../AbstractTestAdapter";
+import { getSanitizerAdapter } from "../../runners/rust/sanitizers/Registry";
+import { RustSanitizerAdapter } from "../../runners/rust/sanitizers/Types";
 
 export class CargoTestAdapter extends AbstractTestAdapter {
   protected _testSet: FuzzTests;
@@ -159,6 +161,17 @@ export class CargoTestAdapter extends AbstractTestAdapter {
 
         // Human-annotated expected output
         const expectedOutput = thisTest.expectedOutput;
+        const sanitizerName = Config.get<string>(
+          "nanofuzz.rust.sanitizer",
+          "none"
+        );
+        const sanitizerAdapter = getSanitizerAdapter(sanitizerName);
+        const isSanitizerFailure = this._isSanitizerFailure(
+          thisTest,
+          expectedOutput,
+          sanitizerAdapter
+        );
+
         if (
           thisFn.options.useHuman &&
           expectedOutput &&
@@ -169,6 +182,12 @@ export class CargoTestAdapter extends AbstractTestAdapter {
               `Expected timeouts not currently supported in ${this.toolname} format`
             );
           } else if (expectedOutput[0].isException) {
+            if (isSanitizerFailure) {
+              rustData.push(
+                `// [NaNofuzz] Note: This failure was detected by ${sanitizerAdapter.displayName}.`,
+                `// Run with: ${sanitizerAdapter.getReproductionCommand()}`
+              );
+            }
             rustData.push(
               `#[test]`,
               `#[should_panic]`,
@@ -302,6 +321,39 @@ export class CargoTestAdapter extends AbstractTestAdapter {
 
     return rustData.join(os.EOL);
   } // fn: toString
+
+  /**
+   * Determines whether a pinned test failure was produced by an active sanitizer.
+   *
+   * @param test Pinned test case
+   * @param expectedOutput Expected output elements if defined
+   * @param sanitizerAdapter Active Rust sanitizer adapter
+   * @returns True if the test failure corresponds to the active sanitizer
+   */
+  protected _isSanitizerFailure(
+    test: FuzzPinnedTest,
+    expectedOutput: FuzzIoElement[] | undefined,
+    sanitizerAdapter: RustSanitizerAdapter
+  ): boolean {
+    if (sanitizerAdapter.id === "none") {
+      return false;
+    }
+    const matchesExpected = Boolean(
+      expectedOutput &&
+      expectedOutput.length > 0 &&
+      expectedOutput[0].isException &&
+      (typeof expectedOutput[0].value === "string"
+        ? expectedOutput[0].value.includes(sanitizerAdapter.displayName)
+        : true)
+    );
+    const matchesActual = test.output.some(
+      (out) =>
+        out.isException &&
+        typeof out.value === "string" &&
+        out.value.includes(sanitizerAdapter.displayName)
+    );
+    return matchesExpected || matchesActual;
+  } // fn: _isSanitizerFailure
 } // class: CargoTestAdapter
 
 const nanofuzzName = Config.get("nanofuzz.name", "NaNofuzz");

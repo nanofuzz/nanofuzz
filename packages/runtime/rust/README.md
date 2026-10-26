@@ -6,5 +6,5 @@ To install the dependency in your Rust project, add to `Cargo.toml`:
 
 ```toml
 [dev-dependencies]
-nanofuzz-runtime = "0.4.0"
+nanofuzz-runtime = "0.4.1"
 ```

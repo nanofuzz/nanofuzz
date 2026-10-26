@@ -319,12 +319,10 @@ export class JavaRunner extends AbstractRunner {
     const projectPath = this._compiler.projectPath;
     const classesDir = this._classesDir ?? this._compiler.classesDir;
 
-    const runtimeJar =
-      findRuntimeJar(projectPath) ??
-      path.resolve("./packages/runtime/java/target/nanofuzz-runtime-0.4.0.jar");
+    const runtimeJar = findRuntimeJar(projectPath);
 
     const cpEntries: string[] = [];
-    if (fs.existsSync(runtimeJar)) {
+    if (runtimeJar && fs.existsSync(runtimeJar)) {
       cpEntries.push(runtimeJar);
     }
     if (classesDir && fs.existsSync(classesDir)) {
