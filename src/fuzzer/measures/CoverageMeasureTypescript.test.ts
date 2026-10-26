@@ -4,7 +4,13 @@ import * as os from "os";
 import * as path from "path";
 import * as ts from "typescript";
 import { FileCoverage } from "istanbul-lib-coverage";
-import { CoverageMeasure, isCoverageMapData } from "./CoverageMeasure";
+import {
+  CoverageMeasure,
+  isCoverageMapData,
+  isRecordOfFileCoverageData,
+} from "./CoverageMeasure";
+import { JavascriptRunner } from "../runners/javascript/JavascriptRunner";
+import * as Config from "../../Config";
 import { VmGlobals } from "../Types";
 import { normalizePathForKey } from "../Util";
 import {
@@ -483,6 +489,127 @@ export function x(
       expect(file.counters.statementsCovered).toEqual(2);
       expect(file.counters.branchesTotal).toEqual(2);
       expect(file.counters.branchesCovered).toEqual(1);
+    });
+  });
+
+  // ------------------------------------------------------------------
+  // Coverage Scopes: 'project static' vs 'project directimports static'
+  // ------------------------------------------------------------------
+  describe("coverage scopes", () => {
+    it("coverage scope: 'project static' vs 'project directimports static' for TypeScript", async () => {
+      const testDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "nanofuzz-ts-covscope-")
+      );
+      const nodeModules = path.join(testDir, "node_modules", "ext_math");
+      fs.mkdirSync(nodeModules, { recursive: true });
+      fs.writeFileSync(
+        path.join(nodeModules, "index.js"),
+        `function square(x) {
+  if (x > 0) {
+    return x * x;
+  } else {
+    return 0;
+  }
+}
+module.exports = { square };
+`
+      );
+
+      const mainTs = path.join(testDir, "main.ts");
+      const mainJs = path.join(testDir, "main.js");
+      const tsCode = `import { square } from "ext_math";
+
+export function compute(n: number): number {
+  return square(n) + 1;
+}
+`;
+      fs.writeFileSync(mainTs, tsCode);
+      const out = ts.transpileModule(tsCode, {
+        fileName: mainTs,
+        compilerOptions: {
+          sourceMap: true,
+          inlineSources: true,
+          module: ts.ModuleKind.CommonJS,
+          target: ts.ScriptTarget.ES2020,
+        },
+      });
+      fs.writeFileSync(mainJs, out.outputText);
+      fs.writeFileSync(mainJs + ".map", out.sourceMapText!);
+      const realJs = fs.realpathSync(mainJs);
+
+      const measure = new CoverageMeasure();
+      fs.writeFileSync(realJs, measure.onAfterCompile(out.outputText, realJs));
+
+      try {
+        // 1. Default 'project static' scope
+        Config.override("nanofuzz.fuzzer.coverageScope", "project static");
+        const runnerProject = new JavascriptRunner(realJs, "compute");
+        await runnerProject.onRunStart();
+        const resProject = await runnerProject.run([4], 5000);
+        expect(resProject.result.tag).toBe("value");
+        if (resProject.result.tag === "value") {
+          expect(resProject.result.value).toBe(17);
+        }
+        expect(runnerProject.coverageInfo).toBeDefined();
+        const projectFiles = Object.keys(runnerProject.coverageInfo!);
+        expect(
+          projectFiles.some((f) => f.toLowerCase().includes("main.js"))
+        ).toBeTrue();
+        expect(
+          projectFiles.some((f) => f.toLowerCase().includes("ext_math"))
+        ).toBeFalse();
+        await runnerProject.onRunEnd();
+
+        // 2. 'project directimports static' scope
+        Config.override(
+          "nanofuzz.fuzzer.coverageScope",
+          "project directimports static"
+        );
+        const runnerImports = new JavascriptRunner(realJs, "compute");
+        await runnerImports.onRunStart();
+        const resImports = await runnerImports.run([4], 5000);
+        expect(resImports.result.tag).toBe("value");
+        if (resImports.result.tag === "value") {
+          expect(resImports.result.value).toBe(17);
+        }
+        expect(runnerImports.coverageInfo).toBeDefined();
+        const importFiles = Object.keys(runnerImports.coverageInfo!);
+        expect(
+          importFiles.some((f) => f.toLowerCase().includes("main.js"))
+        ).toBeTrue();
+        expect(
+          importFiles.some((f) => f.toLowerCase().includes("ext_math"))
+        ).toBeTrue();
+
+        const extFile = importFiles.find((f) =>
+          f.toLowerCase().includes("ext_math")
+        );
+        expect(extFile).toBeDefined();
+        const cov = runnerImports.coverageInfo;
+        expect(cov).toBeDefined();
+        expect(isRecordOfFileCoverageData(cov)).toBeTrue();
+        if (isRecordOfFileCoverageData(cov)) {
+          const extCov = cov[extFile!];
+          expect(extCov).toBeDefined();
+          expect(Object.values(extCov.f).some((h: number) => h > 0)).toBeTrue();
+          expect(Object.values(extCov.s).some((h: number) => h > 0)).toBeTrue();
+          expect(extCov.b["0"]).toEqual([1, 0]);
+        }
+
+        await runnerImports.onRunEnd();
+      } finally {
+        Config.override("nanofuzz.fuzzer.coverageScope", "project static");
+        try {
+          fs.rmSync(testDir, {
+            recursive: true,
+            force: true,
+            maxRetries: 10,
+            retryDelay: 100,
+          });
+        } catch {
+          // ignore
+        }
+      }
     });
   });
 });

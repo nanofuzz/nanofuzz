@@ -376,7 +376,7 @@ await esbuild.build({
   bundle: true,
   platform: "node",
   metafile: true,
-  minify: false,
+  minify: true,
   format: "cjs",
   sourcemap: "both",
   tsconfig: "./tsconfig.json",
