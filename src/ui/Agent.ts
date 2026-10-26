@@ -6,7 +6,7 @@ import seedrandom from "seedrandom";
 import * as Config from "../Config";
 import * as JSONN from "../Jsonn";
 import { getToolVersion } from "../ToolVersion";
-import { getIoKey, isError } from "../fuzzer/Util";
+import { getIoKey, isError, normalizePathForKey } from "../fuzzer/Util";
 import { isKeyedObject } from "../Util";
 import { isArgValueType } from "../fuzzer/analysis/Util";
 import * as ParserAdapter from "../fuzzer/adapters/ParserAdapter";
@@ -53,6 +53,7 @@ import { synthesizeUserGenerator } from "../fuzzer/synthesis/UserGeneratorSynthe
 import { FuzzerCodeSnippet } from "../fuzzer/synthesis/Types";
 import { FuzzConfigStore } from "../fuzzer/FuzzConfigStore";
 import { CoverageScope } from "../fuzzer/measures/Types";
+import { showResultsInFuzzPanel } from "./FuzzPanelController";
 
 export {
   synthesizeValidator,
@@ -60,6 +61,44 @@ export {
   synthesizeUserGenerator,
   FuzzerCodeSnippet,
 };
+
+// Cached raw results from previous fuzzing runs by normalized module + function name
+const _rawResultsCache = new Map<string, FuzzTestResults>();
+
+/**
+ * Returns the cache key for storing raw fuzz results.
+ */
+function getRawResultsCacheKey(filePath: string, functionName: string): string {
+  return `${normalizePathForKey(filePath)}::${functionName}`;
+} // fn: getRawResultsCacheKey
+
+/**
+ * Caches the raw fuzz results for a module and function.
+ */
+export function cacheRawResults(
+  filePath: string,
+  functionName: string,
+  results: FuzzTestResults
+): void {
+  _rawResultsCache.set(getRawResultsCacheKey(filePath, functionName), results);
+} // fn: cacheRawResults
+
+/**
+ * Retrieves cached raw fuzz results for a module and function, if available.
+ */
+export function getCachedRawResults(
+  filePath: string,
+  functionName: string
+): FuzzTestResults | undefined {
+  return _rawResultsCache.get(getRawResultsCacheKey(filePath, functionName));
+} // fn: getCachedRawResults
+
+/**
+ * Clears the raw results cache (primarily for tests).
+ */
+export function clearCachedRawResults(): void {
+  _rawResultsCache.clear();
+} // fn: clearCachedRawResults
 
 // -------------------------------------------------------------------------- //
 // Primary Public API
@@ -197,6 +236,72 @@ export async function listTargets(filePath: string): Promise<TargetListResult> {
     unsupportedFunctions,
   };
 } // fn: listTargets
+
+/**
+ * Options for showing fuzz results in FuzzPanel
+ */
+export type ShowResultsOptions = {
+  filePath: string;
+  functionName: string;
+  focusCategory?: FuzzResultCategory | "runInfo";
+};
+
+/**
+ * Result returned after displaying results in FuzzPanel
+ */
+export type ShowResultsResult = {
+  success: boolean;
+  message: string;
+  totalTests?: number;
+};
+
+/**
+ * Opens or reveals FuzzPanel and directly displays fuzz results.
+ * Uses cached raw results from a previous runFuzz call if available, or renders an active panel.
+ *
+ * @param options Target file path, function name, and optional category to focus
+ * @returns Status of the display operation
+ */
+export async function showResults(
+  options: ShowResultsOptions
+): Promise<ShowResultsResult> {
+  const resolvedPath = resolveFilePath(options.filePath);
+
+  if (!fs.existsSync(resolvedPath)) {
+    throw new Error(`Target file does not exist: ${options.filePath}`);
+  }
+
+  const cached = getCachedRawResults(resolvedPath, options.functionName);
+  const toolName = getToolName();
+
+  if (cached) {
+    await showResultsInFuzzPanel(
+      resolvedPath,
+      options.functionName,
+      cached,
+      options.focusCategory
+    );
+    const total = cached.stats?.outcomes?.total ?? cached.results?.length ?? 0;
+    return {
+      success: true,
+      message: `Displayed ${total} test result(s) for \`${options.functionName}\` in ${toolName} FuzzPanel.`,
+      totalTests: total,
+    };
+  }
+
+  // If no cached results exist, open the FuzzPanel in initial state
+  await showResultsInFuzzPanel(
+    resolvedPath,
+    options.functionName,
+    undefined,
+    options.focusCategory
+  );
+
+  return {
+    success: true,
+    message: `Opened ${toolName} FuzzPanel for \`${options.functionName}\`.`,
+  };
+} // fn: showResults
 
 /**
  * Runs a fuzzing session on a given target function (synchronous or asynchronous) in headless agent mode.
@@ -404,6 +509,9 @@ export async function runFuzz(
     }
 
     const generatorDiagnostics = tester.getInputGeneratorDiagnostics();
+
+    // Cache the raw results for immediate display via showResults / FuzzPanel
+    cacheRawResults(resolvedPath, options.functionName, rawResults);
 
     return await formatFuzzResult(
       rawResults,

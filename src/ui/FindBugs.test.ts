@@ -53,6 +53,9 @@ describe("FindBugs", () => {
     expect(result.instructions).toContain("validatorTemplate");
     expect(result.instructions).toContain("transformerTemplate");
     expect(result.instructions).toContain("generatorTemplate");
+    expect(result.instructions).toContain(
+      "No Hardcoded Lookup Tables or Initial States"
+    );
   });
 
   it("handles phase 'fuzz_entrypoint' with 5-retry coverage loop and anti-suppression rule", async () => {

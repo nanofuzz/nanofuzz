@@ -248,6 +248,44 @@
             "vendor"
           ]
         }
+      },
+      {
+        "name": "nanofuzz_showResults",
+        "displayName": "Show NaNofuzz Results to User in FuzzPanel",
+        "modelDescription": "Opens or reveals the NaNofuzz FuzzPanel Webview beside the active editor and directly displays the latest fuzz test results, counterexamples, and code coverage heatmap for a target function to the user. Optionally focuses on a specific result category ('ok', 'badValue', 'exception', 'timeout', 'failure', 'disagree', or 'runInfo').",
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "showResults",
+        "icon": "$(layout-panel)",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "filePath": {
+              "type": "string",
+              "description": "Absolute or workspace-relative path to the source file containing the target function."
+            },
+            "functionName": {
+              "type": "string",
+              "description": "The exact name of the function whose fuzzing results should be displayed."
+            },
+            "focusCategory": {
+              "type": "string",
+              "enum": [
+                "ok",
+                "badValue",
+                "exception",
+                "timeout",
+                "failure",
+                "disagree",
+                "runInfo"
+              ],
+              "description": "Optional result category tab to focus initially in FuzzPanel (e.g. 'badValue', 'exception', 'timeout', or 'runInfo')."
+            }
+          },
+          "required": [
+            "filePath",
+            "functionName"
+          ]
+        }
       }
     ],
     "configuration": [
