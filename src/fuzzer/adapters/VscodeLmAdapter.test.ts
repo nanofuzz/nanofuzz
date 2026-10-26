@@ -6,6 +6,7 @@ import {
   ListTargetsTool,
   FuzzFunctionTool,
   FindBugsTool,
+  ShowResultsTool,
   registerLmTools,
   resolveMatchingModel,
 } from "./VscodeLmAdapter";
@@ -265,10 +266,43 @@ describe("VscodeLmAdapter", () => {
     );
   });
 
+  it("showResults: prepare and invoke", async () => {
+    const tool = new ShowResultsTool();
+    const prepared = tool.prepareInvocation({
+      input: {
+        filePath: tsFixture,
+        functionName: "testStandardVoidReturnUndefined",
+      },
+    });
+    expect(prepared).toBeDefined();
+    if (prepared && !("then" in prepared)) {
+      expect(prepared.invocationMessage).toContain(
+        "Displaying NaNofuzz results"
+      );
+      expect(prepared.invocationMessage).toContain(
+        "testStandardVoidReturnUndefined"
+      );
+    }
+
+    const token = new vscode.CancellationTokenSource().token;
+    const result = await tool.invoke(
+      {
+        input: {
+          filePath: tsFixture,
+          functionName: "testStandardVoidReturnUndefined",
+        },
+        toolInvocationToken: undefined,
+      },
+      token
+    );
+    expect(result).toBeDefined();
+    expect(getTextContent(result)).toContain("FuzzPanel");
+  });
+
   it("register: success", () => {
     const subscriptions: vscode.Disposable[] = [];
     const disposables = registerLmTools({ subscriptions });
-    expect(disposables.length).toBe(3);
-    expect(subscriptions.length).toBe(3);
+    expect(disposables.length).toBe(4);
+    expect(subscriptions.length).toBe(4);
   });
 });

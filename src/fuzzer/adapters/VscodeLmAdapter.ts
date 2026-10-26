@@ -4,6 +4,9 @@ import {
   getToolName,
   listTargets,
   runFuzz,
+  showResults,
+  ShowResultsOptions,
+  ShowResultsResult,
   AgentTestCase,
 } from "../../ui/Agent";
 import { CoverageScope } from "../measures/Types";
@@ -217,6 +220,33 @@ export class FindBugsTool implements vscode.LanguageModelTool<FindBugsInput> {
 }
 
 /**
+ * Language model tool for displaying fuzz test results in FuzzPanel.
+ */
+export class ShowResultsTool
+  implements vscode.LanguageModelTool<ShowResultsInput>
+{
+  public prepareInvocation(
+    options: vscode.LanguageModelToolInvocationPrepareOptions<ShowResultsInput>
+  ): vscode.ProviderResult<vscode.PreparedToolInvocation> {
+    const toolName = getToolName();
+    const { functionName } = options.input;
+    return {
+      invocationMessage: `Displaying ${toolName} results for \`${functionName}\` in FuzzPanel`,
+    };
+  }
+
+  public async invoke(
+    options: vscode.LanguageModelToolInvocationOptions<ShowResultsInput>,
+    _token: vscode.CancellationToken
+  ): Promise<vscode.LanguageModelToolResult> {
+    const res: ShowResultsResult = await showResults(options.input);
+    return new vscode.LanguageModelToolResult([
+      new vscode.LanguageModelTextPart(res.message),
+    ]);
+  }
+}
+
+/**
  * Registers all Language Model Tools with VS Code.
  *
  * @param context Extension context or object containing subscriptions array
@@ -240,8 +270,12 @@ export function registerLmTools(context: {
       "nanofuzz_findBugs",
       new FindBugsTool()
     );
-    disposables.push(listTool, fuzzTool, bugsTool);
-    context.subscriptions.push(listTool, fuzzTool, bugsTool);
+    const showResultsTool = vscode.lm.registerTool(
+      "nanofuzz_showResults",
+      new ShowResultsTool()
+    );
+    disposables.push(listTool, fuzzTool, bugsTool, showResultsTool);
+    context.subscriptions.push(listTool, fuzzTool, bugsTool, showResultsTool);
   }
 
   return disposables;
@@ -284,3 +318,8 @@ export type FuzzFunctionInput = {
  */
 export type FindBugsInput = FindBugsOptions;
 export type { FindBugsPhase };
+
+/**
+ * Input arguments for the nanofuzz_showResults tool
+ */
+export type ShowResultsInput = ShowResultsOptions;
