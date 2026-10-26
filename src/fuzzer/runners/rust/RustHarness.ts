@@ -4,7 +4,11 @@ import os from "node:os";
 import crypto from "node:crypto";
 import * as ChildProcess from "node:child_process";
 import { FileCoverageData } from "istanbul-lib-coverage";
-import { RustCompiler, CargoPackage } from "../../compilers/rust/RustCompiler";
+import {
+  RustCompiler,
+  CargoPackage,
+  CargoMetadata,
+} from "../../compilers/rust/RustCompiler";
 import { RustCompilerError } from "../../compilers/Types";
 import { RustProgram } from "../../analysis/rust/RustProgram";
 import { FuzzEnv } from "../../Types";
@@ -94,6 +98,9 @@ export function buildRustHarness(
   const externalCratesToVendor: CargoPackage[] = [];
   const cratesIoPatches = new Map<string, string>();
   const pathDepOverrides = new Map<string, string>();
+  const metadata = userCargoToml
+    ? RustCompiler.getCargoMetadata(userCargoToml)
+    : undefined;
 
   if (scopeConfig.target.includes("directimports") && userCargoToml) {
     const directCrateNames = RustProgram.findDirectCrates(normTarget);
@@ -104,28 +111,25 @@ export function buildRustHarness(
       (c) => !localModNames.has(c)
     );
 
-    if (candidateCrateNames.length > 0) {
-      const metadata = RustCompiler.getCargoMetadata(userCargoToml);
-      if (metadata) {
-        for (const cName of candidateCrateNames) {
-          const pkg = metadata.packages.find((p) => {
-            if (p.manifest_path === userCargoToml) return false;
-            if (
-              p.name === "nanofuzz-runtime" ||
-              p.name === "serde" ||
-              p.name === "serde_json"
-            ) {
-              return false;
-            }
-            const norm = p.name.replace(/-/g, "_");
-            if (p.name === cName || norm === cName) return true;
-            return p.targets.some(
-              (t) => t.name === cName || t.name.replace(/-/g, "_") === cName
-            );
-          });
-          if (pkg && !externalCratesToVendor.some((e) => e.name === pkg.name)) {
-            externalCratesToVendor.push(pkg);
+    if (candidateCrateNames.length > 0 && metadata) {
+      for (const cName of candidateCrateNames) {
+        const pkg = metadata.packages.find((p) => {
+          if (p.manifest_path === userCargoToml) return false;
+          if (
+            p.name === "nanofuzz-runtime" ||
+            p.name === "serde" ||
+            p.name === "serde_json"
+          ) {
+            return false;
           }
+          const norm = p.name.replace(/-/g, "_");
+          if (p.name === cName || norm === cName) return true;
+          return p.targets.some(
+            (t) => t.name === cName || t.name.replace(/-/g, "_") === cName
+          );
+        });
+        if (pkg && !externalCratesToVendor.some((e) => e.name === pkg.name)) {
+          externalCratesToVendor.push(pkg);
         }
       }
     }
@@ -344,6 +348,14 @@ export function buildRustHarness(
       recursive: true,
       filter: (srcPath) => !srcPath.includes(path.sep + "target"),
     });
+
+    sanitizeVendoredCargoToml(
+      path.join(vendorPkgDir, "Cargo.toml"),
+      pkg,
+      pkgDir,
+      metadata,
+      pathDepOverrides
+    );
   }
 
   for (const vf of vendoredFilesToWrite) {
@@ -366,7 +378,7 @@ export function buildRustHarness(
 
   // Check for ancestor Cargo.toml to extract user dependencies
   const extraDependencies = userCargoToml
-    ? extractCargoDependencies(userCargoToml, pathDepOverrides)
+    ? extractCargoDependencies(userCargoToml, pathDepOverrides, metadata)
     : "";
 
   let patchSection = "";
@@ -1191,22 +1203,232 @@ function findRuntimeCrate(): string | undefined {
 } // fn: findRuntimeCrate
 
 /**
+ * Parses [workspace.dependencies] from a workspace Cargo.toml.
+ */
+function parseWorkspaceDependencies(
+  workspaceCargoTomlPath: string
+): Map<string, { raw: string; path?: string }> {
+  const map = new Map<string, { raw: string; path?: string }>();
+  if (!fs.existsSync(workspaceCargoTomlPath)) return map;
+  try {
+    const content = fs.readFileSync(workspaceCargoTomlPath, "utf8");
+    const lines = content.split(/\r?\n/);
+    let inWorkspaceDeps = false;
+    const wsDir = path.dirname(workspaceCargoTomlPath);
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+        inWorkspaceDeps = trimmed === "[workspace.dependencies]";
+        continue;
+      }
+      if (inWorkspaceDeps && trimmed.length > 0 && !trimmed.startsWith("#")) {
+        const match = trimmed.match(/^([a-zA-Z0-9_-]+)\s*=\s*(.*)$/);
+        if (match) {
+          const depName = match[1];
+          let depSpec = match[2];
+          const pathMatch = depSpec.match(/path\s*=\s*"([^"]+)"/);
+          let resolvedPath: string | undefined = undefined;
+          if (pathMatch) {
+            resolvedPath = path.isAbsolute(pathMatch[1])
+              ? pathMatch[1]
+              : path.resolve(wsDir, pathMatch[1]).replace(/\\/g, "/");
+            depSpec = depSpec.replace(
+              /path\s*=\s*"[^"]+"/,
+              `path = "${resolvedPath}"`
+            );
+          }
+          map.set(depName, {
+            raw: `${depName} = ${depSpec}`,
+            path: resolvedPath,
+          });
+        }
+      }
+    }
+  } catch {
+    // ignore read errors
+  }
+  return map;
+} // fn: parseWorkspaceDependencies
+
+/**
+ * Sanitizes a vendored crate's Cargo.toml so it can compile outside its original workspace
+ * without workspace inheritance errors (e.g. edition.workspace = true, [lints] workspace = true).
+ */
+function sanitizeVendoredCargoToml(
+  vendorCargoTomlPath: string,
+  pkg: CargoPackage,
+  origPkgDir: string,
+  metadata?: CargoMetadata,
+  pathDepOverrides?: Map<string, string>
+): void {
+  if (!fs.existsSync(vendorCargoTomlPath)) return;
+  try {
+    const content = fs.readFileSync(vendorCargoTomlPath, "utf8");
+    const lines = content.split(/\r?\n/);
+    const newLines: string[] = [];
+
+    const wsRoot = metadata?.workspace_root;
+    const wsCargoToml = wsRoot
+      ? path.join(wsRoot, "Cargo.toml")
+      : findInAncestor(path.dirname(origPkgDir), "Cargo.toml");
+    const wsDeps = wsCargoToml
+      ? parseWorkspaceDependencies(wsCargoToml)
+      : new Map();
+
+    let inPackage = false;
+    let inLints = false;
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+
+      if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+        inPackage = trimmed === "[package]";
+        inLints = trimmed === "[lints]" || trimmed.startsWith("[lints.");
+        if (inLints) {
+          continue;
+        }
+      }
+
+      if (inLints) {
+        continue;
+      }
+
+      if (inPackage) {
+        if (
+          trimmed.startsWith("edition.workspace") ||
+          trimmed.match(/^edition\s*=\s*\{\s*workspace\s*=\s*true\s*\}/)
+        ) {
+          newLines.push(`edition = "${pkg.edition || "2021"}"`);
+          continue;
+        }
+        if (
+          trimmed.startsWith("rust-version.workspace") ||
+          trimmed.match(/^rust-version\s*=\s*\{\s*workspace\s*=\s*true\s*\}/)
+        ) {
+          if (pkg.rust_version) {
+            newLines.push(`rust-version = "${pkg.rust_version}"`);
+          }
+          continue;
+        }
+        if (
+          trimmed.startsWith("license.workspace") ||
+          trimmed.match(/^license\s*=\s*\{\s*workspace\s*=\s*true\s*\}/)
+        ) {
+          newLines.push(`license = "${pkg.license || "MIT OR Apache-2.0"}"`);
+          continue;
+        }
+        if (
+          trimmed.startsWith("repository.workspace") ||
+          trimmed.match(/^repository\s*=\s*\{\s*workspace\s*=\s*true\s*\}/)
+        ) {
+          if (pkg.repository) {
+            newLines.push(`repository = "${pkg.repository}"`);
+          }
+          continue;
+        }
+        if (
+          trimmed.startsWith("authors.workspace") ||
+          trimmed.match(/^authors\s*=\s*\{\s*workspace\s*=\s*true\s*\}/)
+        ) {
+          if (pkg.authors && pkg.authors.length > 0) {
+            newLines.push(`authors = ${JSON.stringify(pkg.authors)}`);
+          }
+          continue;
+        }
+        if (
+          trimmed.startsWith("description.workspace") ||
+          trimmed.match(/^description\s*=\s*\{\s*workspace\s*=\s*true\s*\}/)
+        ) {
+          if (pkg.description) {
+            newLines.push(`description = ${JSON.stringify(pkg.description)}`);
+          }
+          continue;
+        }
+        if (
+          trimmed.includes(".workspace = true") ||
+          trimmed.match(/=\s*\{\s*workspace\s*=\s*true\s*\}/)
+        ) {
+          continue;
+        }
+      }
+
+      // Handle path dependencies: make them absolute or point to vendored crates
+      const pathMatch = line.match(/path\s*=\s*"([^"]+)"/);
+      if (pathMatch) {
+        const rawPath = pathMatch[1];
+        if (!path.isAbsolute(rawPath)) {
+          const depMatch = trimmed.match(/^([a-zA-Z0-9_-]+)/);
+          const depName = depMatch ? depMatch[1] : "";
+          if (pathDepOverrides && pathDepOverrides.has(depName)) {
+            newLines.push(
+              line.replace(/path\s*=\s*"[^"]+"/, `path = "../${depName}"`)
+            );
+          } else {
+            const abs = path.resolve(origPkgDir, rawPath).replace(/\\/g, "/");
+            newLines.push(
+              line.replace(/path\s*=\s*"[^"]+"/, `path = "${abs}"`)
+            );
+          }
+          continue;
+        }
+      }
+
+      // Handle workspace dependencies inside vendored crate
+      if (
+        trimmed.includes("workspace = true") ||
+        trimmed.includes(".workspace = true")
+      ) {
+        const depMatch = trimmed.match(/^([a-zA-Z0-9_-]+)/);
+        if (depMatch) {
+          const depName = depMatch[1];
+          const wsDep = wsDeps.get(depName);
+          if (wsDep) {
+            newLines.push(wsDep.raw);
+            continue;
+          }
+        }
+      }
+
+      newLines.push(line);
+    }
+
+    fs.writeFileSync(vendorCargoTomlPath, newLines.join("\n"), "utf8");
+  } catch {
+    // ignore sanitize errors
+  }
+} // fn: sanitizeVendoredCargoToml
+
+/**
  * Extracts dependencies block from a Cargo.toml file.
  */
 function extractCargoDependencies(
   cargoTomlPath: string,
-  pathOverrides?: Map<string, string>
+  pathOverrides?: Map<string, string>,
+  metadata?: CargoMetadata
 ): string {
   try {
     const content = fs.readFileSync(cargoTomlPath, "utf8");
     const lines = content.split(/\r?\n/);
     const depLines: string[] = [];
+    const baseDir = path.dirname(cargoTomlPath);
+
+    const wsRoot = metadata?.workspace_root;
+    const wsCargoToml = wsRoot
+      ? path.join(wsRoot, "Cargo.toml")
+      : findInAncestor(path.dirname(baseDir), "Cargo.toml");
+    const wsDeps = wsCargoToml
+      ? parseWorkspaceDependencies(wsCargoToml)
+      : new Map();
+
     let inDeps = false;
 
     for (const line of lines) {
       const trimmed = line.trim();
       if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
-        inDeps = trimmed === "[dependencies]";
+        inDeps =
+          trimmed === "[dependencies]" ||
+          trimmed === "[workspace.dependencies]";
         continue;
       }
       if (inDeps && trimmed.length > 0 && !trimmed.startsWith("#")) {
@@ -1214,21 +1436,62 @@ function extractCargoDependencies(
           !trimmed.startsWith("nanofuzz-runtime") &&
           !trimmed.startsWith("serde")
         ) {
-          const match = trimmed.match(/^([a-zA-Z0-9_-]+)\s*=/);
-          if (match && pathOverrides && pathOverrides.has(match[1])) {
-            const overrideRel = pathOverrides.get(match[1])!;
+          const match = trimmed.match(/^([a-zA-Z0-9_-]+)/);
+          if (!match) continue;
+          const depName = match[1];
+
+          if (pathOverrides && pathOverrides.has(depName)) {
+            const overrideRel = pathOverrides.get(depName)!;
             if (line.includes("path")) {
               depLines.push(
                 line.replace(/path\s*=\s*"[^"]+"/, `path = "${overrideRel}"`)
               );
             } else {
-              depLines.push(`${match[1]} = { path = "${overrideRel}" }`);
+              depLines.push(`${depName} = { path = "${overrideRel}" }`);
+            }
+          } else if (
+            trimmed.includes("workspace = true") ||
+            trimmed.includes(".workspace = true")
+          ) {
+            const wsDep = wsDeps.get(depName);
+            if (wsDep) {
+              const extraFeaturesMatch = trimmed.match(
+                /features\s*=\s*(\[[^\]]*\])/
+              );
+              const defaultFeaturesMatch = trimmed.match(
+                /default-features\s*=\s*(true|false)/
+              );
+              if (extraFeaturesMatch || defaultFeaturesMatch) {
+                let base = wsDep.raw
+                  .replace(/^[a-zA-Z0-9_-]+\s*=\s*/, "")
+                  .trim();
+                if (base.startsWith('"')) {
+                  base = `{ version = ${base} }`;
+                }
+                if (base.startsWith("{") && base.endsWith("}")) {
+                  let inner = base.slice(1, -1).trim();
+                  if (extraFeaturesMatch && !inner.includes("features")) {
+                    inner += `, features = ${extraFeaturesMatch[1]}`;
+                  }
+                  if (
+                    defaultFeaturesMatch &&
+                    !inner.includes("default-features")
+                  ) {
+                    inner += `, default-features = ${defaultFeaturesMatch[1]}`;
+                  }
+                  depLines.push(`${depName} = { ${inner} }`);
+                } else {
+                  depLines.push(wsDep.raw);
+                }
+              } else {
+                depLines.push(wsDep.raw);
+              }
             }
           } else {
             const pathMatch = line.match(/path\s*=\s*"([^"]+)"/);
             if (pathMatch && !path.isAbsolute(pathMatch[1])) {
               const abs = path
-                .resolve(path.dirname(cargoTomlPath), pathMatch[1])
+                .resolve(baseDir, pathMatch[1])
                 .replace(/\\/g, "/");
               depLines.push(
                 line.replace(/path\s*=\s*"[^"]+"/, `path = "${abs}"`)
