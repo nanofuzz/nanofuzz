@@ -35,6 +35,7 @@ import {
   FuzzTestResult,
   FuzzTestResults,
   FuzzTests,
+  FuzzTestsFunction,
   HarnessError,
 } from "../fuzzer/Types";
 import { FuzzerFactory } from "../fuzzer/FuzzerFactory";
@@ -244,12 +245,16 @@ export async function runFuzz(
     const fnFuzzOptions = fnRef?.fuzzOptions;
 
     // Load any companion .nano.json5 configuration and saved tests
-    const fnConfig = FuzzConfigStore.loadForFunction(
-      resolvedPath,
-      options.functionName,
-      undefined,
-      false
-    );
+    const fnConfig: FuzzTestsFunction = options.noConfigFile
+      ? FuzzConfigStore.createDefaultFunctionConfig(options.functionName, {
+          options: cast<FuzzOptions>({}),
+        })
+      : FuzzConfigStore.loadForFunction(
+          resolvedPath,
+          options.functionName,
+          undefined,
+          false
+        );
     const persistedTests: FuzzPinnedTest[] = Object.values(
       fnConfig.tests ?? {}
     );
@@ -1544,6 +1549,7 @@ export type AgentFuzzOptions = {
   inputs?: (Record<string, unknown> | unknown[])[];
   tests?: (AgentTestCase | Record<string, unknown> | unknown[])[];
   enableCopilotAi?: boolean;
+  noConfigFile?: boolean;
   exportSuite?: boolean;
   exportFilePath?: string;
   workers?: number | "auto";

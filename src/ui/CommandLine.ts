@@ -37,6 +37,7 @@ import { FuzzPinnedTest } from "../fuzzer/Types";
 import { InputSchedulerType } from "../fuzzer/schedulers/Types";
 import { FuzzConfigStore } from "../fuzzer/FuzzConfigStore";
 import { ConsoleIsolator } from "./ConsoleIsolator";
+import { runMcpServer, McpServerOptions } from "./McpServer";
 import pkg from "../../package.json";
 
 const nanofuzzVersion = process.env.NANOFUZZ_VERSION ?? pkg.version;
@@ -295,10 +296,65 @@ function createProgram(): Commander.Command {
     // ------------------------------ System Cleanup ----------------------------- //
 
     .option(`--debug [scope]`, `Debug logging: *, runners, ai (default: *)`)
-    .option(`--clear-compile-cache`, `Clear compiler cache before run`);
+    .option(`--clear-compile-cache`, `Clear compiler cache before run`)
+    .addHelpText(
+      "after",
+      "\nCommands:\n  mcp [options]                                    Start the NaNofuzz Model Context Protocol (MCP) server\n"
+    );
 
   return program;
 } // fn: createProgram
+
+/**
+ * Creates and configures the Commander Command instance for the `mcp` subcommand.
+ *
+ * @returns Configured Commander.Command instance for the MCP server CLI
+ */
+function createMcpProgram(): Commander.Command {
+  const program = new Commander.Command();
+  program
+    .name("nanofuzz mcp")
+    .description("Start the NaNofuzz Model Context Protocol (MCP) server")
+    .option(
+      "-w, --workspace <path>",
+      "Root workspace directory for file resolution"
+    )
+    .option(
+      "--transport <stdio|sse>",
+      "MCP transport protocol: stdio, sse",
+      "stdio"
+    )
+    .option(
+      "--port <integer>",
+      "Port for SSE transport",
+      parseIntArgGeOne,
+      3000
+    )
+    .option(
+      "--model-provider <string>",
+      "AI provider (e.g. anthropic, openai, gemini, openrouter)"
+    )
+    .option("--model-name <string>", "AI model name")
+    .option("--model-key <string>", "AI model API key")
+    .option("--model-endpoint <string>", "AI model endpoint base URL")
+    .option(
+      "--model-timeout <integer>",
+      "AI model request timeout in ms",
+      parseIntArgGeOne
+    )
+    .option(
+      "--workers <integer|auto>",
+      "Number of worker processes",
+      parseWorkersOption,
+      "auto"
+    )
+    .option("--no-config-file", "Ignore .nano.json5 config")
+    .option("--debug [scope]", "Debug logging: *, runners, ai (default: *)")
+    .option("--log-file <path>", "Redirect debug logs to a file")
+    .option("--clear-compile-cache", "Clear compiler cache before run");
+
+  return program;
+} // fn: createMcpProgram
 
 export async function runCliInProcess(
   args: string[] = process.argv.slice(2)
@@ -311,6 +367,29 @@ export async function runCliInProcess(
   const isolator = ConsoleIsolator.activate({ isDebug: isDebugConfigured });
 
   try {
+    if (args.length > 0 && args[0] === "mcp") {
+      const mcpProgram = createMcpProgram();
+      mcpProgram.exitOverride((_err: Commander.CommanderError) => {
+        throw _err;
+      });
+
+      try {
+        isolator.asCli(() => {
+          mcpProgram.parse(args.slice(1), { from: "user" });
+        });
+      } catch (_e: unknown) {
+        if (_e instanceof Commander.CommanderError && _e.exitCode === 0) {
+          return EXIT_OK;
+        }
+        return ERROR_USAGE;
+      }
+
+      isolator.restore();
+      const mcpOpts = mcpProgram.opts<McpServerOptions>();
+      await runMcpServer(mcpOpts);
+      return EXIT_OK;
+    }
+
     const program = createProgram();
 
     program.exitOverride((_err: Commander.CommanderError) => {
