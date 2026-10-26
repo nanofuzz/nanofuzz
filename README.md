@@ -8,7 +8,7 @@ NaNofuzz proposes an initial set of tests with a single button click. Refine the
 
 ## Tutorial and Playground
 
-Our [NaNofuzz examples](https://github.com/nanofuzz/nanofuzz-examples/) repository provides a 10-minute NaNofuzz tutorial and several example buggy programs that you can use to get familiar with NaNofuzz. Within the `nanofuzz-examples` repo on GitHub, click `Code`->`Codespaces`->`Create` to immediately get started!
+Our [NaNofuzz examples](https://github.com/nanofuzz/nanofuzz-examples/) repository provides a 10-minute NaNofuzz tutorial for Typescript and several example buggy programs that you can use to get familiar with NaNofuzz. Within the `nanofuzz-examples` repo on GitHub, click `Code`->`Codespaces`->`Create` to immediately get started!
 
 ## Getting started
 
@@ -36,7 +36,7 @@ To use NaNofuzz in your own projects:
     - OCaml / OxCaml projects:
       - **dune**: add `nanofuzz_runtime` to your `dune` libraries
 - **Step 2**: Add the NaNofuzz extension to your repo's `./.vscode/settings.json` recommendations:
-    ```
+    ```json
     {
         "recommendations": [
             "penrose.nanofuzz"
@@ -46,20 +46,36 @@ To use NaNofuzz in your own projects:
 
 To export a NaNofuzz test to CI, click the pin button beside an example. NaNofuzz exports pinned tests to Jest/Jasmine, pytest, cargo test, JUnit 5, or dune runtest format, depending on the target language.
 
+To run NaNofuzz as an MCP server:
+
+```sh
+npx -y @nanofuzz/cli mcp
+```
+
+Or provide the following to your favorite tool:
+```json
+{
+  "mcpServers": {
+    "nanofuzz": {
+      "command": "npx",
+      "args": ["-y", "@nanofuzz/cli", "mcp"]
+    }
+  }
+}
+```
+
 ## What's new in v0.4
 
-- **Command-line interface**: Run NaNofuzz directly from your terminal or CI pipelines via `npx @nanofuzz/cli <filename>::<function>` (see [CLI documentation](docs/CLI.md)).
-- **Python**: Test Python functions and export the saved tests to `pytest` for use in CI.
-- **Rust**: (experimental) Test Rust functions and export the saved tests to `cargo test` for use in CI.
-- **Java**: (experimental) Test Java functions and export the saved tests to `JUnit 5` for use in CI.
-- **OCaml / OxCaml**: (experimental) Test OCaml and OxCaml functions and export the saved tests to `dune runtest` for use in CI.
+- **New ways to use NaNofuzz**: Run NaNofuzz directly from your terminal or CI pipelines via `npx @nanofuzz/cli <filename>::<function>` (see [CLI documentation](docs/CLI.md)) or as an MCP server via `npx -y @nanofuzz/cli mcp`.
+- Test **Python** and **Typescript** functions and export saved tests to `pytest` or `jest` for use in CI.
+- Experimental **bug hunting mode**. Ask your agent to find bugs using NaNofuzz, and NaNofuzz will automatically find deep, silent, semantic bugs you didn't know existed, even in well-tested code.
+- Experimental support for testing **Rust**, **Java**, **OCaml**, and **OxCaml** programs with support for `cargo test`, `JUnit`, and ``dune`` for use in CI. Includes support for Rust sanitizers, like asan and borrow sanitizer.
 - **Custom input generators**: Programatically generate, modify, or skip inputs before they are dispatched for test execution.
 - **More types**: Tuples, Unions, `Map`s, `Set`s, unique Arrays/`List`s, dictionaries, regex strings, `null`s, binary data like `Uint8Array`/`bytes`, and select Typescript utility types, like `Record<K,V>`, `Required<T>` and `Partial<T>`.
-- **Unexported functions**: NaNofuzz will test them, too! 
+- Support for testing **unexported functions**
 - **Composite input generation**: Random-, mutation-, human-, and an opt-in ai input generator are coordinated automatically, so you can get better testing results with a single button click.
 - **Code coverage visualizations**: See in your editor which lines of code were actually executed (and missed!) by the generated test examples.
-- **Stop-and-go**: Pause and resume testing runs and add your own inputs mid-run without losing the accumulated results, pinned inputs, or input generator state.
-- **Project-aware compilation**: NaNofuzz uses the target project's TypeScript compiler and `tsconfig.json` when available.
+- **Stop-and-go**: Pause and resume testing runs in the GUI and add your own inputs mid-run without losing the accumulated results, pinned inputs, or input generator state.
 
 ## Scope and Limitations
 
@@ -83,7 +99,7 @@ NaNofuzz automatically generates a test suite in these formats for use in CI:
 The following are not yet supported:
  - Generating inputs of deconstructed, `enum`, generic, intersection, some utility (e.g., TypeScript `Omit<T1,T2>`) types, implicit `any`, `unknown`, and function types as well `NaN` and `Infinity`
  - Testing class and object methods (write a test harness for these)
- - Compiling to module formats other than CommonJS (related to [VS Code issue 130367](https://github.com/microsoft/vscode/issues/130367))
+ - Compiling Typescript to module formats other than CommonJS (related to [VS Code issue 130367](https://github.com/microsoft/vscode/issues/130367))
  - Stateful, flaky, or non-deterministic tests
  - Sandboxing external side-effects of the program under test, mocks, or stubs
 
@@ -125,8 +141,8 @@ Meet NaNcy, the Silky Anteater! Silky anteaters are wonderfully-adapted, small, 
 ![image](https://avatars.githubusercontent.com/u/136026223?s=200&v=4)
 
 ## Trophy Case
-If you find bugs with NaNofuzz and feel comfortable sharing them, we would be happy to add them to our list. 
-Please send a PR for README.md with a link to the bug or CVE that you found.
+If you find bugs with NaNofuzz, we would be like to add them to NaNofuzz' trophy case!
+Please submit a PR for README.md with a link to the bug, issue, PR, or CVE reflecting the but that you found.
 
 - [RosettaCode Levenshtein distance](https://rosettacode.org/wiki/Levenshtein_distance?oldid=371462): returned `undefined` when `a===''`
 
