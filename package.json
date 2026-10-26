@@ -286,6 +286,59 @@
             "functionName"
           ]
         }
+      },
+      {
+        "name": "nanofuzz_shrinkInputs",
+        "displayName": "Shrink Inputs with NaNofuzz",
+        "modelDescription": "Minimizes and shrinks one or more test inputs or counterexamples for a target function to find the simplest, canonical inputs that reproduce the same failure or execution outcome. Accepts a file path, target function name, and an array of input objects.",
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "shrinkInputs",
+        "icon": "$(fold-down)",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "filePath": {
+              "type": "string",
+              "description": "Absolute or workspace-relative path to the source file containing the target function."
+            },
+            "functionName": {
+              "type": "string",
+              "description": "The exact name of the function under test."
+            },
+            "inputs": {
+              "type": "array",
+              "description": "Array of input objects mapping parameter names to argument values to shrink.",
+              "items": {
+                "type": "object",
+                "description": "Object mapping parameter names to argument values."
+              }
+            },
+            "fnTimeout": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Per-test function execution timeout in milliseconds (default: 500)."
+            },
+            "maxShrinkTime": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Maximum time in milliseconds allowed for shrinking per input (default: 2000, 0=no limit)."
+            },
+            "maxSteps": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Maximum number of shrink steps to attempt per input (default: 100)."
+            },
+            "seed": {
+              "type": "string",
+              "description": "Optional pseudo-random generator seed for deterministic shrinking."
+            }
+          },
+          "required": [
+            "filePath",
+            "functionName",
+            "inputs"
+          ]
+        }
       }
     ],
     "configuration": [

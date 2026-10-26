@@ -5,8 +5,10 @@ import {
   listTargets,
   runFuzz,
   showResults,
+  shrinkInputs,
   ShowResultsOptions,
   ShowResultsResult,
+  AgentShrinkOptions,
   AgentTestCase,
 } from "../../ui/Agent";
 import { CoverageScope } from "../measures/Types";
@@ -222,9 +224,7 @@ export class FindBugsTool implements vscode.LanguageModelTool<FindBugsInput> {
 /**
  * Language model tool for displaying fuzz test results in FuzzPanel.
  */
-export class ShowResultsTool
-  implements vscode.LanguageModelTool<ShowResultsInput>
-{
+export class ShowResultsTool implements vscode.LanguageModelTool<ShowResultsInput> {
   public prepareInvocation(
     options: vscode.LanguageModelToolInvocationPrepareOptions<ShowResultsInput>
   ): vscode.ProviderResult<vscode.PreparedToolInvocation> {
@@ -242,6 +242,31 @@ export class ShowResultsTool
     const res: ShowResultsResult = await showResults(options.input);
     return new vscode.LanguageModelToolResult([
       new vscode.LanguageModelTextPart(res.message),
+    ]);
+  }
+}
+
+/**
+ * Language model tool for standalone input shrinking.
+ */
+export class ShrinkInputsTool implements vscode.LanguageModelTool<ShrinkInputsInput> {
+  public prepareInvocation(
+    options: vscode.LanguageModelToolInvocationPrepareOptions<ShrinkInputsInput>
+  ): vscode.ProviderResult<vscode.PreparedToolInvocation> {
+    const toolName = getToolName();
+    const { functionName, filePath } = options.input;
+    return {
+      invocationMessage: `Shrinking test inputs for \`${functionName}\` in \`${filePath}\` with ${toolName}`,
+    };
+  }
+
+  public async invoke(
+    options: vscode.LanguageModelToolInvocationOptions<ShrinkInputsInput>,
+    _token: vscode.CancellationToken
+  ): Promise<vscode.LanguageModelToolResult> {
+    const res = await shrinkInputs(options.input);
+    return new vscode.LanguageModelToolResult([
+      new vscode.LanguageModelTextPart(res.summaryText),
     ]);
   }
 }
@@ -274,8 +299,18 @@ export function registerLmTools(context: {
       "nanofuzz_showResults",
       new ShowResultsTool()
     );
-    disposables.push(listTool, fuzzTool, bugsTool, showResultsTool);
-    context.subscriptions.push(listTool, fuzzTool, bugsTool, showResultsTool);
+    const shrinkTool = vscode.lm.registerTool(
+      "nanofuzz_shrinkInputs",
+      new ShrinkInputsTool()
+    );
+    disposables.push(listTool, fuzzTool, bugsTool, showResultsTool, shrinkTool);
+    context.subscriptions.push(
+      listTool,
+      fuzzTool,
+      bugsTool,
+      showResultsTool,
+      shrinkTool
+    );
   }
 
   return disposables;
@@ -323,3 +358,8 @@ export type { FindBugsPhase };
  * Input arguments for the nanofuzz_showResults tool
  */
 export type ShowResultsInput = ShowResultsOptions;
+
+/**
+ * Input arguments for the nanofuzz_shrinkInputs tool
+ */
+export type ShrinkInputsInput = AgentShrinkOptions;

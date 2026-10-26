@@ -7,6 +7,7 @@ import {
   FuzzFunctionTool,
   FindBugsTool,
   ShowResultsTool,
+  ShrinkInputsTool,
   registerLmTools,
   resolveMatchingModel,
 } from "./VscodeLmAdapter";
@@ -299,10 +300,43 @@ describe("VscodeLmAdapter", () => {
     expect(getTextContent(result)).toContain("FuzzPanel");
   });
 
+  it("shrinkInputs: prepare and invoke", async () => {
+    const tool = new ShrinkInputsTool();
+    const prepared = tool.prepareInvocation({
+      input: {
+        filePath: tsFixture,
+        functionName: "testStandardVoidReturnException",
+        inputs: [{ _x: 10000 }],
+      },
+    });
+    expect(prepared).toBeDefined();
+    if (prepared && !("then" in prepared)) {
+      expect(prepared.invocationMessage).toContain("Shrinking test inputs");
+      expect(prepared.invocationMessage).toContain(
+        "testStandardVoidReturnException"
+      );
+    }
+
+    const token = new vscode.CancellationTokenSource().token;
+    const result = await tool.invoke(
+      {
+        input: {
+          filePath: tsFixture,
+          functionName: "testStandardVoidReturnException",
+          inputs: [{ _x: 10000 }],
+        },
+        toolInvocationToken: undefined,
+      },
+      token
+    );
+    expect(result).toBeDefined();
+    expect(getTextContent(result)).toContain("NaNofuzz Input Shrinking");
+  });
+
   it("register: success", () => {
     const subscriptions: vscode.Disposable[] = [];
     const disposables = registerLmTools({ subscriptions });
-    expect(disposables.length).toBe(4);
-    expect(subscriptions.length).toBe(4);
+    expect(disposables.length).toBe(5);
+    expect(subscriptions.length).toBe(5);
   });
 });
