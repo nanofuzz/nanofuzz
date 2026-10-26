@@ -3,7 +3,10 @@ import * as TestAdapterFactory from "../TestAdapterFactory";
 import { FuzzOptions, FuzzTests } from "../../Types";
 import { ArgOptions, ArgTag } from "../../analysis/Types";
 import * as Parser from "../../adapters/ParserAdapter";
-import { JavaCompiler } from "../../compilers/java/JavaCompiler";
+import {
+  JavaCompiler,
+  findRuntimeJar,
+} from "../../compilers/java/JavaCompiler";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
@@ -342,9 +345,7 @@ public class Calc {
     const testFilePath = adapter.filename;
     fs.writeFileSync(testFilePath, testSrc, "utf8");
 
-    const runtimeJar = path.resolve(
-      "./packages/runtime/java/target/nanofuzz-runtime-0.4.0.jar"
-    );
+    const runtimeJar = findRuntimeJar();
     const m2Repo = path.join(os.homedir(), ".m2", "repository");
     const junitApiJar = path.join(
       m2Repo,
