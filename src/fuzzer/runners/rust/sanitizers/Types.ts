@@ -29,6 +29,12 @@ export interface SanitizerBuildConfig {
  */
 export interface RustSanitizerAdapter {
   readonly id: SanitizerId;
+  readonly displayName: string;
+
+  /**
+   * Returns instructions or command flags to reproduce the sanitizer check via cargo test.
+   */
+  getReproductionCommand(): string;
 
   /**
    * Probes whether the required toolchain and binaries are installed and available.

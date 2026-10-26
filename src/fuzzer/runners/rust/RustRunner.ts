@@ -35,6 +35,7 @@ export class RustRunner extends AbstractRunner {
   protected _pgmFiles: string[] = [];
   protected _coverageEnabled = true;
   protected _coverageCallback?: (covData: unknown) => void;
+  protected _abortSimulation?: { stderr: string; exitCode: number };
 
   constructor(
     filename: string,
@@ -102,9 +103,19 @@ export class RustRunner extends AbstractRunner {
     validators: string[] = []
   ): Promise<RunnerResult> {
     const thisSeq = this._seq++;
+    let host: RustHost | undefined = undefined;
 
     try {
-      const host = await this._getHost();
+      host = await this._getHost();
+
+      if (this._abortSimulation) {
+        const sim = this._abortSimulation;
+        this._abortSimulation = undefined;
+        host.appendStderrForTest(sim.stderr);
+        throw new Error(
+          `Host exited unexpectedly (exit code: ${sim.exitCode}, stderr: ${sim.stderr})`
+        );
+      }
 
       const input = {
         seq: thisSeq,
@@ -205,8 +216,9 @@ export class RustRunner extends AbstractRunner {
         env: {},
       };
     } catch (e: unknown) {
-      const hostStderr = this._host ? this._host.stderr : "";
-      const hostExitCode = this._host ? this._host.exitCode : null;
+      const activeHost = host ?? this._host;
+      const hostStderr = activeHost ? activeHost.stderr : "";
+      const hostExitCode = activeHost ? activeHost.exitCode : null;
       this.killHost();
       if (!isError(e)) {
         throw e;
@@ -365,6 +377,28 @@ export class RustRunner extends AbstractRunner {
     await super.onRunEnd();
     this.killHost();
   } // fn: onRunEnd
+
+  /**
+   * Sets the active sanitizer name for testing without reading global configuration.
+   *
+   * @param name Sanitizer name identifier (e.g. "borrow", "none")
+   */
+  public setSanitizerNameForTest(name: string): void {
+    this._sanitizerName = name;
+  } // fn: setSanitizerNameForTest
+
+  /**
+   * Sets mock abort simulation details for testing crash recovery without exposing host.
+   *
+   * @param stderr Diagnostic error output to simulate on the active host
+   * @param exitCode Exit code to simulate (default 134 for SIGABRT)
+   */
+  public simulateHostAbortForTest(
+    stderr: string,
+    exitCode: number = 134
+  ): void {
+    this._abortSimulation = { stderr, exitCode };
+  } // fn: simulateHostAbortForTest
 } // class: RustRunner
 
 type RustHostResponse = {

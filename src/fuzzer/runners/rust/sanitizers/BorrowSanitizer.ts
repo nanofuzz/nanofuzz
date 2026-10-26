@@ -15,6 +15,16 @@ import {
  */
 export class BorrowSanitizer implements RustSanitizerAdapter {
   public readonly id: SanitizerId = "borrow";
+  public readonly displayName: string = "BorrowSanitizer";
+
+  /**
+   * Returns reproduction command instructions for BorrowSanitizer.
+   *
+   * @returns Cargo invocation required to reproduce borrow errors
+   */
+  public getReproductionCommand(): string {
+    return 'RUSTFLAGS="-Zsanitizer=borrow" cargo test -Zbuild-std=core,alloc,std';
+  } // fn: getReproductionCommand
 
   /**
    * Detects whether BorrowSanitizer toolchain or cargo-bsan executable is available.

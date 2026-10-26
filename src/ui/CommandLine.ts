@@ -292,6 +292,14 @@ function createProgram(): Commander.Command {
     )
     .option(`--cig-stats-checkpoints`, `Track generator selection statistics`)
 
+    // -------------------------------- Language --------------------------------- //
+
+    .option(
+      `--rust-sanitizer <none|borrow>`,
+      `Rust sanitizer: none, borrow`,
+      "none"
+    )
+
     // ------------------------------ System Cleanup ----------------------------- //
 
     .option(`--debug [scope]`, `Debug logging: *, runners, ai (default: *)`)
@@ -543,6 +551,9 @@ export async function runCliInProcess(
       "nanofuzz.fuzzer.hostStartupTimeout",
       options["hostStartupTimeout"]
     );
+    if (options["rustSanitizer"] !== undefined) {
+      Config.override("nanofuzz.rust.sanitizer", options["rustSanitizer"]);
+    }
     if (options["maxRunnerMemory"] !== undefined) {
       Config.override(
         "nanofuzz.fuzzer.maxRunnerMemory",

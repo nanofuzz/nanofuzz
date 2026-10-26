@@ -11,6 +11,16 @@ import {
  */
 export class NoneSanitizer implements RustSanitizerAdapter {
   public readonly id: SanitizerId = "none";
+  public readonly displayName: string = "None";
+
+  /**
+   * Returns empty reproduction instructions when no sanitizer is active.
+   *
+   * @returns standard cargo test command
+   */
+  public getReproductionCommand(): string {
+    return "cargo test";
+  } // fn: getReproductionCommand
 
   /**
    * Always available as the default no-op sanitizer.

@@ -102,6 +102,8 @@ export class RustCompiler {
 
   /**
    * Sets the rustc version for testing staleness detection.
+   *
+   * @param version Rustc version string to simulate
    */
   public setRustcVersionForTest(version: string): void {
     this._rustcVersion = version;
