@@ -219,9 +219,10 @@
                 "init",
                 "invariants_extracted",
                 "fuzz_entrypoint",
+                "contextualize_bugs",
                 "complete"
               ],
-              "description": "Workflow phase: 'init' to start discovery and black-box invariant extraction; 'invariants_extracted' to submit invariants and receive harness/validator instructions; 'fuzz_entrypoint' to get execution and triage guidance for a specific entrypoint; 'complete' to finalize findings and choose artifact disposition."
+              "description": "Workflow phase: 'init' to start discovery and black-box invariant extraction; 'invariants_extracted' to submit invariants and receive harness/validator instructions; 'fuzz_entrypoint' to get execution and triage guidance for a specific entrypoint; 'contextualize_bugs' to verify discovered bugs against issues, PRs, and docs; 'complete' to finalize findings and choose artifact disposition."
             },
             "model": {
               "type": "string",

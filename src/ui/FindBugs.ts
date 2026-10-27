@@ -28,6 +28,11 @@ export async function findBugs(
     }
     case "fuzz_entrypoint": {
       instructions = buildFuzzEntrypointGuidance(options, toolName);
+      nextPhase = "contextualize_bugs";
+      break;
+    }
+    case "contextualize_bugs": {
+      instructions = buildContextualizeBugsGuidance(options, toolName);
       nextPhase = "complete";
       break;
     }
@@ -37,7 +42,7 @@ export async function findBugs(
       break;
     }
     default: {
-      instructions = `Unknown phase '${String(phase)}'. Valid phases are: 'init', 'invariants_extracted', 'fuzz_entrypoint', 'complete'.`;
+      instructions = `Unknown phase '${String(phase)}'. Valid phases are: 'init', 'invariants_extracted', 'fuzz_entrypoint', 'contextualize_bugs', 'complete'.`;
       nextPhase = "init";
       break;
     }
@@ -164,7 +169,7 @@ function buildInvariantsGuidance(
  */
 function buildFuzzEntrypointGuidance(
   options: FindBugsOptions,
-  _toolName: string
+  toolName: string
 ): string {
   const payload = options.statePayload ?? {};
   const harnessPath =
@@ -205,8 +210,8 @@ function buildFuzzEntrypointGuidance(
     `   - If \`harnessErrors\` is non-empty or \`erroredTests > 0\`, fix the bug in \`<fn>Validator\`, \`<fn>Transformer\`, or \`<fn>Generator\` and re-run Stage 1.`,
     `   - If \`skippedTests\` rejection rate is high (>80%), rewrite \`<fn>Transformer\` to construct/clamp valid inputs instead of filtering.`,
     "",
-    `4. **Stage 2: Deep Fuzzing Run (60,000ms)**:`,
-    `   Once Stage 1 succeeds without harness errors, run deep fuzzing with \`maxTests: 0\` (no test count limit, running for the full 60,000ms timeoutMs to discover all reachable defects rather than aborting prematurely):`,
+    `4. **Stage 2: Deep Fuzzing Run (300,000ms / 5 minutes per attempt)**:`,
+    `   Once Stage 1 succeeds without harness errors, run deep fuzzing with \`maxTests: 0\` (no test count limit, running for the full 300,000ms (5 minutes) timeoutMs per attempt to discover all reachable defects rather than aborting prematurely):`,
     "   ```json",
     "   {",
     `     "filePath": "${harnessPath}",`,
@@ -216,44 +221,114 @@ function buildFuzzEntrypointGuidance(
     '     "coverageScope": "project directimports",',
     '     "fnTimeout": 500,',
     '     "maxTests": 0,',
-    '     "timeoutMs": 60000,',
+    '     "timeoutMs": 300000,',
     '     "inputs": [...]',
     "   }",
     "   ```",
     "",
-    `5. **Strict Counterexample Triage Protocol**:`,
+    `5. **Strict Counterexample Triage & Defect Cataloging Protocol**:`,
     `   - ⚠️ **Anti-Suppression Rule**: NEVER weaken a validator or add \`assume()\` just to make a failure pass.`,
     `   - Only modify the harness/transformer if the input demonstrably violates the public documented API contract.`,
     `   - If the input is legal and the invariant fails (or target crashes), it is a **confirmed bug**!`,
     `   - Synthesize a minimal reproducer test with \`exportSuite: true\` / \`exportFilePath: "..."\` and record which generator elicited the bug.`,
+    `   - ⚠️ **Multi-Defect Rule (Do NOT Stop at the First Bug)**: Finding one counterexample does NOT mean fuzzing for this entrypoint is finished. Early bugs (e.g. shallow null checks, trivial input validation misses) frequently shadow deeper, more critical bugs downstream. Catalog this defect and proceed to the coverage and deeper defect exploration loop.`,
     "",
-    `6. **Branch Coverage Improvement Loop (Max 5 Retries)**:`,
-    `   - If all tests passed but uncovered lines/branches remain in the target entrypoint:`,
-    `     1. Inspect the uncovered lines in the target file.`,
-    `     2. Widen \`<fn>Generator\`, adjust \`<fn>Transformer\`, or add targeted seed \`inputs\`.`,
-    `     3. Re-run Stage 2 (up to 5 retries total).`,
+    `6. **Branch Coverage & Deeper Defect Exploration Loop (Max 5 Retries)**:`,
+    `   - Inspect target file coverage. Whether tests passed or bugs were discovered, as long as uncovered lines/branches remain in the target entrypoint:`,
+    `     1. **Defect Shadowing Mitigation**: If a discovered bug was an early crash or premature exit that prevented reaching downstream code, isolate that specific trigger in \`<fn>Transformer\` (or a secondary deep harness) so the fuzzer can penetrate deeper into the remaining branches. Keep the original reproducer test intact and cataloged—never discard or suppress it.`,
+    `     2. **Widen Inputs**: Inspect the remaining uncovered lines in the target file, widen \`<fn>Generator\`, adjust \`<fn>Transformer\`, or add targeted seed \`inputs\`.`,
+    `     3. **Re-run Stage 2**: Continue fuzzing to uncover deeper secondary defects (up to 5 retries total). Record a separate reproducer test and generator attribution for each distinct defect found.`,
+    `   - **Stopping Criteria for this Entrypoint**: Stop retrying and move on ONLY when:`,
+    `     - All reachable branches in the target entrypoint are covered, OR`,
+    `     - The budget of 5 retries has been exhausted.`,
+    `     - ⚠️ Finding a bug is NEVER a stopping condition on its own!`,
     "",
     `7. **Advance**:`,
     `   - Repeat for all remaining entrypoint harnesses.`,
-    `   - When all entrypoints are completed, call \`nanofuzz_findBugs\` with \`phase: "complete"\`.`,
+    `   - When all entrypoints are completed:`,
+    `     - If any bugs/failing invariants were discovered, call \`${toolName.toLowerCase()}_findBugs\` with \`phase: "contextualize_bugs"\`.`,
+    `     - If no bugs were found across all entrypoints, call \`${toolName.toLowerCase()}_findBugs\` with \`phase: "complete"\`.`,
   ].join("\n");
 } // fn: buildFuzzEntrypointGuidance
 
 /**
- * Builds guidance for Phase 4: Final reporting and interactive user disposition prompt.
+ * Builds guidance for Phase 4: Bug contextualization and maintainer intent verification against public issues/PRs/docs.
+ */
+function buildContextualizeBugsGuidance(
+  options: FindBugsOptions,
+  toolName: string
+): string {
+  return [
+    `### Instructions for Phase 4: Bug Contextualization & Maintainer Intent Verification`,
+    "",
+    `For each confirmed bug or invariant failure discovered during fuzzing:`,
+    "",
+    `1. **Scope & Access Assessment**:`,
+    `   - Determine whether the target repository is a public open-source project with accessible issue trackers, PR discussions, and documentation.`,
+    `   - **Public Repository**: Use GitHub/GitLab CLI, issue search APIs, or web retrieval tools.`,
+    `   - **Private / Offline Repository**: Restrict search strictly to local repository files (\`docs/\`, architecture decision records / ADRs, \`CHANGELOG.md\`, \`README.md\`, docstrings, and \`git log --grep\`).`,
+    `   - If remote queries fail (e.g. rate-limited, unauthorized), fall back gracefully to local files without failing the workflow.`,
+    "",
+    `2. **Multi-Faceted Search Strategy**:`,
+    `   Execute targeted queries combining multiple discriminators to avoid superficial lexical matches:`,
+    `   - *Query 1 (Exact Symbol + Concept)*: \`"<function_name>"\` AND (\`"<crash_exception>"\` OR \`"<invariant_concept>"\`)`,
+    `   - *Query 2 (Edge Case Shape)*: \`"<function_name>"\` AND (\`"empty string"\` OR \`"null"\` OR \`"overflow"\` OR \`"negative"\`)`,
+    `   - *Query 3 (Deprecation / Maintenance)*: \`"<module_or_file>"\` AND (\`"deprecated"\` OR \`"legacy"\` OR \`"wontfix"\` OR \`"by design"\`)`,
+    "",
+    `3. **Strict Evidentiary Standards (Anti-Rationalization Gate)**:`,
+    `   - ⚠️ **CRITICAL ANTI-RATIONALIZATION RULE**: You must NOT classify a bug as "Intentional" or "WontFix" without direct, unambiguous maintainer evidence.`,
+    `   - An issue closed as \`stale\`, \`inactive\`, or \`closed without explanation\` is **NOT** evidence of intentional behavior.`,
+    `   - If evidence is ambiguous, or if discussions disagree, the bug **MUST** be classified as a novel bug or potential unintended defect.`,
+    `   - You must extract:`,
+    `     1. The exact URL or path of the issue/PR/commit/doc.`,
+    `     2. The direct quote from a project maintainer explaining *why* the behavior is acceptable or out of scope.`,
+    `     3. The date of the decision (flag any decision older than 2 years as *Historical - May Require Reconfirmation*).`,
+    "",
+    `4. **Taxonomy & Evidence Mapping**:`,
+    `   Assign each finding to exactly one structured status:`,
+    `   - **Novel / Unreported**: No matching prior reports found.`,
+    `   - **Known Issue (Open)**: Active open issue/PR tracks this exact root cause (record Issue # and status).`,
+    `   - **Previously Fixed (Regression)**: Closed as fixed in a prior release, indicating a regression (record PR/commit hash).`,
+    `   - **Documented WontFix / Working as Intended**: Direct maintainer statement confirming the behavior is an intentional design choice or acceptable tradeoff (quote rationale and link).`,
+    `   - **Deprecated / Unsupported API**: Official documentation or issue states the component is unmaintained or slated for removal (quote deprecation notice).`,
+    "",
+    `5. **Next Step**:`,
+    `   - When contextualization is complete, call \`${toolName.toLowerCase()}_findBugs\` with:`,
+    "   ```json",
+    "   {",
+    '     "phase": "complete",',
+    `     "model": "${options.model}",`,
+    `     "vendor": "${options.vendor}",`,
+    '     "statePayload": {',
+    '       "bugs": [',
+    "         {",
+    '           "entrypoint": "<functionName>",',
+    '           "status": "<Novel / Unreported | Known Issue | Previously Fixed | Documented WontFix | Deprecated>",',
+    '           "evidence": "<urlOrPath>",',
+    '           "maintainerRationale": "<quoteOrSummary>"',
+    "         }",
+    "       ]",
+    "     }",
+    "   }",
+    "   ```",
+  ].join("\n");
+} // fn: buildContextualizeBugsGuidance
+
+/**
+ * Builds guidance for Phase 5: Final reporting and interactive user disposition prompt.
  */
 function buildCompleteGuidance(
   _options: FindBugsOptions,
   _toolName: string
 ): string {
   return [
-    `### Instructions for Phase 4: Reporting & Artifact Disposition`,
+    `### Instructions for Phase 5: Reporting & Artifact Disposition`,
     "",
     `1. **Generate Structured Summary Report**:`,
     `   Present a clear summary of all tested entrypoints to the user:`,
     `   - Total entrypoints and invariants tested.`,
     `   - Branch and statement coverage achieved.`,
-    `   - Discovered bugs: violated invariant / crash, minimal counterexample, input generator attribution (Random, Mutation, AI, User, etc.), and reproducer test file path.`,
+    `   - Discovered bugs: violated invariant / crash, minimal counterexample, input generator attribution (Random, Mutation, AI, User, etc.), reproducer test file path, and maintainer/issue context (e.g. Novel, Known Issue, WontFix/Working as Intended, or Deprecated).`,
     "",
     `2. **Interactive User Review & Artifact Disposition**:`,
     `   Ask the user (e.g. via askQuestions or clear options) how they would like to handle the results and generated files:`,
@@ -280,6 +355,7 @@ export type FindBugsPhase =
   | "init"
   | "invariants_extracted"
   | "fuzz_entrypoint"
+  | "contextualize_bugs"
   | "complete";
 
 /**

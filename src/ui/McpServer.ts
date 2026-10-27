@@ -245,10 +245,16 @@ export async function createMcpServer(
     "Guides an autonomous agent through multi-turn invariant extraction, constructive harness synthesis, and coverage-gated fuzzing to discover unknown bugs in a repository using NaNofuzz.",
     {
       phase: z
-        .enum(["init", "invariants_extracted", "fuzz_entrypoint", "complete"])
+        .enum([
+          "init",
+          "invariants_extracted",
+          "fuzz_entrypoint",
+          "contextualize_bugs",
+          "complete",
+        ])
         .optional()
         .describe(
-          "Workflow phase: 'init' to start discovery and black-box invariant extraction; 'invariants_extracted' to submit invariants and receive harness/validator instructions; 'fuzz_entrypoint' to get execution and triage guidance for a specific entrypoint; 'complete' to finalize findings and choose artifact disposition."
+          "Workflow phase: 'init' to start discovery and black-box invariant extraction; 'invariants_extracted' to submit invariants and receive harness/validator instructions; 'fuzz_entrypoint' to get execution and triage guidance for a specific entrypoint; 'contextualize_bugs' to verify discovered bugs against issues, PRs, and docs; 'complete' to finalize findings and choose artifact disposition."
         ),
       model: z
         .string()
