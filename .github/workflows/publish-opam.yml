@@ -120,7 +120,6 @@ jobs:
             opam-publish \
               --token "$OPAM_PUBLISH_TOKEN" \
               --tag "$TAG" \
-              --version "$VERSION" \
               --no-confirmation \
               --no-browser \
               "$TAR_URL" \
