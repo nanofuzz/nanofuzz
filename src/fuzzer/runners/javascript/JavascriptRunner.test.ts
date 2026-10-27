@@ -434,10 +434,10 @@ module.exports = { leakMemory, normalFn };
       fs.writeFileSync(jsPath, jsCode);
 
       const prevMaxMem = Config.get("nanofuzz.fuzzer.maxRunnerMemory", 8192);
-      Config.override("nanofuzz.fuzzer.maxRunnerMemory", 100);
+      Config.override("nanofuzz.fuzzer.maxRunnerMemory", 150);
 
       try {
-        // Memory limit configured via Config.override above (100 MB)
+        // Memory limit configured via Config.override above (150 MB)
         const runner = new JavascriptRunner(jsPath, "leakMemory");
         await runner.onRunStart();
 
