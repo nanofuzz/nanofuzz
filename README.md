@@ -26,13 +26,13 @@ To use NaNofuzz in your own projects:
       - **Maven**:
         ```xml
         <dependency>
-            <groupId>com.nanofuzz</groupId>
+            <groupId>io.github.nanofuzz</groupId>
             <artifactId>nanofuzz-runtime</artifactId>
-            <version>0.4.1</version>
+            <version>LATEST</version>
             <scope>test</scope>
         </dependency>
         ```
-      - **Gradle**: `testImplementation 'com.nanofuzz:nanofuzz-runtime:0.4.1'`
+      - **Gradle**: `testImplementation 'io.github.nanofuzz:nanofuzz-runtime:+'`
     - OCaml / OxCaml projects:
       - **opam**: `opam install nanofuzz_runtime` or
       - **dune**: add `nanofuzz_runtime` to your `dune` libraries
