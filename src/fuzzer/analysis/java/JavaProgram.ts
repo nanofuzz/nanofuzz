@@ -325,6 +325,9 @@ export class JavaProgram extends AbstractProgram {
    * Returns the package name declared in this Java program, or empty string if default package.
    */
   public getPackageName(): string {
+    if (!this._ast) {
+      this._parse(this._src);
+    }
     if (!this._ast) return "";
     const pkgNode = this._ast.rootNode.descendantsOfType(
       "package_declaration"
@@ -343,6 +346,9 @@ export class JavaProgram extends AbstractProgram {
    * @returns Fully qualified class name
    */
   public getFqClassName(fnName?: string): string {
+    if (!this._ast) {
+      this._parse(this._src);
+    }
     const pkg = this.getPackageName();
     let className = "";
     if (this._ast && fnName) {
@@ -369,6 +375,17 @@ export class JavaProgram extends AbstractProgram {
             break;
           }
         }
+      }
+    }
+    if (!className && this._ast) {
+      const topClass = this._ast.rootNode.children.find(
+        (c) =>
+          c.type === "class_declaration" ||
+          c.type === "record_declaration" ||
+          c.type === "interface_declaration"
+      );
+      if (topClass) {
+        className = topClass.childForFieldName("name")?.text ?? "";
       }
     }
     if (!className) {
@@ -484,6 +501,19 @@ export class JavaProgram extends AbstractProgram {
       `Unsupported parameter type '${typeNameResolved}': type is not supported`
     );
   } // fn: resolveTypeRef
+
+  protected override _afterLoad(): void {
+    for (const fnRef of Object.values(this._functions.supported)) {
+      if (fnRef.returnType && !isJavaReturnTypeResolved(fnRef.returnType)) {
+        fnRef.returnType.type = {
+          type: ArgTag.UNRESOLVED,
+          dims: 0,
+          children: [],
+          resolved: false,
+        };
+      }
+    }
+  } // fn: _afterLoad
 
   /**
    * Parses Java program source text into a Tree-sitter AST.
@@ -880,7 +910,7 @@ export class JavaProgram extends AbstractProgram {
         isVoid = true;
       } else {
         isVoid = false;
-        returnType = this._getTypeRefFromAstNode(returnTypeNode);
+        returnType = this._getTypeRefFromAstNode(returnTypeNode, true);
       }
     }
 
@@ -953,7 +983,10 @@ export class JavaProgram extends AbstractProgram {
    * @param node Tree-sitter syntax node representing a type
    * @returns Corresponding TypeRef descriptor
    */
-  protected _getTypeRefFromAstNode(node: Parser.SyntaxNode): TypeRef {
+  protected _getTypeRefFromAstNode(
+    node: Parser.SyntaxNode,
+    allowObject = false
+  ): TypeRef {
     const thisType: TypeRef = {
       module: this._filename,
       dims: 0,
@@ -1002,7 +1035,10 @@ export class JavaProgram extends AbstractProgram {
           };
           return thisType;
         }
-        if (text === "FuzzTestResult") {
+        if (
+          text === "FuzzTestResult" ||
+          (allowObject && (text === "Object" || text === "java.lang.Object"))
+        ) {
           thisType.typeRefName = text;
           thisType.type = {
             type: ArgTag.OBJECT,
@@ -1040,7 +1076,10 @@ export class JavaProgram extends AbstractProgram {
           (c) => c.type === "type_identifier"
         );
         if (idChildren.length > 0) {
-          return this._getTypeRefFromAstNode(idChildren[idChildren.length - 1]);
+          return this._getTypeRefFromAstNode(
+            idChildren[idChildren.length - 1],
+            allowObject
+          );
         }
         const text = node.text;
         const simpleName = text.includes(".") ? text.split(".").pop()! : text;
@@ -1070,7 +1109,7 @@ export class JavaProgram extends AbstractProgram {
           return thisType;
         }
         if (elemNode) {
-          const inner = this._getTypeRefFromAstNode(elemNode);
+          const inner = this._getTypeRefFromAstNode(elemNode, allowObject);
           thisType.typeRefName = inner.typeRefName;
           thisType.dims = inner.dims + dimCount;
           thisType.type = inner.type;
@@ -1099,7 +1138,7 @@ export class JavaProgram extends AbstractProgram {
         if (baseName === "Optional") {
           thisType.optional = true;
           if (argNodes.length > 0) {
-            const inner = this._getTypeRefFromAstNode(argNodes[0]);
+            const inner = this._getTypeRefFromAstNode(argNodes[0], allowObject);
             thisType.typeRefName = inner.typeRefName;
             thisType.baseTypeRef = inner.baseTypeRef;
             thisType.dims = inner.dims;
@@ -1130,7 +1169,7 @@ export class JavaProgram extends AbstractProgram {
         ) {
           thisType.baseTypeRef = baseName;
           if (argNodes.length > 0) {
-            const inner = this._getTypeRefFromAstNode(argNodes[0]);
+            const inner = this._getTypeRefFromAstNode(argNodes[0], allowObject);
             thisType.typeRefName = inner.typeRefName;
             thisType.dims = inner.dims + 1;
             thisType.type = inner.type;
@@ -1157,7 +1196,9 @@ export class JavaProgram extends AbstractProgram {
         ) {
           thisType.typeRefName = baseName;
           thisType.baseTypeRef = "Set";
-          const children = argNodes.map((c) => this._getTypeRefFromAstNode(c));
+          const children = argNodes.map((c) =>
+            this._getTypeRefFromAstNode(c, allowObject)
+          );
           thisType.type = {
             type: ArgTag.SET,
             dims: 0,
@@ -1177,7 +1218,9 @@ export class JavaProgram extends AbstractProgram {
         ) {
           thisType.typeRefName = baseName;
           thisType.baseTypeRef = "Map";
-          const children = argNodes.map((c) => this._getTypeRefFromAstNode(c));
+          const children = argNodes.map((c) =>
+            this._getTypeRefFromAstNode(c, allowObject)
+          );
           thisType.type = {
             type: ArgTag.DICTIONARY,
             dims: 0,
@@ -1202,7 +1245,9 @@ export class JavaProgram extends AbstractProgram {
         thisType.type = {
           type: ArgTag.UNRESOLVED,
           dims: 0,
-          children: argNodes.map((c) => this._getTypeRefFromAstNode(c)),
+          children: argNodes.map((c) =>
+            this._getTypeRefFromAstNode(c, allowObject)
+          ),
           resolved: false,
         };
         return thisType;
@@ -1216,7 +1261,10 @@ export class JavaProgram extends AbstractProgram {
             !c.type.startsWith("annotation")
         );
         if (unannotatedChild) {
-          const inner = this._getTypeRefFromAstNode(unannotatedChild);
+          const inner = this._getTypeRefFromAstNode(
+            unannotatedChild,
+            allowObject
+          );
           if (isNullable) {
             inner.optional = true;
           }
@@ -1593,3 +1641,16 @@ function isJavaPrimitiveOrBuiltinName(name: string): boolean {
   ]);
   return builtins.has(name);
 } // fn: isJavaPrimitiveOrBuiltinName
+
+function isJavaReturnTypeResolved(typeRef: TypeRef): boolean {
+  if (
+    !typeRef.type ||
+    !typeRef.type.resolved ||
+    typeRef.type.type === ArgTag.UNRESOLVED
+  ) {
+    return false;
+  }
+  return typeRef.type.children.every((child) =>
+    isJavaReturnTypeResolved(child)
+  );
+} // fn: isJavaReturnTypeResolved

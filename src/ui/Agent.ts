@@ -20,6 +20,7 @@ import { RunnerFactory } from "../fuzzer/runners/RunnerFactory";
 import { AbstractRunner, RunnerResult } from "../fuzzer/runners/AbstractRunner";
 import {
   ArgOptions,
+  ArgTag,
   ArgValueType,
   ArgValueTypeWrapped,
   FunctionRef,
@@ -714,15 +715,17 @@ export async function runFuzz(
     let testSuiteFilePath: string | undefined = undefined;
 
     if (options.exportSuite || options.exportFilePath) {
+      const outPath = options.exportFilePath
+        ? resolveFilePath(options.exportFilePath)
+        : undefined;
       testSuiteCode = await synthesizeTestSuite(
         resolvedPath,
         options.functionName,
         rawResults,
-        { shrink: true }
+        { shrink: true, outputFilename: outPath }
       );
 
-      if (options.exportFilePath && testSuiteCode) {
-        const outPath = resolveFilePath(options.exportFilePath);
+      if (outPath && testSuiteCode) {
         const dir = path.dirname(outPath);
         if (!fs.existsSync(dir)) {
           fs.mkdirSync(dir, { recursive: true });
@@ -981,7 +984,7 @@ export function convertAgentInputsToPinnedTests(
       const arr = inputData;
       pinnedTests.push({
         input: argDefs.map((def, idx) => {
-          const rawVal = arr[idx];
+          const rawVal = coerceAgentInputForArgDef(arr[idx], def);
           return {
             name: def.getName(),
             offset: idx,
@@ -997,7 +1000,7 @@ export function convertAgentInputsToPinnedTests(
       const obj = inputData;
       pinnedTests.push({
         input: argDefs.map((def, idx) => {
-          const rawVal = obj[def.getName()];
+          const rawVal = coerceAgentInputForArgDef(obj[def.getName()], def);
           return {
             name: def.getName(),
             offset: idx,
@@ -1307,6 +1310,7 @@ export async function synthesizeTestSuite(
   rawResults: FuzzTestResults,
   options?: {
     shrink?: boolean;
+    outputFilename?: string;
   }
 ): Promise<string | undefined> {
   const env = rawResults.env;
@@ -1378,7 +1382,11 @@ export async function synthesizeTestSuite(
   };
 
   try {
-    const adapter = TestAdapterFactory.fromSourceFilename(filePath, fuzzTests);
+    const adapter = TestAdapterFactory.fromSourceFilename(
+      filePath,
+      fuzzTests,
+      options?.outputFilename
+    );
     return adapter.toString();
   } catch (_e) {
     return synthesizeReproducer(filePath, functionName, finalCandidates, env);
@@ -2197,3 +2205,93 @@ function buildShrinkSummaryMarkdown(
 
   return parts.join("\n");
 } // fn: buildShrinkSummaryMarkdown
+
+/**
+ * Coerces JSON-deserialized seed values (e.g. numbers/strings for BIGINT, arrays for SET)
+ * to match the runtime types expected by ArgDef.
+ */
+function coerceAgentInputForArgDef(
+  val: unknown,
+  def: ArgDef | undefined,
+  dims: number | undefined = def?.getDim()
+): unknown {
+  if (!def || val === null || val === undefined) {
+    return val;
+  }
+  if (dims && dims > 0 && Array.isArray(val)) {
+    return val.map((item) => coerceAgentInputForArgDef(item, def, dims - 1));
+  }
+
+  switch (def.getType()) {
+    case ArgTag.BIGINT: {
+      if (typeof val === "bigint") return val;
+      if (typeof val === "number" && Number.isFinite(val)) {
+        return BigInt(Math.trunc(val));
+      }
+      if (typeof val === "string" && /^-?\d+n?$/.test(val.trim())) {
+        return BigInt(val.trim().replace(/n$/, ""));
+      }
+      return val;
+    }
+    case ArgTag.SET: {
+      const elemDef = def.getChildren()[0];
+      if (Array.isArray(val)) {
+        return new Set(
+          val.map((item) =>
+            elemDef ? coerceAgentInputForArgDef(item, elemDef) : item
+          )
+        );
+      }
+      if (val instanceof Set) {
+        return new Set(
+          Array.from(val, (item) =>
+            elemDef ? coerceAgentInputForArgDef(item, elemDef) : item
+          )
+        );
+      }
+      return val;
+    }
+    case ArgTag.DICTIONARY: {
+      const [, valDef] = def.getChildren();
+      if (isKeyedObject(val) && valDef) {
+        const coerced: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(val)) {
+          coerced[k] = coerceAgentInputForArgDef(v, valDef);
+        }
+        return coerced;
+      }
+      return val;
+    }
+    case ArgTag.OBJECT: {
+      const children = def.getChildren();
+      if (isKeyedObject(val) && children.length > 0) {
+        const coerced: Record<string, unknown> = { ...val };
+        for (const child of children) {
+          const name = child.getName();
+          if (name in coerced) {
+            coerced[name] = coerceAgentInputForArgDef(coerced[name], child);
+          }
+        }
+        return coerced;
+      }
+      return val;
+    }
+    case ArgTag.TUPLE: {
+      const children = def.getChildren();
+      if (Array.isArray(val) && children.length > 0) {
+        return val.map((item, idx) =>
+          children[idx] ? coerceAgentInputForArgDef(item, children[idx]) : item
+        );
+      }
+      return val;
+    }
+    case ArgTag.NUMBER:
+    case ArgTag.STRING:
+    case ArgTag.BOOLEAN:
+    case ArgTag.LITERAL:
+    case ArgTag.UNION:
+    case ArgTag.UNRESOLVED:
+    case ArgTag.BYTES:
+      return val;
+  }
+} // fn: coerceAgentInputForArgDef

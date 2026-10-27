@@ -908,6 +908,12 @@ export type CargoPackage = {
   source: string | null;
   targets: CargoPackageTarget[];
   dependencies?: Array<{ name: string; path?: string }>;
+  edition?: string;
+  rust_version?: string;
+  license?: string;
+  repository?: string;
+  authors?: string[];
+  description?: string;
 };
 
 export type CargoMetadata = {

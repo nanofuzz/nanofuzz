@@ -471,6 +471,79 @@ public class DataTypes {
     await runnerRev.onRunEnd();
   });
 
+  it("round-trips packaged classes, Map<String, Object>, Set<String>, and long across IPC", async () => {
+    const pkgDir = path.join(tempDir, "com", "example", "ipc");
+    fs.mkdirSync(pkgDir, { recursive: true });
+    const javaPath = path.join(pkgDir, "PackagedIpc.java");
+    fs.writeFileSync(
+      javaPath,
+      `package com.example.ipc;
+
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.Map;
+import java.util.Set;
+
+public class PackagedIpc {
+    public static Map<String, Object> roundTripMap(String key, long count, Set<String> tags, Map<String, Integer> scores) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("key", key);
+        out.put("count", count);
+        out.put("tagCount", tags.size());
+        out.put("scores", scores);
+        return out;
+    }
+
+    public static Set<String> echoSet(Set<String> items) {
+        return new LinkedHashSet<>(items);
+    }
+}
+`
+    );
+
+    const program = ProgramFactory.fromFile(javaPath, "java");
+    const mapFnDef = program.functionsExported["roundTripMap"];
+    expect(mapFnDef).toBeDefined();
+
+    const runnerMap = new JavaRunner(
+      javaPath,
+      "roundTripMap",
+      createTestEnv(mapFnDef)
+    );
+    await runnerMap.onRunStart();
+
+    const resMap = await runnerMap.run(
+      ["alpha", 42n, new Set(["t1", "t2"]), { math: 100 }],
+      5000
+    );
+    expect(resMap.result.tag).toBe("value");
+    if (resMap.result.tag === "value") {
+      expect(resMap.result.value).toEqual({
+        key: "alpha",
+        count: 42n,
+        tagCount: 2,
+        scores: { math: 100 },
+      });
+    }
+    await runnerMap.onRunEnd();
+
+    const setFnDef = program.functionsExported["echoSet"];
+    const runnerSet = new JavaRunner(
+      javaPath,
+      "echoSet",
+      createTestEnv(setFnDef)
+    );
+    await runnerSet.onRunStart();
+
+    const inputSet = new Set(["x", "y"]);
+    const resSet = await runnerSet.run([inputSet], 5000);
+    expect(resSet.result.tag).toBe("value");
+    if (resSet.result.tag === "value") {
+      expect(resSet.result.value).toEqual(inputSet);
+    }
+    await runnerSet.onRunEnd();
+  });
+
   it("handles timeouts and recovers cleanly on subsequent calls", async () => {
     const javaPath = path.join(tempDir, "TimeoutTest.java");
     fs.writeFileSync(
@@ -550,6 +623,46 @@ public class DataTypes {
 
     const runner = RunnerFactory(env, javaPath, "add");
     expect(runner instanceof JavaRunner).toBeTrue();
+  });
+
+  it("resolves packaged class name when run() is called after host restart without onRunStart()", async () => {
+    const pkgDir = path.join(tempDir, "com", "example", "gen");
+    fs.mkdirSync(pkgDir, { recursive: true });
+    const javaPath = path.join(pkgDir, "PackagedGen.java");
+    fs.writeFileSync(
+      javaPath,
+      `package com.example.gen;
+
+import java.util.function.DoubleSupplier;
+
+public class PackagedGen {
+    public static int compute(int x) {
+        return x + 10;
+    }
+
+    public static Object[] computeGenerator(DoubleSupplier prng) {
+        return new Object[] { (int) (prng.getAsDouble() * 10) };
+    }
+}
+`
+    );
+
+    const program = ProgramFactory.fromFile(javaPath, "java");
+    const fnDef = program.functionsExported["compute"];
+    const env = createTestEnv(fnDef);
+
+    // Compile first via a main runner, then invoke computeGenerator on a second runner without calling onRunStart()
+    const mainRunner = new JavaRunner(javaPath, "compute", env);
+    await mainRunner.onRunStart();
+    await mainRunner.onRunEnd();
+
+    const genRunner = new JavaRunner(javaPath, "computeGenerator", env);
+    const res = await genRunner.run(
+      [{ __nanofuzz_type: "prng", seed: "test-seed" }],
+      5000
+    );
+    expect(res.result.tag).toBe("value");
+    await genRunner.onRunEnd();
   });
 });
 

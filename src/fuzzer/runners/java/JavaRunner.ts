@@ -329,40 +329,25 @@ export class JavaRunner extends AbstractRunner {
       cpEntries.push(classesDir);
     }
 
-    if (this._compiler.projectType === "maven") {
-      const targetClasses = path.join(projectPath, "target", "classes");
-      if (fs.existsSync(targetClasses)) cpEntries.push(targetClasses);
-      const testClasses = path.join(projectPath, "target", "test-classes");
-      if (fs.existsSync(testClasses)) cpEntries.push(testClasses);
-    } else if (this._compiler.projectType === "gradle") {
-      const mainClasses = path.join(
-        projectPath,
-        "build",
-        "classes",
-        "java",
-        "main"
-      );
-      if (fs.existsSync(mainClasses)) cpEntries.push(mainClasses);
-      const testClasses = path.join(
-        projectPath,
-        "build",
-        "classes",
-        "java",
-        "test"
-      );
-      if (fs.existsSync(testClasses)) cpEntries.push(testClasses);
-    }
-
-    const extraClasspath = this._compiler.options.extraClasspath;
-    if (extraClasspath) {
-      for (const cp of extraClasspath) {
-        if (fs.existsSync(cp)) cpEntries.push(cp);
+    for (const entry of this._compiler.getProjectClasspathEntries()) {
+      if (!cpEntries.includes(entry)) {
+        cpEntries.push(entry);
       }
     }
 
     const sep = process.platform === "win32" ? ";" : ":";
     const classpath = cpEntries.join(sep);
 
+    if (!this._fqClassName) {
+      try {
+        const pgm = ProgramFactory.fromFile(this._filename, "java");
+        if (pgm instanceof JavaProgram) {
+          this._fqClassName = pgm.getFqClassName(this._fn);
+        }
+      } catch {
+        // Fallback to basename below
+      }
+    }
     const fqClass = this._fqClassName ?? path.basename(this._filename, ".java");
 
     const instrumentEntries = [classesDir];

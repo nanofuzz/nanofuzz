@@ -151,8 +151,14 @@ export class JavaCompiler {
     if (this._projectType === "maven" || this._projectType === "gradle") {
       const srcMainJava = path.join(this._projectPath, "src", "main", "java");
       const srcTestJava = path.join(this._projectPath, "src", "test", "java");
+      const searchDirs = [srcMainJava];
+      if (
+        path.resolve(this._moduleFile).startsWith(path.resolve(srcTestJava))
+      ) {
+        searchDirs.push(srcTestJava);
+      }
 
-      for (const searchDir of [srcMainJava, srcTestJava]) {
+      for (const searchDir of searchDirs) {
         if (fs.existsSync(searchDir)) {
           try {
             const files = fs.readdirSync(searchDir, { recursive: true });
@@ -274,51 +280,9 @@ export class JavaCompiler {
       cpEntries.push(runtimeJar);
     }
 
-    if (this._projectType === "maven") {
-      const mavenTargetClasses = path.join(
-        this._projectPath,
-        "target",
-        "classes"
-      );
-      if (fs.existsSync(mavenTargetClasses)) {
-        cpEntries.push(mavenTargetClasses);
-      }
-      const mavenTestClasses = path.join(
-        this._projectPath,
-        "target",
-        "test-classes"
-      );
-      if (fs.existsSync(mavenTestClasses)) {
-        cpEntries.push(mavenTestClasses);
-      }
-    } else if (this._projectType === "gradle") {
-      const gradleClasses = path.join(
-        this._projectPath,
-        "build",
-        "classes",
-        "java",
-        "main"
-      );
-      if (fs.existsSync(gradleClasses)) {
-        cpEntries.push(gradleClasses);
-      }
-      const gradleTestClasses = path.join(
-        this._projectPath,
-        "build",
-        "classes",
-        "java",
-        "test"
-      );
-      if (fs.existsSync(gradleTestClasses)) {
-        cpEntries.push(gradleTestClasses);
-      }
-    }
-
-    if (this._options.extraClasspath) {
-      for (const cp of this._options.extraClasspath) {
-        if (fs.existsSync(cp)) {
-          cpEntries.push(cp);
-        }
+    for (const entry of this.getProjectClasspathEntries()) {
+      if (!cpEntries.includes(entry)) {
+        cpEntries.push(entry);
       }
     }
 
@@ -565,6 +529,149 @@ export class JavaCompiler {
       compiledAt: new Date().toISOString(),
     };
   } // fn: _newCompilationRecord
+
+  /**
+   * Resolves project classpath entries including compiled output directories,
+   * dependency JARs (Maven/Gradle), and configured extraClasspath entries.
+   */
+  public getProjectClasspathEntries(): string[] {
+    const cpEntries: string[] = [];
+
+    if (this._projectType === "maven") {
+      const mavenTargetClasses = path.join(
+        this._projectPath,
+        "target",
+        "classes"
+      );
+      if (fs.existsSync(mavenTargetClasses)) {
+        cpEntries.push(mavenTargetClasses);
+      }
+      const mavenTestClasses = path.join(
+        this._projectPath,
+        "target",
+        "test-classes"
+      );
+      if (fs.existsSync(mavenTestClasses)) {
+        cpEntries.push(mavenTestClasses);
+      }
+      for (const jar of this._resolveMavenDependencyJars()) {
+        if (!cpEntries.includes(jar)) {
+          cpEntries.push(jar);
+        }
+      }
+    } else if (this._projectType === "gradle") {
+      const gradleClasses = path.join(
+        this._projectPath,
+        "build",
+        "classes",
+        "java",
+        "main"
+      );
+      if (fs.existsSync(gradleClasses)) {
+        cpEntries.push(gradleClasses);
+      }
+      const gradleTestClasses = path.join(
+        this._projectPath,
+        "build",
+        "classes",
+        "java",
+        "test"
+      );
+      if (fs.existsSync(gradleTestClasses)) {
+        cpEntries.push(gradleTestClasses);
+      }
+      for (const dir of [
+        path.join(this._projectPath, "lib"),
+        path.join(this._projectPath, "build", "libs"),
+      ]) {
+        for (const jar of findJarsInDir(dir)) {
+          if (!cpEntries.includes(jar)) {
+            cpEntries.push(jar);
+          }
+        }
+      }
+    }
+
+    if (this._options.extraClasspath) {
+      for (const cp of this._options.extraClasspath) {
+        if (fs.existsSync(cp) && !cpEntries.includes(cp)) {
+          cpEntries.push(cp);
+        }
+      }
+    }
+
+    return cpEntries;
+  } // fn: getProjectClasspathEntries
+
+  protected _resolveMavenDependencyJars(): string[] {
+    const jars: string[] = [];
+    for (const dir of [
+      path.join(this._projectPath, "target", "dependency"),
+      path.join(this._projectPath, "lib"),
+    ]) {
+      for (const jar of findJarsInDir(dir)) {
+        if (!jars.includes(jar)) {
+          jars.push(jar);
+        }
+      }
+    }
+
+    if (!this._pomXmlPath || !fs.existsSync(this._pomXmlPath)) {
+      return jars;
+    }
+
+    try {
+      const pomContent = fs.readFileSync(this._pomXmlPath, "utf8");
+      if (
+        !pomContent.includes("<dependency>") &&
+        !pomContent.includes("<parent>")
+      ) {
+        return jars;
+      }
+
+      const outDir = this.classesDir;
+      fs.mkdirSync(outDir, { recursive: true });
+      const cpFile = path.join(outDir, "maven-cp.txt");
+      const pomMtimeMs = fs.statSync(this._pomXmlPath).mtimeMs;
+      const needsRefresh =
+        !fs.existsSync(cpFile) || fs.statSync(cpFile).mtimeMs < pomMtimeMs;
+
+      if (needsRefresh) {
+        const mvnBin = process.platform === "win32" ? "mvn.cmd" : "mvn";
+        ChildProcess.spawnSync(
+          mvnBin,
+          [
+            "dependency:build-classpath",
+            `-Dmdep.outputFile=${cpFile}`,
+            "-DincludeScope=test",
+            "-q",
+          ],
+          {
+            cwd: this._projectPath,
+            stdio: "ignore",
+            windowsHide: true,
+            timeout: 30000,
+          }
+        );
+      }
+
+      if (fs.existsSync(cpFile)) {
+        const rawCp = fs.readFileSync(cpFile, "utf8").trim();
+        if (rawCp) {
+          for (const part of rawCp.split(path.delimiter)) {
+            const trimmed = part.trim();
+            if (trimmed && fs.existsSync(trimmed) && !jars.includes(trimmed)) {
+              jars.push(trimmed);
+            }
+          }
+        }
+      }
+    } catch {
+      // ignore maven classpath resolution failures
+    }
+
+    return jars;
+  } // fn: _resolveMavenDependencyJars
 } // class: JavaCompiler
 
 // ============================================================================
@@ -761,3 +868,19 @@ export function findRuntimeJar(userProjectPath?: string): string | undefined {
 
   return undefined;
 } // fn: findRuntimeJar
+
+function findJarsInDir(dir: string): string[] {
+  if (!fs.existsSync(dir)) return [];
+  const jars: string[] = [];
+  try {
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.isFile() && entry.name.endsWith(".jar")) {
+        jars.push(path.join(dir, entry.name));
+      }
+    }
+  } catch {
+    // ignore read errors
+  }
+  return jars;
+} // fn: findJarsInDir

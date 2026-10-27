@@ -1,6 +1,5 @@
 package com.nanofuzz.runtime.runner;
 
-import com.nanofuzz.runtime.CoverageTracker;
 import com.nanofuzz.runtime.FuzzTestResult;
 import com.nanofuzz.runtime.UnsatisfiedAssumptionException;
 import com.nanofuzz.runtime.ValidatorResult;
@@ -42,7 +41,6 @@ import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.net.URL;
 import java.net.URLClassLoader;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -54,8 +52,6 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.LinkedList;
 import java.util.List;
-import java.util.NavigableMap;
-import java.util.NavigableSet;
 import java.util.Map;
 import java.util.Optional;
 import java.util.PriorityQueue;
@@ -574,7 +570,6 @@ public class JavaRunnerHost {
    * @param val Raw object from MessagePack deserialization
    * @return Unwrapped Java object
    */
-  @SuppressWarnings("unchecked")
   private static Object unwrapJsonn(Object val) {
     if (val instanceof Map<?, ?> map) {
       if (UndefinedValue.equals(map.get(PlaceHolderValueKey))) {
@@ -645,8 +640,8 @@ public class JavaRunnerHost {
     if (val == null) {
       return null;
     }
-    if (val instanceof BigInteger bi) {
-      return Map.of(PlaceHolderBigIntKey, bi.toString());
+    if (val instanceof BigInteger || val instanceof Long) {
+      return Map.of(PlaceHolderBigIntKey, val.toString());
     }
     if (val instanceof byte[] bytes) {
       List<Integer> list = new ArrayList<>(bytes.length);
@@ -663,18 +658,19 @@ public class JavaRunnerHost {
       return Map.of(PlaceHolderSetKey, list);
     }
     if (val instanceof Map<?, ?> map) {
-      List<List<Object>> entries = new ArrayList<>(map.size());
+      Map<String, Object> wrapped = new LinkedHashMap<>(map.size());
       for (Map.Entry<?, ?> e : map.entrySet()) {
-        entries.add(List.of(wrapJsonn(e.getKey()), wrapJsonn(e.getValue())));
+        Object rawKey = wrapJsonn(e.getKey());
+        wrapped.put(String.valueOf(rawKey), wrapJsonn(e.getValue()));
       }
-      return Map.of(PlaceHolderMapKey, entries);
+      return wrapped;
     }
     if (val instanceof Optional<?> opt) {
       return opt.isPresent() ? wrapJsonn(opt.get()) : null;
     }
-    if (val instanceof List<?> list) {
-      List<Object> wrapped = new ArrayList<>(list.size());
-      for (Object item : list) {
+    if (val instanceof Collection<?> col) {
+      List<Object> wrapped = new ArrayList<>(col.size());
+      for (Object item : col) {
         wrapped.add(wrapJsonn(item));
       }
       return wrapped;
@@ -687,7 +683,37 @@ public class JavaRunnerHost {
       }
       return wrapped;
     }
-    return val;
+    if (val.getClass().isRecord()) {
+      RecordComponent[] components = val.getClass().getRecordComponents();
+      Map<String, Object> recordMap = new LinkedHashMap<>(components.length);
+      for (RecordComponent comp : components) {
+        try {
+          Method accessor = comp.getAccessor();
+          if (!accessor.canAccess(val)) {
+            accessor.setAccessible(true);
+          }
+          recordMap.put(comp.getName(), wrapJsonn(accessor.invoke(val)));
+        } catch (Exception ignored) {
+        }
+      }
+      return recordMap;
+    }
+    if (val instanceof UUID || val instanceof Character) {
+      return val.toString();
+    }
+    if (val instanceof Enum<?> en) {
+      return en.name();
+    }
+    if (val instanceof BigDecimal bd) {
+      return bd.doubleValue();
+    }
+    if (val instanceof java.util.Date d) {
+      return d.toInstant().toString();
+    }
+    if (val instanceof Boolean || val instanceof Number || val instanceof CharSequence) {
+      return val;
+    }
+    return String.valueOf(val);
   } // fn: wrapJsonn
 
   /**
@@ -716,7 +742,7 @@ public class JavaRunnerHost {
    * @param target Target class type
    * @return Coerced and converted value
    */
-  @SuppressWarnings("unchecked")
+  @SuppressWarnings({ "unchecked", "rawtypes" })
   private Object convertArg(Object val, Type targetType)
       throws ReflectiveOperationException {
     if (targetType instanceof ParameterizedType parameterizedType) {
@@ -871,9 +897,9 @@ public class JavaRunnerHost {
       throws ReflectiveOperationException {
     if (val == null)
       return null;
-    if (!(val instanceof List<?> values)) {
+    if (!(val instanceof Collection<?> values)) {
       throw new IllegalArgumentException(
-          "Expected an array to construct collection " + target.getName());
+          "Expected a collection to construct collection " + target.getName());
     }
 
     Collection<Object> converted;
