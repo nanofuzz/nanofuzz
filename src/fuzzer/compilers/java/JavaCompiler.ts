@@ -248,7 +248,7 @@ export class JavaCompiler {
   public compileSync(updateFn: FuzzStatusUpdater = () => {}): string {
     updateFn({
       type: "compiling",
-      file: path.basename(this._moduleFile),
+      file: this._moduleFile,
     });
 
     const javac = this._javacPath ?? JavaCompiler.resolveJavac();

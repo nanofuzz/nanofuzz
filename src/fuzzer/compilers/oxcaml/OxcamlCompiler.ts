@@ -200,7 +200,7 @@ export class OxcamlCompiler {
   public compileSync(updateFn: FuzzStatusUpdater = () => {}): string {
     updateFn({
       type: "compiling",
-      file: path.basename(this._moduleFile),
+      file: this._moduleFile,
     });
 
     const dune = this._dunePath ?? OxcamlCompiler.resolveDune();

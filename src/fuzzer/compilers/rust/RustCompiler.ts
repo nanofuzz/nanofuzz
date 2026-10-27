@@ -228,7 +228,7 @@ export class RustCompiler {
   public compileSync(updateFn: FuzzStatusUpdater = () => {}): string {
     updateFn({
       type: "compiling",
-      file: path.basename(this._moduleFile),
+      file: this._moduleFile,
     });
 
     const cargo = this._cargoPath ?? RustCompiler.resolveCargo();
