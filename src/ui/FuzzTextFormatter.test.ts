@@ -111,7 +111,7 @@ describe("ui/FuzzTextFormatter", () => {
       " - Executed 85, skipped 5, interrupted 3 in-flight tests in 1240 ms"
     );
     expect(summary).toContain(
-      "Testing finished. Stopped for reason: interrupted."
+      "Testing finished in 1s. Stopped for reason: interrupted."
     );
   });
 
@@ -126,7 +126,7 @@ describe("ui/FuzzTextFormatter", () => {
     const summary = formatRunSummary(mockResults);
     expect(summary).toContain(" - Executed 9 and skipped 1 tests in 1240 ms");
     expect(summary).toContain(
-      "Testing finished. Stopped for reason: maxTests."
+      "Testing finished in 1s. Stopped for reason: maxTests."
     );
   });
 
@@ -209,7 +209,7 @@ describe("ui/FuzzTextFormatter", () => {
     expect(summary1).not.toContain("Human validator");
     expect(summary1).not.toContain("Property validator");
     expect(summary1).toContain(
-      "Testing finished. Stopped for reason: maxTests."
+      "Testing finished in 1s. Stopped for reason: maxTests."
     );
 
     // Activate property validators with validator ref and outcomes
@@ -253,6 +253,22 @@ describe("ui/FuzzTextFormatter", () => {
     mockResults.env.options.useImplicit = false;
     const summary6 = formatRunSummary(mockResults);
     expect(summary6).not.toContain("Heuristic validator");
+  });
+
+  it("formatRunSummary deducts compilation and instrumentation time from test execution duration and reports total duration in finish line", () => {
+    const mockResults = createMockResults(FuzzStopReason.MAXTESTS);
+    mockResults.stats.counters.inputsGenerated = 5;
+    mockResults.stats.counters.passedTests = 5;
+    mockResults.stats.outcomes.total = 5;
+    mockResults.stats.timers.total = 39415;
+    mockResults.stats.timers.compile = 38500;
+    mockResults.stats.timers.instrument = 500;
+
+    const summary = formatRunSummary(mockResults);
+    expect(summary).toContain(" - Executed 5 tests in 415 ms");
+    expect(summary).toContain(
+      "Testing finished in 39s. Stopped for reason: maxTests."
+    );
   });
 
   it("formatTestingStatus formats input execution message", () => {

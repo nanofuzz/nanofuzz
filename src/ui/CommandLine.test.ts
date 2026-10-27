@@ -2294,7 +2294,7 @@ export function myPut(x: number): number {
     ]);
 
     expect(res.status).toBe(0);
-    expect(res.stdout).toContain("Testing finished.");
+    expect(res.stdout).toContain("Testing finished in ");
     expect(res.stdout).toContain("Generated 5 inputs");
     expect(res.stdout).not.toContain("FAILED by Example Oracle");
   });
