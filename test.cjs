@@ -46,7 +46,7 @@ function getTestFiles() {
   }
 
   return findTestFiles("src");
-}
+} // fn: getTestFiles
 
 // Find all test/spec files under a directory
 function findTestFiles(dir) {
@@ -64,41 +64,44 @@ function findTestFiles(dir) {
       return isJsTest || isPyTest;
     })
     .map((f) => path.join(dir, f).replace(/\\/g, "/"));
-}
+} // fn: findTestFiles
 
 // Prioritize known longer running test files to run early in the queue.
-// Interleave TypeScript-heavy and Python/Rust-heavy suites so workers do not
-// all contend for subprocess spawns or multi-worker campaigns simultaneously at t=0.
+// Interleave heavy suites across distinct disaffinity domains (CLI/TS, OCaml, Python, Rust, Java)
+// so initial workers start long-running tasks immediately without blocking each other.
 function sortTestFiles(files) {
   const priority = [
-    "FuzzerCoverageOneFile.test.ts",
+    "CommandLine.test.ts",
+    "Fuzzer.test.ts",
+    "OxcamlRunner.test.ts",
     "PythonRunner.test.ts",
-    "FuzzerExamples2.test.ts",
-    "PytestAdapter.test.ts",
-    "FuzzerPython.test.ts",
     "RustRunner.test.ts",
     "JavaRunner.test.ts",
     "FuzzerJava.test.ts",
-    "CoverageMeasureJava.test.ts",
-    "Fuzzer.test.ts",
-    "CoverageMeasureRust.test.ts",
-    "CoverageMeasureOxcaml.test.ts",
-    "FuzzerExamples1.test.ts",
-    "CargoTestAdapter.test.ts",
-    "DuneTestAdapter.test.ts",
-    "CommandLine.test.ts",
-    "CommandLineAiCache.test.ts",
     "FuzzerRust.test.ts",
+    "FuzzerExamples1.test.ts",
+    "FuzzerExamples2.test.ts",
+    "FuzzerCoverageOneFile.test.ts",
     "FuzzerOxcaml.test.ts",
+    "FuzzerPython.test.ts",
+    "CargoTestAdapter.test.ts",
     "FuzzerTypescript.test.ts",
+    "CoverageMeasureJava.test.ts",
+    "CoverageMeasureRust.test.ts",
     "RustCompiler.test.ts",
-    "OxcamlRunner.test.ts",
-    "OxcamlHarness.test.ts",
-    "OxcamlCompiler.test.ts",
-    "JavaCompiler.test.ts",
     "Agent.test.ts",
+    "CoverageMeasureOxcaml.test.ts",
+    "JavaCompiler.test.ts",
+    "JUnitTestAdapter.test.ts",
+    "JavascriptRunner.test.ts",
+    "OxcamlHarness.test.ts",
+    "VscodeLmAdapter.test.ts",
     "FuzzerCoverageMultiFile.test.ts",
+    "DuneTestAdapter.test.ts",
+    "CommandLineAiCache.test.ts",
+    "PytestAdapter.test.ts",
     "TypescriptCompiler.test.ts",
+    "OxcamlCompiler.test.ts",
   ];
 
   return [...files].sort((a, b) => {
@@ -109,53 +112,22 @@ function sortTestFiles(files) {
     if (pB !== -1) return 1;
     return a.localeCompare(b);
   });
-}
+} // fn: sortTestFiles
 
 // Disaffinity groups: suites within the same group must not execute concurrently.
-// This prevents multiple heavy subprocess or fuzzer workloads from thrashing CPU and
-// starving sub-second timeouts.
+// Partitioned by runtime domain to prevent resource/compiler thrashing and timeout starvation
+// within a single runtime while allowing concurrent execution across different runtimes.
 const disaffinityGroups = [
-  // Group 1: Subprocess-heavy Python, Rust, Java, and CLI runner & adapter suites
-  // No two of these may run at the same time.
-  [
-    "PythonRunner.test.ts",
-    "RustRunner.test.ts",
-    "JavaRunner.test.ts",
-    "FuzzerJava.test.ts",
-    "CoverageMeasureJava.test.ts",
-    "CoverageMeasureRust.test.ts",
-    "CoverageMeasureOxcaml.test.ts",
-    "CargoTestAdapter.test.ts",
-    "DuneTestAdapter.test.ts",
-    "RustCompiler.test.ts",
-    "OxcamlRunner.test.ts",
-    "OxcamlHarness.test.ts",
-    "OxcamlCompiler.test.ts",
-    "JavaCompiler.test.ts",
-    "PytestAdapter.test.ts",
-    "CommandLine.test.ts",
-    "CommandLineAiCache.test.ts",
-    "FuzzerPython.test.ts",
-    "FuzzerRust.test.ts",
-    "FuzzerOxcaml.test.ts",
-  ],
-  // Group 2: Heavy multi-worker fuzzing campaigns & shared TypeScript compiler fixtures
-  // No two of these may run at the same time.
-  [
-    "FuzzerCoverageOneFile.test.ts",
-    "FuzzerCoverageMultiFile.test.ts",
-    "FuzzerExamples1.test.ts",
-    "FuzzerExamples2.test.ts",
-    "CommandLine.test.ts",
-    "CommandLineAiCache.test.ts",
-    "TypescriptCompiler.test.ts",
-    "FuzzerTypescript.test.ts",
-    "Fuzzer.test.ts",
-    "FuzzerRust.test.ts",
-    "FuzzerOxcaml.test.ts",
-    "Agent.test.ts",
-    "VscodeLmAdapter.test.ts",
-  ],
+  // Heavy general fuzzing engine & CLI integration suite
+  ["CommandLine.test.ts", "Fuzzer.test.ts"],
+  // Subprocess-heavy Python runner & fuzzer suites
+  ["PythonRunner.test.ts", "FuzzerPython.test.ts"],
+  // Subprocess-heavy Rust runner & fuzzer suites
+  ["RustRunner.test.ts", "FuzzerRust.test.ts"],
+  // Subprocess-heavy Java runner & fuzzer suites
+  ["JavaRunner.test.ts", "FuzzerJava.test.ts"],
+  // Subprocess-heavy OCaml/OxCaml runner & fuzzer suites
+  ["OxcamlRunner.test.ts", "FuzzerOxcaml.test.ts"],
 ];
 
 function hasConflict(fileA, fileB) {
@@ -167,7 +139,7 @@ function hasConflict(fileA, fileB) {
     if (hasA && hasB) return true;
   }
   return false;
-}
+} // fn: hasConflict
 
 function canRunFile(candidateFile, currentlyRunningFiles) {
   for (const running of currentlyRunningFiles) {
@@ -176,7 +148,7 @@ function canRunFile(candidateFile, currentlyRunningFiles) {
     }
   }
   return true;
-}
+} // fn: canRunFile
 
 // Run a single test file in a spawned Node or pytest process
 function runTestFile(file) {

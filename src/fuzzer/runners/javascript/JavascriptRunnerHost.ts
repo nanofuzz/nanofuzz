@@ -52,10 +52,22 @@ function getGlobalPaths(): string[] {
 async function main() {
   const initialFilename = process.argv[2];
   const initialFnName = process.argv[3];
-  const collectStaticArg = process.argv[5];
+  const coverageScope = process.argv[4] || "project";
+  const directPkgs: string[] = process.argv[5]
+    ? JSON.parse(process.argv[5])
+    : [];
+  const collectStaticArg = process.argv[6];
   const isRespawn = collectStaticArg === "respawn";
   const collectStatic =
     collectStaticArg !== undefined ? collectStaticArg === "true" : true;
+
+  if (
+    coverageScope.includes("directimports") &&
+    Array.isArray(directPkgs) &&
+    directPkgs.length > 0
+  ) {
+    setupDirectImportsHook(directPkgs);
+  }
 
   const loadedModules: Record<string, unknown> = {};
 
@@ -839,6 +851,63 @@ function isCoverageMap(
 function getGlobalCoverageData(): unknown {
   return Reflect.get(globalThis, "__coverage__");
 }
+
+/**
+ * Resolves the top-level package name for a file inside node_modules.
+ */
+function getPackageNameFromPath(filePath: string): string | undefined {
+  const norm = path.resolve(filePath).replace(/\\/g, "/");
+  const idx = norm.lastIndexOf("/node_modules/");
+  if (idx === -1) return undefined;
+
+  const sub = norm.substring(idx + "/node_modules/".length);
+  const parts = sub.split("/");
+  if (parts.length === 0 || !parts[0]) return undefined;
+
+  if (parts[0].startsWith("@") && parts.length > 1) {
+    return `${parts[0]}/${parts[1]}`;
+  }
+  return parts[0];
+} // fn: getPackageNameFromPath
+
+/**
+ * Sets up istanbul-lib-hook to instrument directly imported 3rd-party packages on require.
+ */
+function setupDirectImportsHook(directPkgs: string[]): void {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { hookRequire } = require("istanbul-lib-hook");
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { createInstrumenter } = require("istanbul-lib-instrument");
+
+  const directSet = new Set(directPkgs.map((p) => p.toLowerCase()));
+  const instrumenter = createInstrumenter({
+    produceSourceMap: true,
+    coverageGlobalScope: "global",
+  });
+  let isInstrumenting = false;
+
+  hookRequire(
+    (filePath: string) => {
+      const pkg = getPackageNameFromPath(filePath);
+      return pkg !== undefined && directSet.has(pkg.toLowerCase());
+    },
+    (code: string, opts: unknown) => {
+      if (isInstrumenting) return code;
+      if (code.includes("__coverage__") || code.includes("cov_")) {
+        return code;
+      }
+      const filename =
+        isRecord(opts) && "filename" in opts ? String(opts.filename) : "";
+      isInstrumenting = true;
+      try {
+        return instrumenter.instrumentSync(code, filename);
+      } finally {
+        isInstrumenting = false;
+      }
+    },
+    { extensions: [".js", ".cjs"] }
+  );
+} // fn: setupDirectImportsHook
 
 type FileCoverageData = {
   path?: string;

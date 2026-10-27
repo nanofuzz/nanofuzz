@@ -299,6 +299,101 @@ public class Sample {
     expect(adapter.toolname).toBe("JUnit");
   });
 
+  it("uses assertEquals for List return types and custom outputFilename class/package names", () => {
+    const pkgDir = path.join(tempDir, "src", "main", "java", "com", "example");
+    fs.mkdirSync(pkgDir, { recursive: true });
+    const javaPath = path.join(pkgDir, "ListHarness.java");
+    fs.writeFileSync(
+      javaPath,
+      `package com.example;
+
+import java.util.List;
+import java.util.Arrays;
+
+public class ListHarness {
+    public static List<String> getItems(String a) {
+        return Arrays.asList(a, "OK");
+    }
+
+    public static String[] getArray(String a) {
+        return new String[]{ a, "OK" };
+    }
+}
+`
+    );
+
+    const tests: FuzzTests = {
+      version: "0.4.0",
+      functions: {
+        getItems: {
+          options: makeOptions({ useHuman: true }),
+          validators: [],
+          tests: {
+            "0": {
+              input: [
+                { name: "0", offset: 0, value: "hi", origin: { type: "user" } },
+              ],
+              output: [],
+              pinned: true,
+              expectedOutput: [
+                {
+                  name: "0",
+                  offset: 0,
+                  value: ["hi", "OK"],
+                  origin: { type: "user" },
+                },
+              ],
+            },
+          },
+          isVoid: false,
+        },
+        getArray: {
+          options: makeOptions({ useHuman: true }),
+          validators: [],
+          tests: {
+            "0": {
+              input: [
+                { name: "0", offset: 0, value: "hi", origin: { type: "user" } },
+              ],
+              output: [],
+              pinned: true,
+              expectedOutput: [
+                {
+                  name: "0",
+                  offset: 0,
+                  value: ["hi", "OK"],
+                  origin: { type: "user" },
+                },
+              ],
+            },
+          },
+          isVoid: false,
+        },
+      },
+    };
+
+    const customOut = path.join(
+      tempDir,
+      "src",
+      "test",
+      "java",
+      "CustomSuiteTest.java"
+    );
+    const adapter = new JUnitTestAdapter(tests, javaPath, customOut);
+    expect(adapter.filename).toBe(customOut);
+    const out = adapter.toString();
+
+    expect(out).not.toContain("package ");
+    expect(out).toContain("public class CustomSuiteTest {");
+    expect(out).toContain('com.example.ListHarness.getItems("hi")');
+    expect(out).toContain(
+      'assertEquals(new java.util.ArrayList<>(java.util.Arrays.asList("hi", "OK")), actual);'
+    );
+    expect(out).toContain(
+      'assertArrayEquals(new String[]{ "hi", "OK" }, actual);'
+    );
+  });
+
   it("compiles synthesized Java regression tests via javac with runtime jar", () => {
     const pkgDir = path.join(tempDir, "com", "test");
     fs.mkdirSync(pkgDir, { recursive: true });

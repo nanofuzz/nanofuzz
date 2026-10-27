@@ -130,7 +130,7 @@ export function buildRustHarness(
         });
 
         // If normTarget is in the user's crate and cName refers to user's crate itself, vendor user's crate
-        let pkg =
+        const pkg =
           matches.find(
             (p) => p.source === null && p.manifest_path === userCargoToml
           ) ??
@@ -766,7 +766,7 @@ function isInsideConstContext(node: Parser.SyntaxNode): boolean {
     curr = curr.parent;
   }
   return false;
-}
+} // fn: isInsideConstContext
 
 /**
  * Instruments Rust source code by inserting statement, function, and branch hit probes,
@@ -1186,7 +1186,7 @@ export function instrumentRustSource(
   // so that coverage probes can run in #[forbid(unsafe_code)] crates like jaq-core
   if (instrumentedSrc.includes("forbid(unsafe_code)")) {
     instrumentedSrc = instrumentedSrc.replace(
-      /#\!\[forbid\(unsafe_code\)\]/g,
+      /#!\[forbid\(unsafe_code\)\]/g,
       `#![allow(unsafe_code)]`
     );
   }
