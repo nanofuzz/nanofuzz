@@ -63,18 +63,33 @@ describe("fuzzer: rust targets", () => {
   });
 
   it("Rust timeouts", async () => {
+    const pinned: FuzzPinnedTest[] = [
+      {
+        input: [{ name: "n", offset: 0, value: 0, origin: { type: "user" } }],
+        output: [],
+        pinned: true,
+      },
+      {
+        input: [{ name: "n", offset: 0, value: 1, origin: { type: "user" } }],
+        output: [],
+        pinned: true,
+      },
+    ];
+
     const fuzzResult = await FuzzerFactory(
       "./test_fixtures/Fuzzer.testfixtures.rs",
       "timeouts",
       {
         ...intOptions,
-        suiteTimeout: 10000,
+        maxTests: 2,
+        fnTimeout: 100,
+        suiteTimeout: 2000,
       }
-    ).test();
+    ).test(pinned, {});
 
-    expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
-    expect(fuzzResult.stats.outcomes.oracles.heuristic.pass).toBeGreaterThan(0);
-    expect(fuzzResult.stats.outcomes.timeouts).toBeGreaterThan(0);
+    expect(fuzzResult.stats.outcomes.total).toBe(2);
+    expect(fuzzResult.stats.outcomes.oracles.heuristic.pass).toBe(1);
+    expect(fuzzResult.stats.outcomes.timeouts).toBe(1);
   });
 
   it("Rust panics/exceptions", async () => {

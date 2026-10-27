@@ -118,8 +118,13 @@ function sortTestFiles(files) {
 // Partitioned by runtime domain to prevent resource/compiler thrashing and timeout starvation
 // within a single runtime while allowing concurrent execution across different runtimes.
 const disaffinityGroups = [
-  // Heavy general fuzzing engine & CLI integration suite
-  ["CommandLine.test.ts", "Fuzzer.test.ts"],
+  // Heavy general fuzzing engine & multi-worker campaigns
+  [
+    "CommandLine.test.ts",
+    "Fuzzer.test.ts",
+    "FuzzerCoverageOneFile.test.ts",
+    "FuzzerCoverageMultiFile.test.ts",
+  ],
   // Subprocess-heavy Python runner & fuzzer suites
   ["PythonRunner.test.ts", "FuzzerPython.test.ts"],
   // Subprocess-heavy Rust runner & fuzzer suites

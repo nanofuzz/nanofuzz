@@ -70,6 +70,12 @@ const makeOptions = (overrides: Partial<FuzzOptions> = {}): FuzzOptions => ({
 
 describe("fuzzer/adapters/cargo/CargoTestAdapter:", () => {
   let tempDir: string;
+  const sharedTargetDir = path.join(
+    fs.realpathSync(os.tmpdir()),
+    "nanofuzz",
+    "rust",
+    "target"
+  );
 
   beforeAll(async () => {
     await Parser.init();
@@ -953,6 +959,8 @@ pub fn reset_all() {
         "test",
         "--manifest-path",
         path.join(tempDir, "Cargo.toml"),
+        "--target-dir",
+        sharedTargetDir,
         "--test",
         "math_lib_nano_test",
       ],
@@ -1058,6 +1066,8 @@ fn private_multiply(x: i32, factor: i32) -> i32 {
         "test",
         "--manifest-path",
         path.join(tempDir, "Cargo.toml"),
+        "--target-dir",
+        sharedTargetDir,
         "--test",
         "private_lib_nano_test",
       ],
