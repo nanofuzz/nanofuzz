@@ -113,8 +113,8 @@ export function buildRustHarness(
 
     if (candidateCrateNames.length > 0 && metadata) {
       for (const cName of candidateCrateNames) {
-        const pkg = metadata.packages.find((p) => {
-          if (p.manifest_path === userCargoToml) return false;
+        // Find matching packages; prefer workspace local packages (source === null) over crates.io
+        const matches = metadata.packages.filter((p) => {
           if (
             p.name === "nanofuzz-runtime" ||
             p.name === "serde" ||
@@ -128,6 +128,17 @@ export function buildRustHarness(
             (t) => t.name === cName || t.name.replace(/-/g, "_") === cName
           );
         });
+
+        // If normTarget is in the user's crate and cName refers to user's crate itself, vendor user's crate
+        let pkg =
+          matches.find(
+            (p) => p.source === null && p.manifest_path === userCargoToml
+          ) ??
+          matches.find(
+            (p) => p.source === null && p.manifest_path !== userCargoToml
+          ) ??
+          matches[0];
+
         if (pkg && !externalCratesToVendor.some((e) => e.name === pkg.name)) {
           externalCratesToVendor.push(pkg);
         }
@@ -346,6 +357,7 @@ export function buildRustHarness(
     fs.mkdirSync(vendorPkgDir, { recursive: true });
     fs.cpSync(pkgDir, vendorPkgDir, {
       recursive: true,
+      dereference: true,
       filter: (srcPath) => !srcPath.includes(path.sep + "target"),
     });
 
@@ -381,6 +393,24 @@ export function buildRustHarness(
     ? extractCargoDependencies(userCargoToml, pathDepOverrides, metadata)
     : "";
 
+  // Ensure all vendored crates are explicitly present in dependencies if not already extracted
+  const extraDepLines = extraDependencies
+    ? extraDependencies.split(/\r?\n/)
+    : [];
+  const existingDepNames = new Set<string>();
+  for (const line of extraDepLines) {
+    const m = line.trim().match(/^([a-zA-Z0-9_-]+)/);
+    if (m) existingDepNames.add(m[1]);
+  }
+
+  const vendoredDepLines: string[] = [];
+  for (const pkg of externalCratesToVendor) {
+    if (!existingDepNames.has(pkg.name)) {
+      vendoredDepLines.push(`${pkg.name} = { path = "vendor/${pkg.name}" }`);
+      existingDepNames.add(pkg.name);
+    }
+  }
+
   let patchSection = "";
   if (cratesIoPatches.size > 0) {
     const patchLines = Array.from(cratesIoPatches.entries()).map(
@@ -401,6 +431,7 @@ nanofuzz_prng = { package = "fastrand", version = "2" }
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
 rmp-serde = "1.3"
+${vendoredDepLines.join("\n")}
 ${extraDependencies}
 ${patchSection}
 `;
@@ -715,6 +746,29 @@ ${validatorBlocks.join("\n")}
 } // fn: generateHarnessSource
 
 /**
+ * Checks whether an AST node is inside a const function, static, or const item
+ * where non-const function calls are forbidden by rustc.
+ */
+function isInsideConstContext(node: Parser.SyntaxNode): boolean {
+  let curr: Parser.SyntaxNode | null = node;
+  while (curr) {
+    if (curr.type === "const_item" || curr.type === "static_item") {
+      return true;
+    }
+    if (curr.type === "function_item") {
+      for (let i = 0; i < curr.childCount; i++) {
+        const c = curr.child(i);
+        if (c && c.type === "function_modifiers" && c.text.includes("const")) {
+          return true;
+        }
+      }
+    }
+    curr = curr.parent;
+  }
+  return false;
+}
+
+/**
  * Instruments Rust source code by inserting statement, function, and branch hit probes,
  * while extracting the Istanbul-compatible static coverage metadata.
  *
@@ -768,6 +822,7 @@ export function instrumentRustSource(
     const nameNode = m.captures.find((c) => c.name === "fn.name")?.node;
     const bodyNode = m.captures.find((c) => c.name === "fn.body")?.node;
     if (!itemNode || !nameNode || !bodyNode) continue;
+    if (isInsideConstContext(itemNode)) continue;
 
     const currentFIdx = String(fIdx++);
     fnMap[currentFIdx] = {
@@ -810,11 +865,43 @@ export function instrumentRustSource(
       if (
         child.type === "{" ||
         child.type === "}" ||
+        child.type === ";" ||
+        child.type === "empty_statement" ||
         child.type === "line_comment" ||
-        child.type === "block_comment"
+        child.type === "block_comment" ||
+        child.type === "attribute_item" ||
+        child.type === "inner_attribute_item"
       ) {
         continue;
       }
+      if (isInsideConstContext(child)) {
+        continue;
+      }
+
+      // If child is a block or an expression_statement containing a block (e.g. { ... } or #[cfg] { ... }),
+      // the block itself contains its own inner statements. Inserting a statement probe before the block
+      // turns it into a non-tail statement in Rust, which breaks expressions that return values from cfg blocks!
+      if (
+        child.type === "block" ||
+        (child.type === "expression_statement" &&
+          child.firstNamedChild?.type === "block")
+      ) {
+        continue;
+      }
+
+      // If previous sibling is an attribute (e.g. #[cfg(...)]), do not insert
+      // statement probe between the attribute and the statement it attaches to!
+      let targetNode = child;
+      let prevSibling = child.previousNamedSibling;
+      while (
+        prevSibling &&
+        (prevSibling.type === "attribute_item" ||
+          prevSibling.type === "inner_attribute_item")
+      ) {
+        targetNode = prevSibling;
+        prevSibling = prevSibling.previousNamedSibling;
+      }
+
       const currentSIdx = String(sIdx++);
       statementMap[currentSIdx] = {
         start: {
@@ -831,7 +918,7 @@ export function instrumentRustSource(
         ? `unsafe { __nanofuzz_hit_stmt(${fileId}, ${currentSIdx}); }; `
         : `nanofuzz_runtime::coverage::hit_stmt(${fileId}, ${currentSIdx}); `;
       insertions.push({
-        pos: child.startIndex,
+        pos: targetNode.startIndex,
         text: stmtProbe,
       });
     }
@@ -852,6 +939,7 @@ export function instrumentRustSource(
     const thenBlock = m.captures.find((c) => c.name === "if.then")?.node;
     const elseNode = m.captures.find((c) => c.name === "if.else")?.node;
     if (!itemNode || !thenBlock) continue;
+    if (isInsideConstContext(itemNode)) continue;
 
     const currentBIdx = String(bIdx++);
     branchArms.push([Number(currentBIdx), 2]);
@@ -966,6 +1054,7 @@ export function instrumentRustSource(
     const itemNode = m.captures.find((c) => c.name === "match.item")?.node;
     const armNode = m.captures.find((c) => c.name === "match.arm")?.node;
     if (!itemNode || !armNode) continue;
+    if (isInsideConstContext(itemNode)) continue;
     const line = itemNode.startPosition.row + 1;
     if (!matchGroups.has(line)) {
       matchGroups.set(line, { itemNode, arms: [] });
@@ -1048,37 +1137,39 @@ export function instrumentRustSource(
     }
   }
 
-  // Struct and Enum derive injection (Option A)
-  const itemQuery = Parser.query(
-    "rust",
-    `
+  // Struct and Enum derive injection
+  if (!useExternC) {
+    const itemQuery = Parser.query(
+      "rust",
+      `
 [
   (struct_item) @item
   (enum_item) @item
 ]
 `
-  );
-  const itemMatches = itemQuery.matches(tree.rootNode);
-  for (const m of itemMatches) {
-    const itemNode = m.captures.find((c) => c.name === "item")?.node;
-    if (!itemNode) continue;
+    );
+    const itemMatches = itemQuery.matches(tree.rootNode);
+    for (const m of itemMatches) {
+      const itemNode = m.captures.find((c) => c.name === "item")?.node;
+      if (!itemNode) continue;
 
-    let alreadyDerives = false;
-    let prev = itemNode.previousNamedSibling;
-    while (prev && prev.type === "attribute_item") {
-      const text = prev.text;
-      if (text.includes("Serialize") && text.includes("Deserialize")) {
-        alreadyDerives = true;
-        break;
+      let alreadyDerives = false;
+      let prev = itemNode.previousNamedSibling;
+      while (prev && prev.type === "attribute_item") {
+        const text = prev.text;
+        if (text.includes("Serialize") && text.includes("Deserialize")) {
+          alreadyDerives = true;
+          break;
+        }
+        prev = prev.previousNamedSibling;
       }
-      prev = prev.previousNamedSibling;
-    }
 
-    if (!alreadyDerives) {
-      insertions.push({
-        pos: itemNode.startIndex,
-        text: `#[derive(serde::Serialize, serde::Deserialize)]\n`,
-      });
+      if (!alreadyDerives) {
+        insertions.push({
+          pos: itemNode.startIndex,
+          text: `#[derive(serde::Serialize, serde::Deserialize)]\n`,
+        });
+      }
     }
   }
 
@@ -1091,8 +1182,17 @@ export function instrumentRustSource(
       instrumentedSrc.slice(ins.pos);
   }
 
+  // If source forbids unsafe_code, allow it at the crate level or module level
+  // so that coverage probes can run in #[forbid(unsafe_code)] crates like jaq-core
+  if (instrumentedSrc.includes("forbid(unsafe_code)")) {
+    instrumentedSrc = instrumentedSrc.replace(
+      /#\!\[forbid\(unsafe_code\)\]/g,
+      `#![allow(unsafe_code)]`
+    );
+  }
+
   if (useExternC) {
-    instrumentedSrc += `\n#[allow(dead_code)]\nextern "C" {\n    fn __nanofuzz_hit_stmt(file_id: u32, id: u32);\n    fn __nanofuzz_hit_fn(file_id: u32, id: u32);\n    fn __nanofuzz_hit_branch(file_id: u32, branch_id: u32, arm_id: u32);\n}\n`;
+    instrumentedSrc += `\n#[allow(dead_code)]\nunsafe extern "C" {\n    fn __nanofuzz_hit_stmt(file_id: u32, id: u32);\n    fn __nanofuzz_hit_fn(file_id: u32, id: u32);\n    fn __nanofuzz_hit_branch(file_id: u32, branch_id: u32, arm_id: u32);\n}\n`;
   }
 
   const staticCov: FileCoverageData = {
@@ -1278,6 +1378,7 @@ function sanitizeVendoredCargoToml(
 
     let inPackage = false;
     let inLints = false;
+    let inIgnoredSection = false;
 
     for (const line of lines) {
       const trimmed = line.trim();
@@ -1285,12 +1386,19 @@ function sanitizeVendoredCargoToml(
       if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
         inPackage = trimmed === "[package]";
         inLints = trimmed === "[lints]" || trimmed.startsWith("[lints.");
-        if (inLints) {
+        inIgnoredSection =
+          inLints ||
+          trimmed.startsWith("[[test]]") ||
+          trimmed.startsWith("[[example]]") ||
+          trimmed.startsWith("[[bench]]") ||
+          trimmed.startsWith("[dev-dependencies]") ||
+          trimmed.startsWith("[build-dependencies]");
+        if (inIgnoredSection) {
           continue;
         }
       }
 
-      if (inLints) {
+      if (inIgnoredSection) {
         continue;
       }
 
@@ -1410,7 +1518,7 @@ function extractCargoDependencies(
   try {
     const content = fs.readFileSync(cargoTomlPath, "utf8");
     const lines = content.split(/\r?\n/);
-    const depLines: string[] = [];
+    const depMap = new Map<string, string>();
     const baseDir = path.dirname(cargoTomlPath);
 
     const wsRoot = metadata?.workspace_root;
@@ -1443,11 +1551,12 @@ function extractCargoDependencies(
           if (pathOverrides && pathOverrides.has(depName)) {
             const overrideRel = pathOverrides.get(depName)!;
             if (line.includes("path")) {
-              depLines.push(
+              depMap.set(
+                depName,
                 line.replace(/path\s*=\s*"[^"]+"/, `path = "${overrideRel}"`)
               );
             } else {
-              depLines.push(`${depName} = { path = "${overrideRel}" }`);
+              depMap.set(depName, `${depName} = { path = "${overrideRel}" }`);
             }
           } else if (
             trimmed.includes("workspace = true") ||
@@ -1479,12 +1588,12 @@ function extractCargoDependencies(
                   ) {
                     inner += `, default-features = ${defaultFeaturesMatch[1]}`;
                   }
-                  depLines.push(`${depName} = { ${inner} }`);
+                  depMap.set(depName, `${depName} = { ${inner} }`);
                 } else {
-                  depLines.push(wsDep.raw);
+                  depMap.set(depName, wsDep.raw);
                 }
               } else {
-                depLines.push(wsDep.raw);
+                depMap.set(depName, wsDep.raw);
               }
             }
           } else {
@@ -1493,18 +1602,19 @@ function extractCargoDependencies(
               const abs = path
                 .resolve(baseDir, pathMatch[1])
                 .replace(/\\/g, "/");
-              depLines.push(
+              depMap.set(
+                depName,
                 line.replace(/path\s*=\s*"[^"]+"/, `path = "${abs}"`)
               );
             } else {
-              depLines.push(line);
+              depMap.set(depName, line);
             }
           }
         }
       }
     }
 
-    return depLines.join("\n");
+    return Array.from(depMap.values()).join("\n");
   } catch {
     return "";
   }
