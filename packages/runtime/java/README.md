@@ -8,9 +8,9 @@ Runtime support and types for NaNofuzz test suites and property validators in Ja
 
 ```xml
 <dependency>
-    <groupId>com.nanofuzz</groupId>
+    <groupId>io.github.nanofuzz</groupId>
     <artifactId>nanofuzz-runtime</artifactId>
-    <version>0.4.1</version>
+    <version>LATEST</version>
     <scope>test</scope>
 </dependency>
 ```
@@ -18,7 +18,7 @@ Runtime support and types for NaNofuzz test suites and property validators in Ja
 ### Gradle
 
 ```groovy
-testImplementation 'com.nanofuzz:nanofuzz-runtime:0.4.1'
+testImplementation 'io.github.nanofuzz:nanofuzz-runtime:+'
 ```
 
 ## Features
