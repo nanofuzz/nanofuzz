@@ -1417,6 +1417,9 @@ export class FuzzPanel {
         this._tester.options = this._fuzzEnv.options;
         this._pauseTesting = false;
 
+        // Yield event loop to DOM re-render and message listener
+        await new Promise((resolve) => setImmediate(resolve));
+
         // Test the function & store the results
         const result = await this._tester.test(
           testsToInject,
@@ -1424,9 +1427,20 @@ export class FuzzPanel {
           // Observer that provides test status feedback to the panel => {
           {
             update: (payload: fuzzer.FuzzBusyStatusMessage): void => {
+              let messagePayload = payload;
+              if ("file" in payload && typeof payload.file === "string") {
+                let relFile = vscode.workspace.asRelativePath(
+                  payload.file,
+                  false
+                );
+                if (relFile.endsWith(".js")) {
+                  relFile = relFile.slice(0, -3) + ".ts";
+                }
+                messagePayload = { ...payload, file: relFile };
+              }
               const message: FuzzPanelMessageToWebView = {
                 command: "busy.message",
-                message: payload,
+                message: messagePayload,
               };
               this._postToView(message);
             },

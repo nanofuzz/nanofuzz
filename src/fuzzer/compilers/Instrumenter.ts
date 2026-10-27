@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import * as os from "node:os";
 import * as crypto from "node:crypto";
 import { AbstractMeasure } from "../measures/AbstractMeasure";
 import { FuzzStatusUpdater } from "../Types";
@@ -88,7 +89,7 @@ export class Instrumenter {
 
       // Check if instrumented file exists and is up to date relative to clean JS
       const isStale =
-        !fs.existsSync(instPath) || fs.statSync(instPath).mtimeMs < cleanMtime;
+        !fs.existsSync(instPath) || fs.statSync(instPath).mtimeMs <= cleanMtime;
 
       if (isStale) {
         // Provide feedback that we are instrumenting
@@ -120,4 +121,27 @@ export class Instrumenter {
 
     return Instrumenter.getInstrumentedPath(targetEntry, tmpDir, measureHash);
   } // fn: prepareInstrumentedTree()
+
+  /**
+   * Cleans up instrumented temp directories (e.g. inst-<hash>) under tmpDir.
+   */
+  public static clean(tmpDir?: string): void {
+    const dir =
+      tmpDir ?? path.join(fs.realpathSync(os.tmpdir()), "nanofuzz", "tsc");
+    if (fs.existsSync(dir)) {
+      try {
+        const entries = fs.readdirSync(dir, { withFileTypes: true });
+        for (const entry of entries) {
+          if (entry.isDirectory() && entry.name.startsWith("inst-")) {
+            fs.rmSync(path.join(dir, entry.name), {
+              recursive: true,
+              force: true,
+            });
+          }
+        }
+      } catch {
+        // ignore cleanup collisions
+      }
+    }
+  } // fn: clean()
 } // class: Instrumenter

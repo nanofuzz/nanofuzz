@@ -206,6 +206,40 @@ describe("cli:", () => {
     expect(outputData.stats.outcomes.total).toBeGreaterThan(0);
   });
 
+  it("outputs Compile and Instrument messages below Target and above Inputs", async () => {
+    const targetFile = path.join(tmpDir, "compile_order_target.ts");
+    fs.writeFileSync(
+      targetFile,
+      `export function sampleFn(x: number): number {\n  return x * 2;\n}\n`,
+      "utf8"
+    );
+
+    const res = await runCli([
+      targetFile,
+      "sampleFn",
+      "--clear-compile-cache",
+      "--max-tests",
+      "1",
+      "--seed",
+      "cli_compile_order_test",
+    ]);
+
+    expect(res.status).toBe(0);
+    const targetIdx = res.stdout.indexOf("Target:");
+    const cacheClearedIdx = res.stdout.indexOf(" - Compile cache cleared");
+    const compileIdx = res.stdout.indexOf(" - Compile...:");
+    const instrumentIdx = res.stdout.indexOf(" - Instrument:");
+    const inputsIdx = res.stdout.indexOf("Inputs:");
+    const onlineIdx = res.stdout.indexOf("Online:");
+
+    expect(targetIdx).toBeGreaterThanOrEqual(0);
+    expect(cacheClearedIdx).toBeGreaterThan(targetIdx);
+    expect(compileIdx).toBeGreaterThan(cacheClearedIdx);
+    expect(instrumentIdx).toBeGreaterThan(compileIdx);
+    expect(inputsIdx).toBeGreaterThan(instrumentIdx);
+    expect(onlineIdx).toBeGreaterThan(inputsIdx);
+  });
+
   it("returns exit code 4 when missing function argument or using invalid :: syntax", async () => {
     const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
 
@@ -2260,7 +2294,7 @@ export function myPut(x: number): number {
     ]);
 
     expect(res.status).toBe(0);
-    expect(res.stdout).toContain("Testing finished.");
+    expect(res.stdout).toContain("Testing finished in ");
     expect(res.stdout).toContain("Generated 5 inputs");
     expect(res.stdout).not.toContain("FAILED by Example Oracle");
   });

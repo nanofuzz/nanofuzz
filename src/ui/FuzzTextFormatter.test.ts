@@ -1,3 +1,4 @@
+import * as path from "node:path";
 import {
   formatTestingStatus,
   formatWaitingStatus,
@@ -110,7 +111,7 @@ describe("ui/FuzzTextFormatter", () => {
       " - Executed 85, skipped 5, interrupted 3 in-flight tests in 1240 ms"
     );
     expect(summary).toContain(
-      "Testing finished. Stopped for reason: interrupted."
+      "Testing finished in 1s. Stopped for reason: interrupted."
     );
   });
 
@@ -125,7 +126,7 @@ describe("ui/FuzzTextFormatter", () => {
     const summary = formatRunSummary(mockResults);
     expect(summary).toContain(" - Executed 9 and skipped 1 tests in 1240 ms");
     expect(summary).toContain(
-      "Testing finished. Stopped for reason: maxTests."
+      "Testing finished in 1s. Stopped for reason: maxTests."
     );
   });
 
@@ -208,7 +209,7 @@ describe("ui/FuzzTextFormatter", () => {
     expect(summary1).not.toContain("Human validator");
     expect(summary1).not.toContain("Property validator");
     expect(summary1).toContain(
-      "Testing finished. Stopped for reason: maxTests."
+      "Testing finished in 1s. Stopped for reason: maxTests."
     );
 
     // Activate property validators with validator ref and outcomes
@@ -254,6 +255,22 @@ describe("ui/FuzzTextFormatter", () => {
     expect(summary6).not.toContain("Heuristic validator");
   });
 
+  it("formatRunSummary deducts compilation and instrumentation time from test execution duration and reports total duration in finish line", () => {
+    const mockResults = createMockResults(FuzzStopReason.MAXTESTS);
+    mockResults.stats.counters.inputsGenerated = 5;
+    mockResults.stats.counters.passedTests = 5;
+    mockResults.stats.outcomes.total = 5;
+    mockResults.stats.timers.total = 39415;
+    mockResults.stats.timers.compile = 38500;
+    mockResults.stats.timers.instrument = 500;
+
+    const summary = formatRunSummary(mockResults);
+    expect(summary).toContain(" - Executed 5 tests in 415 ms");
+    expect(summary).toContain(
+      "Testing finished in 39s. Stopped for reason: maxTests."
+    );
+  });
+
   it("formatTestingStatus formats input execution message", () => {
     const msg = formatTestingStatus({
       type: "testing",
@@ -286,6 +303,22 @@ describe("ui/FuzzTextFormatter", () => {
       file: "/path/to/foo.ts",
     });
     expect(msg).toBe(" - Compile...: /path/to/foo.ts");
+  });
+
+  it("formatCompilingStatus and formatInstrumentingStatus normalize paths relative to cwd", () => {
+    const cwdFile = path.join(process.cwd(), "src", "fuzzer", "Types.ts");
+    const msgCompile = formatCompilingStatus({
+      type: "compiling",
+      file: cwdFile,
+    });
+    expect(msgCompile).toBe(" - Compile...: src/fuzzer/Types.ts");
+
+    const cwdJsFile = path.join(process.cwd(), "src", "fuzzer", "Types.js");
+    const msgInstrument = formatInstrumentingStatus({
+      type: "instrumenting",
+      file: cwdJsFile,
+    });
+    expect(msgInstrument).toBe(" - Instrument: src/fuzzer/Types.ts");
   });
 
   it("formatInstrumentingStatus formats instrumentation message", () => {
