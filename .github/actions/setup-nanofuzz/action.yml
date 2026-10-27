@@ -70,3 +70,7 @@ runs:
     - name: Install root dependencies
       run: yarn --frozen-lockfile
       shell: bash
+
+    - name: Build TypeScript runtime
+      run: yarn --cwd packages/runtime/typescript build
+      shell: bash
