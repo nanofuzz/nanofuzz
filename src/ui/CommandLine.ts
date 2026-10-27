@@ -17,6 +17,7 @@ import {
   FuzzBusyStatusMessage,
   FuzzExecutionOptions,
   FuzzOptions,
+  FuzzTestResults,
 } from "../fuzzer/Types";
 import {
   formatCompilingStatus,
@@ -464,6 +465,8 @@ export async function runCliInProcess(
 
     // Setup update message handler & the progress bar
     let isCancelled = false;
+    let isHeaderFlushed = false;
+    let flushHeader = () => {};
     let lastWasMilestone = true;
     let lastStats: CurrentRunStats | undefined;
     let multiBar: MultiBar | undefined;
@@ -497,6 +500,7 @@ export async function runCliInProcess(
       } else {
         isCancelled = true;
         stopBars();
+        flushHeader();
         isolator.log("Cancellation requested. Stopping NaNofuzz...");
 
         // Upon SIGINT, abandon any in-flight AI requests or retries.
@@ -522,6 +526,7 @@ export async function runCliInProcess(
         case "testing":
         case "waiting-for-generator":
         case "progress-tick": {
+          flushHeader();
           if ("stats" in payload && payload.stats) {
             lastStats = payload.stats;
           }
@@ -986,24 +991,41 @@ export async function runCliInProcess(
       }
 
       isolator.log(`Target: ${displayPath}::${fnname}`);
-      isolator.log(`Inputs: ${activeGenerators.join(", ")}`);
-      isolator.log(
-        `Online: ${workerWord}, ${engine} engine, ${scheduler} scheduler`
-      );
+      if (options["clearCompileCache"]) {
+        isolator.log(" - Compile cache cleared");
+      }
 
-      const results = await fuzzer
-        .test(
-          injectTests,
-          undefined,
-          { update: updateFn, granularity: 100, heartbeat: true },
-          () => isCancelled
-        )
-        .catch((e: unknown) => {
-          if (isCancelled || LlmAdapter.isAbandoned) {
-            return undefined;
-          }
-          throw e;
-        });
+      // Bounce to allow waiting status updates to process
+      await new Promise((resolve) => setImmediate(resolve));
+
+      isHeaderFlushed = false;
+      flushHeader = () => {
+        if (isHeaderFlushed) return;
+        isHeaderFlushed = true;
+        isolator.log(`Inputs: ${activeGenerators.join(", ")}`);
+        isolator.log(
+          `Online: ${workerWord}, ${engine} engine, ${scheduler} scheduler`
+        );
+      }; // fn: flushHeader
+
+      let results: FuzzTestResults | undefined;
+      try {
+        results = await fuzzer
+          .test(
+            injectTests,
+            undefined,
+            { update: updateFn, granularity: 100, heartbeat: true },
+            () => isCancelled
+          )
+          .catch((e: unknown) => {
+            if (isCancelled || LlmAdapter.isAbandoned) {
+              return undefined;
+            }
+            throw e;
+          });
+      } finally {
+        flushHeader();
+      }
 
       process.removeListener("SIGINT", sigintListener);
       process.removeListener("exit", restoreCursor);

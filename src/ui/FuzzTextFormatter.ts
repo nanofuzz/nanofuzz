@@ -50,7 +50,10 @@ export function formatRunSummary(
     lines.push(` - Generated ${counters.inputsGenerated} inputs${dupeText}`);
   }
 
-  const ms = stats.timers.total.toFixed(0);
+  const compileMs =
+    (stats.timers.compile ?? 0) + (stats.timers.instrument ?? 0);
+  const testMs = Math.max(0, stats.timers.total - compileMs);
+  const ms = testMs.toFixed(0);
   if (counters.inputsInterrupted) {
     const skippedText =
       counters.inputsSkipped > 0 ? `, skipped ${counters.inputsSkipped}` : "";
@@ -131,8 +134,9 @@ export function formatRunSummary(
   }
 
   const stopReasonStr = stopReason ? ` Stopped for reason: ${stopReason}.` : "";
+  const totalDuration = formatDuration((stats.timers.total ?? 0) / 1000);
   lines.push(
-    `Testing ${isCancelled ? "interrupted" : "finished"}.${stopReasonStr}`
+    `Testing ${isCancelled ? "interrupted" : "finished"} in ${totalDuration}.${stopReasonStr}`
   );
 
   return lines.join("\n");
@@ -438,7 +442,7 @@ export function formatWaitingStatus(
  * @returns Formatted message string.
  */
 export function formatCompilingStatus(msg: FuzzCompilingMessage): string {
-  return ` - Compile...: ${msg.file}`;
+  return ` - Compile...: ${normalizePathForDisplay(msg.file)}`;
 } // fn: formatCompilingStatus
 
 /**
@@ -450,7 +454,7 @@ export function formatCompilingStatus(msg: FuzzCompilingMessage): string {
 export function formatInstrumentingStatus(
   msg: FuzzInstrumentingMessage
 ): string {
-  return ` - Instrument: ${msg.file}`;
+  return ` - Instrument: ${normalizePathForDisplay(msg.file)}`;
 } // fn: formatInstrumentingStatus
 
 /**
@@ -493,3 +497,47 @@ export function normalizeDisplayPath(
   }
   return displayPath;
 } // fn: normalizeDisplayPath
+
+/**
+ * Normalizes a file path relative to current working directory when located within it.
+ * Maps compiled JavaScript files back to their TypeScript source if the source exists.
+ *
+ * @param filePath Path to normalize for display
+ * @returns Normalized user-facing path
+ */
+function normalizePathForDisplay(filePath: string): string {
+  let displayPath = filePath.replace(/\\/g, "/");
+  if (typeof process !== "undefined" && typeof process.cwd === "function") {
+    const cwd = process.cwd().replace(/\\/g, "/");
+    if (displayPath.startsWith(cwd + "/")) {
+      displayPath = displayPath.slice(cwd.length + 1);
+    }
+  }
+  if (displayPath.endsWith(".js")) {
+    displayPath = displayPath.slice(0, -3) + ".ts";
+  }
+  return displayPath;
+} // fn: normalizePathForDisplay
+
+/**
+ * Formats duration in seconds into a human-readable string (e.g. "39s", "1m00s", "1h00m00s").
+ *
+ * @param totalSeconds Total seconds elapsed
+ * @returns Formatted duration string
+ */
+function formatDuration(totalSeconds: number): string {
+  const s = Math.max(0, Math.floor(isNaN(totalSeconds) ? 0 : totalSeconds));
+  if (s < 60) {
+    return `${s}s`;
+  }
+  const minutes = Math.floor(s / 60);
+  const remainingSeconds = s % 60;
+  const secStr = remainingSeconds.toString().padStart(2, "0");
+  if (minutes < 60) {
+    return `${minutes}m${secStr}s`;
+  }
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  const minStr = remainingMinutes.toString().padStart(2, "0");
+  return `${hours}h${minStr}m${secStr}s`;
+} // fn: formatDuration
