@@ -1427,9 +1427,20 @@ export class FuzzPanel {
           // Observer that provides test status feedback to the panel => {
           {
             update: (payload: fuzzer.FuzzBusyStatusMessage): void => {
+              let messagePayload = payload;
+              if ("file" in payload && typeof payload.file === "string") {
+                let relFile = vscode.workspace.asRelativePath(
+                  payload.file,
+                  false
+                );
+                if (relFile.endsWith(".js")) {
+                  relFile = relFile.slice(0, -3) + ".ts";
+                }
+                messagePayload = { ...payload, file: relFile };
+              }
               const message: FuzzPanelMessageToWebView = {
                 command: "busy.message",
-                message: payload,
+                message: messagePayload,
               };
               this._postToView(message);
             },
