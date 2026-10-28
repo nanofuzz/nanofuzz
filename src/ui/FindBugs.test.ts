@@ -70,14 +70,44 @@ describe("FindBugs", () => {
     });
 
     expect(result.phase).toBe("fuzz_entrypoint");
-    expect(result.recommendedNextPhase).toBe("complete");
+    expect(result.recommendedNextPhase).toBe("contextualize_bugs");
     expect(result.instructions).toContain("nanofuzz_harness_encode.ts");
     expect(result.instructions).toContain("fuzz_encode");
     expect(result.instructions).toContain(
       '"coverageScope": "project directimports"'
     );
     expect(result.instructions).toContain("Anti-Suppression Rule");
+    expect(result.instructions).toContain("Multi-Defect Rule");
+    expect(result.instructions).toContain("Defect Shadowing Mitigation");
     expect(result.instructions).toContain("Max 5 Retries");
+    expect(result.instructions).toContain("contextualize_bugs");
+  });
+
+  it("handles phase 'contextualize_bugs' with maintainer intent verification and anti-rationalization rule", async () => {
+    const result = await findBugs({
+      phase: "contextualize_bugs",
+      model,
+      vendor,
+      statePayload: {
+        bugs: [{ entrypoint: "fuzz_encode", error: "Invariant violation" }],
+      },
+    });
+
+    expect(result.phase).toBe("contextualize_bugs");
+    expect(result.recommendedNextPhase).toBe("complete");
+    expect(result.summaryText).toContain(
+      "Find Bugs: Phase `contextualize_bugs`"
+    );
+    expect(result.instructions).toContain(
+      "Bug Contextualization & Maintainer Intent Verification"
+    );
+    expect(result.instructions).toContain("Scope & Access Assessment");
+    expect(result.instructions).toContain("CRITICAL ANTI-RATIONALIZATION RULE");
+    expect(result.instructions).toContain(
+      "Documented WontFix / Working as Intended"
+    );
+    expect(result.instructions).toContain(`"model": "${model}"`);
+    expect(result.instructions).toContain(`"vendor": "${vendor}"`);
   });
 
   it("handles phase 'complete' with report guidelines and user disposition options", async () => {
