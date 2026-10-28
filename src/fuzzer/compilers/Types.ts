@@ -68,6 +68,20 @@ export class JavaCompilerError extends CompilerError<JavaCompilerErrorDetails> {
   }
 }
 
+/**
+ * Exception class for Go compiler errors.
+ */
+export class GoCompilerError extends CompilerError<GoCompilerErrorDetails> {
+  constructor(message: string, details: GoCompilerErrorDetails) {
+    if (!details.cli && details.commandCli) details.cli = details.commandCli;
+    if (!details.configFilename && details.goModPath) {
+      details.configFilename = details.goModPath;
+    }
+    super(message, details);
+    this.name = "GoCompilerError";
+  }
+}
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -169,6 +183,29 @@ export type JavaCompilerErrorDetails = CompilerErrorDetails & {
     message: string;
     level: string;
     span?: JavaCompilerDiagnosticSpan;
+    rendered?: string;
+  }>;
+};
+
+/**
+ * Diagnostic source location reported by the Go compiler
+ */
+export type GoCompilerDiagnosticSpan = {
+  file: string;
+  line: number;
+  col: number;
+};
+
+/**
+ * Go compiler error details
+ */
+export type GoCompilerErrorDetails = CompilerErrorDetails & {
+  goModPath?: string;
+  commandCli?: string;
+  diagnostics?: Array<{
+    message: string;
+    level?: string;
+    span?: GoCompilerDiagnosticSpan;
     rendered?: string;
   }>;
 };
