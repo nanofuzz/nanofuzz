@@ -50,6 +50,13 @@ copyfiles(
   () => console.log("copied .ml runner template")
 );
 
+// Copy Go assets
+copyfiles(
+  ["./src/fuzzer/runners/go/GoRunnerHost.template.go", "./build/extension"],
+  true,
+  () => console.log("copied .go runner template")
+);
+
 // Copy Python runtime package (nanofuzz_runtime)
 const pyRuntimeSrc = path.resolve(
   "./packages/runtime/python/src/nanofuzz_runtime"
