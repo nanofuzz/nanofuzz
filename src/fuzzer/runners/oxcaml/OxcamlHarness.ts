@@ -372,28 +372,33 @@ export function buildOxcamlHarness(
   const pathKey =
     Object.keys(process.env).find((k) => k.toLowerCase() === "path") || "PATH";
 
-  const buildRes = ChildProcess.spawnSync(duneBin, ["build", "./harness.exe"], {
-    cwd: harnessDir,
-    encoding: "utf8",
-    windowsHide: true,
-    maxBuffer: 16 * 1024 * 1024,
-    env: {
-      ...process.env,
-      [pathKey]: `${duneDir}${path.delimiter}${process.env[pathKey] || ""}`,
-    },
-  });
+  const buildRes = ChildProcess.spawnSync(
+    duneBin,
+    ["build", "./harness.exe", "--cache=disabled"],
+    {
+      cwd: harnessDir,
+      encoding: "utf8",
+      windowsHide: true,
+      maxBuffer: 16 * 1024 * 1024,
+      env: {
+        ...process.env,
+        DUNE_CACHE: "disabled",
+        [pathKey]: `${duneDir}${path.delimiter}${process.env[pathKey] || ""}`,
+      },
+    }
+  );
 
   if (buildRes.status !== 0 || !fs.existsSync(binaryPath)) {
+    const errorOutput =
+      [buildRes.stderr, buildRes.stdout]
+        .filter((s) => typeof s === "string" && s.trim().length > 0)
+        .join("\n") || "Dune build failed for test harness";
     throw new OxcamlCompilerError(
       "Failed to build OCaml fuzzing harness executable",
       {
         inputFile: normTarget,
         commandCli: `${duneBin} build ./harness.exe`,
-        output: [
-          buildRes.stderr ||
-            buildRes.stdout ||
-            "Dune build failed for test harness",
-        ],
+        output: errorOutput.split("\n"),
       }
     );
   }
@@ -2193,7 +2198,9 @@ function getVariantConstructors(
             });
           }
         } else if (child.getType() === ArgTag.OBJECT) {
-          const tagChild = child.getChildren().find((c) => c.getName() === "tag");
+          const tagChild = child
+            .getChildren()
+            .find((c) => c.getName() === "tag");
           const valChild = child
             .getChildren()
             .find((c) => c.getName() === "value");
