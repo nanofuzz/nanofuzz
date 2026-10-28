@@ -526,11 +526,75 @@ export function extractGoStaticCoverage(
           pos: elseNode.startIndex + 1,
           code: `\n\tcoverage.HitBranch(${fileId}, ${currentBIdx}, 1)\n`,
         });
+      } else {
+        branchProbes.push({
+          pos: elseNode.startIndex,
+          code: `coverage.HitBranch(${fileId}, ${currentBIdx}, 1); `,
+        });
       }
     } else {
       branchProbes.push({
         pos: thenBlock.endIndex,
         code: ` else { coverage.HitBranch(${fileId}, ${currentBIdx}, 1) }`,
+      });
+    }
+  }
+
+  // Branches: switch statements
+  const switchQuery = Parser.query(
+    "go",
+    `[
+      (expression_switch_statement)
+      (type_switch_statement)
+    ] @switch.stmt`
+  );
+
+  const switchMatches = switchQuery.matches(tree.rootNode);
+  for (const match of switchMatches) {
+    const stmtNode = match.captures.find((c) => c.name === "switch.stmt")?.node;
+    if (!stmtNode) continue;
+
+    const clauses = stmtNode.descendantsOfType([
+      "expression_case",
+      "type_case",
+      "default_case",
+    ]);
+    if (clauses.length === 0) continue;
+
+    const currentBIdx = bIdx++;
+    const armCount = clauses.length;
+    branchSpecs.push({ branchId: currentBIdx, armCount });
+
+    const locations = clauses.map((c) => ({
+      start: { line: c.startPosition.row + 1, column: c.startPosition.column },
+      end: { line: c.endPosition.row + 1, column: c.endPosition.column },
+    }));
+
+    branchMap[currentBIdx] = {
+      loc: {
+        start: { line: stmtNode.startPosition.row + 1, column: stmtNode.startPosition.column },
+        end: { line: stmtNode.endPosition.row + 1, column: stmtNode.endPosition.column },
+      },
+      type: "switch",
+      locations,
+      line: stmtNode.startPosition.row + 1,
+    };
+    b[currentBIdx] = new Array(armCount).fill(0);
+
+    for (let armIdx = 0; armIdx < clauses.length; armIdx++) {
+      const clause = clauses[armIdx];
+      // Find colon token in clause
+      let colonPos = clause.startIndex;
+      for (let ci = 0; ci < clause.childCount; ci++) {
+        const ch = clause.child(ci);
+        if (ch?.type === ":") {
+          colonPos = ch.endIndex;
+          break;
+        }
+      }
+      branchProbes.push({
+        pos: colonPos,
+        code: `\n\tcoverage.HitBranch(${fileId}, ${currentBIdx}, ${armIdx})\n`,
       });
     }
   }
