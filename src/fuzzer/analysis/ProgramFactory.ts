@@ -7,6 +7,7 @@ import { PythonProgram } from "./python/PythonProgram";
 import { RustProgram } from "./rust/RustProgram";
 import { OxcamlProgram } from "./oxcaml/OxcamlProgram";
 import { JavaProgram } from "./java/JavaProgram";
+import { GoProgram } from "./go/GoProgram";
 
 /**
  * Returns an AbstractProgram object for the given filename.
@@ -108,6 +109,8 @@ function factory(
       return new OxcamlProgram(getSource, filename, options, parent);
     case "java":
       return new JavaProgram(getSource, filename, options, parent);
+    case "go":
+      return new GoProgram(getSource, filename, options, parent);
     case "typescript":
     case "*":
     default:
@@ -136,6 +139,9 @@ export function getLanguage(details: {
   }
   if (JavaProgram.understands(details)) {
     return "java";
+  }
+  if (GoProgram.understands(details)) {
+    return "go";
   }
   if (TypescriptProgram.understands(details)) {
     return "typescript";
