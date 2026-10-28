@@ -37,6 +37,7 @@
     "onLanguage:ocaml",
     "onLanguage:oxcaml",
     "onLanguage:java",
+    "onLanguage:go",
     "onLanguage:typescriptreact",
     "onWebviewPanel:FuzzPanel"
   ],
@@ -512,6 +513,15 @@
             "type": "string",
             "default": "java",
             "description": "Path to the java runtime executable for executing Java test runners.",
+            "tags": [
+              "experimental"
+            ]
+          },
+          "nanofuzz.go.goPath": {
+            "title": "Path to go executable",
+            "type": "string",
+            "default": "go",
+            "description": "Path to the go executable for compiling and testing Go projects.",
             "tags": [
               "experimental"
             ]
@@ -1036,6 +1046,7 @@
     "@vscode/codicons": "^0.0.46-37",
     "@vscode/webview-ui-toolkit": "^1.2.2",
     "pidusage": "^4.0.1",
+    "tree-sitter-go": "^0.25.0",
     "tree-sitter-java": "^0.23.5",
     "tree-sitter-ocaml": "^0.24.2",
     "tree-sitter-python": "^0.25.0",

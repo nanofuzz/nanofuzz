@@ -275,6 +275,7 @@ await esbuild.build({
     "tree-sitter-rust",
     "tree-sitter-ocaml",
     "tree-sitter-java",
+    "tree-sitter-go",
     "web-tree-sitter",
   ],
   define: {
@@ -326,6 +327,7 @@ await esbuild.build({
     "tree-sitter-rust",
     "tree-sitter-ocaml",
     "tree-sitter-java",
+    "tree-sitter-go",
     "web-tree-sitter",
   ],
   plugins: [
@@ -403,6 +405,7 @@ await esbuild.build({
     "tree-sitter-rust",
     "tree-sitter-ocaml",
     "tree-sitter-java",
+    "tree-sitter-go",
     "web-tree-sitter",
   ],
   define: {
