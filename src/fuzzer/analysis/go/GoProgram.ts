@@ -47,7 +47,16 @@ export class GoProgram extends AbstractProgram {
   }
 
   public getPackageName(): string {
-    return this._packageName;
+    if (!this._ast) {
+      this._parse(this._src);
+    }
+    if (!this._ast) return "";
+    const pkgNode = this._ast.rootNode.descendantsOfType("package_clause")[0];
+    if (!pkgNode) return "";
+    const nameNode = pkgNode.children.find(
+      (c) => c.type === "package_identifier" || c.type === "identifier"
+    );
+    return nameNode?.text ?? "";
   }
 
   public static understands(details: {
@@ -254,14 +263,10 @@ export class GoProgram extends AbstractProgram {
   protected _parse(src: string): void {
     this._ast = Parser.parse("go", src) ?? undefined;
     if (this._ast) {
-      const pkgQuery = Parser.query(
-        "go",
-        `(package_clause (package_identifier) @pkg.name)`
-      );
-      const matches = pkgQuery.matches(this._ast.rootNode);
-      if (matches.length > 0) {
-        const pkgCap = matches[0].captures.find((c) => c.name === "pkg.name");
-        this._packageName = pkgCap?.node.text ?? "";
+      const idNode =
+        this._ast.rootNode.descendantsOfType("package_identifier")[0];
+      if (idNode) {
+        this._packageName = idNode.text;
       }
     }
   } // fn: _parse
