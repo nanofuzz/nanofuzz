@@ -204,6 +204,17 @@ if (fs.existsSync(javaRuntimeDir)) {
   console.log("copied nanofuzz-runtime (java)");
 }
 
+// Copy Go runtime package
+const goRuntimeDir = path.resolve("./packages/runtime/go");
+if (fs.existsSync(goRuntimeDir)) {
+  const destGoRuntime = path.resolve("./build/extension/nanofuzz-runtime-go");
+  fs.mkdirSync(destGoRuntime, { recursive: true });
+  fs.cpSync(goRuntimeDir, destGoRuntime, {
+    recursive: true,
+  });
+  console.log("copied nanofuzz-runtime (go)");
+}
+
 // Copy Python imports
 let interpreter = "python";
 if (!fs.existsSync(path.resolve(path.join(".", ".venv")))) {

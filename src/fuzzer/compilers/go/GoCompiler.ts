@@ -127,8 +127,8 @@ export class GoCompiler {
     }
 
     updateFn({
-      state: "running",
-      message: "Checking Go module...",
+      type: "compiling",
+      file: this._moduleFile,
     });
 
     const isModule = this._goModPath !== undefined;
@@ -155,18 +155,25 @@ export class GoCompiler {
   } // fn: compileSync
 
   public async compileAsync(
-    updateFn: FuzzStatusUpdater = () => {}
-  ): Promise<string> {
-    return this.compileSync(updateFn);
+    fqModulePath: string = this._moduleFile
+  ): Promise<void> {
+    return GoCompiler.compileAsync(fqModulePath);
   } // fn: compileAsync
 
   public static async compileAsync(fqModulePath: string): Promise<void> {
     const compiler = new GoCompiler(fqModulePath);
-    await compiler.compileAsync();
+    await new Promise<void>((resolve, reject) => {
+      try {
+        compiler.compileSync();
+        resolve();
+      } catch (e) {
+        reject(e);
+      }
+    });
   } // fn: compileAsync
 
   public static clean(
-    cacheDir: string = path.join(fs.realpathSync(os.tmpdir()), "nanofuzz", "go")
+    cacheDir: string = defaultGoCompilerOptions.tmpDir
   ): void {
     if (fs.existsSync(cacheDir)) {
       try {
@@ -263,10 +270,12 @@ export class GoCompiler {
 
 export type GoCompilerOptions = {
   buildFlags?: string[];
+  tmpDir: string;
 };
 
 export const defaultGoCompilerOptions: GoCompilerOptions = {
   buildFlags: [],
+  tmpDir: path.join(fs.realpathSync(os.tmpdir()), "nanofuzz", "go"),
 };
 
 type GoCompilationRecord = {

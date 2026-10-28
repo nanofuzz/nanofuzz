@@ -1018,7 +1018,7 @@
   "scripts": {
     "build": "yarn --cwd packages/runtime/typescript build && npx tsc -noEmit && node build.mjs",
     "test": "node test.cjs",
-    "test:runtime": "pytest packages/runtime/python/tests && yarn --cwd packages/runtime/typescript test && cargo test --manifest-path packages/runtime/rust/Cargo.toml && mvn test -f packages/runtime/java/pom.xml",
+    "test:runtime": "pytest packages/runtime/python/tests && yarn --cwd packages/runtime/typescript test && cargo test --manifest-path packages/runtime/rust/Cargo.toml && mvn test -f packages/runtime/java/pom.xml && (cd packages/runtime/go && go test ./...)",
     "lint": "eslint src",
     "lint:errors": "eslint --quiet src",
     "vscode:prepublish": "yarn build",
