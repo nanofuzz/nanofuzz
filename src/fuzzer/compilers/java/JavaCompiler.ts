@@ -858,6 +858,7 @@ export function findRuntimeJar(userProjectPath?: string): string | undefined {
           f.startsWith("nanofuzz-runtime") &&
           f.endsWith(".jar") &&
           !f.includes("sources") &&
+          !f.includes("javadoc") &&
           !f.startsWith("original-")
       );
       if (jar) {
