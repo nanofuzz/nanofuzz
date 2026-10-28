@@ -110,6 +110,19 @@ describe("src/fuzzer/synthesis/TransformerSynthesizer", () => {
     );
   });
 
+  it("synthesizes Go transformer with typed parameters and return values", () => {
+    const src = `package mathutil\nfunc Add(a int, b float64) int { return a + int(b) }`;
+    const program = ProgramFactory.fromSource(() => src, "go");
+    const fnDef = program.functionsExported["Add"];
+    expect(fnDef).toBeDefined();
+
+    const result = synthesizeTransformer(fnDef, "go");
+    expect(result.name).toBe("AddTransformer");
+    expect(result.skeleton).toContain("func AddTransformer(a int, b float64) (int, float64) {");
+    expect(result.skeleton).toContain("return a, b");
+    expect(result.fullTemplate).toContain('import "github.com/nanofuzz/runtime"');
+  });
+
   it("disambiguates transformer name when existing names conflict", () => {
     const program = ProgramFactory.fromFile(tsFixture);
     const fnDef = program.functions["testStandardVoidReturnUndefined"];

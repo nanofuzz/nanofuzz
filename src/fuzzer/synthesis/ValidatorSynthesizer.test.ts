@@ -136,6 +136,24 @@ describe("src/fuzzer/synthesis/ValidatorSynthesizer", () => {
     );
   });
 
+  it("synthesizes Go validator with correct signature and type assertions", () => {
+    const src = `package mathutil\nfunc Add(a int, b float64) int { return a + int(b) }`;
+    const program = ProgramFactory.fromSource(() => src, "go");
+    const fnDef = program.functionsExported["Add"];
+    expect(fnDef).toBeDefined();
+
+    const result = synthesizeValidator(fnDef, "go");
+    expect(result.name).toBe("AddValidator");
+    expect(result.skeleton).toContain(
+      "func AddValidator(r runtime.FuzzTestResult) runtime.ValidatorResult {"
+    );
+    expect(result.skeleton).toContain("a := r.In[0].(int)");
+    expect(result.skeleton).toContain("b := r.In[1].(float64)");
+    expect(result.skeleton).toContain("out := r.Out.(int)");
+    expect(result.skeleton).toContain("return runtime.Pass");
+    expect(result.fullTemplate).toContain('import "github.com/nanofuzz/runtime"');
+  });
+
   it("disambiguates validator name when existing names conflict", () => {
     const program = ProgramFactory.fromFile(tsFixture);
     const fnDef = program.functions["testStandardVoidReturnUndefined"];

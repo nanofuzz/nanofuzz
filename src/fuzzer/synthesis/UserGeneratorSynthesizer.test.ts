@@ -100,6 +100,19 @@ describe("src/fuzzer/synthesis/UserGeneratorSynthesizer", () => {
     );
   });
 
+  it("synthesizes Go user input generator with prng func() float64", () => {
+    const src = `package mathutil\nfunc Add(a int, b float64) int { return a + int(b) }`;
+    const program = ProgramFactory.fromSource(() => src, "go");
+    const fnDef = program.functionsExported["Add"];
+    expect(fnDef).toBeDefined();
+
+    const result = synthesizeUserGenerator(fnDef, "go");
+    expect(result.name).toBe("AddGenerator");
+    expect(result.skeleton).toContain("func AddGenerator(prng func() float64) (int, float64, bool) {");
+    expect(result.skeleton).toContain("return");
+    expect(result.skeleton).toContain("true");
+  });
+
   it("disambiguates generator name when existing names conflict", () => {
     const program = ProgramFactory.fromFile(tsFixture);
     const fnDef = program.functions["targetUserGen"];
