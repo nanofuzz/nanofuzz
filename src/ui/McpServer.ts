@@ -49,12 +49,12 @@ export async function createMcpServer(
 
   server.tool(
     "nanofuzz_listTargets",
-    "Discovers and lists functions (exported and unexported, synchronous and asynchronous), type signatures, parameter structures, and ready-to-use property validator, input transformer, and custom input generator code templates (validatorTemplate, transformerTemplate, and generatorTemplate) in a TypeScript, Python, Rust, Java, or OCaml/OxCaml source file that can be targeted for structure-aware fuzzing and property testing. Functions under test with preconditions can be paired with an input transformer using assume(condition) (or assume!(...) in Rust) or raise/throw UnsatisfiedAssumption(msg) to filter out invalid or out-of-domain inputs from the fuzzing loop. Functions with domain-specific input distributions or sequences can be paired with a custom generator (<fn>Generator) taking a pseudo-random number generator (e.g. prng: () => number in TypeScript, prng: Callable[[], float] in Python, impl FnMut() -> f64 in Rust, DoubleSupplier prng in Java, or prng: unit -> float in OCaml) and returning an argument tuple (or None/undefined when exhausted). If a target function is a class method or uses unsupported signature types, you can write a wrapper function with type annotations in its signature that calls the target function, and list or test that wrapper function instead.",
+    "Discovers and lists functions (exported and unexported, synchronous and asynchronous), type signatures, parameter structures, and ready-to-use property validator, input transformer, and custom input generator code templates (validatorTemplate, transformerTemplate, and generatorTemplate) in a TypeScript, Python, Rust, Java, OCaml/OxCaml, or Go source file that can be targeted for structure-aware fuzzing and property testing. Functions under test with preconditions can be paired with an input transformer using assume(condition) (or assume!(...) in Rust, or runtime.Assume(...) in Go) or raise/throw UnsatisfiedAssumption(msg) to filter out invalid or out-of-domain inputs from the fuzzing loop. Functions with domain-specific input distributions or sequences can be paired with a custom generator (<fn>Generator) taking a pseudo-random number generator (e.g. prng: () => number in TypeScript, prng: Callable[[], float] in Python, impl FnMut() -> f64 in Rust, DoubleSupplier prng in Java, prng: unit -> float in OCaml, or prng func() float64 in Go) and returning an argument tuple (or None/undefined/false when exhausted). If a target function is a class method or uses unsupported signature types, you can write a wrapper function with type annotations in its signature that calls the target function, and list or test that wrapper function instead.",
     {
       filePath: z
         .string()
         .describe(
-          "Absolute or workspace-relative path to the source file (e.g. src/math.ts, test.py, src/lib.rs, src/Math.java, or src/app.ml)."
+          "Absolute or workspace-relative path to the source file (e.g. src/math.ts, test.py, src/lib.rs, src/Math.java, src/app.ml, or math.go)."
         ),
     },
     async ({ filePath }) => {
@@ -72,7 +72,7 @@ export async function createMcpServer(
 
   server.tool(
     "nanofuzz_fuzzFunction",
-    "Runs coverage-guided, structure-aware property fuzzing on a target function (synchronous or asynchronous, exported or unexported) in TypeScript, Python, Rust, Java, or OCaml/OxCaml. Uses dynamic branch-coverage feedback loops, type-aware/grammar generation, coverage-directed mutation, AI input generation, and automated input shrinking (minimization) to find minimal counterexamples, crashes, and edge cases. Returns synthesized executable regression tests (Jest for TypeScript/JavaScript, Pytest for Python, cargo test for Rust, JUnit 5 for Java, or dune runtest for OCaml) and branch coverage metrics. To filter invalid inputs or express preconditions, write an input transformer function (<fn>Transformer) using assume(condition), assume!(condition), Assume.that(condition) in Java, or UnsatisfiedAssumption. To supply custom domain-specific inputs or sequences, write a generator function (<fn>Generator). If a target function is a class method or uses unsupported signature types, you can write a wrapper function with type annotations in its signature that calls the target, and fuzz that wrapper function instead.",
+    "Runs coverage-guided, structure-aware property fuzzing on a target function (synchronous or asynchronous, exported or unexported) in TypeScript, Python, Rust, Java, OCaml/OxCaml, or Go. Uses dynamic branch-coverage feedback loops, type-aware/grammar generation, coverage-directed mutation, AI input generation, and automated input shrinking (minimization) to find minimal counterexamples, crashes, and edge cases. Returns synthesized executable regression tests (Jest for TypeScript/JavaScript, Pytest for Python, cargo test for Rust, JUnit 5 for Java, dune runtest for OCaml, or go test for Go) and branch coverage metrics. To filter invalid inputs or express preconditions, write an input transformer function (<fn>Transformer) using assume(condition), assume!(condition), Assume.that(condition) in Java, runtime.Assume(condition) in Go, or UnsatisfiedAssumption. To supply custom domain-specific inputs or sequences, write a generator function (<fn>Generator). If a target function is a class method or uses unsupported signature types, you can write a wrapper function with type annotations in its signature that calls the target, and fuzz that wrapper function instead.",
     {
       filePath: z
         .string()
@@ -164,13 +164,13 @@ export async function createMcpServer(
         .boolean()
         .optional()
         .describe(
-          "If true, synthesizes a complete, minimal branch-covering regression test suite (using shrunken inputs and counterexamples) formatted for the native test framework (Jest for TypeScript/JavaScript, Pytest for Python, cargo test for Rust, JUnit 5 for Java, or dune runtest for OCaml) and includes it in the response."
+          "If true, synthesizes a complete, minimal branch-covering regression test suite (using shrunken inputs and counterexamples) formatted for the native test framework (Jest for TypeScript/JavaScript, Pytest for Python, cargo test for Rust, JUnit 5 for Java, dune runtest for OCaml, or go test for Go) and includes it in the response."
         ),
       exportFilePath: z
         .string()
         .optional()
         .describe(
-          "Optional destination file path (e.g. 'tests/test_math.py', 'src/math.test.ts', 'tests/test_math.rs', or 'src/test/java/MathNanoTest.java') where the synthesized test suite will be written directly to disk."
+          "Optional destination file path (e.g. 'tests/test_math.py', 'src/math.test.ts', 'tests/test_math.rs', 'src/test/java/MathNanoTest.java', or 'math_nanofuzz_test.go') where the synthesized test suite will be written directly to disk."
         ),
       coverageScope: z
         .enum([

@@ -9,6 +9,7 @@ import { FunctionDef } from "../analysis/FunctionDef";
 import * as ProgramFactory from "../analysis/ProgramFactory";
 import * as Parser from "../adapters/ParserAdapter";
 import { FuzzEnv } from "../Types";
+import { getDefaultFuzzExecutionOptions } from "../FuzzerFactory";
 
 describe("fuzzer/measures/CoverageMeasure: Go", () => {
   let tempDir: string;
@@ -161,6 +162,10 @@ func Abs(x int) int {
 function createTestEnv(fnDef: FunctionDef): FuzzEnv {
   return {
     function: fnDef,
+    validators: [],
+    transformers: [],
+    userGenerators: [],
+    executionOptions: getDefaultFuzzExecutionOptions(),
     options: {
       argDefaults: ArgDef.getDefaultOptions(),
       maxTests: 100,
@@ -174,6 +179,13 @@ function createTestEnv(fnDef: FunctionDef): FuzzEnv {
       useTransformer: false,
       measures: {
         CoverageMeasure: { enabled: true, weight: 1 },
+        FailedTestMeasure: { enabled: false, weight: 1 },
+      },
+      generators: {
+        RandomInputGenerator: { enabled: true },
+        MutationInputGenerator: { enabled: false },
+        AiInputGenerator: { enabled: false },
+        UserInputGenerator: { enabled: false },
       },
     },
   };

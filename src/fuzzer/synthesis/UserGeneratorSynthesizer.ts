@@ -3,7 +3,6 @@ import { FunctionDef } from "../analysis/FunctionDef";
 import { PythonProgram } from "../analysis/python/PythonProgram";
 import { RustProgram } from "../analysis/rust/RustProgram";
 import { OxcamlProgram } from "../analysis/oxcaml/OxcamlProgram";
-import { JavaProgram } from "../analysis/java/JavaProgram";
 import { GoProgram } from "../analysis/go/GoProgram";
 import { ProgramLanguage } from "../analysis/Types";
 import { CompanionManager } from "../analysis/CompanionManager";

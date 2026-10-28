@@ -41,36 +41,36 @@ func Add(a, b int) int {
     const goPath = path.join(tempDir, "math.go");
     fs.writeFileSync(goPath, goSrc);
 
-    const testSet: FuzzTests = {
+    const testSet = {
       version: "0.1.0",
       functions: {
         Add: {
-          test1: {
-            input: {
-              inputs: { a: 2, b: 3 },
-              offset: 0,
+          options: {} as any,
+          tests: {
+            test1: {
+              input: [
+                { name: "a", offset: 0, value: 2 },
+                { name: "b", offset: 1, value: 3 },
+              ],
+              output: [
+                { name: "out", offset: 0, value: 5, isException: false },
+              ],
+              pinned: true,
             },
-            output: {
-              value: 5,
-              exception: false,
-              timeout: false,
+            testPanic: {
+              input: [
+                { name: "a", offset: 0, value: -1 },
+                { name: "b", offset: 1, value: 0 },
+              ],
+              output: [
+                { name: "out", offset: 0, value: 0, isException: true },
+              ],
+              pinned: true,
             },
-            pinned: true,
-          },
-          testPanic: {
-            input: {
-              inputs: { a: -1, b: 0 },
-              offset: 1,
-            },
-            output: {
-              exception: true,
-              timeout: false,
-            },
-            pinned: true,
           },
         },
       },
-    };
+    } as unknown as FuzzTests;
 
     const adapter = new GoTestAdapter(testSet, goPath);
     expect(adapter.toolname).toBe("GoTest");
@@ -115,25 +115,26 @@ func Add(a, b int) int {
     const goPath = path.join(tempDir, "math.go");
     fs.writeFileSync(goPath, goSrc);
 
-    const testSet: FuzzTests = {
+    const testSet = {
       version: "0.1.0",
       functions: {
         Add: {
-          test1: {
-            input: {
-              inputs: { a: 10, b: 20 },
-              offset: 0,
+          options: {} as any,
+          tests: {
+            test1: {
+              input: [
+                { name: "a", offset: 0, value: 10 },
+                { name: "b", offset: 1, value: 20 },
+              ],
+              output: [
+                { name: "out", offset: 0, value: 30, isException: false },
+              ],
+              pinned: true,
             },
-            output: {
-              value: 30,
-              exception: false,
-              timeout: false,
-            },
-            pinned: true,
           },
         },
       },
-    };
+    } as unknown as FuzzTests;
 
     const adapter = new GoTestAdapter(testSet, goPath);
     const testCode = adapter.toString();

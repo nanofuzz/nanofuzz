@@ -227,9 +227,14 @@ export class FunctionDef {
    * @returns true if the function is a validator; false, otherwise.
    */
   public isValidator(): boolean {
+    const typeRef = this._argDefs[0]?.getTypeRef();
+    const isFtr =
+      typeRef === "FuzzTestResult" ||
+      typeRef?.endsWith(".FuzzTestResult") ||
+      typeRef === "fuzz_test_result";
     return (
       this._argDefs.length === 1 &&
-      this._argDefs[0].getTypeRef() === "FuzzTestResult" &&
+      isFtr &&
       CompanionManager.isValidator(this._ref.name, this.getLang())
     );
   } // fn: isValidator()

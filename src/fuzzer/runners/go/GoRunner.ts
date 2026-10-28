@@ -11,6 +11,7 @@ import { FuzzEnv } from "../../Types";
 import { normalizePathForKey } from "../../Util";
 import * as Config from "../../../Config";
 import * as JSONN from "../../../Jsonn";
+import { PutTimeoutName } from "../AbstractHost";
 import { GoHost } from "./GoHost";
 import { buildGoHarness } from "./GoHarness";
 
@@ -201,7 +202,10 @@ export class GoRunner extends AbstractRunner {
       if (host) {
         this.killHost();
       }
-      if (e instanceof Error && e.message === "PutTimeout") {
+      if (
+        e instanceof Error &&
+        (e.name === PutTimeoutName || e.message === "PutTimeout")
+      ) {
         return {
           result: {
             tag: "timeout",

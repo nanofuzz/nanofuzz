@@ -29,6 +29,7 @@ Be sure you have these tools installed:
 - [python][] v3.13+
 - [Rust][] v1.80+ (cargo & rustc)
 - [Java][] JDK 17+ & [Maven][] v3.8+
+- [Go][] v1.22+ (go)
 
 If you're using [Nix][], all dependencies other than Git will be automatically provided by the `flake.nix` file in this repo once you've cloned it.
 

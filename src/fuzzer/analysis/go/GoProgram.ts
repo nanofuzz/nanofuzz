@@ -192,7 +192,14 @@ export class GoProgram extends AbstractProgram {
     }
 
     const name = typeRef.typeRefName;
-    if (name === "any" || name === "error" || name === "interface{}") {
+    if (
+      name === "any" ||
+      name === "error" ||
+      name === "interface{}" ||
+      name.startsWith("func(") ||
+      name.includes("func") ||
+      typeRef.name === "prng"
+    ) {
       typeRef.type = {
         type: ArgTag.OBJECT,
         dims: 0,
@@ -821,6 +828,16 @@ export class GoProgram extends AbstractProgram {
       case "qualified_type": {
         const pkgNode = node.childForFieldName("package");
         const nameNode = node.childForFieldName("name");
+        if (nameNode?.text === "FuzzTestResult") {
+          thisType.typeRefName = "FuzzTestResult";
+          thisType.type = {
+            type: ArgTag.OBJECT,
+            dims: 0,
+            children: [],
+            resolved: true,
+          };
+          return thisType;
+        }
         const fq =
           pkgNode && nameNode ? `${pkgNode.text}.${nameNode.text}` : node.text;
         thisType.typeRefName = fq;
@@ -833,7 +850,9 @@ export class GoProgram extends AbstractProgram {
         return thisType;
       }
 
-      case "interface_type": {
+      case "interface_type":
+      case "function_type": {
+        thisType.typeRefName = node.text;
         thisType.type = {
           type: ArgTag.OBJECT,
           dims: 0,
@@ -912,6 +931,13 @@ export class GoProgram extends AbstractProgram {
         const name = arg.getTypeRef();
         return name && name !== "" ? name : "any";
       }
+      case ArgTag.BYTES:
+        return "[]byte";
+      case ArgTag.TUPLE:
+      case ArgTag.SET:
+      case ArgTag.LITERAL:
+      case ArgTag.UNION:
+      case ArgTag.UNRESOLVED:
       default:
         return "any";
     }

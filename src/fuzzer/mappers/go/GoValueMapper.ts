@@ -205,6 +205,13 @@ function inferGoTypeName(def: ArgDefContext): string {
       return "int64";
     case ArgTag.DICTIONARY:
       return "map[string]any";
+    case ArgTag.OBJECT:
+    case ArgTag.BYTES:
+    case ArgTag.TUPLE:
+    case ArgTag.SET:
+    case ArgTag.LITERAL:
+    case ArgTag.UNION:
+    case ArgTag.UNRESOLVED:
     default:
       return "any";
   }

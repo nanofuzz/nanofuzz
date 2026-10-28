@@ -273,9 +273,20 @@ function generateGoHarnessSource(
   const argConversions: string[] = [];
   const callArgs: string[] = [];
 
+  const isGenerator = fnName.endsWith("Generator");
+  let hasPrng = false;
+
   for (let i = 0; i < argDefs.length; i++) {
     const arg = argDefs[i];
     const typeAnnot = GoProgram.getTypeAnnotation(arg);
+    if (arg.getName() === "prng" || typeAnnot.includes("func()")) {
+      hasPrng = true;
+      argConversions.push(
+        `\t\tvar prngSeed int64 = 42\n\t\tif len(input.Args) > ${i} && input.Args[${i}] != nil {\n\t\t\tif m, ok := input.Args[${i}].(map[string]any); ok {\n\t\t\t\tif s, ok := m["seed"].(float64); ok {\n\t\t\t\t\tprngSeed = int64(s)\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t\tr := rand.New(rand.NewSource(prngSeed))\n\t\targ_${i} := func() float64 {\n\t\t\treturn r.Float64()\n\t\t}`
+      );
+      callArgs.push(`arg_${i}`);
+      continue;
+    }
     argConversions.push(
       `\t\tvar arg_${i} ${typeAnnot}\n\t\tif len(input.Args) > ${i} && input.Args[${i}] != nil {\n\t\t\trawBytes, _ := json.Marshal(input.Args[${i}])\n\t\t\t_ = json.Unmarshal(rawBytes, &arg_${i})\n\t\t}`
     );
@@ -286,8 +297,18 @@ function generateGoHarnessSource(
   const returnArg = fnDef?.getReturnArg();
   const isTuple = returnArg?.getType() === ArgTag.TUPLE;
 
-  let fnCallCode = "";
-  if (isVoid) {
+  let fnCallCode: string;
+  if (isGenerator) {
+    if (isTuple) {
+      const count = returnArg?.getChildren().length ?? 2;
+      const vars = Array.from({ length: count }, (_, idx) => `r${idx}`);
+      const dataVars = vars.slice(0, -1);
+      const okVar = vars[vars.length - 1];
+      fnCallCode = `\t\t\t${vars.join(", ")} := ${fnName}(${callArgs.join(", ")})\n\t\t\tif !${okVar} {\n\t\t\t\toutVal = nil\n\t\t\t} else {\n\t\t\t\toutVal = []any{${dataVars.join(", ")}}\n\t\t\t}`;
+    } else {
+      fnCallCode = `\t\t\tr, ok := ${fnName}(${callArgs.join(", ")})\n\t\t\tif !ok {\n\t\t\t\toutVal = nil\n\t\t\t} else {\n\t\t\t\toutVal = []any{r}\n\t\t\t}`;
+    }
+  } else if (isVoid) {
     fnCallCode = `\t\t\t${fnName}(${callArgs.join(", ")})\n\t\t\toutVal = nil`;
   } else if (isTuple) {
     const childrenCount = returnArg?.getChildren().length ?? 2;
@@ -337,7 +358,10 @@ function generateGoHarnessSource(
     .join("\n");
 
   let rendered = template
-    .replaceAll("/* __NANOFUZZ_IMPORTS__ */", "")
+    .replaceAll(
+      "/* __NANOFUZZ_IMPORTS__ */",
+      hasPrng ? '\t"math/rand"\n' : ""
+    )
     .replaceAll("/* __NANOFUZZ_ARG_CONVERSIONS__ */", argConversions.join("\n"))
     .replaceAll("/* __NANOFUZZ_FN_CALL__ */", fnCallCode)
     .replaceAll("/* __NANOFUZZ_VALIDATORS__ */", validatorBlocks.join("\n"))
