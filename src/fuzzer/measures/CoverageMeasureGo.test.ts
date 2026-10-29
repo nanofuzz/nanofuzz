@@ -271,6 +271,100 @@ func Helper(n int) int {
 
     runner.killHost();
   });
+
+  it("coverage scope: 'project static' vs 'project directimports static' for Go", async () => {
+    const depDir = path.join(tempDir, "ext_dep");
+    const appDir = path.join(tempDir, "my_app");
+    fs.mkdirSync(depDir, { recursive: true });
+    fs.mkdirSync(appDir, { recursive: true });
+
+    fs.writeFileSync(
+      path.join(depDir, "go.mod"),
+      "module example.com/ext_dep\n\ngo 1.22\n"
+    );
+    fs.writeFileSync(
+      path.join(depDir, "dep.go"),
+      `package ext_dep
+
+func Square(x int) int {
+    if x > 0 {
+        return x * x
+    }
+    return 0
+}
+`
+    );
+
+    fs.writeFileSync(
+      path.join(appDir, "go.mod"),
+      "module example.com/my_app\n\ngo 1.22\n\nrequire example.com/ext_dep v0.0.0\nreplace example.com/ext_dep => ../ext_dep\n"
+    );
+    const mainGo = path.join(appDir, "main.go");
+    fs.writeFileSync(
+      mainGo,
+      `package main
+
+import (
+    "example.com/ext_dep"
+)
+
+func Compute(n int) int {
+    return ext_dep.Square(n) + 1
+}
+`
+    );
+
+    const program = ProgramFactory.fromFile(mainGo, "go");
+    const fnDef = program.functionsExported["Compute"];
+    const env = createTestEnv(fnDef);
+
+    try {
+      // 1. Default 'project static' scope
+      Config.override("nanofuzz.fuzzer.coverageScope", "project static");
+      const runnerProject = new GoRunner(mainGo, "Compute", env);
+      await runnerProject.onRunStart();
+      const resProject = await runnerProject.run([4]);
+      expect(resProject.result.tag).toBe("value");
+      if (resProject.result.tag === "value") {
+        expect(resProject.result.value).toBe(17);
+      }
+      expect(runnerProject.coverageInfo).toBeDefined();
+      const projectFiles = Object.keys(runnerProject.coverageInfo!);
+      expect(projectFiles.some((f) => f.includes("main.go"))).toBeTrue();
+      // External dependency should NOT be in project scope
+      expect(projectFiles.some((f) => f.includes("ext_dep"))).toBeFalse();
+      runnerProject.killHost();
+
+      // 2. 'project directimports static' scope
+      Config.override(
+        "nanofuzz.fuzzer.coverageScope",
+        "project directimports static"
+      );
+      const runnerImports = new GoRunner(mainGo, "Compute", env);
+      await runnerImports.onRunStart();
+      const resImports = await runnerImports.run([4]);
+      expect(resImports.result.tag).toBe("value");
+      if (resImports.result.tag === "value") {
+        expect(resImports.result.value).toBe(17);
+      }
+      expect(runnerImports.coverageInfo).toBeDefined();
+      const importFiles = Object.keys(runnerImports.coverageInfo!);
+      // Both main.go AND ext_dep/dep.go should be present
+      expect(importFiles.some((f) => f.includes("main.go"))).toBeTrue();
+      expect(importFiles.some((f) => f.includes("ext_dep"))).toBeTrue();
+
+      // Verify dynamic hits recorded for external module
+      const extFile = importFiles.find((f) => f.includes("ext_dep"));
+      expect(extFile).toBeDefined();
+      const extCov = runnerImports.coverageInfo![extFile!];
+      expect(Object.values(extCov.s).some((h) => h > 0)).toBeTrue();
+      expect(extCov.b["0"]).toEqual([1, 0]);
+
+      runnerImports.killHost();
+    } finally {
+      Config.override("nanofuzz.fuzzer.coverageScope", "project static");
+    }
+  });
 });
 
 function createTestEnv(fnDef: FunctionDef): FuzzEnv {

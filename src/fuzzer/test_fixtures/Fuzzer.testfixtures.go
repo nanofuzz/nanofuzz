@@ -52,9 +52,9 @@ func Transformed(n int) int {
 	return n + 1
 }
 
-// TransformedTransformer scales n by 10 and filters n == 5.
+// TransformedTransformer scales n by 10 and filters n == 5 and non-positive numbers.
 func TransformedTransformer(n int) int {
-	runtime.Assume(n != 5, "Transformer skipped n=5")
+	runtime.Assume(n > 0 && n != 5, "Transformer skipped non-positive or n=5")
 	return n * 10
 }
 

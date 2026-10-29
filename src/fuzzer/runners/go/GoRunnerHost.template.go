@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/nanofuzz/runtime"
 	"github.com/nanofuzz/runtime/coverage"
@@ -113,8 +114,23 @@ func main() {
 					if u, ok := r.(runtime.UnsatisfiedAssumptionError); ok {
 						isSkip = true
 						skipMsg = u.Message
+					} else if u, ok := r.(*runtime.UnsatisfiedAssumptionError); ok && u != nil {
+						isSkip = true
+						skipMsg = u.Message
 					} else {
-						panicked = r
+						rStr := fmt.Sprint(r)
+						lower := strings.ToLower(rStr)
+						if strings.HasPrefix(lower, "unsatisfied assumption") {
+							isSkip = true
+							prefix := "unsatisfied assumption:"
+							if strings.HasPrefix(lower, prefix) {
+								skipMsg = strings.TrimSpace(rStr[len(prefix):])
+							} else {
+								skipMsg = rStr
+							}
+						} else {
+							panicked = r
+						}
 					}
 				}
 			}()

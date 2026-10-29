@@ -204,6 +204,42 @@ export class GoProgram extends AbstractProgram {
     return findInAncestor(path.dirname(sourceFile), "go.mod");
   } // fn: findGoMod
 
+  /**
+   * Returns list of import paths directly imported by the given Go source file.
+   */
+  public static findDirectImports(sourceFile: string): string[] {
+    const norm = fs.existsSync(sourceFile)
+      ? fs.realpathSync(sourceFile)
+      : path.resolve(sourceFile);
+    if (!fs.existsSync(norm)) {
+      return [];
+    }
+    const src = fs.readFileSync(norm, "utf8");
+    const tree = Parser.parse("go", src);
+    if (!tree) return [];
+
+    const importQuery = Parser.query(
+      "go",
+      `(import_spec path: (interpreted_string_literal) @import.path)`
+    );
+    const matches = importQuery.matches(tree.rootNode);
+    const imports = new Set<string>();
+    for (const match of matches) {
+      const pathCap = match.captures.find((c) => c.name === "import.path");
+      if (pathCap) {
+        const raw = pathCap.node.text.replace(/^"|"$/g, "").trim();
+        if (
+          raw &&
+          !raw.startsWith("github.com/nanofuzz/runtime") &&
+          raw.includes(".")
+        ) {
+          imports.add(raw);
+        }
+      }
+    }
+    return Array.from(imports);
+  } // fn: findDirectImports
+
   public resolveTypeRef(typeRef: TypeRef): TypeRef {
     if (typeRef.type && typeRef.type.type !== ArgTag.UNRESOLVED) {
       if (typeRef.type.resolved) {

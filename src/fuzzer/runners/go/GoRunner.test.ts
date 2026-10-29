@@ -113,6 +113,75 @@ func MustBePositive(n int) int {
     runner.killHost();
   });
 
+  it("catches UnsatisfiedAssumptionError and reports skip rather than error", async () => {
+    const goFile = path.join(tempDir, "assume_test.go");
+    fs.writeFileSync(
+      goFile,
+      `package assumetest
+
+import (
+    "fmt"
+    "github.com/nanofuzz/runtime"
+)
+
+func CheckValid(mode int, expr string) string {
+    if mode == 1 {
+        runtime.Assume(len(expr) > 2, "Expression must be syntactically valid")
+    } else if mode == 2 {
+        if len(expr) <= 2 {
+            panic(&runtime.UnsatisfiedAssumptionError{Message: "Expression must be syntactically valid"})
+        }
+    } else if mode == 3 {
+        if len(expr) <= 2 {
+            panic(fmt.Errorf("unsatisfied assumption: Expression must be syntactically valid"))
+        }
+    }
+    return expr
+}
+`
+    );
+
+    const env = makeTestEnv(goFile, "CheckValid");
+    const runner = new GoRunner(goFile, "CheckValid", env);
+    await runner.onRunStart();
+
+    // 1. runtime.Assume (struct value)
+    const res1 = await runner.run([1, "Ub"]);
+    expect(res1.result.tag).toBe("skip");
+    if (res1.result.tag === "skip") {
+      expect(res1.result.message).toContain(
+        "Expression must be syntactically valid"
+      );
+    }
+
+    // 2. Pointer *runtime.UnsatisfiedAssumptionError
+    const res2 = await runner.run([2, "Ub"]);
+    expect(res2.result.tag).toBe("skip");
+    if (res2.result.tag === "skip") {
+      expect(res2.result.message).toContain(
+        "Expression must be syntactically valid"
+      );
+    }
+
+    // 3. Formatted error with "unsatisfied assumption:"
+    const res3 = await runner.run([3, "Ub"]);
+    expect(res3.result.tag).toBe("skip");
+    if (res3.result.tag === "skip") {
+      expect(res3.result.message).toBe(
+        "Expression must be syntactically valid"
+      );
+    }
+
+    // 4. Valid input returns value
+    const resOk = await runner.run([1, "1 + 2"]);
+    expect(resOk.result.tag).toBe("value");
+    if (resOk.result.tag === "value") {
+      expect(resOk.result.value).toBe("1 + 2");
+    }
+
+    runner.killHost();
+  });
+
   it("round-trips structs, slices, maps, and pointers across the IPC bridge", async () => {
     const goFile = path.join(tempDir, "types_test.go");
     fs.writeFileSync(

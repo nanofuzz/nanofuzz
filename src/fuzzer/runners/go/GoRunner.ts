@@ -35,6 +35,14 @@ export class GoRunner extends AbstractRunner {
   protected _coverageEnabled = true;
   protected _coverageCallback?: (covData: unknown) => void;
 
+  /**
+   * Initializes a Go runner instance for the specified target file and function.
+   *
+   * @param filename Path to the Go source file containing the target function
+   * @param fn Target function name
+   * @param env Optional fuzzing environment containing validators and options
+   * @param overrides Optional runner configuration overrides
+   */
   constructor(
     filename: string,
     fn: string,
@@ -48,6 +56,9 @@ export class GoRunner extends AbstractRunner {
     this._overrides = overrides;
   } // constructor
 
+  /**
+   * Prepares the Go test runner by compiling the test harness and starting the host daemon.
+   */
   public override async onRunStart(): Promise<void> {
     await super.onRunStart();
     this.killHost();
@@ -82,6 +93,14 @@ export class GoRunner extends AbstractRunner {
     await this._getHost();
   } // fn: onRunStart
 
+  /**
+   * Runs a single test execution through the compiled Go host process.
+   *
+   * @param inputs Array of argument values passed to the target function
+   * @param timeout Execution timeout in milliseconds (0 for no timeout)
+   * @param validators Array of validator names to evaluate
+   * @returns Test result including value/error/skip/timeout and dynamic coverage
+   */
   public async run(
     inputs: unknown[],
     timeout: number | undefined = 0,
@@ -160,7 +179,13 @@ export class GoRunner extends AbstractRunner {
           if (v.tag === "skip") {
             resultValidators[k] = { tag: "skip", message: v.message ?? "" };
           } else if (v.tag === "error") {
-            resultValidators[k] = { tag: "error", message: v.message ?? "" };
+            const vMsg = v.message ?? "";
+            if (vMsg.toLowerCase().startsWith("unsatisfied assumption")) {
+              const clean = vMsg.replace(/^unsatisfied assumption:\s*/i, "");
+              resultValidators[k] = { tag: "skip", message: clean };
+            } else {
+              resultValidators[k] = { tag: "error", message: vMsg };
+            }
           } else {
             resultValidators[k] = { tag: "value", value: v.value };
           }
@@ -180,6 +205,25 @@ export class GoRunner extends AbstractRunner {
       }
 
       if (hostPayload.tag === "error") {
+        const errMsg = hostPayload.message ?? "";
+        const lowerMsg = errMsg.toLowerCase();
+        if (
+          hostPayload.name === "UnsatisfiedAssumption" ||
+          hostPayload.name === "UnsatisfiedAssumptionError" ||
+          lowerMsg.startsWith("unsatisfied assumption")
+        ) {
+          const cleanMsg = errMsg.replace(/^unsatisfied assumption:\s*/i, "");
+          return {
+            result: {
+              tag: "skip",
+              message: cleanMsg,
+              seq,
+              ...(resultValidators ? { validators: resultValidators } : {}),
+            },
+            env: {},
+          };
+        }
+
         return {
           result: {
             tag: "error",
@@ -219,6 +263,21 @@ export class GoRunner extends AbstractRunner {
         };
       }
       const err = e instanceof Error ? e : new Error(String(e));
+      const lower = err.message.toLowerCase();
+      if (
+        err.name === "UnsatisfiedAssumption" ||
+        err.name === "UnsatisfiedAssumptionError" ||
+        lower.startsWith("unsatisfied assumption")
+      ) {
+        return {
+          result: {
+            tag: "skip",
+            message: err.message.replace(/^unsatisfied assumption:\s*/i, ""),
+            seq: thisSeq,
+          },
+          env: {},
+        };
+      }
       return {
         result: {
           tag: "error",
@@ -233,6 +292,11 @@ export class GoRunner extends AbstractRunner {
     }
   } // fn: run
 
+  /**
+   * Spawns or returns the active Go runner host process, completing startup handshakes.
+   *
+   * @returns Active GoHost instance ready for execution requests
+   */
   protected override async _getHost(): Promise<GoHost> {
     if (this._host && this._host.isActive) {
       return this._host;
@@ -347,22 +411,46 @@ export class GoRunner extends AbstractRunner {
     return host;
   } // fn: _getHost
 
+  /**
+   * Returns the filename of the Go source under test.
+   */
   public override get filename(): string {
     return this._filename;
-  }
+  } // fn: filename
 
+  /**
+   * Returns cumulative statement, function, and branch coverage across all test runs.
+   */
+  public override get coverageInfo(): CoverageMapData | undefined {
+    return this._coverageInfo;
+  } // fn: coverageInfo
+
+  /**
+   * Returns initial static coverage captured during host initialization.
+   */
   public get staticCoverage(): CoverageMapData | undefined {
     return this._staticCoverage;
-  }
+  } // fn: staticCoverage
 
+  /**
+   * Returns the dynamic coverage delta captured during the last test execution.
+   */
   public get lastRunCoverage(): CoverageMapData | undefined {
     return this._lastRunCoverage;
-  }
+  } // fn: lastRunCoverage
 
+  /**
+   * Registers a listener callback triggered on every dynamic coverage update.
+   *
+   * @param callback Function invoked with dynamic coverage data
+   */
   public setCoverageCallback(callback: (covData: unknown) => void): void {
     this._coverageCallback = callback;
-  }
+  } // fn: setCoverageCallback
 
+  /**
+   * Terminates the active Go host process and clears internal host reference.
+   */
   public override killHost(): void {
     if (this._host) {
       this._host.kill();

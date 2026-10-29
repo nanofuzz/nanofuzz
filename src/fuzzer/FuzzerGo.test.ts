@@ -143,13 +143,23 @@ describe("fuzzer: go targets", () => {
       {
         ...intOptions,
         useTransformer: true,
-        maxTests: 20,
+        maxTests: 25,
         suiteTimeout: 10000,
       }
     ).test([], { gen: true }, undefined, undefined, (r) => results.push(r));
 
     expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
     expect(fuzzResult.env.transformers.length).toBe(1);
+    expect(fuzzResult.stats.outcomes.exceptions).toBe(0);
+
+    const skipResult = results.find((r) => r.skipped);
+    expect(skipResult).toBeDefined();
+    if (skipResult) {
+      expect(skipResult.category).toBe("skip");
+      expect(skipResult.skipReason).toContain("Transformer skipped");
+      expect(skipResult.harnessErrors.length).toBe(0);
+    }
+
     for (const r of results) {
       if (r.category === "ok") {
         const inVal = r.input[0].value;
