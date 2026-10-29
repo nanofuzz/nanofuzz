@@ -1183,7 +1183,8 @@
   integrity sha512-47XIizs9XZXvuJgoaJUIE2lFoID8ugvc0jzSHP+Ptfk8nTbnR8g788wv48N03Kx0UkAv559HWRQ3yzOgzlRNUA==
 
 "@nanofuzz/runtime@link:./packages/runtime/typescript":
-  version "0.4.1"
+  version "0.0.0"
+  uid ""
 
 "@node-llm/core@^1.16.2":
   version "1.16.2"
@@ -5562,6 +5563,10 @@ tree-sitter-typescript@^0.23.2:
     node-addon-api "^8.2.2"
     node-gyp-build "^4.8.2"
     tree-sitter-javascript "^0.23.1"
+
+"tree-sitter-virgil@link:./packages/tree-sitter-virgil":
+  version "0.0.0"
+  uid ""
 
 ts-api-utils@^2.5.0:
   version "2.5.0"

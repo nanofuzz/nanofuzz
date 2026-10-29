@@ -15,6 +15,7 @@ describe("Config", () => {
     );
     expect(Config.get("nanofuzz.java.javacPath", "fallback")).toBe("javac");
     expect(Config.get("nanofuzz.java.javaPath", "fallback")).toBe("java");
+    expect(Config.get("nanofuzz.virgil.v3cPath", "fallback")).toBe("v3c");
   });
 
   it("respects overrides", () => {
@@ -30,6 +31,10 @@ describe("Config", () => {
     expect(Config.get("nanofuzz.java.javacPath", "javac")).toBe(
       "/custom/path/to/javac"
     );
+    Config.override("nanofuzz.virgil.v3cPath", "/custom/path/to/v3c");
+    expect(Config.get("nanofuzz.virgil.v3cPath", "v3c")).toBe(
+      "/custom/path/to/v3c"
+    );
   });
 
   it("registers rust and oxcaml in supported languages for FuzzPanelController", () => {
@@ -38,5 +43,6 @@ describe("Config", () => {
     expect(languages).toContain("python");
     expect(languages).toContain("oxcaml");
     expect(languages).toContain("java");
+    expect(languages).toContain("virgil");
   });
 });

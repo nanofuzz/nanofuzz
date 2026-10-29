@@ -96,4 +96,39 @@ public class MathUtil {
     const argList = Parser.getNamedChildrenNoComments(typeArgs!);
     expect(argList[0].text).toBe("String");
   });
+
+  it("parses Virgil code into a valid syntax tree and executes queries", () => {
+    const virgilSrc = `
+def add(a: int, b: int) -> int {
+    return a + b;
+}
+
+def isPositive(x: int) -> bool {
+    return x > 0;
+}
+`;
+    const tree = Parser.parse("virgil", virgilSrc);
+    expect(tree).not.toBeNull();
+    expect(tree?.rootNode.type).toBe("source_file");
+
+    const q = Parser.query(
+      "virgil",
+      `
+(method
+  name: (ident_param name: (identifier) @method.name)
+  parameters: (var_param_decls) @method.params
+  returnType: (type_ref) @method.return) @method.item
+`
+    );
+    const matches = q.matches(tree!.rootNode);
+    expect(matches.length).toBe(2);
+
+    const firstMatch = matches[0];
+    const nameCap = firstMatch.captures.find((c) => c.name === "method.name");
+    expect(nameCap?.node.text).toBe("add");
+    const returnCap = firstMatch.captures.find(
+      (c) => c.name === "method.return"
+    );
+    expect(returnCap?.node.text).toBe("int");
+  });
 });

@@ -1,0 +1,9 @@
+{
+  "name": "tree-sitter-virgil",
+  "version": "0.1.0",
+  "description": "Virgil grammar for tree-sitter",
+  "main": "tree-sitter-virgil.wasm",
+  "files": [
+    "tree-sitter-virgil.wasm"
+  ]
+}

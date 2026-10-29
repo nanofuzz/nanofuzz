@@ -3,7 +3,7 @@
   "displayName": "NaNofuzz",
   "publisher": "penrose",
   "version": "0.4.1",
-  "description": "NaNofuzz is a fast and easy-to-use automatic test suite generator for TypeScript, Python, Rust, Java, and OCaml/OxCaml that runs inside VS Code",
+  "description": "NaNofuzz is a fast and easy-to-use automatic test suite generator for TypeScript, Python, Rust, Java, OCaml/OxCaml, and Virgil that runs inside VS Code",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/nanofuzz/nanofuzz.git"
@@ -37,6 +37,7 @@
     "onLanguage:ocaml",
     "onLanguage:oxcaml",
     "onLanguage:java",
+    "onLanguage:virgil",
     "onLanguage:typescriptreact",
     "onWebviewPanel:FuzzPanel"
   ],
@@ -72,7 +73,7 @@
       {
         "name": "nanofuzz_listTargets",
         "displayName": "List NaNofuzz Targets",
-        "modelDescription": "Discovers and lists functions (exported and unexported, synchronous and asynchronous), type signatures, parameter structures, and ready-to-use property validator, input transformer, and custom input generator code templates (validatorTemplate, transformerTemplate, and generatorTemplate) in a TypeScript, Python, Rust, Java, or OCaml/OxCaml source file that can be targeted for structure-aware fuzzing and property testing. Functions under test with preconditions can be paired with an input transformer using assume(condition) (or assume!(...) in Rust) or raise/throw UnsatisfiedAssumption(msg) to filter out invalid or out-of-domain inputs from the fuzzing loop. Functions with domain-specific input distributions or sequences can be paired with a custom generator (<fn>Generator) taking a pseudo-random number generator (e.g. prng: () => number in TypeScript, prng: Callable[[], float] in Python, impl FnMut() -> f64 in Rust, DoubleSupplier prng in Java, or prng: unit -> float in OCaml) and returning an argument tuple (or None/undefined when exhausted). If a target function is a class method or uses unsupported signature types, you can write a wrapper function with type annotations in its signature that calls the target function, and list or test that wrapper function instead.",
+        "modelDescription": "Discovers and lists functions (exported and unexported, synchronous and asynchronous), type signatures, parameter structures, and ready-to-use property validator, input transformer, and custom input generator code templates (validatorTemplate, transformerTemplate, and generatorTemplate) in a TypeScript, Python, Rust, Java, OCaml/OxCaml, or Virgil source file that can be targeted for structure-aware fuzzing and property testing. Functions under test with preconditions can be paired with an input transformer using assume(condition) (or assume!(...) in Rust) or raise/throw UnsatisfiedAssumption(msg) to filter out invalid or out-of-domain inputs from the fuzzing loop. Functions with domain-specific input distributions or sequences can be paired with a custom generator (<fn>Generator) taking a pseudo-random number generator (e.g. prng: () => number in TypeScript, prng: Callable[[], float] in Python, impl FnMut() -> f64 in Rust, DoubleSupplier prng in Java, prng: unit -> float in OCaml, or prng: () -> float in Virgil) and returning an argument tuple (or None/undefined when exhausted). If a target function is a class method or uses unsupported signature types, you can write a wrapper function with type annotations in its signature that calls the target function, and list or test that wrapper function instead.",
         "canBeReferencedInPrompt": true,
         "toolReferenceName": "listTargets",
         "icon": "$(symbol-method)",
@@ -81,7 +82,7 @@
           "properties": {
             "filePath": {
               "type": "string",
-              "description": "Absolute or workspace-relative path to the source file (e.g. src/math.ts, test.py, src/lib.rs, src/Math.java, or src/app.ml)."
+              "description": "Absolute or workspace-relative path to the source file (e.g. src/math.ts, test.py, src/lib.rs, src/Math.java, src/app.ml, or src/app.v3)."
             }
           },
           "required": [
@@ -92,7 +93,7 @@
       {
         "name": "nanofuzz_fuzzFunction",
         "displayName": "Fuzz Target with NaNofuzz",
-        "modelDescription": "Runs coverage-guided, structure-aware property fuzzing on a target function (synchronous or asynchronous, exported or unexported) in TypeScript, Python, Rust, Java, or OCaml/OxCaml. Uses dynamic branch-coverage feedback loops, type-aware/grammar generation, coverage-directed mutation, AI input generation, and automated input shrinking (minimization) to find minimal counterexamples, crashes, and edge cases. Returns synthesized executable regression tests (Jest for TypeScript/JavaScript, Pytest for Python, cargo test for Rust, JUnit 5 for Java, or dune runtest for OCaml) and branch coverage metrics. To filter invalid inputs or express preconditions, write an input transformer function (<fn>Transformer) using assume(condition), assume!(condition), Assume.that(condition) in Java, or UnsatisfiedAssumption. To supply custom domain-specific inputs or sequences, write a generator function (<fn>Generator). If a target function is a class method or uses unsupported signature types, you can write a wrapper function with type annotations in its signature that calls the target, and fuzz that wrapper function instead.",
+        "modelDescription": "Runs coverage-guided, structure-aware property fuzzing on a target function (synchronous or asynchronous, exported or unexported) in TypeScript, Python, Rust, Java, OCaml/OxCaml, or Virgil. Uses dynamic branch-coverage feedback loops, type-aware/grammar generation, coverage-directed mutation, AI input generation, and automated input shrinking (minimization) to find minimal counterexamples, crashes, and edge cases. Returns synthesized executable regression tests (Jest for TypeScript/JavaScript, Pytest for Python, cargo test for Rust, JUnit 5 for Java, dune runtest for OCaml, or Virgil test suites) and branch coverage metrics. To filter invalid inputs or express preconditions, write an input transformer function (<fn>Transformer) using assume(condition), assume!(condition), Assume.that(condition) in Java, or UnsatisfiedAssumption. To supply custom domain-specific inputs or sequences, write a generator function (<fn>Generator). If a target function is a class method or uses unsupported signature types, you can write a wrapper function with type annotations in its signature that calls the target, and fuzz that wrapper function instead.",
         "canBeReferencedInPrompt": true,
         "toolReferenceName": "fuzzFunction",
         "icon": "$(beaker)",
@@ -513,6 +514,15 @@
             "type": "string",
             "default": "java",
             "description": "Path to the java runtime executable for executing Java test runners.",
+            "tags": [
+              "experimental"
+            ]
+          },
+          "nanofuzz.virgil.v3cPath": {
+            "title": "Path to v3c executable",
+            "type": "string",
+            "default": "v3c",
+            "description": "Path to the v3c executable for compiling and running Virgil programs.",
             "tags": [
               "experimental"
             ]
@@ -1042,6 +1052,7 @@
     "tree-sitter-python": "^0.25.0",
     "tree-sitter-rust": "^0.23.2",
     "tree-sitter-typescript": "^0.23.2",
+    "tree-sitter-virgil": "link:./packages/tree-sitter-virgil",
     "typescript": "5.9.2",
     "undici": "^7.30.0",
     "web-tree-sitter": "^0.26.11"
