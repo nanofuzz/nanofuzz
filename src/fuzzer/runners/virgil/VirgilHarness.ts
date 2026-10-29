@@ -79,17 +79,34 @@ export function buildVirgilHarness(
     }
   }
 
-  const externalImports: string[] = [];
+  const externalFiles: string[] = [];
   if (scopeConfig.target.includes("directimports")) {
     const directImports = VirgilProgram.findDirectImports(normTarget);
     for (const imp of directImports) {
-      if (!externalImports.includes(imp)) {
-        externalImports.push(imp);
+      const candidates = [
+        path.join(path.dirname(normTarget), `${imp}.v3`),
+        path.join(path.dirname(normTarget), "vendor", imp, `${imp}.v3`),
+        path.join(path.dirname(normTarget), "deps", imp, `${imp}.v3`),
+        path.join(path.dirname(path.dirname(normTarget)), imp, `${imp}.v3`),
+        path.join(path.dirname(path.dirname(normTarget)), imp, "src", `${imp}.v3`),
+      ];
+      for (const cand of candidates) {
+        if (fs.existsSync(cand)) {
+          const realCand = fs.realpathSync(cand);
+          if (
+            !externalFiles.includes(realCand) &&
+            !localModules.includes(realCand) &&
+            realCand !== normTarget
+          ) {
+            externalFiles.push(realCand);
+          }
+          break;
+        }
       }
     }
   }
 
-  const allTrackedFiles = [normTarget, ...localModules];
+  const allTrackedFiles = [normTarget, ...localModules, ...externalFiles];
 
   const cacheKey = crypto
     .createHash("sha256")
@@ -140,6 +157,19 @@ export function buildVirgilHarness(
     instLocalFiles.push(destLoc);
   }
 
+  // Write instrumented external dependency files
+  const instExtFiles: string[] = [];
+  for (let j = 0; j < externalFiles.length; j++) {
+    const extFile = externalFiles[j];
+    const extSrc = fs.readFileSync(extFile, "utf8");
+    const fileId = 1 + localModules.length + j;
+    const extCov = instrumentVirgilSource(extSrc, extFile, fileId);
+    staticCovMap[extFile.replace(/\\/g, "/")] = extCov.staticCov;
+    const destExt = path.join(harnessDir, `ext_${j}_${path.basename(extFile)}`);
+    fs.writeFileSync(destExt, extCov.instrumentedSrc);
+    instExtFiles.push(destExt);
+  }
+
   // Generate harness host runner
   const harnessSrc = generateVirgilHarnessHost(fnName, targetCov.branchArms);
   const harnessFile = path.join(harnessDir, "harness_host.v3");
@@ -151,6 +181,7 @@ export function buildVirgilHarness(
       runtimeDest,
       instTargetFile,
       ...instLocalFiles,
+      ...instExtFiles,
       harnessFile,
     ];
     const args = [`-output=${binaryPath}`, ...filesToCompile];
