@@ -133,8 +133,28 @@ export function buildGoHarness(
               continue;
             }
 
+            let resolvedModDir = pkg.Module.Dir;
+            if (
+              pkg.Module.Dir.toLowerCase().startsWith(userModDir.toLowerCase())
+            ) {
+              const rel = pkg.Module.Dir.slice(userModDir.length).replace(
+                /^[/\\]+/,
+                ""
+              );
+              resolvedModDir = rel ? path.join(userModDir, rel) : userModDir;
+            }
+
+            let resolvedPkgDir = pkg.Dir;
+            if (pkg.Dir.toLowerCase().startsWith(userModDir.toLowerCase())) {
+              const rel = pkg.Dir.slice(userModDir.length).replace(
+                /^[/\\]+/,
+                ""
+              );
+              resolvedPkgDir = rel ? path.join(userModDir, rel) : userModDir;
+            }
+
             const modPath = pkg.Module.Path;
-            const modDir = pkg.Module.Dir;
+            const modDir = resolvedModDir;
             const safeModRel = path.join(
               "external",
               modPath.replace(/[^a-zA-Z0-9_-]/g, "_")
@@ -160,10 +180,13 @@ export function buildGoHarness(
             // Instrument all .go files in this package directory
             const goFiles = pkg.GoFiles ?? [];
             for (const gf of goFiles) {
-              const origFile = path.join(pkg.Dir, gf);
+              const rawOrigFile = path.join(resolvedPkgDir, gf);
+              const origFile = fs.existsSync(rawOrigFile)
+                ? fs.realpathSync(rawOrigFile)
+                : path.resolve(rawOrigFile);
               const vendoredFile = path.join(
                 vendorDest,
-                path.relative(modDir, origFile)
+                path.relative(modDir, path.join(pkg.Dir, gf))
               );
               if (fs.existsSync(vendoredFile) && !staticCovMap[origFile]) {
                 const depSrc = fs.readFileSync(vendoredFile, "utf8");
@@ -230,7 +253,16 @@ export function buildGoHarness(
     );
   }
 
-  const buildArgs = ["build", "-o", binaryName, "."];
+  // If external packages are vendored/replaced, run 'go mod tidy -e' to align module requirements
+  if (externalModuleReplaces.size > 0) {
+    ChildProcess.spawnSync(goPath, ["mod", "tidy", "-e"], {
+      cwd: harnessDir,
+      encoding: "utf-8",
+      maxBuffer: 20 * 1024 * 1024,
+    });
+  }
+
+  const buildArgs = ["build", "-mod=mod", "-o", binaryName, "."];
   const buildRes = ChildProcess.spawnSync(goPath, buildArgs, {
     cwd: harnessDir,
     encoding: "utf-8",
@@ -455,6 +487,7 @@ function generateGoHarnessSource(
   const callArgs: string[] = [];
 
   const isGenerator = fnName.endsWith("Generator");
+  const isTransformer = fnName.endsWith("Transformer");
   let hasPrng = false;
 
   for (let i = 0; i < argDefs.length; i++) {
@@ -463,7 +496,7 @@ function generateGoHarnessSource(
     if (arg.getName() === "prng" || typeAnnot.includes("func()")) {
       hasPrng = true;
       argConversions.push(
-        `\t\tvar prngSeed int64 = 42\n\t\tif len(input.Args) > ${i} && input.Args[${i}] != nil {\n\t\t\tif m, ok := input.Args[${i}].(map[string]any); ok {\n\t\t\t\tif s, ok := m["seed"].(float64); ok {\n\t\t\t\t\tprngSeed = int64(s)\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t\tr := rand.New(rand.NewSource(prngSeed))\n\t\targ_${i} := func() float64 {\n\t\t\treturn r.Float64()\n\t\t}`
+        `\t\tvar prngSeed int64 = time.Now().UnixNano() + input.Seq + 1\n\t\tif len(input.Args) > ${i} && input.Args[${i}] != nil {\n\t\t\tif s, ok := input.Args[${i}].(float64); ok {\n\t\t\t\tprngSeed = int64(s)\n\t\t\t} else if m, ok := input.Args[${i}].(map[string]any); ok {\n\t\t\t\tif s, ok := m["seed"].(float64); ok {\n\t\t\t\t\tprngSeed = int64(s)\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t\tr := rand.New(rand.NewSource(prngSeed))\n\t\targ_${i} := func() float64 {\n\t\t\treturn r.Float64()\n\t\t}`
       );
       callArgs.push(`arg_${i}`);
       continue;
@@ -498,6 +531,8 @@ function generateGoHarnessSource(
       (_, idx) => `r${idx}`
     );
     fnCallCode = `\t\t\t${retVars.join(", ")} := ${fnName}(${callArgs.join(", ")})\n\t\t\toutVal = []any{${retVars.join(", ")}}`;
+  } else if (isTransformer) {
+    fnCallCode = `\t\t\toutVal = []any{${fnName}(${callArgs.join(", ")})}`;
   } else {
     fnCallCode = `\t\t\toutVal = ${fnName}(${callArgs.join(", ")})`;
   }
@@ -559,7 +594,10 @@ function generateGoHarnessSource(
     .join("\n");
 
   let rendered = template
-    .replaceAll("/* __NANOFUZZ_IMPORTS__ */", hasPrng ? '\t"math/rand"\n' : "")
+    .replaceAll(
+      "/* __NANOFUZZ_IMPORTS__ */",
+      hasPrng ? '\t"math/rand"\n\t"time"\n' : ""
+    )
     .replaceAll("/* __NANOFUZZ_ARG_CONVERSIONS__ */", argConversions.join("\n"))
     .replaceAll("/* __NANOFUZZ_FN_CALL__ */", fnCallCode)
     .replaceAll("/* __NANOFUZZ_VALIDATORS__ */", validatorBlocks.join("\n"))

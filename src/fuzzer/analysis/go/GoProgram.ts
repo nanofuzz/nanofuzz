@@ -163,7 +163,9 @@ export class GoProgram extends AbstractProgram {
     const goMod = GoProgram.findGoMod(sourceFile);
     const rootDir = goMod ? path.dirname(goMod) : path.dirname(sourceFile);
     const result: string[] = [];
-    const normSource = path.resolve(sourceFile);
+    const normSource = fs.existsSync(sourceFile)
+      ? fs.realpathSync(sourceFile)
+      : path.resolve(sourceFile);
 
     function walk(dir: string): void {
       if (!fs.existsSync(dir)) return;
@@ -179,13 +181,19 @@ export class GoProgram extends AbstractProgram {
         }
         const fullPath = path.join(dir, entry.name);
         if (entry.isDirectory()) {
+          // If subdirectory contains its own go.mod, it is a distinct Go module
+          if (fs.existsSync(path.join(fullPath, "go.mod"))) {
+            continue;
+          }
           walk(fullPath);
         } else if (
           entry.isFile() &&
           entry.name.endsWith(".go") &&
           !entry.name.endsWith("_test.go")
         ) {
-          const resolved = path.resolve(fullPath);
+          const resolved = fs.existsSync(fullPath)
+            ? fs.realpathSync(fullPath)
+            : path.resolve(fullPath);
           if (resolved !== normSource && !result.includes(resolved)) {
             result.push(resolved);
           }
