@@ -63,3 +63,9 @@ jobs:
         working-directory: packages/runtime/java
         run: |
           mvn clean test
+
+      # go runtime package
+      - name: NaNofuzz runtime (go)
+        working-directory: packages/runtime/go
+        run: |
+          go test -v ./...
