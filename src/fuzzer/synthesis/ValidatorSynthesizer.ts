@@ -4,6 +4,7 @@ import { PythonProgram } from "../analysis/python/PythonProgram";
 import { RustProgram } from "../analysis/rust/RustProgram";
 import { OxcamlProgram } from "../analysis/oxcaml/OxcamlProgram";
 import { JavaProgram } from "../analysis/java/JavaProgram";
+import { VirgilProgram } from "../analysis/virgil/VirgilProgram";
 import { ProgramLanguage } from "../analysis/Types";
 import { CompanionManager } from "../analysis/CompanionManager";
 import { FuzzerCodeSnippet } from "./Types";
@@ -268,6 +269,50 @@ export function synthesizeValidator(
     const skeleton = `\n\npublic static ValidatorResult ${validatorName}(FuzzTestResult ${validatorArgs.resultArgName}) {\n${bodyLines.join("\n")}`;
     const importData = imports.map((i) => i.stmt).join("");
     const fullTemplate = `${importData}${skeleton.trimStart()}`;
+    return {
+      name: validatorName,
+      skeleton,
+      imports,
+      fullTemplate,
+    };
+  } else if (targetLang === "virgil") {
+    const inArgLines = inArgs.map((argDef, i) => {
+      const typeAnnot = VirgilProgram.getTypeAnnotation(argDef);
+      return `  var ${argDef.getName()}: ${typeAnnot} = ${
+        validatorArgs.resultArgName
+      }.get_in_string(${i});`;
+    });
+    const outTypeAsArg = fn.getReturnArg();
+    const returnTypeStr = outTypeAsArg
+      ? VirgilProgram.getTypeAnnotation(outTypeAsArg)
+      : undefined;
+    const outVarName = getIdentifierNameAvoidingConflicts(
+      inArgs,
+      outVarCandidateNames,
+      maxOutVarSuffix
+    );
+    const outArgLine =
+      !fn.isVoid() && returnTypeStr && returnTypeStr !== "void"
+        ? `  var ${outVarName.name}: ${returnTypeStr} = ${validatorArgs.resultArgName}.get_out_string();`
+        : `  var ${outVarName.name}: string = ${validatorArgs.resultArgName}.get_out_string();`;
+
+    const imports: { name: string; stmt: string }[] = [];
+    const bodyLines: string[] = [];
+    bodyLines.push(
+      "  // Extract input arguments and return value from execution result"
+    );
+    if (inArgLines.length > 0) {
+      bodyLines.push(...inArgLines);
+    }
+    bodyLines.push(outArgLine);
+    bodyLines.push(
+      `\n  // Validate properties and return true (pass) or false (fail)`
+    );
+    bodyLines.push(`  return true;\n}`);
+
+    const skeleton = `\n\ndef ${validatorName}(${validatorArgs.resultArgName}: FuzzTestResult) -> bool {\n${bodyLines.join("\n")}`;
+    const fullTemplate = skeleton.trimStart();
+
     return {
       name: validatorName,
       skeleton,

@@ -100,6 +100,20 @@ describe("src/fuzzer/synthesis/UserGeneratorSynthesizer", () => {
     );
   });
 
+  it("synthesizes Virgil user input generator with prng callable and tuple return type", () => {
+    const src = `def add(a: int, b: float) -> int { return a; }`;
+    const program = ProgramFactory.fromSource(() => src, "virgil");
+    const fnDef = program.functionsExported["add"];
+    expect(fnDef).toBeDefined();
+
+    const result = synthesizeUserGenerator(fnDef, "virgil");
+    expect(result.name).toBe("addGenerator");
+    expect(result.skeleton).toContain(
+      "def addGenerator(prng: () -> float) -> (int, float) {"
+    );
+    expect(result.skeleton).toContain("return (");
+  });
+
   it("disambiguates generator name when existing names conflict", () => {
     const program = ProgramFactory.fromFile(tsFixture);
     const fnDef = program.functions["targetUserGen"];

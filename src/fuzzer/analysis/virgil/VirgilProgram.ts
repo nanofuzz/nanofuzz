@@ -70,6 +70,9 @@ export class VirgilProgram extends AbstractProgram {
     switch (arg.getType()) {
       case ArgTag.NUMBER: {
         const isInt = arg.getOptions().numInteger ?? true;
+        if (!isInt) {
+          return "float";
+        }
         const intervals = arg.getIntervals();
         if (intervals && intervals.length > 0) {
           const { min, max } = intervals[0];
@@ -79,7 +82,7 @@ export class VirgilProgram extends AbstractProgram {
           if (min >= -32768 && max <= 32767) return "i16";
           if (min >= 0 && max <= 4294967295) return "u32";
         }
-        return isInt ? "int" : "float";
+        return "int";
       }
       case ArgTag.BIGINT: {
         const intervals = arg.getOptions().bigintIntervals;

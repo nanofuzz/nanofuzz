@@ -3,6 +3,7 @@ import { PythonProgram } from "../analysis/python/PythonProgram";
 import { RustProgram } from "../analysis/rust/RustProgram";
 import { OxcamlProgram } from "../analysis/oxcaml/OxcamlProgram";
 import { JavaProgram } from "../analysis/java/JavaProgram";
+import { VirgilProgram } from "../analysis/virgil/VirgilProgram";
 import { ProgramLanguage } from "../analysis/Types";
 import { CompanionManager } from "../analysis/CompanionManager";
 import { FuzzerCodeSnippet } from "./Types";
@@ -193,6 +194,36 @@ export function synthesizeTransformer(
     const skeleton = `\n\npublic static Object[] ${transformerName}(${javaParams}) {\n  // Use Assume.that(condition, "msg") or throw new UnsatisfiedAssumptionException("msg") to filter out-of-domain inputs\n  // Otherwise, return the transformed inputs\n  return ${javaReturn};\n}`;
     const importData = imports.map((i) => i.stmt).join("");
     const fullTemplate = `${importData}${skeleton.trimStart()}`;
+
+    return {
+      name: transformerName,
+      skeleton,
+      imports,
+      fullTemplate,
+    };
+  } else if (targetLang === "virgil") {
+    const virgilParams = inArgs
+      .map((a) => `${a.getName()}: ${VirgilProgram.getTypeAnnotation(a)}`)
+      .join(", ");
+    const virgilTupleType =
+      inArgs.length === 0
+        ? "void"
+        : inArgs.length === 1
+          ? VirgilProgram.getTypeAnnotation(inArgs[0])
+          : `(${inArgs.map((a) => VirgilProgram.getTypeAnnotation(a)).join(", ")})`;
+    const virgilReturnTuple =
+      inArgs.length === 0
+        ? ""
+        : inArgs.length === 1
+          ? `return ${argDestructuring};`
+          : `return (${argDestructuring});`;
+
+    const imports: { name: string; stmt: string }[] = [];
+    const retAnnotation = virgilTupleType === "void" ? "void" : virgilTupleType;
+    const returnLine = virgilReturnTuple ? `\n  ${virgilReturnTuple}` : "";
+
+    const skeleton = `\n\ndef ${transformerName}(${virgilParams}) -> ${retAnnotation} {\n  // Use NanofuzzRuntime.assume(condition) to filter out-of-domain inputs\n  // Otherwise, return the transformed inputs${returnLine}\n}`;
+    const fullTemplate = skeleton.trimStart();
 
     return {
       name: transformerName,
