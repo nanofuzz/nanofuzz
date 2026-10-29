@@ -86,8 +86,10 @@ describe("fuzzer/runners/virgil/VirgilRunner: ", () => {
   });
 
   it("VirgilHost spawns child process with standard streams", () => {
-    // Test VirgilHost spawning echo as a stand-in executable
-    const host = new VirgilHost("/bin/echo", ["hello"]);
+    const host = new VirgilHost(process.execPath, [
+      "-e",
+      "setInterval(() => {}, 1000)",
+    ]);
     expect(host.isActive).toBeTrue();
     host.kill();
     expect(host.isActive).toBeFalse();
@@ -111,7 +113,10 @@ describe("fuzzer/runners/virgil/VirgilRunner: ", () => {
     await runner.onRunStart();
 
     expect(runner.coverageInfo).toBeDefined();
-    const cov = runner.coverageInfo![v3File];
+    const cov =
+      runner.coverageInfo![v3File] ??
+      runner.coverageInfo![v3File.replace(/\\/g, "/")] ??
+      runner.coverageInfo![fs.realpathSync(v3File)];
     expect(cov).toBeDefined();
     expect(Object.keys(cov.fnMap).length).toBe(1);
     expect(cov.fnMap["0"].name).toBe("clamp");

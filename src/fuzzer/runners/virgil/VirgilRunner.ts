@@ -78,6 +78,11 @@ export class VirgilRunner extends AbstractRunner {
       : this._filename;
     const allStaticCov = staticCovMap ?? { [realFile]: staticCov };
     this._coverageInfo = { ...allStaticCov };
+    this._coverageInfo[this._filename] = staticCov;
+    this._coverageInfo[this._filename.replace(/\\/g, "/")] = staticCov;
+    this._coverageInfo[realFile] = staticCov;
+    this._coverageInfo[realFile.replace(/\\/g, "/")] = staticCov;
+
     for (const [fPath, sCov] of Object.entries(allStaticCov)) {
       const normKey = normalizePathForKey(fPath);
       if (normKey !== fPath) {
