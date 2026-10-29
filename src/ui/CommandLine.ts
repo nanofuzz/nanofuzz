@@ -21,6 +21,7 @@ import {
 } from "../fuzzer/Types";
 import {
   formatCompilingStatus,
+  formatDuration,
   formatInstrumentingStatus,
   formatRunSummary,
 } from "./FuzzTextFormatter";
@@ -299,6 +300,7 @@ function createProgram(): Commander.Command {
     .option(
       `--rust-sanitizer <none|borrow|address>`,
       `Rust sanitizer: none, borrow, address`,
+      parseRustSanitizer,
       "none"
     )
 
@@ -331,6 +333,7 @@ function createMcpProgram(): Commander.Command {
     .option(
       "--transport <stdio|sse>",
       "MCP transport protocol: stdio, sse",
+      parseMcpTransport,
       "stdio"
     )
     .option(
@@ -446,12 +449,18 @@ export async function runCliInProcess(
     try {
       filename = require.resolve(filenameIn);
     } catch (_e: unknown) {
-      if (fs.existsSync(path.resolve(filenameIn))) {
-        filename = path.resolve(filenameIn);
+      const resolved = path.resolve(filenameIn);
+      if (fs.existsSync(resolved)) {
+        filename = resolved;
       } else {
         isolator.error(`Error: file not found: ${filenameIn}`);
         return ERROR_USAGE; // command line usage error
       }
+    }
+
+    if (fs.existsSync(filename) && fs.statSync(filename).isDirectory()) {
+      isolator.error(`Error: '${filenameIn}' is a directory, not a file.`);
+      return ERROR_USAGE;
     }
 
     const options = program.opts();
@@ -1245,24 +1254,30 @@ function parseEngineOption(
   );
 } // fn: parseEngineOption
 
+function parseRustSanitizer(value: string, _previous: string): string {
+  const allowed = ["none", "borrow", "address"];
+  const normalized = value.toLowerCase();
+  if (allowed.includes(normalized)) {
+    return normalized;
+  }
+  throw new Commander.InvalidArgumentError(
+    `Invalid rust sanitizer '${value}'. Allowed: ${allowed.join(", ")}`
+  );
+} // fn: parseRustSanitizer
+
+function parseMcpTransport(value: string, _previous: string): "stdio" | "sse" {
+  const normalized = value.toLowerCase();
+  if (normalized === "stdio" || normalized === "sse") {
+    return normalized;
+  }
+  throw new Commander.InvalidArgumentError(
+    `Invalid transport '${value}'. Allowed: stdio, sse`
+  );
+} // fn: parseMcpTransport
+
 // ------------------------------ Format Helpers ----------------------------- //
 
-export function formatDuration(totalSeconds: number): string {
-  const s = Math.max(0, Math.floor(isNaN(totalSeconds) ? 0 : totalSeconds));
-  if (s < 60) {
-    return `${s}s`;
-  }
-  const minutes = Math.floor(s / 60);
-  const remainingSeconds = s % 60;
-  const secStr = remainingSeconds.toString().padStart(2, "0");
-  if (minutes < 60) {
-    return `${minutes}m${secStr}s`;
-  }
-  const hours = Math.floor(minutes / 60);
-  const remainingMinutes = minutes % 60;
-  const minStr = remainingMinutes.toString().padStart(2, "0");
-  return `${hours}h${minStr}m${secStr}s`;
-} // fn: formatDuration
+export { formatDuration };
 
 export function formatThroughput(
   total: number,
@@ -1270,6 +1285,8 @@ export function formatThroughput(
   unit: "execs" | "inputs" = "execs"
 ): string {
   const perSecUnit = unit === "inputs" ? "inputs/s" : "execs/s";
+  const perMinUnit = unit === "inputs" ? "inputs/min" : "execs/min";
+  const perHourUnit = unit === "inputs" ? "inputs/hr" : "execs/hr";
   if (elapsedSec <= 0 || isNaN(elapsedSec)) {
     return `0 ${perSecUnit}`;
   }
@@ -1278,9 +1295,9 @@ export function formatThroughput(
       return `0 ${perSecUnit}`;
     }
     if (elapsedSec < 3600) {
-      return "0 inputs/min";
+      return `0 ${perMinUnit}`;
     }
-    return "0 inputs/hr";
+    return `0 ${perHourUnit}`;
   }
 
   const ratePerSec = total / elapsedSec;
@@ -1290,11 +1307,11 @@ export function formatThroughput(
 
   const ratePerMin = ratePerSec * 60;
   if (ratePerMin >= 1) {
-    return `${Math.round(ratePerMin)} inputs/min`;
+    return `${Math.round(ratePerMin)} ${perMinUnit}`;
   }
 
   const ratePerHour = ratePerSec * 3600;
-  return `${Math.round(ratePerHour)} inputs/hr`;
+  return `${Math.round(ratePerHour)} ${perHourUnit}`;
 } // fn: formatThroughput
 
 export const formatRate = formatThroughput;

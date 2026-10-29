@@ -3,6 +3,7 @@ import {
   formatTestingStatus,
   formatWaitingStatus,
   formatCompilingStatus,
+  formatDuration,
   formatInstrumentingStatus,
   formatTestingCompleteStatus,
   formatRunStatsSummary,
@@ -354,5 +355,19 @@ describe("ui/FuzzTextFormatter", () => {
     );
     expect(res.excLine).toContain("Some error");
     expect(res.stackLines.length).toBeGreaterThan(0);
+  });
+
+  it("formatDuration: formats seconds, minutes, and hours correctly", () => {
+    expect(formatDuration(0)).toBe("0s");
+    expect(formatDuration(-10)).toBe("0s");
+    expect(formatDuration(NaN)).toBe("0s");
+    expect(formatDuration(Infinity)).toBe("0s");
+    expect(formatDuration(2)).toBe("2s");
+    expect(formatDuration(59)).toBe("59s");
+    expect(formatDuration(60)).toBe("1m00s");
+    expect(formatDuration(120)).toBe("2m00s");
+    expect(formatDuration(125)).toBe("2m05s");
+    expect(formatDuration(3600)).toBe("1h00m00s");
+    expect(formatDuration(19325)).toBe("5h22m05s");
   });
 });

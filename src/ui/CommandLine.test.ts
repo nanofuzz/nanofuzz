@@ -1181,6 +1181,9 @@ describe("cli:", () => {
 
   it("formatDuration: formats seconds, minutes, and hours correctly", () => {
     expect(formatDuration(0)).toBe("0s");
+    expect(formatDuration(-10)).toBe("0s");
+    expect(formatDuration(NaN)).toBe("0s");
+    expect(formatDuration(Infinity)).toBe("0s");
     expect(formatDuration(2)).toBe("2s");
     expect(formatDuration(59)).toBe("59s");
     expect(formatDuration(60)).toBe("1m00s");
@@ -1190,33 +1193,33 @@ describe("cli:", () => {
     expect(formatDuration(19325)).toBe("5h22m05s");
   });
 
-  it("formatThroughput: formats execs/s, inputs/min, and inputs/hr correctly", () => {
+  it("formatThroughput: formats execs/s, execs/min, and execs/hr correctly", () => {
     // Zero or invalid elapsed
     expect(formatThroughput(0, 0)).toBe("0 execs/s");
     expect(formatThroughput(5, 0)).toBe("0 execs/s");
     expect(formatThroughput(0, 10)).toBe("0 execs/s");
-    expect(formatThroughput(0, 120)).toBe("0 inputs/min");
-    expect(formatThroughput(0, 7200)).toBe("0 inputs/hr");
+    expect(formatThroughput(0, 120)).toBe("0 execs/min");
+    expect(formatThroughput(0, 7200)).toBe("0 execs/hr");
 
     // >= 1 exec/s
     expect(formatThroughput(100, 2)).toBe("50 execs/s");
     expect(formatThroughput(5, 5)).toBe("1 execs/s");
     expect(formatThroughput(10, 8)).toBe("1 execs/s");
 
-    // < 1 exec/s but >= 1 input/min
-    expect(formatThroughput(50, 239)).toBe("13 inputs/min");
-    expect(formatThroughput(1, 2)).toBe("30 inputs/min");
-    expect(formatThroughput(1, 60)).toBe("1 inputs/min");
+    // < 1 exec/s but >= 1 exec/min
+    expect(formatThroughput(50, 239)).toBe("13 execs/min");
+    expect(formatThroughput(1, 2)).toBe("30 execs/min");
+    expect(formatThroughput(1, 60)).toBe("1 execs/min");
 
-    // < 1 input/min (measured in inputs/hr)
-    expect(formatThroughput(1, 120)).toBe("30 inputs/hr");
-    expect(formatThroughput(5, 900)).toBe("20 inputs/hr");
-    expect(formatThroughput(1, 3600)).toBe("1 inputs/hr");
+    // < 1 exec/min (measured in execs/hr)
+    expect(formatThroughput(1, 120)).toBe("30 execs/hr");
+    expect(formatThroughput(5, 900)).toBe("20 execs/hr");
+    expect(formatThroughput(1, 3600)).toBe("1 execs/hr");
 
     // formatRate alias works identically
-    expect(formatRate(50, 239)).toBe("13 inputs/min");
+    expect(formatRate(50, 239)).toBe("13 execs/min");
 
-    // unit: inputs uses same minutes and fallback logic
+    // unit: inputs uses inputs/min and inputs/hr
     expect(formatThroughput(0, 0, "inputs")).toBe("0 inputs/s");
     expect(formatThroughput(5, 0, "inputs")).toBe("0 inputs/s");
     expect(formatThroughput(0, 10, "inputs")).toBe("0 inputs/s");
@@ -1234,6 +1237,25 @@ describe("cli:", () => {
     expect(formatThroughput(1, 120, "inputs")).toBe("30 inputs/hr");
     expect(formatThroughput(5, 900, "inputs")).toBe("20 inputs/hr");
     expect(formatThroughput(1, 3600, "inputs")).toBe("1 inputs/hr");
+  });
+
+  it("returns exit code 4 when target path is a directory", async () => {
+    const res = await runCli(["src", "myFunc"]);
+    expect(res.status).toBe(4);
+    expect(res.stderr).toContain("Error: 'src' is a directory, not a file.");
+  });
+
+  it("returns exit code 4 when invalid --rust-sanitizer is passed", async () => {
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const res = await runCli([targetFile, "testBoolean", "--rust-sanitizer", "invalid"]);
+    expect(res.status).toBe(4);
+    expect(res.stderr).toContain("Invalid rust sanitizer 'invalid'. Allowed: none, borrow, address");
+  });
+
+  it("returns exit code 4 when invalid mcp --transport is passed", async () => {
+    const res = await runCli(["mcp", "--transport", "invalid"]);
+    expect(res.status).toBe(4);
+    expect(res.stderr).toContain("Invalid transport 'invalid'. Allowed: stdio, sse");
   });
 
   it("formatTestResults: formats non-zero groups and omits empty/zero groups", () => {
