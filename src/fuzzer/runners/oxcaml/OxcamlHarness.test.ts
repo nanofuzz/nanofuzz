@@ -164,4 +164,64 @@ let add (a : int) (b : int) : int =
     );
     expect(cachedResult.binaryPath).toBe(harnessResult.binaryPath);
   });
+
+  it("builds harness for target with nested tuple in list parameter (repro_variant_list)", () => {
+    const duneBin = OxcamlCompiler.resolveDune();
+    if (!duneBin) {
+      pending("Dune executable not found in environment");
+      return;
+    }
+
+    const targetFile = path.join(tempDir, "repro_variant_list.ml");
+    fs.writeFileSync(
+      targetFile,
+      `
+open Nanofuzz_runtime
+
+type buffer_op = Push | Pop | Peek | Clear
+
+let test_ops (ops : (buffer_op * int) list) : int =
+  List.length ops
+`
+    );
+
+    const harnessResult = buildOxcamlHarness(
+      targetFile,
+      "test_ops",
+      undefined,
+      tempDir
+    );
+
+    expect(fs.existsSync(harnessResult.binaryPath)).toBeTrue();
+  });
+
+  it("builds harness for target with variant list parameter", () => {
+    const duneBin = OxcamlCompiler.resolveDune();
+    if (!duneBin) {
+      pending("Dune executable not found in environment");
+      return;
+    }
+
+    const targetFile = path.join(tempDir, "simple_variant_list.ml");
+    fs.writeFileSync(
+      targetFile,
+      `
+open Nanofuzz_runtime
+
+type buffer_op = Push | Pop | Peek | Clear
+
+let test_simple_ops (ops : buffer_op list) : int =
+  List.length ops
+`
+    );
+
+    const harnessResult = buildOxcamlHarness(
+      targetFile,
+      "test_simple_ops",
+      undefined,
+      tempDir
+    );
+
+    expect(fs.existsSync(harnessResult.binaryPath)).toBeTrue();
+  });
 });
