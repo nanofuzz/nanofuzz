@@ -525,8 +525,11 @@ function normalizePathForDisplay(filePath: string): string {
  * @param totalSeconds Total seconds elapsed
  * @returns Formatted duration string
  */
-function formatDuration(totalSeconds: number): string {
-  const s = Math.max(0, Math.floor(isNaN(totalSeconds) ? 0 : totalSeconds));
+export function formatDuration(totalSeconds: number): string {
+  if (!isFinite(totalSeconds) || isNaN(totalSeconds) || totalSeconds <= 0) {
+    return "0s";
+  }
+  const s = Math.floor(totalSeconds);
   if (s < 60) {
     return `${s}s`;
   }

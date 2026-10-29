@@ -21,6 +21,7 @@ import {
 } from "../fuzzer/Types";
 import {
   formatCompilingStatus,
+  formatDuration,
   formatInstrumentingStatus,
   formatRunSummary,
 } from "./FuzzTextFormatter";
@@ -1276,25 +1277,7 @@ function parseMcpTransport(value: string, _previous: string): "stdio" | "sse" {
 
 // ------------------------------ Format Helpers ----------------------------- //
 
-export function formatDuration(totalSeconds: number): string {
-  if (!isFinite(totalSeconds) || isNaN(totalSeconds) || totalSeconds <= 0) {
-    return "0s";
-  }
-  const s = Math.floor(totalSeconds);
-  if (s < 60) {
-    return `${s}s`;
-  }
-  const minutes = Math.floor(s / 60);
-  const remainingSeconds = s % 60;
-  const secStr = remainingSeconds.toString().padStart(2, "0");
-  if (minutes < 60) {
-    return `${minutes}m${secStr}s`;
-  }
-  const hours = Math.floor(minutes / 60);
-  const remainingMinutes = minutes % 60;
-  const minStr = remainingMinutes.toString().padStart(2, "0");
-  return `${hours}h${minStr}m${secStr}s`;
-} // fn: formatDuration
+export { formatDuration };
 
 export function formatThroughput(
   total: number,
