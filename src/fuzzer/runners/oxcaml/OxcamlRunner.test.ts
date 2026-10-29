@@ -909,6 +909,84 @@ let next_color (c : color) : color =
     await nextRunner.onRunEnd();
   });
 
+  it("executes functions with nested tuple in list parameter (repro_variant_list)", async () => {
+    const duneBin = OxcamlCompiler.resolveDune();
+    if (!duneBin) {
+      pending("Dune not found in environment");
+      return;
+    }
+
+    const mlPath = path.join(tempDir, "repro_variant_list.ml");
+    fs.writeFileSync(
+      mlPath,
+      `open Nanofuzz_runtime
+
+type buffer_op = Push | Pop | Peek | Clear
+
+let test_ops (ops : (buffer_op * int) list) : int =
+  List.length ops
+`
+    );
+
+    const program = ProgramFactory.fromFile(mlPath, "oxcaml");
+    const opsDef = program.functionsExported["test_ops"];
+    const opsEnv = createTestEnv(opsDef);
+    const opsRunner = new OxcamlRunner(mlPath, "test_ops", opsEnv);
+    await opsRunner.onRunStart();
+
+    const opsRes = await opsRunner.run(
+      [
+        [
+          ["Push", 10],
+          ["Pop", 0],
+          ["Peek", 1],
+        ],
+      ],
+      5000
+    );
+    expect(opsRes.result.tag).toBe("value");
+    if (opsRes.result.tag === "value") {
+      expect(opsRes.result.value).toBe(3);
+    }
+    await opsRunner.onRunEnd();
+  });
+
+  it("executes functions with variant list parameter", async () => {
+    const duneBin = OxcamlCompiler.resolveDune();
+    if (!duneBin) {
+      pending("Dune not found in environment");
+      return;
+    }
+
+    const mlPath = path.join(tempDir, "variant_list_ipc_test.ml");
+    fs.writeFileSync(
+      mlPath,
+      `open Nanofuzz_runtime
+
+type buffer_op = Push | Pop | Peek | Clear
+
+let test_simple_ops (ops : buffer_op list) : int =
+  List.length ops
+`
+    );
+
+    const program = ProgramFactory.fromFile(mlPath, "oxcaml");
+    const simpleDef = program.functionsExported["test_simple_ops"];
+    const simpleEnv = createTestEnv(simpleDef);
+    const simpleRunner = new OxcamlRunner(mlPath, "test_simple_ops", simpleEnv);
+    await simpleRunner.onRunStart();
+
+    const simpleRes = await simpleRunner.run(
+      [["Push", "Pop", "Clear", "Peek"]],
+      5000
+    );
+    expect(simpleRes.result.tag).toBe("value");
+    if (simpleRes.result.tag === "value") {
+      expect(simpleRes.result.value).toBe(4);
+    }
+    await simpleRunner.onRunEnd();
+  });
+
   it("is instantiated correctly via RunnerFactory", () => {
     const mlPath = path.join(tempDir, "sample.ml");
     fs.writeFileSync(mlPath, "let add (a : int) : int = a");

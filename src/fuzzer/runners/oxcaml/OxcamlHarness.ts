@@ -372,28 +372,33 @@ export function buildOxcamlHarness(
   const pathKey =
     Object.keys(process.env).find((k) => k.toLowerCase() === "path") || "PATH";
 
-  const buildRes = ChildProcess.spawnSync(duneBin, ["build", "./harness.exe"], {
-    cwd: harnessDir,
-    encoding: "utf8",
-    windowsHide: true,
-    maxBuffer: 16 * 1024 * 1024,
-    env: {
-      ...process.env,
-      [pathKey]: `${duneDir}${path.delimiter}${process.env[pathKey] || ""}`,
-    },
-  });
+  const buildRes = ChildProcess.spawnSync(
+    duneBin,
+    ["build", "./harness.exe", "--cache=disabled"],
+    {
+      cwd: harnessDir,
+      encoding: "utf8",
+      windowsHide: true,
+      maxBuffer: 16 * 1024 * 1024,
+      env: {
+        ...process.env,
+        DUNE_CACHE: "disabled",
+        [pathKey]: `${duneDir}${path.delimiter}${process.env[pathKey] || ""}`,
+      },
+    }
+  );
 
   if (buildRes.status !== 0 || !fs.existsSync(binaryPath)) {
+    const errorOutput =
+      [buildRes.stderr, buildRes.stdout]
+        .filter((s) => typeof s === "string" && s.trim().length > 0)
+        .join("\n") || "Dune build failed for test harness";
     throw new OxcamlCompilerError(
       "Failed to build OCaml fuzzing harness executable",
       {
         inputFile: normTarget,
         commandCli: `${duneBin} build ./harness.exe`,
-        output: [
-          buildRes.stderr ||
-            buildRes.stdout ||
-            "Dune build failed for test harness",
-        ],
+        output: errorOutput.split("\n"),
       }
     );
   }
@@ -980,7 +985,11 @@ function buildDeserializer(
   const cleanType = typeAnnot.trim();
 
   // Result types: ('a, 'e) result
-  if (cleanType.endsWith(" result") || cleanType.includes(" result")) {
+  if (
+    cleanType.endsWith(" result") ||
+    cleanType.endsWith(") result") ||
+    cleanType.endsWith(" Result.t")
+  ) {
     const tupleInner = cleanType
       .slice(0, cleanType.lastIndexOf(" result"))
       .trim();
@@ -1001,83 +1010,43 @@ function buildDeserializer(
       | None -> Ok (${buildSingleValDeserializer(okType, "Msgpck.Nil", okChild, progTypes)}))`;
   }
 
-  // Variants (nullary enums, payload-bearing variants, polymorphic variants)
-  const variantCtors = getVariantConstructors(cleanType, argDef, progTypes);
-  if (variantCtors && variantCtors.length > 0) {
-    const nullaryCtors = variantCtors.filter((c) => !c.hasPayload);
-    const nullaryBranches = nullaryCtors
-      .map((c) => {
-        const ctorRef = c.isPoly ? c.name : `Target_module.${c.name}`;
-        return `| "${c.name}" -> ${ctorRef}`;
-      })
-      .join("\n            ");
+  // Tuples
+  const tupleParts = splitTupleType(cleanType);
+  if (tupleParts.length > 1) {
+    const tupleChildren = argDef?.getChildren() ?? [];
+    return `(match List.nth_opt args ${idx} with Some v -> let l = get_list v in (${tupleParts.map((t, i) => buildSingleValDeserializer(t, `(List.nth l ${i})`, tupleChildren[i], progTypes)).join(", ")}) | None -> failwith "arg ${idx}: expected tuple")`;
+  }
 
-    const payloadCtors = variantCtors.filter((c) => c.hasPayload);
-    const payloadBranches = payloadCtors
-      .map((c) => {
-        const ctorRef = c.isPoly ? c.name : `Target_module.${c.name}`;
-        if (
-          c.isTuplePayload &&
-          c.tuplePayloadTypes &&
-          c.tuplePayloadTypes.length > 1
-        ) {
-          const tupleArgs = c.tuplePayloadTypes
-            .map((t, i) =>
-              buildSingleValDeserializer(
-                t,
-                `(List.nth l ${i})`,
-                undefined,
-                progTypes
-              )
-            )
-            .join(", ");
-          return `| "${c.name}" ->
-               let l = get_list val_payload in
-               ${ctorRef} (${tupleArgs})`;
-        } else {
-          const deser = buildSingleValDeserializer(
-            c.payloadType ?? "int",
-            "val_payload",
-            c.argDef,
-            progTypes
-          );
-          return `| "${c.name}" -> ${ctorRef} (${deser})`;
-        }
-      })
-      .join("\n            ");
+  // Option
+  if (cleanType.endsWith(" option")) {
+    const elemType = cleanType.slice(0, -7).trim();
+    const elemChild = getElementArgDef(argDef);
+    return `(match List.nth_opt args ${idx} with None | Some Msgpck.Nil -> None | Some v -> Some (${buildSingleValDeserializer(elemType, "v", elemChild, progTypes)}))`;
+  }
 
-    const defaultCtor = variantCtors[0];
-    const defaultExpr = defaultCtor.hasPayload
-      ? defaultCtor.isPoly
-        ? `${defaultCtor.name} (${buildSingleValDeserializer(
-            defaultCtor.payloadType ?? "int",
-            "Msgpck.Nil",
-            defaultCtor.argDef,
-            progTypes
-          )})`
-        : `Target_module.${defaultCtor.name} (${buildSingleValDeserializer(
-            defaultCtor.payloadType ?? "int",
-            "Msgpck.Nil",
-            defaultCtor.argDef,
-            progTypes
-          )})`
-      : defaultCtor.isPoly
-        ? defaultCtor.name
-        : `Target_module.${defaultCtor.name}`;
-
+  // List
+  if (cleanType.endsWith(" list")) {
+    const elemType = cleanType.slice(0, -5).trim();
+    const elemChild = getElementArgDef(argDef);
     return `(match List.nth_opt args ${idx} with
       | Some v ->
-        (match v with
-         | Msgpck.String s ->
-           (match s with
-            ${nullaryBranches ? nullaryBranches + "\n            " : ""}| _ -> ${defaultExpr})
-         | Msgpck.Map _ ->
-           let tag_str = get_string (find_key "tag" v) in
-           let val_payload = find_key "value" v in
-           (match tag_str with
-            ${payloadBranches ? payloadBranches + "\n            " : ""}${nullaryBranches ? nullaryBranches + "\n            " : ""}| _ -> ${defaultExpr})
-         | _ -> ${defaultExpr})
-      | None -> ${defaultExpr})`;
+        let raw_list = match v with
+          | Msgpck.Map m ->
+            (match List.find_opt (fun (k, _) -> k = Msgpck.String "____JSONN____61581952310____SET____") m with
+             | Some (_, Msgpck.List l) -> l
+             | _ -> [])
+          | Msgpck.List l -> l
+          | _ -> []
+        in
+        List.map (fun item -> ${buildSingleValDeserializer(elemType, "item", elemChild, progTypes)}) raw_list
+      | None -> [])`;
+  }
+
+  // Array
+  if (cleanType.endsWith(" array")) {
+    const elemType = cleanType.slice(0, -6).trim();
+    const elemChild = getElementArgDef(argDef);
+    return `(match List.nth_opt args ${idx} with Some v -> Array.of_list (List.map (fun item -> ${buildSingleValDeserializer(elemType, "item", elemChild, progTypes)}) (get_list v)) | None -> [||])`;
   }
 
   // Buffer.t
@@ -1095,6 +1064,9 @@ function buildDeserializer(
   }
 
   // Record types
+  const normCleanType = cleanType.startsWith("Target_module.")
+    ? cleanType.slice("Target_module.".length)
+    : cleanType;
   const isRecord =
     !cleanType.includes("Map") &&
     !cleanType.includes("Set") &&
@@ -1104,13 +1076,18 @@ function buildDeserializer(
       argDef.getType() === ArgTag.OBJECT &&
       argDef.getChildren().length > 0 &&
       argDef.getChildren().every((c) => c.getName() !== "unknown")) ||
-      (cleanType in progTypes &&
-        (progTypes[cleanType]?.type?.children?.length ?? 0) > 0));
+      ((cleanType in progTypes || normCleanType in progTypes) &&
+        (progTypes[cleanType]?.type?.type === ArgTag.OBJECT ||
+          progTypes[normCleanType]?.type?.type === ArgTag.OBJECT) &&
+        ((progTypes[cleanType]?.type?.children?.length ?? 0) > 0 ||
+          (progTypes[normCleanType]?.type?.children?.length ?? 0) > 0)));
   if (isRecord) {
     const fields =
       argDef && argDef.getChildren().length > 0
         ? argDef.getChildren()
-        : (progTypes[cleanType]?.type?.children ?? []);
+        : (progTypes[cleanType]?.type?.children ??
+          progTypes[normCleanType]?.type?.children ??
+          []);
     const fieldDesers = fields.map((f) => {
       if (f instanceof ArgDef) {
         const fieldName = f.getName();
@@ -1123,13 +1100,6 @@ function buildDeserializer(
       }
     });
     return `(match List.nth_opt args ${idx} with Some v -> let m = get_map v in { Target_module. ${fieldDesers.join("; ")} } | None -> failwith "arg ${idx}: expected record ${cleanType}")`;
-  }
-
-  // Tuples
-  const tupleParts = splitTupleType(cleanType);
-  if (tupleParts.length > 1) {
-    const tupleChildren = argDef?.getChildren() ?? [];
-    return `(match List.nth_opt args ${idx} with Some v -> let l = get_list v in (${tupleParts.map((t, i) => buildSingleValDeserializer(t, `(List.nth l ${i})`, tupleChildren[i], progTypes)).join(", ")}) | None -> failwith "arg ${idx}: expected tuple")`;
   }
 
   // Set modules
@@ -1267,31 +1237,84 @@ function buildDeserializer(
   if (cleanType === "bytes") {
     return `(match List.nth_opt args ${idx} with Some v -> get_bytes v | None -> Bytes.empty)`;
   }
-  if (cleanType.endsWith(" option")) {
-    const elemType = cleanType.slice(0, -7).trim();
-    const elemChild = argDef?.getChildren()[0];
-    return `(match List.nth_opt args ${idx} with None | Some Msgpck.Nil -> None | Some v -> Some (${buildSingleValDeserializer(elemType, "v", elemChild, progTypes)}))`;
-  }
-  if (cleanType.endsWith(" list")) {
-    const elemType = cleanType.slice(0, -5).trim();
-    const elemChild = argDef?.getChildren()[0];
+
+  // Variants (nullary enums, payload-bearing variants, polymorphic variants)
+  const variantCtors = getVariantConstructors(cleanType, argDef, progTypes);
+  if (variantCtors && variantCtors.length > 0) {
+    const nullaryCtors = variantCtors.filter((c) => !c.hasPayload);
+    const nullaryBranches = nullaryCtors
+      .map((c) => {
+        const ctorRef = c.isPoly ? c.name : `Target_module.${c.name}`;
+        return `| "${c.name}" -> ${ctorRef}`;
+      })
+      .join("\n            ");
+
+    const payloadCtors = variantCtors.filter((c) => c.hasPayload);
+    const payloadBranches = payloadCtors
+      .map((c) => {
+        const ctorRef = c.isPoly ? c.name : `Target_module.${c.name}`;
+        if (
+          c.isTuplePayload &&
+          c.tuplePayloadTypes &&
+          c.tuplePayloadTypes.length > 1
+        ) {
+          const tupleArgs = c.tuplePayloadTypes
+            .map((t, i) =>
+              buildSingleValDeserializer(
+                t,
+                `(List.nth l ${i})`,
+                undefined,
+                progTypes
+              )
+            )
+            .join(", ");
+          return `| "${c.name}" ->
+               let l = get_list val_payload in
+               ${ctorRef} (${tupleArgs})`;
+        } else {
+          const deser = buildSingleValDeserializer(
+            c.payloadType ?? "int",
+            "val_payload",
+            c.argDef,
+            progTypes
+          );
+          return `| "${c.name}" -> ${ctorRef} (${deser})`;
+        }
+      })
+      .join("\n            ");
+
+    const defaultCtor = variantCtors[0];
+    const defaultExpr = defaultCtor.hasPayload
+      ? defaultCtor.isPoly
+        ? `${defaultCtor.name} (${buildSingleValDeserializer(
+            defaultCtor.payloadType ?? "int",
+            "Msgpck.Nil",
+            defaultCtor.argDef,
+            progTypes
+          )})`
+        : `Target_module.${defaultCtor.name} (${buildSingleValDeserializer(
+            defaultCtor.payloadType ?? "int",
+            "Msgpck.Nil",
+            defaultCtor.argDef,
+            progTypes
+          )})`
+      : defaultCtor.isPoly
+        ? defaultCtor.name
+        : `Target_module.${defaultCtor.name}`;
+
     return `(match List.nth_opt args ${idx} with
       | Some v ->
-        let raw_list = match v with
-          | Msgpck.Map m ->
-            (match List.find_opt (fun (k, _) -> k = Msgpck.String "____JSONN____61581952310____SET____") m with
-             | Some (_, Msgpck.List l) -> l
-             | _ -> [])
-          | Msgpck.List l -> l
-          | _ -> []
-        in
-        List.map (fun item -> ${buildSingleValDeserializer(elemType, "item", elemChild, progTypes)}) raw_list
-      | None -> [])`;
-  }
-  if (cleanType.endsWith(" array")) {
-    const elemType = cleanType.slice(0, -6).trim();
-    const elemChild = argDef?.getChildren()[0];
-    return `(match List.nth_opt args ${idx} with Some v -> Array.of_list (List.map (fun item -> ${buildSingleValDeserializer(elemType, "item", elemChild, progTypes)}) (get_list v)) | None -> [||])`;
+        (match v with
+         | Msgpck.String s ->
+           (match s with
+            ${nullaryBranches ? nullaryBranches + "\n            " : ""}| _ -> ${defaultExpr})
+         | Msgpck.Map _ ->
+           let tag_str = get_string (find_key "tag" v) in
+           let val_payload = find_key "value" v in
+           (match tag_str with
+            ${payloadBranches ? payloadBranches + "\n            " : ""}${nullaryBranches ? nullaryBranches + "\n            " : ""}| _ -> ${defaultExpr})
+         | _ -> ${defaultExpr})
+      | None -> ${defaultExpr})`;
   }
 
   throw new Error(`Unsupported OCaml type for deserialization: '${cleanType}'`);
@@ -1309,7 +1332,11 @@ function buildSingleValDeserializer(
   const cleanType = typeAnnot.trim();
 
   // Result types
-  if (cleanType.endsWith(" result") || cleanType.includes(" result")) {
+  if (
+    cleanType.endsWith(" result") ||
+    cleanType.endsWith(") result") ||
+    cleanType.endsWith(" Result.t")
+  ) {
     const tupleInner = cleanType
       .slice(0, cleanType.lastIndexOf(" result"))
       .trim();
@@ -1326,6 +1353,99 @@ function buildSingleValDeserializer(
          | Some (_, err_v) -> Error (${buildSingleValDeserializer(errType, "err_v", errChild, progTypes)})
          | None -> Ok (${buildSingleValDeserializer(okType, "Msgpck.Nil", okChild, progTypes)})))`;
   }
+
+  // Tuples
+  const tupleParts = splitTupleType(cleanType);
+  if (tupleParts.length > 1) {
+    const tupleChildren = argDef?.getChildren() ?? [];
+    return `(let l = get_list ${valVar} in (${tupleParts.map((t, i) => buildSingleValDeserializer(t, `(List.nth l ${i})`, tupleChildren[i], progTypes)).join(", ")}) )`;
+  }
+
+  // Option
+  if (cleanType.endsWith(" option")) {
+    const elemType = cleanType.slice(0, -7).trim();
+    const elemChild = getElementArgDef(argDef);
+    return `(match ${valVar} with Msgpck.Nil -> None | v -> Some (${buildSingleValDeserializer(elemType, "v", elemChild, progTypes)}))`;
+  }
+
+  // List
+  if (cleanType.endsWith(" list")) {
+    const elemType = cleanType.slice(0, -5).trim();
+    const elemChild = getElementArgDef(argDef);
+    return `(List.map (fun item -> ${buildSingleValDeserializer(elemType, "item", elemChild, progTypes)}) (get_list ${valVar}))`;
+  }
+
+  // Array
+  if (cleanType.endsWith(" array")) {
+    const elemType = cleanType.slice(0, -6).trim();
+    const elemChild = getElementArgDef(argDef);
+    return `(Array.of_list (List.map (fun item -> ${buildSingleValDeserializer(elemType, "item", elemChild, progTypes)}) (get_list ${valVar})))`;
+  }
+
+  // Buffer.t
+  if (cleanType === "Buffer.t" || cleanType === "Buffer") {
+    return `(let buf = Buffer.create 16 in Buffer.add_string buf (get_string ${valVar}); buf)`;
+  }
+
+  // bigstring / Bigarray.Array1.t
+  if (
+    cleanType === "bigstring" ||
+    cleanType.includes("Bigstring") ||
+    cleanType.includes("Array1.t")
+  ) {
+    return `(let s = match ${valVar} with Msgpck.Bytes b -> b | Msgpck.String str -> str | _ -> Bytes.to_string (get_bytes ${valVar}) in let ba = Bigarray.Array1.create Bigarray.char Bigarray.c_layout (String.length s) in String.iteri (fun i c -> ba.{i} <- c) s; ba)`;
+  }
+
+  // Records
+  const normCleanType = cleanType.startsWith("Target_module.")
+    ? cleanType.slice("Target_module.".length)
+    : cleanType;
+  const isRecord =
+    !cleanType.includes("Map") &&
+    !cleanType.includes("Set") &&
+    !cleanType.includes("Hashtbl") &&
+    !cleanType.includes("result") &&
+    ((argDef &&
+      argDef.getType() === ArgTag.OBJECT &&
+      argDef.getChildren().length > 0 &&
+      argDef.getChildren().every((c) => c.getName() !== "unknown")) ||
+      ((cleanType in progTypes || normCleanType in progTypes) &&
+        (progTypes[cleanType]?.type?.type === ArgTag.OBJECT ||
+          progTypes[normCleanType]?.type?.type === ArgTag.OBJECT) &&
+        ((progTypes[cleanType]?.type?.children?.length ?? 0) > 0 ||
+          (progTypes[normCleanType]?.type?.children?.length ?? 0) > 0)));
+  if (isRecord) {
+    const fields =
+      argDef && argDef.getChildren().length > 0
+        ? argDef.getChildren()
+        : (progTypes[cleanType]?.type?.children ??
+          progTypes[normCleanType]?.type?.children ??
+          []);
+    const fieldDesers = fields.map((f) => {
+      if (f instanceof ArgDef) {
+        const fieldName = f.getName();
+        const fieldType = OxcamlProgram.getTypeAnnotation(f);
+        return `${fieldName} = (match List.find_opt (fun (k, _) -> k = Msgpck.String "${fieldName}") m with Some (_, v) -> ${buildSingleValDeserializer(fieldType, "v", f, progTypes)} | None -> failwith "missing field ${fieldName}")`;
+      } else {
+        const fieldName = f.name ?? "";
+        const fieldType = f.typeRefName ?? "int";
+        return `${fieldName} = (match List.find_opt (fun (k, _) -> k = Msgpck.String "${fieldName}") m with Some (_, v) -> ${buildSingleValDeserializer(fieldType, "v", undefined, progTypes)} | None -> failwith "missing field ${fieldName}")`;
+      }
+    });
+    return `(let m = get_map ${valVar} in { Target_module. ${fieldDesers.join("; ")} })`;
+  }
+
+  if (cleanType === "int" || cleanType === "#int") return `(get_int ${valVar})`;
+  if (cleanType === "float" || cleanType === "#float")
+    return `(get_float ${valVar})`;
+  if (cleanType === "string") return `(get_string ${valVar})`;
+  if (cleanType === "bool") return `(get_bool ${valVar})`;
+  if (cleanType === "int32") return `(get_int32 ${valVar})`;
+  if (cleanType === "int64") return `(get_int64 ${valVar})`;
+  if (cleanType === "nativeint") return `(get_nativeint ${valVar})`;
+  if (cleanType === "char")
+    return `(let s = get_string ${valVar} in if String.length s > 0 then s.[0] else '\\000')`;
+  if (cleanType === "bytes") return `(get_bytes ${valVar})`;
 
   // Variants (nullary enums, payload-bearing variants, polymorphic variants)
   const variantCtors = getVariantConstructors(cleanType, argDef, progTypes);
@@ -1403,85 +1523,6 @@ function buildSingleValDeserializer(
        | _ -> ${defaultExpr})`;
   }
 
-  // Buffer.t
-  if (cleanType === "Buffer.t" || cleanType === "Buffer") {
-    return `(let buf = Buffer.create 16 in Buffer.add_string buf (get_string ${valVar}); buf)`;
-  }
-
-  // bigstring / Bigarray.Array1.t
-  if (
-    cleanType === "bigstring" ||
-    cleanType.includes("Bigstring") ||
-    cleanType.includes("Array1.t")
-  ) {
-    return `(let s = match ${valVar} with Msgpck.Bytes b -> b | Msgpck.String str -> str | _ -> Bytes.to_string (get_bytes ${valVar}) in let ba = Bigarray.Array1.create Bigarray.char Bigarray.c_layout (String.length s) in String.iteri (fun i c -> ba.{i} <- c) s; ba)`;
-  }
-
-  // Records
-  const isRecord =
-    !cleanType.includes("Map") &&
-    !cleanType.includes("Set") &&
-    !cleanType.includes("Hashtbl") &&
-    !cleanType.includes("result") &&
-    ((argDef &&
-      argDef.getType() === ArgTag.OBJECT &&
-      argDef.getChildren().length > 0 &&
-      argDef.getChildren().every((c) => c.getName() !== "unknown")) ||
-      (cleanType in progTypes &&
-        (progTypes[cleanType]?.type?.children?.length ?? 0) > 0));
-  if (isRecord) {
-    const fields =
-      argDef && argDef.getChildren().length > 0
-        ? argDef.getChildren()
-        : (progTypes[cleanType]?.type?.children ?? []);
-    const fieldDesers = fields.map((f) => {
-      if (f instanceof ArgDef) {
-        const fieldName = f.getName();
-        const fieldType = OxcamlProgram.getTypeAnnotation(f);
-        return `${fieldName} = (match List.find_opt (fun (k, _) -> k = Msgpck.String "${fieldName}") m with Some (_, v) -> ${buildSingleValDeserializer(fieldType, "v", f, progTypes)} | None -> failwith "missing field ${fieldName}")`;
-      } else {
-        const fieldName = f.name ?? "";
-        const fieldType = f.typeRefName ?? "int";
-        return `${fieldName} = (match List.find_opt (fun (k, _) -> k = Msgpck.String "${fieldName}") m with Some (_, v) -> ${buildSingleValDeserializer(fieldType, "v", undefined, progTypes)} | None -> failwith "missing field ${fieldName}")`;
-      }
-    });
-    return `(let m = get_map ${valVar} in { Target_module. ${fieldDesers.join("; ")} })`;
-  }
-
-  // Tuples
-  const tupleParts = splitTupleType(cleanType);
-  if (tupleParts.length > 1) {
-    const tupleChildren = argDef?.getChildren() ?? [];
-    return `(let l = get_list ${valVar} in (${tupleParts.map((t, i) => buildSingleValDeserializer(t, `(List.nth l ${i})`, tupleChildren[i], progTypes)).join(", ")}) )`;
-  }
-
-  if (cleanType === "int" || cleanType === "#int") return `(get_int ${valVar})`;
-  if (cleanType === "float" || cleanType === "#float")
-    return `(get_float ${valVar})`;
-  if (cleanType === "string") return `(get_string ${valVar})`;
-  if (cleanType === "bool") return `(get_bool ${valVar})`;
-  if (cleanType === "int32") return `(get_int32 ${valVar})`;
-  if (cleanType === "int64") return `(get_int64 ${valVar})`;
-  if (cleanType === "nativeint") return `(get_nativeint ${valVar})`;
-  if (cleanType === "char")
-    return `(let s = get_string ${valVar} in if String.length s > 0 then s.[0] else '\\000')`;
-  if (cleanType === "bytes") return `(get_bytes ${valVar})`;
-  if (cleanType.endsWith(" option")) {
-    const elemType = cleanType.slice(0, -7).trim();
-    const elemChild = argDef?.getChildren()[0];
-    return `(match ${valVar} with Msgpck.Nil -> None | v -> Some (${buildSingleValDeserializer(elemType, "v", elemChild, progTypes)}))`;
-  }
-  if (cleanType.endsWith(" list")) {
-    const elemType = cleanType.slice(0, -5).trim();
-    const elemChild = argDef?.getChildren()[0];
-    return `(List.map (fun item -> ${buildSingleValDeserializer(elemType, "item", elemChild, progTypes)}) (get_list ${valVar}))`;
-  }
-  if (cleanType.endsWith(" array")) {
-    const elemType = cleanType.slice(0, -6).trim();
-    const elemChild = argDef?.getChildren()[0];
-    return `(Array.of_list (List.map (fun item -> ${buildSingleValDeserializer(elemType, "item", elemChild, progTypes)}) (get_list ${valVar})))`;
-  }
-
   throw new Error(
     `Unsupported OCaml type for single value deserialization: '${cleanType}'`
   );
@@ -1489,10 +1530,12 @@ function buildSingleValDeserializer(
 
 function stripOuterParens(s: string): string {
   let str = s.trim();
-  while (str.startsWith("(") && str.endsWith(")")) {
-    let depth = 0;
+  while ((str.startsWith("(") || str.startsWith("#(")) && str.endsWith(")")) {
+    const isUnboxed = str.startsWith("#(");
+    const startOffset = isUnboxed ? 2 : 1;
+    let depth = 1;
     let matchesEnd = true;
-    for (let i = 0; i < str.length - 1; i++) {
+    for (let i = startOffset; i < str.length - 1; i++) {
       if (str[i] === "(") depth++;
       else if (str[i] === ")") depth--;
       if (depth === 0) {
@@ -1501,7 +1544,7 @@ function stripOuterParens(s: string): string {
       }
     }
     if (matchesEnd) {
-      str = str.slice(1, -1).trim();
+      str = str.slice(startOffset, -1).trim();
     } else {
       break;
     }
@@ -1531,6 +1574,57 @@ function splitTupleType(typeStr: string): string[] {
   if (cur.trim()) parts.push(cur.trim());
   return parts;
 } // fn: splitTupleType
+
+/**
+ * Resolves the ArgDef for elements inside a container (list, array, option).
+ */
+function getElementArgDef(argDef?: ArgDef): ArgDef | undefined {
+  if (!argDef) return undefined;
+  if (argDef.getChildren().length === 1 && argDef.getType() !== ArgTag.UNION) {
+    return argDef.getChildren()[0];
+  }
+  if (argDef.getDim() > 0) {
+    const nextDim = argDef.getDim() - 1;
+    const nextTypeRefDims = Math.max(0, (argDef.getTypeRefDims() ?? 0) - 1);
+    const elemDef = new ArgDef(
+      argDef.getName(),
+      argDef.getOffset(),
+      argDef.getType(),
+      argDef.getOptions(),
+      nextDim,
+      false,
+      argDef.getIntervals(),
+      argDef.getChildren(),
+      argDef.getTypeRef(),
+      nextTypeRefDims
+    );
+    const baseTypeRef = argDef.getBaseTypeRef();
+    if (baseTypeRef !== undefined) {
+      elemDef.setBaseTypeRef(baseTypeRef);
+    }
+    return elemDef;
+  }
+  if (argDef.isOptional()) {
+    const elemDef = new ArgDef(
+      argDef.getName(),
+      argDef.getOffset(),
+      argDef.getType(),
+      argDef.getOptions(),
+      0,
+      false,
+      argDef.getIntervals(),
+      argDef.getChildren(),
+      argDef.getTypeRef(),
+      argDef.getTypeRefDims()
+    );
+    const baseTypeRef = argDef.getBaseTypeRef();
+    if (baseTypeRef !== undefined) {
+      elemDef.setBaseTypeRef(baseTypeRef);
+    }
+    return elemDef;
+  }
+  return argDef.getChildren()[0];
+} // fn: getElementArgDef
 
 /**
  * Builds an OCaml expression converting a return value `valVar` into a Msgpck.t.
@@ -1574,7 +1668,11 @@ function buildSerializer(
   }
 
   // Result types: ('a, 'e) result
-  if (cleanType.endsWith(" result") || cleanType.includes(" result")) {
+  if (
+    cleanType.endsWith(" result") ||
+    cleanType.endsWith(") result") ||
+    cleanType.endsWith(" Result.t")
+  ) {
     const tupleInner = cleanType
       .slice(0, cleanType.lastIndexOf(" result"))
       .trim();
@@ -1588,44 +1686,36 @@ function buildSerializer(
       | Error e -> Msgpck.Map [(Msgpck.String "error", ${buildSerializer(errType, "e", errChild, progTypes)})])`;
   }
 
-  // Variants (nullary enums, payload-bearing variants, polymorphic variants)
-  const variantCtors = getVariantConstructors(cleanType, argDef, progTypes);
-  if (variantCtors && variantCtors.length > 0) {
-    const branches = variantCtors.map((c) => {
-      const ctorRef = c.isPoly ? c.name : `Target_module.${c.name}`;
-      if (!c.hasPayload) {
-        return `| ${ctorRef} -> Msgpck.String "${c.name}"`;
-      }
-      if (
-        c.isTuplePayload &&
-        c.tuplePayloadTypes &&
-        c.tuplePayloadTypes.length > 1
-      ) {
-        const binders = c.tuplePayloadTypes.map((_, i) => `p_${i}`).join(", ");
-        const listItems = c.tuplePayloadTypes
-          .map((t, i) => buildSerializer(t, `p_${i}`, undefined, progTypes))
-          .join("; ");
-        return `| ${ctorRef} (${binders}) ->
-       Msgpck.Map [
-         (Msgpck.String "tag", Msgpck.String "${c.name}");
-         (Msgpck.String "value", Msgpck.List [${listItems}])
-       ]`;
-      } else {
-        const serVal = buildSerializer(
-          c.payloadType ?? "int",
-          "v",
-          c.argDef,
-          progTypes
-        );
-        return `| ${ctorRef} v ->
-       Msgpck.Map [
-         (Msgpck.String "tag", Msgpck.String "${c.name}");
-         (Msgpck.String "value", ${serVal})
-       ]`;
-      }
-    });
-    return `(match ${valVar} with
-   ${branches.join("\n   ")})`;
+  // Tuples
+  const tupleParts = splitTupleType(cleanType);
+  if (tupleParts.length > 1) {
+    const tupleChildren = argDef?.getChildren() ?? [];
+    const binders = tupleParts.map((_, i) => `t_${i}`).join(", ");
+    const elems = tupleParts
+      .map((t, i) => buildSerializer(t, `t_${i}`, tupleChildren[i], progTypes))
+      .join("; ");
+    return `(let (${binders}) = ${valVar} in Msgpck.List [${elems}])`;
+  }
+
+  // Option
+  if (cleanType.endsWith(" option")) {
+    const elemType = cleanType.slice(0, -7).trim();
+    const elemChild = getElementArgDef(argDef);
+    return `(match ${valVar} with None -> Msgpck.Nil | Some v -> ${buildSerializer(elemType, "v", elemChild, progTypes)})`;
+  }
+
+  // List
+  if (cleanType.endsWith(" list")) {
+    const elemType = cleanType.slice(0, -5).trim();
+    const elemChild = getElementArgDef(argDef);
+    return `Msgpck.List (List.map (fun v -> ${buildSerializer(elemType, "v", elemChild, progTypes)}) ${valVar})`;
+  }
+
+  // Array
+  if (cleanType.endsWith(" array")) {
+    const elemType = cleanType.slice(0, -6).trim();
+    const elemChild = getElementArgDef(argDef);
+    return `Msgpck.List (Array.to_list (Array.map (fun v -> ${buildSerializer(elemType, "v", elemChild, progTypes)}) ${valVar}))`;
   }
 
   // Buffer.t
@@ -1643,6 +1733,9 @@ function buildSerializer(
   }
 
   //  Records
+  const normCleanType = cleanType.startsWith("Target_module.")
+    ? cleanType.slice("Target_module.".length)
+    : cleanType;
   const isRecord =
     !cleanType.includes("Map") &&
     !cleanType.includes("Set") &&
@@ -1652,13 +1745,18 @@ function buildSerializer(
       argDef.getType() === ArgTag.OBJECT &&
       argDef.getChildren().length > 0 &&
       argDef.getChildren().every((c) => c.getName() !== "unknown")) ||
-      (cleanType in progTypes &&
-        (progTypes[cleanType]?.type?.children?.length ?? 0) > 0));
+      ((cleanType in progTypes || normCleanType in progTypes) &&
+        (progTypes[cleanType]?.type?.type === ArgTag.OBJECT ||
+          progTypes[normCleanType]?.type?.type === ArgTag.OBJECT) &&
+        ((progTypes[cleanType]?.type?.children?.length ?? 0) > 0 ||
+          (progTypes[normCleanType]?.type?.children?.length ?? 0) > 0)));
   if (isRecord) {
     const fields =
       argDef && argDef.getChildren().length > 0
         ? argDef.getChildren()
-        : (progTypes[cleanType]?.type?.children ?? []);
+        : (progTypes[cleanType]?.type?.children ??
+          progTypes[normCleanType]?.type?.children ??
+          []);
     const fieldSers = fields.map((f) => {
       if (f instanceof ArgDef) {
         const fieldName = f.getName();
@@ -1671,17 +1769,6 @@ function buildSerializer(
       }
     });
     return `Msgpck.Map [ ${fieldSers.join("; ")} ]`;
-  }
-
-  // Tuples
-  const tupleParts = splitTupleType(cleanType);
-  if (tupleParts.length > 1) {
-    const tupleChildren = argDef?.getChildren() ?? [];
-    const binders = tupleParts.map((_, i) => `t_${i}`).join(", ");
-    const elems = tupleParts
-      .map((t, i) => buildSerializer(t, `t_${i}`, tupleChildren[i], progTypes))
-      .join("; ");
-    return `(let (${binders}) = ${valVar} in Msgpck.List [${elems}])`;
   }
 
   // Set modules
@@ -1776,20 +1863,45 @@ function buildSerializer(
   if (cleanType === "bytes") {
     return `Msgpck.Bytes (Bytes.to_string ${valVar})`;
   }
-  if (cleanType.endsWith(" list")) {
-    const elemType = cleanType.slice(0, -5).trim();
-    const elemChild = argDef?.getChildren()[0];
-    return `Msgpck.List (List.map (fun v -> ${buildSerializer(elemType, "v", elemChild, progTypes)}) ${valVar})`;
-  }
-  if (cleanType.endsWith(" array")) {
-    const elemType = cleanType.slice(0, -6).trim();
-    const elemChild = argDef?.getChildren()[0];
-    return `Msgpck.List (Array.to_list (Array.map (fun v -> ${buildSerializer(elemType, "v", elemChild, progTypes)}) ${valVar}))`;
-  }
-  if (cleanType.endsWith(" option")) {
-    const elemType = cleanType.slice(0, -7).trim();
-    const elemChild = argDef?.getChildren()[0];
-    return `(match ${valVar} with None -> Msgpck.Nil | Some v -> ${buildSerializer(elemType, "v", elemChild, progTypes)})`;
+
+  // Variants (nullary enums, payload-bearing variants, polymorphic variants)
+  const variantCtors = getVariantConstructors(cleanType, argDef, progTypes);
+  if (variantCtors && variantCtors.length > 0) {
+    const branches = variantCtors.map((c) => {
+      const ctorRef = c.isPoly ? c.name : `Target_module.${c.name}`;
+      if (!c.hasPayload) {
+        return `| ${ctorRef} -> Msgpck.String "${c.name}"`;
+      }
+      if (
+        c.isTuplePayload &&
+        c.tuplePayloadTypes &&
+        c.tuplePayloadTypes.length > 1
+      ) {
+        const binders = c.tuplePayloadTypes.map((_, i) => `p_${i}`).join(", ");
+        const listItems = c.tuplePayloadTypes
+          .map((t, i) => buildSerializer(t, `p_${i}`, undefined, progTypes))
+          .join("; ");
+        return `| ${ctorRef} (${binders}) ->
+       Msgpck.Map [
+         (Msgpck.String "tag", Msgpck.String "${c.name}");
+         (Msgpck.String "value", Msgpck.List [${listItems}])
+       ]`;
+      } else {
+        const serVal = buildSerializer(
+          c.payloadType ?? "int",
+          "v",
+          c.argDef,
+          progTypes
+        );
+        return `| ${ctorRef} v ->
+       Msgpck.Map [
+         (Msgpck.String "tag", Msgpck.String "${c.name}");
+         (Msgpck.String "value", ${serVal})
+       ]`;
+      }
+    });
+    return `(match ${valVar} with
+   ${branches.join("\n   ")})`;
   }
 
   throw new Error(`Unsupported OCaml type for serialization: '${cleanType}'`);
@@ -2048,51 +2160,78 @@ function getVariantConstructors(
   argDef?: ArgDef,
   progTypes: Record<string, TypeRef> = {}
 ): VariantConstructor[] | undefined {
-  if (argDef && argDef.getType() === ArgTag.UNION) {
-    const list: VariantConstructor[] = [];
-    for (const child of argDef.getChildren()) {
-      if (child.getType() === ArgTag.LITERAL) {
-        const v = child.getConstantValue();
-        const name = typeof v === "string" ? v : child.getName();
-        if (name) {
-          list.push({
-            name,
-            isPoly: name.startsWith("`"),
-            hasPayload: false,
-          });
-        }
-      } else if (child.getType() === ArgTag.OBJECT) {
-        const tagChild = child.getChildren().find((c) => c.getName() === "tag");
-        const valChild = child
-          .getChildren()
-          .find((c) => c.getName() === "value");
-        const tagVal = tagChild?.getConstantValue();
-        const name = typeof tagVal === "string" ? tagVal : child.getName();
-        if (name && valChild) {
-          const isTuplePayload = valChild.getType() === ArgTag.TUPLE;
-          const tuplePayloadTypes = isTuplePayload
-            ? valChild
-                .getChildren()
-                .map((c) => OxcamlProgram.getTypeAnnotation(c))
-            : undefined;
-          list.push({
-            name,
-            isPoly: name.startsWith("`"),
-            hasPayload: true,
-            payloadType: OxcamlProgram.getTypeAnnotation(valChild),
-            isTuplePayload,
-            tuplePayloadTypes,
-            argDef: valChild,
-          });
+  const bareType = stripOuterParens(cleanType);
+  if (
+    cleanType.endsWith(" list") ||
+    cleanType.endsWith(" array") ||
+    cleanType.endsWith(" option") ||
+    cleanType.endsWith(" result") ||
+    cleanType.endsWith(") result") ||
+    cleanType.endsWith(" Result.t") ||
+    splitTupleType(bareType).length > 1
+  ) {
+    return undefined;
+  }
+
+  const normType = bareType.startsWith("Target_module.")
+    ? bareType.slice("Target_module.".length)
+    : bareType;
+
+  if (argDef && argDef.getType() === ArgTag.UNION && argDef.getDim() === 0) {
+    const argTypeRef = argDef.getTypeRef();
+    if (
+      !argTypeRef ||
+      argTypeRef === normType ||
+      argTypeRef === bareType ||
+      bareType.startsWith("[")
+    ) {
+      const list: VariantConstructor[] = [];
+      for (const child of argDef.getChildren()) {
+        if (child.getType() === ArgTag.LITERAL) {
+          const v = child.getConstantValue();
+          const name = typeof v === "string" ? v : child.getName();
+          if (name) {
+            list.push({
+              name,
+              isPoly: name.startsWith("`"),
+              hasPayload: false,
+            });
+          }
+        } else if (child.getType() === ArgTag.OBJECT) {
+          const tagChild = child
+            .getChildren()
+            .find((c) => c.getName() === "tag");
+          const valChild = child
+            .getChildren()
+            .find((c) => c.getName() === "value");
+          const tagVal = tagChild?.getConstantValue();
+          const name = typeof tagVal === "string" ? tagVal : child.getName();
+          if (name && valChild) {
+            const isTuplePayload = valChild.getType() === ArgTag.TUPLE;
+            const tuplePayloadTypes = isTuplePayload
+              ? valChild
+                  .getChildren()
+                  .map((c) => OxcamlProgram.getTypeAnnotation(c))
+              : undefined;
+            list.push({
+              name,
+              isPoly: name.startsWith("`"),
+              hasPayload: true,
+              payloadType: OxcamlProgram.getTypeAnnotation(valChild),
+              isTuplePayload,
+              tuplePayloadTypes,
+              argDef: valChild,
+            });
+          }
         }
       }
-    }
-    if (list.length > 0) {
-      return list;
+      if (list.length > 0) {
+        return list;
+      }
     }
   }
 
-  const typeDef = progTypes[cleanType];
+  const typeDef = progTypes[bareType] ?? progTypes[normType];
   if (typeDef?.type?.type === ArgTag.UNION && typeDef.type.children) {
     const list: VariantConstructor[] = [];
     for (const child of typeDef.type.children) {
