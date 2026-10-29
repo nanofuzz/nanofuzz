@@ -1,0 +1,83 @@
+// NaNofuzz runtime library for Virgil
+
+component NanofuzzRuntime {
+    def version: string = "0.4.1";
+
+    def assume(cond: bool, msg: string) -> bool {
+        if (!cond) {
+            System.puts("__NANOFUZZ_UNSATISFIED_ASSUMPTION__: ");
+            System.puts(msg);
+            System.puts("\n");
+            System.exit(42);
+        }
+        return true;
+    }
+
+    def assume(cond: bool) -> bool {
+        return assume(cond, "assumption failed");
+    }
+}
+
+class FuzzTestResult {
+    var in_strings: Array<string>;
+    var out_string: string;
+    var exception: bool;
+    var timeout: bool;
+
+    new(in_strings: Array<string>, out_string: string, exception: bool, timeout: bool) {
+        this.in_strings = in_strings;
+        this.out_string = out_string;
+        this.exception = exception;
+        this.timeout = timeout;
+    }
+
+    def get_in_string(idx: int) -> string {
+        if (idx < 0 || idx >= in_strings.length) return "";
+        return in_strings[idx];
+    }
+
+    def get_out_string() -> string {
+        return out_string;
+    }
+
+    def is_exception() -> bool {
+        return exception;
+    }
+
+    def is_timeout() -> bool {
+        return timeout;
+    }
+}
+
+component NanofuzzCoverage {
+    var stmt_hits: Array<int> = Array<int>.new(4096);
+    var fn_hits: Array<int> = Array<int>.new(1024);
+    var branch_hits: Array<int> = Array<int>.new(4096);
+
+    def hit_stmt(file_id: int, stmt_id: int) {
+        var idx = (file_id << 10) | (stmt_id & 0x3ff);
+        if (idx >= 0 && idx < stmt_hits.length) {
+            stmt_hits[idx]++;
+        }
+    }
+
+    def hit_fn(file_id: int, fn_id: int) {
+        var idx = (file_id << 6) | (fn_id & 0x3f);
+        if (idx >= 0 && idx < fn_hits.length) {
+            fn_hits[idx]++;
+        }
+    }
+
+    def hit_branch(file_id: int, branch_id: int, arm_id: int) {
+        var idx = (file_id << 10) | ((branch_id & 0x1ff) << 1) | (arm_id & 1);
+        if (idx >= 0 && idx < branch_hits.length) {
+            branch_hits[idx]++;
+        }
+    }
+
+    def reset() {
+        for (i = 0; i < stmt_hits.length; i++) stmt_hits[i] = 0;
+        for (i = 0; i < fn_hits.length; i++) fn_hits[i] = 0;
+        for (i = 0; i < branch_hits.length; i++) branch_hits[i] = 0;
+    }
+}
