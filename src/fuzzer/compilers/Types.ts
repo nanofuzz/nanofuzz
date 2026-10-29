@@ -68,6 +68,17 @@ export class JavaCompilerError extends CompilerError<JavaCompilerErrorDetails> {
   }
 }
 
+/**
+ * Exception class for Virgil compiler errors.
+ */
+export class VirgilCompilerError extends CompilerError<VirgilCompilerErrorDetails> {
+  constructor(message: string, details: VirgilCompilerErrorDetails) {
+    if (!details.cli && details.v3cCli) details.cli = details.v3cCli;
+    super(message, details);
+    this.name = "VirgilCompilerError";
+  }
+}
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -169,6 +180,28 @@ export type JavaCompilerErrorDetails = CompilerErrorDetails & {
     message: string;
     level: string;
     span?: JavaCompilerDiagnosticSpan;
+    rendered?: string;
+  }>;
+};
+
+/**
+ * Diagnostic source location reported by the Virgil compiler (v3c)
+ */
+export type VirgilCompilerDiagnosticSpan = {
+  file: string;
+  line: number;
+  col: number;
+};
+
+/**
+ * Virgil compiler error details
+ */
+export type VirgilCompilerErrorDetails = CompilerErrorDetails & {
+  v3cCli?: string;
+  diagnostics?: Array<{
+    message: string;
+    level?: string;
+    span?: VirgilCompilerDiagnosticSpan;
     rendered?: string;
   }>;
 };
