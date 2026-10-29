@@ -72,10 +72,10 @@ export class GoCompiler {
 
   public getCompiledDependencies(): string[] {
     const deps: string[] = [this._moduleFile];
-    const siblings = GoProgram.findLocalSourceFiles(this._moduleFile);
-    for (const sib of siblings) {
-      if (!deps.includes(sib)) {
-        deps.push(sib);
+    const projectFiles = GoProgram.findProjectSourceFiles(this._moduleFile);
+    for (const f of projectFiles) {
+      if (!deps.includes(f)) {
+        deps.push(f);
       }
     }
     if (this._goModPath && !deps.includes(this._goModPath)) {
@@ -142,7 +142,11 @@ export class GoCompiler {
       fs.mkdirSync(this._options.tmpDir, { recursive: true });
       const runtimeDir = resolveGoRuntimeDir();
       const modContent = `module nanofuzz_standalone_check\n\ngo 1.22\n\nrequire github.com/nanofuzz/runtime v0.0.0\nreplace github.com/nanofuzz/runtime => ${runtimeDir.replace(/\\/g, "/")}\n`;
-      fs.writeFileSync(path.join(this._options.tmpDir, "go.mod"), modContent, "utf8");
+      fs.writeFileSync(
+        path.join(this._options.tmpDir, "go.mod"),
+        modContent,
+        "utf8"
+      );
       cwd = this._options.tmpDir;
       args = ["vet", this._moduleFile];
     }
@@ -155,10 +159,11 @@ export class GoCompiler {
 
     if (res.status !== 0) {
       const stderr = res.stderr || res.stdout || "Go build failed";
-      throw parseGoCompilerErrors(stderr, this._moduleFile, [
-        this._goPath,
-        ...args,
-      ].join(" "));
+      throw parseGoCompilerErrors(
+        stderr,
+        this._moduleFile,
+        [this._goPath, ...args].join(" ")
+      );
     }
 
     return this._moduleFile;
@@ -358,9 +363,19 @@ function resolveGoRuntimeDir(): string {
   const currModuleDir = path.dirname(path.resolve(module.filename));
   const root = findInAncestor(currModuleDir, "package.json");
   if (root) {
-    const candidate = path.join(path.dirname(root), "packages", "runtime", "go");
+    const candidate = path.join(
+      path.dirname(root),
+      "packages",
+      "runtime",
+      "go"
+    );
     if (fs.existsSync(candidate)) return candidate;
-    const builtCand = path.join(path.dirname(root), "build", "extension", "nanofuzz-runtime-go");
+    const builtCand = path.join(
+      path.dirname(root),
+      "build",
+      "extension",
+      "nanofuzz-runtime-go"
+    );
     if (fs.existsSync(builtCand)) return builtCand;
   }
   return path.resolve("./packages/runtime/go");

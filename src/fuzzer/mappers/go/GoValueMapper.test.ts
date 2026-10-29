@@ -51,9 +51,15 @@ describe("fuzzer/mappers/go/GoValueMapper: ", () => {
   });
 
   it("handles Go type conversions and numeric casts", () => {
+    expect(GoValueMapper.fromGo("int8(-12)")).toBe(-12);
+    expect(GoValueMapper.fromGo("int16(-1000)")).toBe(-1000);
+    expect(GoValueMapper.fromGo("uint16(60000)")).toBe(60000);
+    expect(GoValueMapper.fromGo("uint32(4000000000)")).toBe(4000000000);
+    expect(GoValueMapper.fromGo("uint64(999999999999999)")).toBe(999999999999999n);
     expect(GoValueMapper.fromGo("int64(42)")).toBe(42n);
     expect(GoValueMapper.fromGo("uint8(255)")).toBe(255);
     expect(GoValueMapper.fromGo("int32(1000)")).toBe(1000);
+    expect(GoValueMapper.fromGo("float32(1.5)")).toBe(1.5);
     expect(GoValueMapper.fromGo("float64(3.14)")).toBe(3.14);
     expect(GoValueMapper.fromGo("1_000_000")).toBe(1000000);
     expect(GoValueMapper.fromGo('&Person{Name: "bob", Age: 25}')).toEqual({

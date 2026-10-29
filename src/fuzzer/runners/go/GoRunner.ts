@@ -12,6 +12,7 @@ import { normalizePathForKey } from "../../Util";
 import * as Config from "../../../Config";
 import * as JSONN from "../../../Jsonn";
 import { PutTimeoutName } from "../AbstractHost";
+import { parseCoverageScope } from "../../measures/Util";
 import { GoHost } from "./GoHost";
 import { buildGoHarness } from "./GoHarness";
 
@@ -56,8 +57,11 @@ export class GoRunner extends AbstractRunner {
         this._env.options.measures.CoverageMeasure.enabled;
     }
 
-    const { binaryPath, harnessDir, staticCov, staticCovMap } =
-      buildGoHarness(this._filename, this._fn, this._env);
+    const { binaryPath, harnessDir, staticCov, staticCovMap } = buildGoHarness(
+      this._filename,
+      this._fn,
+      this._env
+    );
     this._harnessBinary = binaryPath;
     this._harnessDir = harnessDir;
 
@@ -263,28 +267,84 @@ export class GoRunner extends AbstractRunner {
 
     const rawOkBuf = await host.getResponseBuffer(hostStartupTimeout);
     const okcode = JSONN.parse<string>(rawOkBuf.toString("utf-8"));
-    if (okcode === "READY") {
-      this._host = host;
-      // Consume initial static coverage handshake message
-      const rawCovBuf = await host.getResponseBuffer(hostStartupTimeout);
-      try {
-        const rawCov = JSONN.parse<unknown>(rawCovBuf.toString("utf-8"));
-        if (
-          isRecordOfFileCoverageData(rawCov) &&
-          Object.keys(rawCov).length > 0
-        ) {
-          this._coverageInfo = rawCov;
-          this._staticCoverage = structuredClone(rawCov);
-          this._pgmFiles = Object.keys(rawCov);
-        }
-      } catch {
-        // fallback
-      }
-      return host;
-    } else {
+    if (okcode !== "READY") {
       host.kill();
       throw new Error(`Go runner host failed to start: ${okcode}`);
     }
+
+    this._host = host;
+
+    // Consume static coverage metadata handshake
+    const rawCovBuf = await host.getResponseBuffer(hostStartupTimeout);
+    const rawCov = JSONN.parse<unknown>(rawCovBuf.toString("utf-8"));
+    if (
+      !isRecordOfFileCoverageData(rawCov) ||
+      Object.keys(rawCov).length === 0
+    ) {
+      host.kill();
+      throw new Error(
+        `Go runner host sent invalid static coverage handshake: ${rawCovBuf.toString("utf-8")}`
+      );
+    }
+    this._coverageInfo = rawCov;
+    this._staticCoverage = structuredClone(rawCov);
+    this._pgmFiles = Object.keys(rawCov);
+
+    // Consume initialization coverage hits (from init() and package var initializations)
+    const rawInitCovBuf = await host.getResponseBuffer(hostStartupTimeout);
+    const rawInitCov = JSONN.parse<unknown>(rawInitCovBuf.toString("utf-8"));
+    if (!isRecordOfFileCoverageData(rawInitCov)) {
+      host.kill();
+      throw new Error(
+        `Go runner host sent invalid initialization coverage handshake: ${rawInitCovBuf.toString("utf-8")}`
+      );
+    }
+
+    const coverageScopeRaw = Config.get<unknown>(
+      "nanofuzz.fuzzer.coverageScope",
+      "project static"
+    );
+    const scopeConfig = parseCoverageScope(coverageScopeRaw);
+    const collectStaticCoverage =
+      scopeConfig.collectStaticCoverage &&
+      this._coverageEnabled &&
+      (this._overrides.acceptsStaticCoverage ?? true);
+
+    if (collectStaticCoverage) {
+      for (const fileKey of Object.keys(rawInitCov)) {
+        const fileCov = rawInitCov[fileKey];
+        const normKey = normalizePathForKey(fileKey);
+        const target =
+          this._coverageInfo[normKey] ?? this._coverageInfo[fileKey];
+        if (target) {
+          if (fileCov.s && target.s) {
+            for (const sk of Object.keys(fileCov.s)) {
+              target.s[sk] = (target.s[sk] ?? 0) + (fileCov.s[sk] ?? 0);
+            }
+          }
+          if (fileCov.f && target.f) {
+            for (const fk of Object.keys(fileCov.f)) {
+              target.f[fk] = (target.f[fk] ?? 0) + (fileCov.f[fk] ?? 0);
+            }
+          }
+          if (fileCov.b && target.b) {
+            for (const bk of Object.keys(fileCov.b)) {
+              if (!target.b[bk]) {
+                target.b[bk] = [...(fileCov.b[bk] ?? [])];
+              } else if (Array.isArray(fileCov.b[bk])) {
+                for (let i = 0; i < fileCov.b[bk].length; i++) {
+                  target.b[bk][i] =
+                    (target.b[bk][i] ?? 0) + (fileCov.b[bk][i] ?? 0);
+                }
+              }
+            }
+          }
+        }
+      }
+      this._staticCoverage = structuredClone(this._coverageInfo);
+    }
+
+    return host;
   } // fn: _getHost
 
   public override get filename(): string {

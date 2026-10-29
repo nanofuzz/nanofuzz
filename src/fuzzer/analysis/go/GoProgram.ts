@@ -18,9 +18,7 @@ import * as JSONN from "../../../Jsonn";
 
 export class GoProgram extends AbstractProgram {
   public static readonly lang: ProgramLanguage = "go";
-  public static readonly extensions: readonly string[] = Object.freeze([
-    ".go",
-  ]);
+  public static readonly extensions: readonly string[] = Object.freeze([".go"]);
   protected _ast: Parser.Tree | undefined;
   protected _packageName: string = "";
 
@@ -159,6 +157,47 @@ export class GoProgram extends AbstractProgram {
   } // fn: findLocalSourceFiles
 
   /**
+   * Discovers all .go source files across the project (excluding tests, vendor, and hidden dirs).
+   */
+  public static findProjectSourceFiles(sourceFile: string): string[] {
+    const goMod = GoProgram.findGoMod(sourceFile);
+    const rootDir = goMod ? path.dirname(goMod) : path.dirname(sourceFile);
+    const result: string[] = [];
+    const normSource = path.resolve(sourceFile);
+
+    function walk(dir: string): void {
+      if (!fs.existsSync(dir)) return;
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (
+          entry.name.startsWith(".") ||
+          entry.name === "vendor" ||
+          entry.name === "testdata" ||
+          entry.name === "node_modules"
+        ) {
+          continue;
+        }
+        const fullPath = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          walk(fullPath);
+        } else if (
+          entry.isFile() &&
+          entry.name.endsWith(".go") &&
+          !entry.name.endsWith("_test.go")
+        ) {
+          const resolved = path.resolve(fullPath);
+          if (resolved !== normSource && !result.includes(resolved)) {
+            result.push(resolved);
+          }
+        }
+      }
+    }
+
+    walk(rootDir);
+    return result;
+  } // fn: findProjectSourceFiles
+
+  /**
    * Discovers the nearest ancestor go.mod path if present.
    */
   public static findGoMod(sourceFile: string): string | undefined {
@@ -235,6 +274,11 @@ export class GoProgram extends AbstractProgram {
 
     if (name in this._types) {
       const typeDef = this._types[name];
+      if (typeDef.type?.resolved === false) {
+        throw new Error(
+          `Unable to resolve type '${name}' in module '${this._filename}': unsupported definition`
+        );
+      }
       if (typeDef.type?.resolved) {
         typeRef.type = structuredClone(typeDef.type);
         if (typeRef.type) {
@@ -341,16 +385,10 @@ export class GoProgram extends AbstractProgram {
       if (!nameNode || !targetNode) continue;
 
       const typeName = nameNode.text;
-      try {
-        const typeRef = this._getTypeRefFromAstNode(targetNode);
-        typeRef.name = typeName;
-        typeRef.isExported = isExportedName(typeName);
-        types[typeName] = typeRef;
-      } catch (e) {
-        console.debug(
-          `Error getting TypeRef from AST node for ${typeName} in module ${this._filename}: ${e}`
-        );
-      }
+      const typeRef = this._getTypeRefFromAstNode(targetNode);
+      typeRef.name = typeName;
+      typeRef.isExported = isExportedName(typeName);
+      types[typeName] = typeRef;
     }
 
     return types;
@@ -545,7 +583,10 @@ export class GoProgram extends AbstractProgram {
         const resultDecls = Parser.getNamedChildrenNoComments(returnNode);
         if (resultDecls.length === 0) {
           isVoid = true;
-        } else if (resultDecls.length === 1 && resultDecls[0].type === "parameter_declaration") {
+        } else if (
+          resultDecls.length === 1 &&
+          resultDecls[0].type === "parameter_declaration"
+        ) {
           const tNode = resultDecls[0].childForFieldName("type");
           if (tNode) {
             returnType = this._getTypeRefFromAstNode(tNode);
@@ -585,8 +626,7 @@ export class GoProgram extends AbstractProgram {
 
     const cmtNode = itemNode.previousNamedSibling;
     const cmt =
-      cmtNode &&
-      (cmtNode.type === "comment" || cmtNode.type === "line_comment")
+      cmtNode && (cmtNode.type === "comment" || cmtNode.type === "line_comment")
         ? cmtNode.text
         : undefined;
 
@@ -826,9 +866,11 @@ export class GoProgram extends AbstractProgram {
       }
 
       case "qualified_type": {
-        const pkgNode = node.childForFieldName("package");
-        const nameNode = node.childForFieldName("name");
-        if (nameNode?.text === "FuzzTestResult") {
+        if (
+          node.text === "runtime.FuzzTestResult" ||
+          node.text.endsWith(".FuzzTestResult") ||
+          node.text === "FuzzTestResult"
+        ) {
           thisType.typeRefName = "FuzzTestResult";
           thisType.type = {
             type: ArgTag.OBJECT,
@@ -838,46 +880,71 @@ export class GoProgram extends AbstractProgram {
           };
           return thisType;
         }
-        const fq =
-          pkgNode && nameNode ? `${pkgNode.text}.${nameNode.text}` : node.text;
-        thisType.typeRefName = fq;
+        if (
+          node.text === "runtime.ValidatorResult" ||
+          node.text.endsWith(".ValidatorResult") ||
+          node.text === "ValidatorResult"
+        ) {
+          thisType.typeRefName = "ValidatorResult";
+          thisType.type = {
+            type: ArgTag.STRING,
+            dims: 0,
+            children: [],
+            resolved: true,
+          };
+          return thisType;
+        }
+        throw new Error(
+          `Unsupported qualified type '${node.text}' in module '${this._filename}'`
+        );
+      }
+
+      case "interface_type": {
+        const hasMethods =
+          node.descendantsOfType("method_elem").length > 0 ||
+          node.descendantsOfType("method_spec").length > 0 ||
+          node.namedChildren.length > 0;
+        thisType.typeRefName = "any";
         thisType.type = {
           type: ArgTag.OBJECT,
           dims: 0,
           children: [],
-          resolved: true,
+          resolved: !hasMethods,
         };
         return thisType;
       }
 
-      case "interface_type":
       case "function_type": {
-        thisType.typeRefName = node.text;
-        thisType.type = {
-          type: ArgTag.OBJECT,
-          dims: 0,
-          children: [],
-          resolved: true,
-        };
-        return thisType;
+        if (node.text === "func() float64" || node.text === "func() float32") {
+          thisType.typeRefName = node.text;
+          thisType.type = {
+            type: ArgTag.OBJECT,
+            dims: 0,
+            children: [],
+            resolved: true,
+          };
+          return thisType;
+        }
+        throw new Error(
+          `Unsupported function type '${node.text}' in module '${this._filename}'`
+        );
+      }
+
+      case "channel_type": {
+        throw new Error(
+          `Unsupported channel type '${node.text}' in module '${this._filename}'`
+        );
       }
 
       default: {
-        thisType.type = {
-          type: ArgTag.UNRESOLVED,
-          dims: 0,
-          children: [],
-          resolved: false,
-        };
-        return thisType;
+        throw new Error(
+          `Unsupported type '${node.text}' of kind '${node.type}' in module '${this._filename}'`
+        );
       }
     }
   } // fn: _getTypeRefFromAstNode
 
-  private static toGoType(
-    arg: ArgDef,
-    options: TypeAnnotationOptions
-  ): string {
+  private static toGoType(arg: ArgDef, options: TypeAnnotationOptions): string {
     const typeRefName = arg.getTypeRef();
     if (typeRefName && typeRefName !== "" && typeRefName !== "any") {
       return typeRefName;
@@ -916,14 +983,8 @@ export class GoProgram extends AbstractProgram {
         return "int64";
       case ArgTag.DICTIONARY:
         if (arg.getChildren().length >= 2) {
-          const k = GoProgram.getTypeAnnotation(
-            arg.getChildren()[0],
-            options
-          );
-          const v = GoProgram.getTypeAnnotation(
-            arg.getChildren()[1],
-            options
-          );
+          const k = GoProgram.getTypeAnnotation(arg.getChildren()[0], options);
+          const v = GoProgram.getTypeAnnotation(arg.getChildren()[1], options);
           return `map[${k}]${v}`;
         }
         return "map[string]any";
@@ -958,10 +1019,12 @@ function isExportedName(name: string): boolean {
   return first >= "A" && first <= "Z";
 } // fn: isExportedName
 
-function resolveGoPrimitive(typeStr: string): {
-  tag: ArgTag;
-  options?: ArgOptionOverride;
-} | undefined {
+function resolveGoPrimitive(typeStr: string):
+  | {
+      tag: ArgTag;
+      options?: ArgOptionOverride;
+    }
+  | undefined {
   switch (typeStr) {
     case "bool":
       return { tag: ArgTag.BOOLEAN };

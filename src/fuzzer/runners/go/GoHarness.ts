@@ -72,29 +72,26 @@ export function buildGoHarness(
     },
   ];
 
-  // Discover and instrument sibling local .go files in same directory
-  const siblingFiles = GoProgram.findLocalSourceFiles(normTarget);
+  // Discover and instrument all project .go files across directories
+  const projectFiles = GoProgram.findProjectSourceFiles(normTarget);
   let nextFileId = 1;
-  const instrumentedSiblings: Array<{ destPath: string; src: string }> = [];
+  const instrumentedProjectFiles: Array<{ destPath: string; src: string }> = [];
 
-  for (const sib of siblingFiles) {
-    try {
-      const sibSrc = fs.readFileSync(sib, "utf8");
-      const fid = nextFileId++;
-      const sibExtraction = extractGoStaticCoverage(sibSrc, sib, fid);
-      staticCovMap[sib] = sibExtraction.staticCov;
-      manifestEntries.push({
-        fileId: fid,
-        filePath: sib,
-        branchArms: sibExtraction.branchSpecs,
-      });
-      instrumentedSiblings.push({
-        destPath: path.join(harnessDir, path.basename(sib)),
-        src: rewritePackageToMain(sibExtraction.instrumentedSrc),
-      });
-    } catch {
-      // ignore
-    }
+  for (const pFile of projectFiles) {
+    const pSrc = fs.readFileSync(pFile, "utf8");
+    const fid = nextFileId++;
+    const extraction = extractGoStaticCoverage(pSrc, pFile, fid);
+    staticCovMap[pFile] = extraction.staticCov;
+    manifestEntries.push({
+      fileId: fid,
+      filePath: pFile,
+      branchArms: extraction.branchSpecs,
+    });
+    const safeBaseName = `proj_${fid}_${path.basename(pFile)}`;
+    instrumentedProjectFiles.push({
+      destPath: path.join(harnessDir, safeBaseName),
+      src: rewritePackageToMain(extraction.instrumentedSrc),
+    });
   }
 
   // Write instrumented target file
@@ -105,17 +102,13 @@ export function buildGoHarness(
     "utf8"
   );
 
-  // Write instrumented sibling files
-  for (const sib of instrumentedSiblings) {
-    fs.writeFileSync(sib.destPath, sib.src, "utf8");
+  // Write instrumented project files
+  for (const pf of instrumentedProjectFiles) {
+    fs.writeFileSync(pf.destPath, pf.src, "utf8");
   }
 
   // Generate harness source code
-  const pgm = ProgramFactory.fromSource(
-    () => targetSrc,
-    "go",
-    normTarget
-  );
+  const pgm = ProgramFactory.fromSource(() => targetSrc, "go", normTarget);
   const fnDef = pgm.functions[fnName];
 
   const harnessSource = generateGoHarnessSource(
@@ -148,14 +141,11 @@ export function buildGoHarness(
 
   if (buildRes.status !== 0) {
     const stderr = buildRes.stderr || buildRes.stdout || "go build failed";
-    throw new GoCompilerError(
-      `Go harness build failed:\n${stderr}`,
-      {
-        inputFile: harnessFilePath,
-        output: stderr.split("\n"),
-        commandCli: `${goPath} ${buildArgs.join(" ")}`,
-      }
-    );
+    throw new GoCompilerError(`Go harness build failed:\n${stderr}`, {
+      inputFile: harnessFilePath,
+      output: stderr.split("\n"),
+      commandCli: `${goPath} ${buildArgs.join(" ")}`,
+    });
   }
 
   return {
@@ -180,16 +170,16 @@ function setupHarnessGoMod(harnessDir: string, targetFile: string): void {
 
   let userModDeps = "";
   if (userGoMod && fs.existsSync(userGoMod)) {
-    try {
-      const userContent = fs.readFileSync(userGoMod, "utf8");
-      // Extract require and replace blocks
-      const requireMatches = userContent.match(/require\s*\([^)]*\)|require\s+[^\n]+/g);
-      const replaceMatches = userContent.match(/replace\s*\([^)]*\)|replace\s+[^\n]+/g);
-      if (requireMatches) userModDeps += "\n" + requireMatches.join("\n");
-      if (replaceMatches) userModDeps += "\n" + replaceMatches.join("\n");
-    } catch {
-      // ignore
-    }
+    const userContent = fs.readFileSync(userGoMod, "utf8");
+    // Extract require and replace blocks
+    const requireMatches = userContent.match(
+      /require\s*\([^)]*\)|require\s+[^\n]+/g
+    );
+    const replaceMatches = userContent.match(
+      /replace\s*\([^)]*\)|replace\s+[^\n]+/g
+    );
+    if (requireMatches) userModDeps += "\n" + requireMatches.join("\n");
+    if (replaceMatches) userModDeps += "\n" + replaceMatches.join("\n");
   }
 
   const modContent = `module nanofuzz_harness
@@ -216,9 +206,19 @@ function resolveGoRuntimeDir(): string {
   const currModuleDir = path.dirname(path.resolve(module.filename));
   const root = findInAncestor(currModuleDir, "package.json");
   if (root) {
-    const candidate = path.join(path.dirname(root), "packages", "runtime", "go");
+    const candidate = path.join(
+      path.dirname(root),
+      "packages",
+      "runtime",
+      "go"
+    );
     if (fs.existsSync(candidate)) return candidate;
-    const builtCand = path.join(path.dirname(root), "build", "extension", "nanofuzz-runtime-go");
+    const builtCand = path.join(
+      path.dirname(root),
+      "build",
+      "extension",
+      "nanofuzz-runtime-go"
+    );
     if (fs.existsSync(builtCand)) return builtCand;
   }
   return path.resolve("./packages/runtime/go");
@@ -312,7 +312,10 @@ function generateGoHarnessSource(
     fnCallCode = `\t\t\t${fnName}(${callArgs.join(", ")})\n\t\t\toutVal = nil`;
   } else if (isTuple) {
     const childrenCount = returnArg?.getChildren().length ?? 2;
-    const retVars = Array.from({ length: childrenCount }, (_, idx) => `r${idx}`);
+    const retVars = Array.from(
+      { length: childrenCount },
+      (_, idx) => `r${idx}`
+    );
     fnCallCode = `\t\t\t${retVars.join(", ")} := ${fnName}(${callArgs.join(", ")})\n\t\t\toutVal = []any{${retVars.join(", ")}}`;
   } else {
     fnCallCode = `\t\t\toutVal = ${fnName}(${callArgs.join(", ")})`;
@@ -358,10 +361,7 @@ function generateGoHarnessSource(
     .join("\n");
 
   let rendered = template
-    .replaceAll(
-      "/* __NANOFUZZ_IMPORTS__ */",
-      hasPrng ? '\t"math/rand"\n' : ""
-    )
+    .replaceAll("/* __NANOFUZZ_IMPORTS__ */", hasPrng ? '\t"math/rand"\n' : "")
     .replaceAll("/* __NANOFUZZ_ARG_CONVERSIONS__ */", argConversions.join("\n"))
     .replaceAll("/* __NANOFUZZ_FN_CALL__ */", fnCallCode)
     .replaceAll("/* __NANOFUZZ_VALIDATORS__ */", validatorBlocks.join("\n"))
@@ -439,12 +439,24 @@ export function extractGoStaticCoverage(
     fnMap[currentFIdx] = {
       name: nameNode.text,
       decl: {
-        start: { line: declNode.startPosition.row + 1, column: declNode.startPosition.column },
-        end: { line: declNode.endPosition.row + 1, column: declNode.endPosition.column },
+        start: {
+          line: declNode.startPosition.row + 1,
+          column: declNode.startPosition.column,
+        },
+        end: {
+          line: declNode.endPosition.row + 1,
+          column: declNode.endPosition.column,
+        },
       },
       loc: {
-        start: { line: bodyNode.startPosition.row + 1, column: bodyNode.startPosition.column },
-        end: { line: bodyNode.endPosition.row + 1, column: bodyNode.endPosition.column },
+        start: {
+          line: bodyNode.startPosition.row + 1,
+          column: bodyNode.startPosition.column,
+        },
+        end: {
+          line: bodyNode.endPosition.row + 1,
+          column: bodyNode.endPosition.column,
+        },
       },
       line: declNode.startPosition.row + 1,
     };
@@ -477,13 +489,19 @@ export function extractGoStaticCoverage(
   for (const match of stmtMatches) {
     const node = match.captures.find((c) => c.name === "stmt")?.node;
     if (!node) continue;
-    if (node.parent?.type === "for_clause" || node.parent?.type === "range_clause") {
+    if (
+      node.parent?.type === "for_clause" ||
+      node.parent?.type === "range_clause"
+    ) {
       continue;
     }
 
     const currentSIdx = sIdx++;
     statementMap[currentSIdx] = {
-      start: { line: node.startPosition.row + 1, column: node.startPosition.column },
+      start: {
+        line: node.startPosition.row + 1,
+        column: node.startPosition.column,
+      },
       end: { line: node.endPosition.row + 1, column: node.endPosition.column },
     };
     s[currentSIdx] = 0;
@@ -516,23 +534,47 @@ export function extractGoStaticCoverage(
     branchSpecs.push({ branchId: currentBIdx, armCount });
     branchMap[currentBIdx] = {
       loc: {
-        start: { line: stmtNode.startPosition.row + 1, column: stmtNode.startPosition.column },
-        end: { line: stmtNode.endPosition.row + 1, column: stmtNode.endPosition.column },
+        start: {
+          line: stmtNode.startPosition.row + 1,
+          column: stmtNode.startPosition.column,
+        },
+        end: {
+          line: stmtNode.endPosition.row + 1,
+          column: stmtNode.endPosition.column,
+        },
       },
       type: "if",
       locations: [
         {
-          start: { line: thenBlock.startPosition.row + 1, column: thenBlock.startPosition.column },
-          end: { line: thenBlock.endPosition.row + 1, column: thenBlock.endPosition.column },
+          start: {
+            line: thenBlock.startPosition.row + 1,
+            column: thenBlock.startPosition.column,
+          },
+          end: {
+            line: thenBlock.endPosition.row + 1,
+            column: thenBlock.endPosition.column,
+          },
         },
         elseNode
           ? {
-              start: { line: elseNode.startPosition.row + 1, column: elseNode.startPosition.column },
-              end: { line: elseNode.endPosition.row + 1, column: elseNode.endPosition.column },
+              start: {
+                line: elseNode.startPosition.row + 1,
+                column: elseNode.startPosition.column,
+              },
+              end: {
+                line: elseNode.endPosition.row + 1,
+                column: elseNode.endPosition.column,
+              },
             }
           : {
-              start: { line: stmtNode.startPosition.row + 1, column: stmtNode.startPosition.column },
-              end: { line: stmtNode.endPosition.row + 1, column: stmtNode.endPosition.column },
+              start: {
+                line: stmtNode.startPosition.row + 1,
+                column: stmtNode.startPosition.column,
+              },
+              end: {
+                line: stmtNode.endPosition.row + 1,
+                column: stmtNode.endPosition.column,
+              },
             },
       ],
       line: stmtNode.startPosition.row + 1,
@@ -596,8 +638,14 @@ export function extractGoStaticCoverage(
 
     branchMap[currentBIdx] = {
       loc: {
-        start: { line: stmtNode.startPosition.row + 1, column: stmtNode.startPosition.column },
-        end: { line: stmtNode.endPosition.row + 1, column: stmtNode.endPosition.column },
+        start: {
+          line: stmtNode.startPosition.row + 1,
+          column: stmtNode.startPosition.column,
+        },
+        end: {
+          line: stmtNode.endPosition.row + 1,
+          column: stmtNode.endPosition.column,
+        },
       },
       type: "switch",
       locations,
@@ -634,7 +682,10 @@ export function extractGoStaticCoverage(
   }
 
   // Ensure coverage package is imported in instrumented source if probes were injected
-  if (allProbes.length > 0 && !instrumentedSrc.includes('"github.com/nanofuzz/runtime/coverage"')) {
+  if (
+    allProbes.length > 0 &&
+    !instrumentedSrc.includes('"github.com/nanofuzz/runtime/coverage"')
+  ) {
     instrumentedSrc = instrumentedSrc.replace(
       /\bpackage\s+[a-zA-Z0-9_]+\s*\n/,
       `$&\nimport "github.com/nanofuzz/runtime/coverage"\n`

@@ -9,8 +9,7 @@ import (
 
 	"github.com/nanofuzz/runtime"
 	"github.com/nanofuzz/runtime/coverage"
-	/* __NANOFUZZ_IMPORTS__ */
-)
+	/* __NANOFUZZ_IMPORTS__ */)
 
 type RunnerInput struct {
 	Seq        int64    `json:"seq"`
@@ -66,6 +65,12 @@ func main() {
 	var staticCov any
 	_ = json.Unmarshal([]byte(staticCovJSON), &staticCov)
 	if err := writeMsg(staticCov); err != nil {
+		return
+	}
+
+	// Send initialization coverage hits (from init() and top-level var declarations)
+	initCov := coverage.TakeMultiHits(MANIFEST)
+	if err := writeMsg(initCov); err != nil {
 		return
 	}
 

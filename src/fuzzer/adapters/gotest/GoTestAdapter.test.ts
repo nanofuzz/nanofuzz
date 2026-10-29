@@ -7,6 +7,7 @@ import * as TestAdapterFactory from "../TestAdapterFactory";
 import { FuzzTests } from "../../Types";
 import * as Parser from "../ParserAdapter";
 import { GoCompiler } from "../../compilers/go/GoCompiler";
+import { intOptions } from "../../FuzzerTestHelper";
 
 describe("fuzzer/adapters/gotest/GoTestAdapter: ", () => {
   let tempDir: string;
@@ -41,36 +42,50 @@ func Add(a, b int) int {
     const goPath = path.join(tempDir, "math.go");
     fs.writeFileSync(goPath, goSrc);
 
-    const testSet = {
+    const testSet: FuzzTests = {
       version: "0.1.0",
       functions: {
         Add: {
-          options: {} as any,
+          options: intOptions,
+          validators: [],
+          isVoid: false,
           tests: {
             test1: {
               input: [
-                { name: "a", offset: 0, value: 2 },
-                { name: "b", offset: 1, value: 3 },
+                { name: "a", offset: 0, value: 2, origin: { type: "user" } },
+                { name: "b", offset: 1, value: 3, origin: { type: "user" } },
               ],
               output: [
-                { name: "out", offset: 0, value: 5, isException: false },
+                {
+                  name: "out",
+                  offset: 0,
+                  value: 5,
+                  isException: false,
+                  origin: { type: "user" },
+                },
               ],
               pinned: true,
             },
             testPanic: {
               input: [
-                { name: "a", offset: 0, value: -1 },
-                { name: "b", offset: 1, value: 0 },
+                { name: "a", offset: 0, value: -1, origin: { type: "user" } },
+                { name: "b", offset: 1, value: 0, origin: { type: "user" } },
               ],
               output: [
-                { name: "out", offset: 0, value: 0, isException: true },
+                {
+                  name: "out",
+                  offset: 0,
+                  value: 0,
+                  isException: true,
+                  origin: { type: "user" },
+                },
               ],
               pinned: true,
             },
           },
         },
       },
-    } as unknown as FuzzTests;
+    };
 
     const adapter = new GoTestAdapter(testSet, goPath);
     expect(adapter.toolname).toBe("GoTest");
@@ -103,6 +118,96 @@ func Add(a, b int) int {
     expect(adapter.filename).toBe(customOut);
   });
 
+  it("generates runnable tests for compound types (structs, slices, maps, pointers)", () => {
+    const goSrc = `package datatypes
+
+type Profile struct {
+    Username string
+}
+
+func GetInfo(p Profile, tags []string, counts map[string]int, ptr *int) int {
+    val := 0
+    if ptr != nil {
+        val = *ptr
+    }
+    return len(p.Username) + len(tags) + counts["a"] + val
+}
+`;
+    const goMod = "module datatypes\n\ngo 1.22\n";
+    fs.writeFileSync(path.join(tempDir, "go.mod"), goMod);
+    const goPath = path.join(tempDir, "data.go");
+    fs.writeFileSync(goPath, goSrc);
+
+    const testSet: FuzzTests = {
+      version: "0.1.0",
+      functions: {
+        GetInfo: {
+          options: intOptions,
+          validators: [],
+          isVoid: false,
+          tests: {
+            case1: {
+              input: [
+                {
+                  name: "p",
+                  offset: 0,
+                  value: { Username: "alice" },
+                  origin: { type: "user" },
+                },
+                {
+                  name: "tags",
+                  offset: 1,
+                  value: ["go", "test"],
+                  origin: { type: "user" },
+                },
+                {
+                  name: "counts",
+                  offset: 2,
+                  value: { a: 10 },
+                  origin: { type: "user" },
+                },
+                {
+                  name: "ptr",
+                  offset: 3,
+                  value: 5,
+                  origin: { type: "user" },
+                },
+              ],
+              output: [
+                // len("alice") [5] + 2 + 10 + 5 = 22
+                {
+                  name: "out",
+                  offset: 0,
+                  value: 22,
+                  isException: false,
+                  origin: { type: "user" },
+                },
+              ],
+              pinned: true,
+            },
+          },
+        },
+      },
+    };
+
+    const adapter = new GoTestAdapter(testSet, goPath);
+    const testCode = adapter.toString();
+    expect(testCode).toContain("package datatypes");
+    expect(testCode).toContain('Profile{Username: "alice"}');
+    expect(testCode).toContain('[]string{"go", "test"}');
+    expect(testCode).toContain('map[string]int{"a": 10}');
+    expect(testCode).toContain("want := 22");
+
+    fs.writeFileSync(adapter.filename, testCode);
+    const goBin = GoCompiler.resolveGo();
+    expect(goBin).toBeDefined();
+    const res = ChildProcess.spawnSync(goBin!, ["test", "./..."], {
+      cwd: tempDir,
+      encoding: "utf-8",
+    });
+    expect(res.status).toBe(0);
+  });
+
   it("generates a runnable Go test file that passes go test", () => {
     const goSrc = `package mathutil
 
@@ -115,26 +220,34 @@ func Add(a, b int) int {
     const goPath = path.join(tempDir, "math.go");
     fs.writeFileSync(goPath, goSrc);
 
-    const testSet = {
+    const testSet: FuzzTests = {
       version: "0.1.0",
       functions: {
         Add: {
-          options: {} as any,
+          options: intOptions,
+          validators: [],
+          isVoid: false,
           tests: {
             test1: {
               input: [
-                { name: "a", offset: 0, value: 10 },
-                { name: "b", offset: 1, value: 20 },
+                { name: "a", offset: 0, value: 10, origin: { type: "user" } },
+                { name: "b", offset: 1, value: 20, origin: { type: "user" } },
               ],
               output: [
-                { name: "out", offset: 0, value: 30, isException: false },
+                {
+                  name: "out",
+                  offset: 0,
+                  value: 30,
+                  isException: false,
+                  origin: { type: "user" },
+                },
               ],
               pinned: true,
             },
           },
         },
       },
-    } as unknown as FuzzTests;
+    };
 
     const adapter = new GoTestAdapter(testSet, goPath);
     const testCode = adapter.toString();

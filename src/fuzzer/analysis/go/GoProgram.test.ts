@@ -168,4 +168,27 @@ func check(name string) {
     const callees = fn.getCallees();
     expect(callees.has("check")).toBeTrue();
   });
+
+  it("marks functions with unsupported types (channels, interfaces with methods, callbacks) as unsupported", () => {
+    const src = `
+package unsupp
+
+type Reader interface {
+    Read(p []byte) (n int, err error)
+}
+
+func ProcessChan(ch chan int) {}
+func ProcessReader(r Reader) {}
+func ProcessCallback(cb func(string) bool) {}
+`;
+    const program = ProgramFactory.fromSource(() => src, "go", "unsupp.go");
+    expect("ProcessChan" in program.functionsExported).toBeFalse();
+    expect("ProcessReader" in program.functionsExported).toBeFalse();
+    expect("ProcessCallback" in program.functionsExported).toBeFalse();
+
+    const unsupp = program.functionsNotSupported;
+    expect("ProcessChan" in unsupp).toBeTrue();
+    expect("ProcessReader" in unsupp).toBeTrue();
+    expect("ProcessCallback" in unsupp).toBeTrue();
+  });
 });

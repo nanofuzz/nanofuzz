@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import * as Config from "../../Config";
 import { CoverageMeasure } from "./CoverageMeasure";
 import { GoRunner } from "../runners/go/GoRunner";
 import { extractGoStaticCoverage } from "../runners/go/GoHarness";
@@ -25,6 +26,7 @@ describe("fuzzer/measures/CoverageMeasure: Go", () => {
   });
 
   afterEach(() => {
+    Config.clearOverrides();
     if (fs.existsSync(tempDir)) {
       try {
         fs.rmSync(tempDir, { recursive: true, force: true });
@@ -53,7 +55,9 @@ func Abs(x int) int {
       0
     );
 
-    expect(Object.keys(staticCov.statementMap).length).toBeGreaterThanOrEqual(3);
+    expect(Object.keys(staticCov.statementMap).length).toBeGreaterThanOrEqual(
+      3
+    );
     expect(Object.keys(staticCov.fnMap).length).toBe(1);
     expect(staticCov.fnMap["0"].name).toBe("Abs");
     expect(Object.keys(staticCov.branchMap).length).toBe(1);
@@ -154,6 +158,116 @@ func Abs(x int) int {
 
     const dynCov2 = runner.lastRunCoverage;
     expect(dynCov2).toBeDefined();
+
+    runner.killHost();
+  });
+
+  it("captures package init() statements in static coverage when static scope is enabled", async () => {
+    const goPath = path.join(tempDir, "init_scope_test.go");
+    const goCode = `package initscope
+
+var InitCount = 0
+
+func init() {
+    InitCount = 100
+}
+
+func Value() int {
+    return InitCount
+}
+`;
+    fs.writeFileSync(goPath, goCode);
+
+    const program = ProgramFactory.fromFile(goPath, "go");
+    const fnDef = program.functionsExported["Value"];
+    const env = createTestEnv(fnDef);
+
+    // 1. With static in coverageScope (default: "project static")
+    Config.override("nanofuzz.fuzzer.coverageScope", "project static");
+    const runnerStatic = new GoRunner(goPath, "Value", env);
+    await runnerStatic.onRunStart();
+
+    const staticCov = runnerStatic.staticCoverage;
+    expect(staticCov).toBeDefined();
+    const fileCovStatic = Object.values(staticCov!)[0];
+    // At least one statement in init() was hit during static package initialization
+    const stmtHitValues = Object.values(fileCovStatic.s);
+    expect(stmtHitValues.some((hits) => hits > 0)).toBeTrue();
+    runnerStatic.killHost();
+
+    // 2. Without static in coverageScope
+    Config.override("nanofuzz.fuzzer.coverageScope", "project");
+    const runnerNoStatic = new GoRunner(goPath, "Value", env);
+    await runnerNoStatic.onRunStart();
+
+    const noStaticCov = runnerNoStatic.staticCoverage;
+    expect(noStaticCov).toBeDefined();
+    const fileCovNoStatic = Object.values(noStaticCov!)[0];
+    // When static scope is disabled, initial statement hits remain 0
+    const noStaticHits = Object.values(fileCovNoStatic.s);
+    expect(noStaticHits.every((hits) => hits === 0)).toBeTrue();
+    runnerNoStatic.killHost();
+  });
+
+  it("instruments all project Go source files across subdirectories in project scope", async () => {
+    // Project root with go.mod
+    const projDir = path.join(tempDir, "multidir_project");
+    fs.mkdirSync(path.join(projDir, "subpkg"), { recursive: true });
+    fs.writeFileSync(
+      path.join(projDir, "go.mod"),
+      "module multidir_project\n\ngo 1.22\n"
+    );
+
+    const mainFile = path.join(projDir, "main.go");
+    fs.writeFileSync(
+      mainFile,
+      `package main
+
+func Compute(x int) int {
+    if x > 0 {
+        return Helper(x)
+    }
+    return 0
+}
+`
+    );
+
+    const subFile = path.join(projDir, "subpkg", "helper.go");
+    fs.writeFileSync(
+      subFile,
+      `package subpkg
+
+func Helper(n int) int {
+    return n * 2
+}
+`
+    );
+
+    const program = ProgramFactory.fromFile(mainFile, "go");
+    const fnDef = program.functionsExported["Compute"];
+    const env = createTestEnv(fnDef);
+
+    const runner = new GoRunner(mainFile, "Compute", env);
+    await runner.onRunStart();
+
+    // Verify static coverage map contains both root and subdirectory files
+    const staticCov = runner.staticCoverage;
+    expect(staticCov).toBeDefined();
+    const coveredPaths = Object.keys(staticCov!);
+    expect(coveredPaths.some((p) => p.endsWith("main.go"))).toBeTrue();
+    expect(coveredPaths.some((p) => p.endsWith("helper.go"))).toBeTrue();
+
+    // Run compute and verify dynamic coverage covers both files
+    const res = await runner.run([5]);
+    expect(res.result.tag).toBe("value");
+    if (res.result.tag === "value") {
+      expect(res.result.value).toBe(10);
+    }
+
+    const lastCov = runner.lastRunCoverage;
+    expect(lastCov).toBeDefined();
+    const dynPaths = Object.keys(lastCov!);
+    expect(dynPaths.some((p) => p.endsWith("helper.go"))).toBeTrue();
 
     runner.killHost();
   });

@@ -57,6 +57,22 @@ function toGoFormat(val: unknown, argDef?: ArgDefContext): string {
     return "nil";
   }
 
+  if (isPointer && argDef && argDef.getType() !== ArgTag.OBJECT) {
+    const innerArgDef: ArgDefContext = {
+      isOptional: () => false,
+      getName: () => (argDef.getName ? argDef.getName() : "elem"),
+      getTypeRef: () => argDef.getTypeRef()?.replace(/^\*+/, ""),
+      getBaseTypeRef: () => undefined,
+      getOptions: () => argDef.getOptions(),
+      getType: () => argDef.getType(),
+      getChildren: () => argDef.getChildren(),
+      getDim: () => argDef.getDim(),
+    };
+    const innerVal = toGoFormat(val, innerArgDef);
+    const typeName = inferGoTypeName(innerArgDef);
+    return `func() *${typeName} { v := ${innerVal}; return &v }()`;
+  }
+
   if (typeof val === "boolean") {
     return val ? "true" : "false";
   }
@@ -388,6 +404,19 @@ function toJavascriptValue(
       case "call_expression": {
         const fnNode = node.childForFieldName("function");
         const argsNode = node.childForFieldName("arguments");
+        if (fnNode?.type === "func_literal") {
+          const body = fnNode.childForFieldName("body");
+          const shortVar = body?.descendantsOfType("short_var_declaration")[0];
+          const right = shortVar?.childForFieldName("right");
+          if (right) {
+            replacements.push({
+              start: node.startIndex,
+              end: node.endIndex,
+              text: right.text,
+            });
+            return;
+          }
+        }
         if (fnNode && argsNode) {
           const fnName = fnNode.text;
           const innerText = argsNode.text.slice(1, -1).trim();
@@ -465,10 +494,5 @@ function toJavascriptValue(
   const exprText = transformed.replace(/^var _ =\s*/, "").trim();
   const jsonReady = exprText;
 
-  try {
-    return JSONN.parse(jsonReady);
-  } catch (_e) {
-    if (trimmed === "nil") return null;
-    return trimmed;
-  }
+  return JSONN.parse(jsonReady);
 } // fn: toJavascriptValue

@@ -151,7 +151,27 @@ describe("src/fuzzer/synthesis/ValidatorSynthesizer", () => {
     expect(result.skeleton).toContain("b := r.In[1].(float64)");
     expect(result.skeleton).toContain("out := r.Out.(int)");
     expect(result.skeleton).toContain("return runtime.Pass");
-    expect(result.fullTemplate).toContain('import "github.com/nanofuzz/runtime"');
+    expect(result.fullTemplate).toContain(
+      'import "github.com/nanofuzz/runtime"'
+    );
+  });
+
+  it("synthesizes Go validator for compound types (structs, slices, maps, pointers)", () => {
+    const src = `package app
+type User struct { Name string }
+func Process(u User, items []string, lookup map[string]int, ptr *int) *User {
+    return &u
+}`;
+    const program = ProgramFactory.fromSource(() => src, "go");
+    const fnDef = program.functionsExported["Process"];
+    expect(fnDef).toBeDefined();
+
+    const result = synthesizeValidator(fnDef, "go");
+    expect(result.skeleton).toContain("u := r.In[0].(User)");
+    expect(result.skeleton).toContain("items := r.In[1].([]string)");
+    expect(result.skeleton).toContain("lookup := r.In[2].(map[string]int)");
+    expect(result.skeleton).toContain("ptr := r.In[3].(*int)");
+    expect(result.skeleton).toContain("out := r.Out.(*User)");
   });
 
   it("disambiguates validator name when existing names conflict", () => {
