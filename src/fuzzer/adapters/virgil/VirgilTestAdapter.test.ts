@@ -18,6 +18,16 @@ const testOptions: FuzzOptions = {
   useHuman: false,
   useProperty: false,
   useTransformer: false,
+  measures: {
+    CoverageMeasure: { enabled: true, weight: 1 },
+    FailedTestMeasure: { enabled: true, weight: 1 },
+  },
+  generators: {
+    RandomInputGenerator: { enabled: true },
+    MutationInputGenerator: { enabled: false },
+    AiInputGenerator: { enabled: false },
+    UserInputGenerator: { enabled: false },
+  },
 };
 
 describe("fuzzer/adapters/virgil/VirgilTestAdapter: ", () => {
@@ -78,10 +88,12 @@ def do_nothing() -> void {}
             "0": {
               pinned: true,
               input: [
-                { name: "a", offset: 0, value: 2 },
-                { name: "b", offset: 1, value: 3 },
+                { name: "a", offset: 0, value: 2, origin: { type: "user" } },
+                { name: "b", offset: 1, value: 3, origin: { type: "user" } },
               ],
-              output: [{ name: "0", offset: 0, value: 5 }],
+              output: [
+                { name: "0", offset: 0, value: 5, origin: { type: "user" } },
+              ],
             },
           },
         },
@@ -92,8 +104,22 @@ def do_nothing() -> void {}
           tests: {
             "0": {
               pinned: true,
-              input: [{ name: "name", offset: 0, value: "world" }],
-              output: [{ name: "0", offset: 0, value: "hello world" }],
+              input: [
+                {
+                  name: "name",
+                  offset: 0,
+                  value: "world",
+                  origin: { type: "user" },
+                },
+              ],
+              output: [
+                {
+                  name: "0",
+                  offset: 0,
+                  value: "hello world",
+                  origin: { type: "user" },
+                },
+              ],
             },
           },
         },

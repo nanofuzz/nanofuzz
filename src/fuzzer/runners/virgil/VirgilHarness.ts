@@ -119,27 +119,23 @@ export function buildVirgilHarness(
   fs.mkdirSync(harnessDir, { recursive: true });
   const binaryPath = path.join(harnessDir, "harness_bin");
 
-  const runtimeV3Src = path.resolve(
+  let runtimeV3Src = path.resolve(
     __dirname,
     "../../../../packages/runtime/virgil/nanofuzz_runtime.v3"
   );
-  const runtimeDest = path.join(harnessDir, "nanofuzz_runtime.v3");
-  if (fs.existsSync(runtimeV3Src)) {
-    fs.copyFileSync(runtimeV3Src, runtimeDest);
-  } else {
-    // Generate minimal fallback runtime if package path not found
-    fs.writeFileSync(
-      runtimeDest,
-      `component NanofuzzCoverage {
-    var stmt_hits: Array<int> = Array<int>.new(4096);
-    var fn_hits: Array<int> = Array<int>.new(1024);
-    var branch_hits: Array<int> = Array<int>.new(4096);
-    def hit_stmt(f: int, s: int) {}
-    def hit_fn(f: int, fn: int) {}
-    def hit_branch(f: int, b: int, a: int) {}
-}\n`
+  if (!fs.existsSync(runtimeV3Src)) {
+    runtimeV3Src = path.resolve(
+      __dirname,
+      "../../nanofuzz_runtime_virgil/nanofuzz_runtime.v3"
     );
   }
+  if (!fs.existsSync(runtimeV3Src)) {
+    throw new Error(
+      `Cannot find nanofuzz_runtime.v3: expected at packages/runtime/virgil or build/extension/nanofuzz_runtime_virgil`
+    );
+  }
+  const runtimeDest = path.join(harnessDir, "nanofuzz_runtime.v3");
+  fs.copyFileSync(runtimeV3Src, runtimeDest);
 
   // Write instrumented target file
   const instTargetFile = path.join(harnessDir, path.basename(normTarget));

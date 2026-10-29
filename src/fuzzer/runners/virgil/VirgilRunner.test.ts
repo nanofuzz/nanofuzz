@@ -8,7 +8,42 @@ import { VirgilHost } from "./VirgilHost";
 import { VirgilCompiler } from "../../compilers/virgil/VirgilCompiler";
 import { FuzzEnv } from "../../Types";
 import { ArgDef } from "../../analysis/ArgDef";
+import { FunctionDef } from "../../analysis/FunctionDef";
 import * as Parser from "../../adapters/ParserAdapter";
+
+import { getDefaultFuzzExecutionOptions } from "../../FuzzerFactory";
+
+function createRunnerTestEnv(fnDef: FunctionDef): FuzzEnv {
+  return {
+    function: fnDef,
+    options: {
+      argDefaults: ArgDef.getDefaultOptions(),
+      maxTests: 10,
+      maxDupeInputs: 5,
+      maxFailures: 0,
+      fnTimeout: 500,
+      suiteTimeout: 1000,
+      useImplicit: true,
+      useHuman: false,
+      useProperty: false,
+      useTransformer: false,
+      measures: {
+        CoverageMeasure: { enabled: true, weight: 1 },
+        FailedTestMeasure: { enabled: true, weight: 1 },
+      },
+      generators: {
+        RandomInputGenerator: { enabled: true },
+        MutationInputGenerator: { enabled: false },
+        AiInputGenerator: { enabled: false },
+        UserInputGenerator: { enabled: false },
+      },
+    },
+    executionOptions: getDefaultFuzzExecutionOptions(),
+    validators: [],
+    transformers: [],
+    userGenerators: [],
+  };
+}
 
 describe("fuzzer/runners/virgil/VirgilRunner: ", () => {
   let tempDir: string;
@@ -41,22 +76,7 @@ describe("fuzzer/runners/virgil/VirgilRunner: ", () => {
     const fnDef = program.functionsExported["add"];
     expect(fnDef).toBeDefined();
 
-    const env: FuzzEnv = {
-      function: fnDef,
-      options: {
-        argDefaults: ArgDef.getDefaultOptions(),
-        maxTests: 10,
-        maxDupeInputs: 5,
-        maxFailures: 0,
-        fnTimeout: 500,
-        suiteTimeout: 1000,
-        useImplicit: true,
-        useHuman: false,
-        useProperty: false,
-        useTransformer: false,
-      },
-      validators: [],
-    };
+    const env = createRunnerTestEnv(fnDef);
 
     const runner = RunnerFactory(env, v3File, "add");
     expect(runner).toBeDefined();
@@ -85,22 +105,7 @@ describe("fuzzer/runners/virgil/VirgilRunner: ", () => {
 
     const program = ProgramFactory.fromFile(v3File, "virgil");
     const fnDef = program.functionsExported["clamp"];
-    const env: FuzzEnv = {
-      function: fnDef,
-      options: {
-        argDefaults: ArgDef.getDefaultOptions(),
-        maxTests: 10,
-        maxDupeInputs: 5,
-        maxFailures: 0,
-        fnTimeout: 500,
-        suiteTimeout: 1000,
-        useImplicit: true,
-        useHuman: false,
-        useProperty: false,
-        useTransformer: false,
-      },
-      validators: [],
-    };
+    const env = createRunnerTestEnv(fnDef);
 
     const runner = new VirgilRunner(v3File, "clamp", env);
     await runner.onRunStart();
@@ -132,22 +137,7 @@ describe("fuzzer/runners/virgil/VirgilRunner: ", () => {
 
     const program = ProgramFactory.fromFile(v3File, "virgil");
     const fnDef = program.functionsExported["square"];
-    const env: FuzzEnv = {
-      function: fnDef,
-      options: {
-        argDefaults: ArgDef.getDefaultOptions(),
-        maxTests: 10,
-        maxDupeInputs: 5,
-        maxFailures: 0,
-        fnTimeout: 500,
-        suiteTimeout: 1000,
-        useImplicit: true,
-        useHuman: false,
-        useProperty: false,
-        useTransformer: false,
-      },
-      validators: [],
-    };
+    const env = createRunnerTestEnv(fnDef);
 
     const runner = new VirgilRunner(v3File, "square", env);
     await runner.onRunStart();

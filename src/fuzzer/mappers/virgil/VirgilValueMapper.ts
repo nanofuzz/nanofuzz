@@ -204,8 +204,11 @@ function toJavascriptValue(text: string, argDef?: ArgDefContext): unknown {
 
   try {
     return JSONN.parse(trimmed);
-  } catch {
-    return trimmed;
+  } catch (e: unknown) {
+    throw new Error(
+      `Unable to parse Virgil value '${trimmed}': ${e instanceof Error ? e.message : String(e)}`,
+      { cause: e }
+    );
   }
 } // fn: toJavascriptValue
 

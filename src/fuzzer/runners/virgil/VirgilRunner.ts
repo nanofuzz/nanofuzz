@@ -3,6 +3,7 @@ import {
   AbstractRunner,
   RunnerOverrides,
   RunnerResult,
+  ValidatorResult,
 } from "../AbstractRunner";
 import { CoverageMapData } from "istanbul-lib-coverage";
 import { FuzzEnv } from "../../Types";
@@ -18,9 +19,9 @@ export type VirgilHostResponse = {
   message?: string;
   name?: string;
   stack?: string;
-  source?: "put" | "transformer" | "validator";
+  source?: "put" | "host";
   seq?: number;
-  validators?: Record<string, "pass" | "fail" | "unknown">;
+  validators?: Record<string, ValidatorResult>;
   coverageData?: Record<string, unknown>;
 };
 

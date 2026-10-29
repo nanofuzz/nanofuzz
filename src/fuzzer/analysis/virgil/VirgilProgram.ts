@@ -75,19 +75,25 @@ export class VirgilProgram extends AbstractProgram {
         }
         const intervals = arg.getIntervals();
         if (intervals && intervals.length > 0) {
-          const { min, max } = intervals[0];
-          if (min >= 0 && max <= 255) return "byte";
-          if (min >= -128 && max <= 127) return "i8";
-          if (min >= 0 && max <= 65535) return "u16";
-          if (min >= -32768 && max <= 32767) return "i16";
-          if (min >= 0 && max <= 4294967295) return "u32";
+          const min = intervals[0].min;
+          const max = intervals[0].max;
+          if (typeof min === "number" && typeof max === "number") {
+            if (min >= 0 && max <= 255) return "byte";
+            if (min >= -128 && max <= 127) return "i8";
+            if (min >= 0 && max <= 65535) return "u16";
+            if (min >= -32768 && max <= 32767) return "i16";
+            if (min >= 0 && max <= 4294967295) return "u32";
+          }
         }
         return "int";
       }
       case ArgTag.BIGINT: {
-        const intervals = arg.getOptions().bigintIntervals;
-        if (intervals && intervals.length > 0 && intervals[0].min >= 0n) {
-          return "u64";
+        const intervals = arg.getIntervals();
+        if (intervals && intervals.length > 0) {
+          const min = intervals[0].min;
+          if (typeof min === "bigint" && min >= 0n) {
+            return "u64";
+          }
         }
         return "i64";
       }
@@ -110,14 +116,6 @@ export class VirgilProgram extends AbstractProgram {
         throw new Error(
           `Unsupported Virgil object/complex type in parameter '${arg.getName()}'`
         );
-      }
-      case ArgTag.ARRAY: {
-        const children = arg.getChildren();
-        const elemType =
-          children.length > 0
-            ? VirgilProgram.getTypeAnnotation(children[0], options)
-            : "int";
-        return `Array<${elemType}>`;
       }
       case ArgTag.TUPLE: {
         const children = arg.getChildren();
@@ -322,17 +320,22 @@ export class VirgilProgram extends AbstractProgram {
     }
 
     // Return type
-    const returnCap = match.captures.find((c) => c.name === "method.return");
+    const returnCap = match.captures.find(
+      (c: Parser.QueryCapture) => c.name === "method.return"
+    );
     let isVoid = true;
     let returnType: TypeRef | undefined = undefined;
 
     if (returnCap && returnCap.node.text.trim() !== "void") {
       isVoid = false;
       returnType = this._getTypeRefFromNode(returnCap.node);
+      returnType.name = returnCap.node.text.trim();
     }
 
     // Parameters
-    const paramsCap = match.captures.find((c) => c.name === "method.params");
+    const paramsCap = match.captures.find(
+      (c: Parser.QueryCapture) => c.name === "method.params"
+    );
     const args: TypeRef[] = [];
 
     if (paramsCap) {
@@ -409,6 +412,9 @@ export class VirgilProgram extends AbstractProgram {
         name: "",
         typeRefName: "#tuple",
         dims,
+        optional: false,
+        isExported: false,
+        module: this._filename,
         type: {
           type: ArgTag.OBJECT,
           dims,
@@ -451,6 +457,9 @@ export class VirgilProgram extends AbstractProgram {
       typeRefName: baseText,
       dims,
       baseTypeRef: baseText,
+      optional: false,
+      isExported: false,
+      module: this._filename,
     };
 
     return this.resolveTypeRef(typeRef);
@@ -474,6 +483,9 @@ export class VirgilProgram extends AbstractProgram {
       typeRefName: base,
       dims,
       baseTypeRef: base,
+      optional: false,
+      isExported: false,
+      module: this._filename,
     };
     return typeRef;
   } // fn: _createTypeRefFromTypeName
@@ -481,6 +493,10 @@ export class VirgilProgram extends AbstractProgram {
   protected _findDefaultTypeExport(): TypeRef | undefined {
     return undefined;
   } // fn: _findDefaultTypeExport
+
+  protected _findCallees(_fnName: string): Set<string> {
+    return new Set<string>();
+  } // fn: _findCallees
 
   /**
    * Discovers all local module files for the project scope starting from sourceFile.

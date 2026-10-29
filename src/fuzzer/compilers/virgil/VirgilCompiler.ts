@@ -67,6 +67,10 @@ export class VirgilCompiler {
     return this._v3cPath;
   } // get: v3cPath
 
+  public getCompiledDependencies(): string[] {
+    return [this._moduleFile];
+  } // fn: getCompiledDependencies
+
   public isStale(): CompilerStaleness {
     const recordFile = this._getCompilationRecordFilename(this._moduleFile);
     if (!fs.existsSync(recordFile)) {

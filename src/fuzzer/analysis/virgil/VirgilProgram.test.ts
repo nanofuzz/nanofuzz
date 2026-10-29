@@ -129,19 +129,13 @@ def process_nums(
 
     // i64
     expect(args[5].getType()).toBe(ArgTag.BIGINT);
-    expect(args[5].getOptions().bigintIntervals![0].min).toBe(
-      -9223372036854775808n
-    );
-    expect(args[5].getOptions().bigintIntervals![0].max).toBe(
-      9223372036854775807n
-    );
+    expect(args[5].getIntervals()[0].min).toBe(-9223372036854775808n);
+    expect(args[5].getIntervals()[0].max).toBe(9223372036854775807n);
 
     // u64
     expect(args[6].getType()).toBe(ArgTag.BIGINT);
-    expect(args[6].getOptions().bigintIntervals![0].min).toBe(0n);
-    expect(args[6].getOptions().bigintIntervals![0].max).toBe(
-      18446744073709551615n
-    );
+    expect(args[6].getIntervals()[0].min).toBe(0n);
+    expect(args[6].getIntervals()[0].max).toBe(18446744073709551615n);
   });
 
   it("parses string, bool, and array types", () => {

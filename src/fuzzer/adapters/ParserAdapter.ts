@@ -231,6 +231,7 @@ type GrammarData = {
 };
 
 export type Query = TSWeb.Query;
+export type QueryMatch = TSWeb.QueryMatch;
 export type QueryCapture = TSWeb.QueryCapture;
 export type Tree = TSWeb.Tree;
 export type Node = TSWeb.Node;

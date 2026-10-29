@@ -209,6 +209,8 @@ def run_app(x: int) -> int {
   });
 });
 
+import { getDefaultFuzzExecutionOptions } from "../FuzzerFactory";
+
 function createTestEnv(fnDef: FunctionDef): FuzzEnv {
   return {
     function: fnDef,
@@ -225,8 +227,18 @@ function createTestEnv(fnDef: FunctionDef): FuzzEnv {
       useTransformer: false,
       measures: {
         CoverageMeasure: { enabled: true, weight: 1 },
+        FailedTestMeasure: { enabled: true, weight: 1 },
+      },
+      generators: {
+        RandomInputGenerator: { enabled: true },
+        MutationInputGenerator: { enabled: false },
+        AiInputGenerator: { enabled: false },
+        UserInputGenerator: { enabled: false },
       },
     },
+    executionOptions: getDefaultFuzzExecutionOptions(),
     validators: [],
+    transformers: [],
+    userGenerators: [],
   };
 }

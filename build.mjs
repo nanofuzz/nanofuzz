@@ -204,6 +204,17 @@ if (fs.existsSync(javaRuntimeDir)) {
   console.log("copied nanofuzz-runtime (java)");
 }
 
+// Copy Virgil runtime package (nanofuzz_runtime)
+const virgilRuntimeDir = path.resolve("./packages/runtime/virgil");
+if (fs.existsSync(virgilRuntimeDir)) {
+  const destVirgilRuntime = path.resolve(
+    "./build/extension/nanofuzz_runtime_virgil"
+  );
+  fs.mkdirSync(destVirgilRuntime, { recursive: true });
+  fs.cpSync(virgilRuntimeDir, destVirgilRuntime, { recursive: true });
+  console.log("copied nanofuzz_runtime_virgil");
+}
+
 // Copy Python imports
 let interpreter = "python";
 if (!fs.existsSync(path.resolve(path.join(".", ".venv")))) {
@@ -275,6 +286,7 @@ await esbuild.build({
     "tree-sitter-rust",
     "tree-sitter-ocaml",
     "tree-sitter-java",
+    "tree-sitter-virgil",
     "web-tree-sitter",
   ],
   define: {
@@ -326,6 +338,7 @@ await esbuild.build({
     "tree-sitter-rust",
     "tree-sitter-ocaml",
     "tree-sitter-java",
+    "tree-sitter-virgil",
     "web-tree-sitter",
   ],
   plugins: [
@@ -403,6 +416,7 @@ await esbuild.build({
     "tree-sitter-rust",
     "tree-sitter-ocaml",
     "tree-sitter-java",
+    "tree-sitter-virgil",
     "web-tree-sitter",
   ],
   define: {

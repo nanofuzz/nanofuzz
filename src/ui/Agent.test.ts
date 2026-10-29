@@ -24,6 +24,7 @@ import {
   synthesizeTransformer,
   synthesizeUserGenerator,
   convertAgentInputsToPinnedTests,
+  formatFunctionSignature,
   AgentFuzzOptions,
 } from "./Agent";
 import { FuzzTestResult, FuzzStopReason } from "../fuzzer/Types";
@@ -1329,5 +1330,15 @@ def py_double(x: int) -> int:
       expect(first.filePath).toBeDefined();
       expect(first.uncoveredLines.length).toBeGreaterThan(0);
     }
+  });
+
+  it("formats Virgil function signatures correctly", () => {
+    const v3Src = `def add(a: int, b: float) -> int { return a; }`;
+    const program = ProgramFactory.fromSource(() => v3Src, "virgil");
+    const fnDef = program.functionsExported["add"];
+    expect(fnDef).toBeDefined();
+
+    const sig = formatFunctionSignature(fnDef, "virgil");
+    expect(sig).toBe("def add(a: int, b: float) -> int");
   });
 });
