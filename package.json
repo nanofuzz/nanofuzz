@@ -42,6 +42,18 @@
     "onWebviewPanel:FuzzPanel"
   ],
   "contributes": {
+    "languages": [
+      {
+        "id": "virgil",
+        "aliases": [
+          "Virgil",
+          "virgil"
+        ],
+        "extensions": [
+          ".v3"
+        ]
+      }
+    ],
     "commands": [
       {
         "command": "nanofuzz.Fuzz",

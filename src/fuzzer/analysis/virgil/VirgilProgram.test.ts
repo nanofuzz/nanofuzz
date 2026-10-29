@@ -238,6 +238,27 @@ class Counter {
     }
   });
 
+  it("parses Levenshtein distance Virgil program correctly", () => {
+    const src = `
+def min3(a: int, b: int, c: int) -> int {
+    var m = a;
+    if (b < m) m = b;
+    if (c < m) m = c;
+    return m;
+}
+
+def levenshtein(a: string, b: string) -> int {
+    var m = a.length;
+    var n = b.length;
+    var t = Array<int>.new(n + 1);
+    return 0;
+}
+`;
+    const program = ProgramFactory.fromSource(() => src, "virgil", "levenshtein.v3");
+    expect("min3" in program.functions).toBeTrue();
+    expect("levenshtein" in program.functions).toBeTrue();
+  });
+
   it("discovers local module files for project scope", () => {
     const mainV3 = path.join(tempDir, "main.v3");
     const helperV3 = path.join(tempDir, "helper.v3");

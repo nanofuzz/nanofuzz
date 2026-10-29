@@ -215,6 +215,27 @@ if (fs.existsSync(virgilRuntimeDir)) {
   console.log("copied nanofuzz_runtime_virgil");
 }
 
+// Copy Virgil tree-sitter WASM grammar
+const virgilTreeSitterDir = path.resolve("./packages/tree-sitter-virgil");
+if (fs.existsSync(virgilTreeSitterDir)) {
+  const destTsVirgil = path.resolve(
+    "./build/extension/node_modules/tree-sitter-virgil"
+  );
+  fs.mkdirSync(destTsVirgil, { recursive: true });
+  fs.cpSync(virgilTreeSitterDir, destTsVirgil, { recursive: true });
+
+  const destRootVirgil = path.resolve("./node_modules/tree-sitter-virgil");
+  if (
+    fs.existsSync(destRootVirgil) &&
+    fs.lstatSync(destRootVirgil).isSymbolicLink()
+  ) {
+    fs.unlinkSync(destRootVirgil);
+  }
+  fs.mkdirSync(destRootVirgil, { recursive: true });
+  fs.cpSync(virgilTreeSitterDir, destRootVirgil, { recursive: true });
+  console.log("copied tree-sitter-virgil");
+}
+
 // Copy Python imports
 let interpreter = "python";
 if (!fs.existsSync(path.resolve(path.join(".", ".venv")))) {
