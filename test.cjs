@@ -67,41 +67,53 @@ function findTestFiles(dir) {
 } // fn: findTestFiles
 
 // Prioritize known longer running test files to run early in the queue.
-// Interleave heavy suites across distinct disaffinity domains (CLI/TS, OCaml, Python, Rust, Java)
+// Interleave heavy suites across distinct disaffinity domains (CLI/TS, OCaml, Python, Rust, Java, Go)
 // so initial workers start long-running tasks immediately without blocking each other.
 function sortTestFiles(files) {
   const priority = [
+    // Phase 1: Heavy language runner suites (one per disaffinity domain)
     "CommandLine.test.ts",
-    "Fuzzer.test.ts",
     "OxcamlRunner.test.ts",
     "PythonRunner.test.ts",
     "RustRunner.test.ts",
     "JavaRunner.test.ts",
-    "FuzzerJava.test.ts",
-    "FuzzerRust.test.ts",
-    "FuzzerExamples1.test.ts",
-    "FuzzerExamples2.test.ts",
-    "FuzzerCoverageOneFile.test.ts",
+    "GoRunner.test.ts",
+
+    // Phase 2: Heavy fuzzer execution suites (interleaved across domains)
+    "Fuzzer.test.ts",
     "FuzzerOxcaml.test.ts",
     "FuzzerPython.test.ts",
-    "CargoTestAdapter.test.ts",
-    "FuzzerTypescript.test.ts",
-    "CoverageMeasureJava.test.ts",
-    "CoverageMeasureRust.test.ts",
-    "RustCompiler.test.ts",
-    "Agent.test.ts",
+    "FuzzerRust.test.ts",
+    "FuzzerJava.test.ts",
+    "FuzzerGo.test.ts",
+
+    // Phase 3: Coverage measures & multi-worker campaigns
+    "FuzzerExamples1.test.ts",
     "CoverageMeasureOxcaml.test.ts",
-    "JavaCompiler.test.ts",
+    "CoverageMeasureRust.test.ts",
+    "CoverageMeasureJava.test.ts",
+    "CoverageMeasureGo.test.ts",
+    "FuzzerCoverageOneFile.test.ts",
+    "FuzzerExamples2.test.ts",
+    "FuzzerTypescript.test.ts",
+
+    // Phase 4: Compilers, adapters, and harnesses
+    "CargoTestAdapter.test.ts",
+    "RustCompiler.test.ts",
     "JUnitTestAdapter.test.ts",
-    "JavascriptRunner.test.ts",
+    "JavaCompiler.test.ts",
+    "DuneTestAdapter.test.ts",
+    "OxcamlCompiler.test.ts",
     "OxcamlHarness.test.ts",
+    "PytestAdapter.test.ts",
+    "GoTestAdapter.test.ts",
+    "GoCompiler.test.ts",
+    "JavascriptRunner.test.ts",
+    "TypescriptCompiler.test.ts",
+    "Agent.test.ts",
+    "CommandLineAiCache.test.ts",
     "VscodeLmAdapter.test.ts",
     "FuzzerCoverageMultiFile.test.ts",
-    "DuneTestAdapter.test.ts",
-    "CommandLineAiCache.test.ts",
-    "PytestAdapter.test.ts",
-    "TypescriptCompiler.test.ts",
-    "OxcamlCompiler.test.ts",
   ];
 
   return [...files].sort((a, b) => {
@@ -133,6 +145,8 @@ const disaffinityGroups = [
   ["JavaRunner.test.ts", "FuzzerJava.test.ts"],
   // Subprocess-heavy OCaml/OxCaml runner & fuzzer suites
   ["OxcamlRunner.test.ts", "FuzzerOxcaml.test.ts"],
+  // Subprocess-heavy Go runner & fuzzer suites
+  ["GoRunner.test.ts", "FuzzerGo.test.ts"],
 ];
 
 function hasConflict(fileA, fileB) {

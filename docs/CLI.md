@@ -1,6 +1,6 @@
 # @nanofuzz/cli
 
-Structure-aware property-based Fuzzing for **TypeScript**, **Python**, **Rust**, and **Java** directly from your terminal!
+Structure-aware property-based Fuzzing for **TypeScript**, **Python**, **Rust**, **Java**, **OCaml**, and **Go** directly from your terminal!
 
 NaNofuzz tests functions (exported and unexported, synchronous and asynchronous) by combining coverage-guided mutation, grammar-based input generation, property validators, input transformers, and automated input shrinking to find edge cases, crashes, and minimal counterexamples.
 
@@ -22,6 +22,9 @@ npx @nanofuzz/cli src/lib.rs::parse_token
 
 # Test a Java method
 npx @nanofuzz/cli src/main/java/com/example/MathUtil.java::add
+
+# Test a Go function
+npx @nanofuzz/cli math.go::Add
 ```
 
 ### Install as a Dev Dependency

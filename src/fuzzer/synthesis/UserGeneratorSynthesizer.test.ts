@@ -100,6 +100,36 @@ describe("src/fuzzer/synthesis/UserGeneratorSynthesizer", () => {
     );
   });
 
+  it("synthesizes Go user input generator with prng func() float64", () => {
+    const src = `package mathutil\nfunc Add(a int, b float64) int { return a + int(b) }`;
+    const program = ProgramFactory.fromSource(() => src, "go");
+    const fnDef = program.functionsExported["Add"];
+    expect(fnDef).toBeDefined();
+
+    const result = synthesizeUserGenerator(fnDef, "go");
+    expect(result.name).toBe("AddGenerator");
+    expect(result.skeleton).toContain(
+      "func AddGenerator(prng func() float64) (int, float64, bool) {"
+    );
+    expect(result.skeleton).toContain("return");
+    expect(result.skeleton).toContain("true");
+  });
+
+  it("synthesizes Go user input generator for compound types", () => {
+    const src = `package app
+type User struct { Name string }
+func Process(u User, items []string, lookup map[string]int) int { return 0 }`;
+    const program = ProgramFactory.fromSource(() => src, "go");
+    const fnDef = program.functionsExported["Process"];
+    expect(fnDef).toBeDefined();
+
+    const result = synthesizeUserGenerator(fnDef, "go");
+    expect(result.name).toBe("ProcessGenerator");
+    expect(result.skeleton).toContain(
+      "func ProcessGenerator(prng func() float64) (User, []string, map[string]int, bool) {"
+    );
+  });
+
   it("disambiguates generator name when existing names conflict", () => {
     const program = ProgramFactory.fromFile(tsFixture);
     const fnDef = program.functions["targetUserGen"];
