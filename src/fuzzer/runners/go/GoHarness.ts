@@ -242,9 +242,6 @@ export function buildGoHarness(
   const harnessFilePath = path.join(harnessDir, "harness.go");
   fs.writeFileSync(harnessFilePath, harnessSource, "utf8");
 
-  // Setup go.mod in harness directory
-  setupHarnessGoMod(harnessDir, normTarget, externalModuleReplaces);
-
   // Compile the harness
   const goPath = GoCompiler.resolveGo();
   if (!goPath) {
@@ -252,6 +249,9 @@ export function buildGoHarness(
       "No Go compiler found. Please ensure 'go' is installed and available on PATH."
     );
   }
+
+  // Setup go.mod in harness directory
+  setupHarnessGoMod(harnessDir, normTarget, externalModuleReplaces, goPath);
 
   // If external packages are vendored/replaced, run 'go mod tidy -e' to align module requirements
   if (externalModuleReplaces.size > 0) {
@@ -309,19 +309,31 @@ function rewritePackageToMain(src: string): string {
  * @param harnessDir Directory where the harness go.mod is written
  * @param targetFile Target Go file whose ancestor go.mod dependencies to inherit
  * @param externalReplaces Optional map of module paths to local vendored paths
+ * @param goPath Optional path to resolved go binary
  */
 function setupHarnessGoMod(
   harnessDir: string,
   targetFile: string,
-  externalReplaces?: Map<string, string>
+  externalReplaces?: Map<string, string>,
+  goPath?: string
 ): void {
   const runtimeDir = resolveGoRuntimeDir();
   const userGoMod = GoProgram.findGoMod(targetFile);
 
+  let moduleName = "nanofuzz_harness";
+  let goVersion = detectGoLanguageVersion(goPath);
   let userModDeps = "";
   if (userGoMod && fs.existsSync(userGoMod)) {
     const userModDir = path.dirname(userGoMod);
     const userContent = fs.readFileSync(userGoMod, "utf8");
+    const modMatch = userContent.match(/^module\s+([^\s\n]+)/m);
+    if (modMatch) {
+      moduleName = `${modMatch[1]}/nanofuzz_harness`;
+    }
+    const verMatch = userContent.match(/^go\s+([0-9.]+)/m);
+    if (verMatch) {
+      goVersion = verMatch[1];
+    }
     // Extract require blocks
     const requireMatches = userContent.match(
       /require\s*\([^)]*\)|require\s+[^\n]+/g
@@ -335,6 +347,9 @@ function setupHarnessGoMod(
       for (const rep of replaceMatches) {
         const lines = rep.split("\n");
         const transformedLines = lines.map((line) => {
+          if (line.includes("github.com/nanofuzz/runtime")) {
+            return "";
+          }
           // If replaced in externalReplaces, drop it
           if (externalReplaces) {
             for (const extMod of externalReplaces.keys()) {
@@ -373,9 +388,9 @@ function setupHarnessGoMod(
     }
   }
 
-  const modContent = `module nanofuzz_harness
+  const modContent = `module ${moduleName}
 
-go 1.22
+go ${goVersion}
 
 require github.com/nanofuzz/runtime v0.0.0
 replace github.com/nanofuzz/runtime => ${runtimeDir.replace(/\\/g, "/")}
@@ -727,7 +742,11 @@ export function extractGoStaticCoverage(
     if (!node) continue;
     if (
       node.parent?.type === "for_clause" ||
-      node.parent?.type === "range_clause"
+      node.parent?.type === "range_clause" ||
+      node.parent?.type === "if_statement" ||
+      node.parent?.type === "expression_switch_statement" ||
+      node.parent?.type === "type_switch_statement" ||
+      node.parent?.type === "comm_clause"
     ) {
       continue;
     }
@@ -1035,3 +1054,30 @@ function copyDirSync(src: string, dest: string): void {
     }
   }
 } // fn: copyDirSync
+
+/**
+ * Detects the language version of the active Go compiler (e.g. "1.22", "1.23", "1.27").
+ *
+ * @param goPath Path to the go executable
+ * @returns Go language version string
+ */
+function detectGoLanguageVersion(goPath?: string): string {
+  const bin = goPath ?? GoCompiler.resolveGo();
+  if (bin) {
+    try {
+      const res = ChildProcess.spawnSync(bin, ["env", "GOVERSION"], {
+        encoding: "utf-8",
+        timeout: 3000,
+      });
+      if (res.status === 0 && res.stdout) {
+        const match = /go?([0-9]+\.[0-9]+)/.exec(res.stdout);
+        if (match) {
+          return match[1];
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return "1.22";
+} // fn: detectGoLanguageVersion
