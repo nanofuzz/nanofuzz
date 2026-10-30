@@ -6,6 +6,7 @@ import { PytestAdapter } from "./pytest/PytestAdapter";
 import { CargoTestAdapter } from "./cargo/CargoTestAdapter";
 import { DuneTestAdapter } from "./dune/DuneTestAdapter";
 import { JUnitTestAdapter } from "./junit/JUnitTestAdapter";
+import { VirgilTestAdapter } from "./virgil/VirgilTestAdapter";
 
 export function fromSourceFilename(
   filename: string,
@@ -24,6 +25,8 @@ export function fromSourceFilename(
       return new DuneTestAdapter(testSet, filename);
     case "java":
       return new JUnitTestAdapter(testSet, filename, outputFilename);
+    case "virgil":
+      return new VirgilTestAdapter(testSet, filename);
     case "*":
     default:
       throw new Error(`Unsupported program type: ${filename}`);

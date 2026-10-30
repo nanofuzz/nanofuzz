@@ -77,6 +77,7 @@ function sortTestFiles(files) {
     "PythonRunner.test.ts",
     "RustRunner.test.ts",
     "JavaRunner.test.ts",
+    "VirgilRunner.test.ts",
     "FuzzerJava.test.ts",
     "FuzzerRust.test.ts",
     "FuzzerExamples1.test.ts",
@@ -84,14 +85,17 @@ function sortTestFiles(files) {
     "FuzzerCoverageOneFile.test.ts",
     "FuzzerOxcaml.test.ts",
     "FuzzerPython.test.ts",
+    "FuzzerVirgil.test.ts",
     "CargoTestAdapter.test.ts",
     "FuzzerTypescript.test.ts",
     "CoverageMeasureJava.test.ts",
     "CoverageMeasureRust.test.ts",
+    "CoverageMeasureVirgil.test.ts",
     "RustCompiler.test.ts",
     "Agent.test.ts",
     "CoverageMeasureOxcaml.test.ts",
     "JavaCompiler.test.ts",
+    "VirgilCompiler.test.ts",
     "JUnitTestAdapter.test.ts",
     "JavascriptRunner.test.ts",
     "OxcamlHarness.test.ts",
@@ -133,6 +137,8 @@ const disaffinityGroups = [
   ["JavaRunner.test.ts", "FuzzerJava.test.ts"],
   // Subprocess-heavy OCaml/OxCaml runner & fuzzer suites
   ["OxcamlRunner.test.ts", "FuzzerOxcaml.test.ts"],
+  // Subprocess-heavy Virgil runner & fuzzer suites
+  ["VirgilRunner.test.ts", "FuzzerVirgil.test.ts"],
 ];
 
 function hasConflict(fileA, fileB) {

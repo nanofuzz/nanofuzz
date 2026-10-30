@@ -110,6 +110,21 @@ describe("src/fuzzer/synthesis/TransformerSynthesizer", () => {
     );
   });
 
+  it("synthesizes Virgil transformer with typed parameters and tuple return", () => {
+    const src = `def add(a: int, b: float) -> int { return a; }`;
+    const program = ProgramFactory.fromSource(() => src, "virgil");
+    const fnDef = program.functionsExported["add"];
+    expect(fnDef).toBeDefined();
+
+    const result = synthesizeTransformer(fnDef, "virgil");
+    expect(result.name).toBe("addTransformer");
+    expect(result.skeleton).toContain(
+      "def addTransformer(a: int, b: float) -> (int, float) {"
+    );
+    expect(result.skeleton).toContain("return (a, b);");
+    expect(result.skeleton).toContain("NanofuzzRuntime.assume");
+  });
+
   it("disambiguates transformer name when existing names conflict", () => {
     const program = ProgramFactory.fromFile(tsFixture);
     const fnDef = program.functions["testStandardVoidReturnUndefined"];

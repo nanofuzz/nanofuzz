@@ -17,6 +17,7 @@ const grammarsToLoad = [
   "tree-sitter-rust",
   "tree-sitter-ocaml",
   "tree-sitter-java",
+  "tree-sitter-virgil",
 ];
 let loaded: "no" | "pending" | "yes" = "no";
 let initPromise: Promise<void> | undefined; // init only once
@@ -210,6 +211,8 @@ function _langToGrammarName(lang: ProgramLanguage): string {
       return "tree-sitter-ocaml";
     case "java":
       return "tree-sitter-java";
+    case "virgil":
+      return "tree-sitter-virgil";
     case "typescript":
     case "python":
     case "rust":
@@ -228,6 +231,7 @@ type GrammarData = {
 };
 
 export type Query = TSWeb.Query;
+export type QueryMatch = TSWeb.QueryMatch;
 export type QueryCapture = TSWeb.QueryCapture;
 export type Tree = TSWeb.Tree;
 export type Node = TSWeb.Node;

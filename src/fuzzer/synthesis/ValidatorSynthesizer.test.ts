@@ -136,6 +136,23 @@ describe("src/fuzzer/synthesis/ValidatorSynthesizer", () => {
     );
   });
 
+  it("synthesizes Virgil validator with correct signature and FuzzTestResult unpacking", () => {
+    const src = `def add(a: int, b: float) -> int { return a; }`;
+    const program = ProgramFactory.fromSource(() => src, "virgil");
+    const fnDef = program.functionsExported["add"];
+    expect(fnDef).toBeDefined();
+
+    const result = synthesizeValidator(fnDef, "virgil");
+    expect(result.name).toBe("addValidator");
+    expect(result.skeleton).toContain(
+      "def addValidator(r: FuzzTestResult) -> bool {"
+    );
+    expect(result.skeleton).toContain("var a: int = r.get_in_string(0);");
+    expect(result.skeleton).toContain("var b: float = r.get_in_string(1);");
+    expect(result.skeleton).toContain("var out: int = r.get_out_string();");
+    expect(result.skeleton).toContain("return true;");
+  });
+
   it("disambiguates validator name when existing names conflict", () => {
     const program = ProgramFactory.fromFile(tsFixture);
     const fnDef = program.functions["testStandardVoidReturnUndefined"];

@@ -3,6 +3,7 @@ import { FunctionDef } from "../analysis/FunctionDef";
 import { PythonProgram } from "../analysis/python/PythonProgram";
 import { RustProgram } from "../analysis/rust/RustProgram";
 import { OxcamlProgram } from "../analysis/oxcaml/OxcamlProgram";
+import { VirgilProgram } from "../analysis/virgil/VirgilProgram";
 import { ProgramLanguage } from "../analysis/Types";
 import { CompanionManager } from "../analysis/CompanionManager";
 import { ArgDefGenerator } from "../analysis/ArgDefGenerator";
@@ -187,6 +188,44 @@ export function synthesizeUserGenerator(
     const skeleton = `\n\npublic static Object[] ${userGenName}(DoubleSupplier prng) {\n  // Return an argument array for ${fn.getName()}, or return null when exhausted\n  // Call prng.getAsDouble() to generate random double values in [0.0, 1.0)\n  return ${javaDefaultArgs};\n}`;
     const importData = imports.map((i) => i.stmt).join("");
     const fullTemplate = `${importData}${skeleton.trimStart()}`;
+
+    return {
+      name: userGenName,
+      skeleton,
+      imports,
+      fullTemplate,
+    };
+  } else if (targetLang === "virgil") {
+    const virgilTupleType =
+      inArgs.length === 0
+        ? "void"
+        : inArgs.length === 1
+          ? VirgilProgram.getTypeAnnotation(inArgs[0])
+          : `(${inArgs.map((a) => VirgilProgram.getTypeAnnotation(a)).join(", ")})`;
+
+    const virgilDefaultArgs =
+      inArgs.length === 0
+        ? ""
+        : inArgs.length === 1
+          ? `return ${ValueMapper.toLang(
+              "virgil",
+              ArgDefGenerator.gen(inArgs[0], seedrandom("skeleton")),
+              inArgs[0]
+            )};`
+          : `return (${inArgs
+              .map((a) =>
+                ValueMapper.toLang(
+                  "virgil",
+                  ArgDefGenerator.gen(a, seedrandom("skeleton")),
+                  a
+                )
+              )
+              .join(", ")});`;
+
+    const imports: { name: string; stmt: string }[] = [];
+    const returnLine = virgilDefaultArgs ? `\n  ${virgilDefaultArgs}` : "";
+    const skeleton = `\n\ndef ${userGenName}(prng: () -> float) -> ${virgilTupleType} {\n  // Return an argument tuple for ${fn.getName()}\n  // Call prng() to generate random float values in [0.0, 1.0)${returnLine}\n}`;
+    const fullTemplate = skeleton.trimStart();
 
     return {
       name: userGenName,

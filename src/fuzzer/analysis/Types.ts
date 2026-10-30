@@ -9,6 +9,7 @@ export type ProgramLanguage =
   | "rust"
   | "oxcaml"
   | "java"
+  | "virgil"
   | "*";
 
 /**

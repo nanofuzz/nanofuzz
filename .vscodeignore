@@ -10,6 +10,7 @@
 !node_modules/tree-sitter-ocaml/
 !node_modules/tree-sitter-java/
 !node_modules/tree-sitter-typescript/
+!node_modules/tree-sitter-virgil/
 !node_modules/typescript/
 !package.json
 !README.md

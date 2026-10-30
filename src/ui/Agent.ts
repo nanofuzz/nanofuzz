@@ -1816,7 +1816,7 @@ export function formatFunctionSignature(
   });
 
   const returnType =
-    fnDef.getReturnType()?.name ?? fnDef.getReturnType()?.typeRefName;
+    fnDef.getReturnType()?.name || fnDef.getReturnType()?.typeRefName;
   if (lang === "python") {
     const retStr = returnType ? ` -> ${returnType}` : "";
     const prefix = isAsync ? "async def" : "def";
@@ -1846,6 +1846,12 @@ export function formatFunctionSignature(
     const retStr = returnType ?? (fnDef.isVoid() ? "void" : "Object");
     const prefix = fnDef.isExported() ? "public " : "";
     return `${prefix}${retStr} ${name}(${javaArgs.join(", ")})`;
+  }
+  if (lang === "virgil") {
+    const retStr =
+      returnType && returnType !== "void" ? ` -> ${returnType}` : "";
+    const prefix = fnDef.isExported() ? "def" : "private def";
+    return `${prefix} ${name}(${argParts.join(", ")})${retStr}`;
   }
   const retStr = returnType
     ? `: ${returnType}`

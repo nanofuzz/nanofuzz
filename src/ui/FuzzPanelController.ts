@@ -4055,6 +4055,7 @@ export const languages = [
   "ocaml",
   "oxcaml",
   "java",
+  "virgil",
 ];
 
 /**
