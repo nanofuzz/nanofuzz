@@ -64,7 +64,7 @@ export function buildGoHarness(
   const targetExtraction = extractGoStaticCoverage(targetSrc, normTarget, 0);
 
   const staticCovMap: Record<string, FileCoverageData> = {
-    [normTarget]: targetExtraction.staticCov,
+    [normTarget.replace(/\\/g, "/")]: targetExtraction.staticCov,
   };
 
   const manifestEntries: CoverageManifestEntry[] = [
@@ -84,7 +84,7 @@ export function buildGoHarness(
     const pSrc = fs.readFileSync(pFile, "utf8");
     const fid = nextFileId++;
     const extraction = extractGoStaticCoverage(pSrc, pFile, fid);
-    staticCovMap[pFile] = extraction.staticCov;
+    staticCovMap[pFile.replace(/\\/g, "/")] = extraction.staticCov;
     manifestEntries.push({
       fileId: fid,
       filePath: pFile,
@@ -188,7 +188,8 @@ export function buildGoHarness(
                 vendorDest,
                 path.relative(modDir, path.join(pkg.Dir, gf))
               );
-              if (fs.existsSync(vendoredFile) && !staticCovMap[origFile]) {
+              const origKey = origFile.replace(/\\/g, "/");
+              if (fs.existsSync(vendoredFile) && !staticCovMap[origKey]) {
                 const depSrc = fs.readFileSync(vendoredFile, "utf8");
                 const fid = nextFileId++;
                 const extraction = extractGoStaticCoverage(
@@ -196,7 +197,7 @@ export function buildGoHarness(
                   origFile,
                   fid
                 );
-                staticCovMap[origFile] = extraction.staticCov;
+                staticCovMap[origKey] = extraction.staticCov;
                 manifestEntries.push({
                   fileId: fid,
                   filePath: origFile,
@@ -511,7 +512,32 @@ function generateGoHarnessSource(
     if (arg.getName() === "prng" || typeAnnot.includes("func()")) {
       hasPrng = true;
       argConversions.push(
-        `\t\tvar prngSeed int64 = time.Now().UnixNano() + input.Seq + 1\n\t\tif len(input.Args) > ${i} && input.Args[${i}] != nil {\n\t\t\tif s, ok := input.Args[${i}].(float64); ok {\n\t\t\t\tprngSeed = int64(s)\n\t\t\t} else if m, ok := input.Args[${i}].(map[string]any); ok {\n\t\t\t\tif s, ok := m["seed"].(float64); ok {\n\t\t\t\t\tprngSeed = int64(s)\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t\tr := rand.New(rand.NewSource(prngSeed))\n\t\targ_${i} := func() float64 {\n\t\t\treturn r.Float64()\n\t\t}`
+        `\t\tvar prngSeed int64 = time.Now().UnixNano() + input.Seq + 1
+\t\tif len(input.Args) > ${i} && input.Args[${i}] != nil {
+\t\t\tif s, ok := input.Args[${i}].(float64); ok {
+\t\t\t\tprngSeed = int64(s)
+\t\t\t} else if str, ok := input.Args[${i}].(string); ok && len(str) > 0 {
+\t\t\t\tvar h uint64 = 0xcbf29ce484222325
+\t\t\t\tfor _, b := range []byte(str) {
+\t\t\t\t\th = (h ^ uint64(b)) * 0x100000001b3
+\t\t\t\t}
+\t\t\t\tprngSeed = int64(h)
+\t\t\t} else if m, ok := input.Args[${i}].(map[string]any); ok {
+\t\t\t\tif s, ok := m["seed"].(float64); ok {
+\t\t\t\t\tprngSeed = int64(s)
+\t\t\t\t} else if str, ok := m["seed"].(string); ok && len(str) > 0 {
+\t\t\t\t\tvar h uint64 = 0xcbf29ce484222325
+\t\t\t\t\tfor _, b := range []byte(str) {
+\t\t\t\t\t\th = (h ^ uint64(b)) * 0x100000001b3
+\t\t\t\t\t}
+\t\t\t\t\tprngSeed = int64(h)
+\t\t\t\t}
+\t\t\t}
+\t\t}
+\t\tr := rand.New(rand.NewSource(prngSeed))
+\t\targ_${i} := func() float64 {
+\t\t\treturn r.Float64()
+\t\t}`
       );
       callArgs.push(`arg_${i}`);
       continue;

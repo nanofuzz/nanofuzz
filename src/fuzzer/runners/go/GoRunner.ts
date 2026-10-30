@@ -79,7 +79,9 @@ export class GoRunner extends AbstractRunner {
     const realFile = fs.existsSync(this._filename)
       ? fs.realpathSync(this._filename)
       : this._filename;
-    const allStaticCov = staticCovMap ?? { [realFile]: staticCov };
+    const allStaticCov = staticCovMap ?? {
+      [realFile.replace(/\\/g, "/")]: staticCov,
+    };
     this._coverageInfo = { ...allStaticCov };
     for (const [fPath, sCov] of Object.entries(allStaticCov)) {
       const normKey = normalizePathForKey(fPath);
@@ -311,7 +313,9 @@ export class GoRunner extends AbstractRunner {
       const realFile = fs.existsSync(this._filename)
         ? fs.realpathSync(this._filename)
         : this._filename;
-      const allStaticCov = staticCovMap ?? { [realFile]: staticCov };
+      const allStaticCov = staticCovMap ?? {
+        [realFile.replace(/\\/g, "/")]: staticCov,
+      };
       this._coverageInfo = { ...allStaticCov };
       for (const [fPath, sCov] of Object.entries(allStaticCov)) {
         const normKey = normalizePathForKey(fPath);
@@ -350,8 +354,14 @@ export class GoRunner extends AbstractRunner {
         `Go runner host sent invalid static coverage handshake: ${rawCovBuf.toString("utf-8")}`
       );
     }
-    this._coverageInfo = rawCov;
-    this._staticCoverage = structuredClone(rawCov);
+    this._coverageInfo = { ...rawCov };
+    for (const [fPath, sCov] of Object.entries(rawCov)) {
+      const normKey = normalizePathForKey(fPath);
+      if (normKey !== fPath) {
+        this._coverageInfo[normKey] = sCov;
+      }
+    }
+    this._staticCoverage = structuredClone(this._coverageInfo);
     this._pgmFiles = Object.keys(rawCov);
 
     // Consume initialization coverage hits (from init() and package var initializations)

@@ -1,6 +1,6 @@
 import { FuzzerFactory } from "./FuzzerFactory";
 import { intOptions, initParser } from "./FuzzerTestHelper";
-import { FuzzPinnedTest, FuzzTestResult } from "./Types";
+import { FuzzPinnedTest, FuzzStopReason, FuzzTestResult } from "./Types";
 
 describe("fuzzer: go targets", () => {
   beforeAll(async () => {
@@ -189,15 +189,19 @@ describe("fuzzer: go targets", () => {
       }
     ).test([], { gen: true }, undefined, undefined, (r) => results.push(r));
 
-    expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
+    expect(fuzzResult.stats.outcomes.total).toBe(15);
+    expect(fuzzResult.stats.outcomes.categories.ok).toBe(15);
+    expect(fuzzResult.stopReason).toBe(FuzzStopReason.MAXTESTS);
     expect(fuzzResult.env.userGenerators.length).toBe(1);
-    for (const r of results) {
-      if (r.category === "ok") {
-        const outVal = r.output[0].value;
-        if (typeof outVal === "string") {
-          expect(outVal).toContain("custom");
-        }
+    expect(results.length).toBe(15);
+
+    results.forEach((r) => {
+      expect(r.input[0].origin.type).toBe("generator");
+      if (r.input[0].origin.type === "generator") {
+        expect(r.input[0].origin.generator).toBe("UserInputGenerator");
       }
-    }
+      expect<unknown>(r.input[1].value).toBe("custom");
+      expect<unknown>(r.output[0].value).toBe(`custom:${r.input[0].value}`);
+    });
   });
 });

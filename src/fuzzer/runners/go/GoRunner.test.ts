@@ -233,4 +233,58 @@ func ProcessAll(u User, items []int, lookup map[string]int, ptr *int) int {
 
     runner.killHost();
   });
+
+  it("executes functions taking a PRNG func with and without seed", async () => {
+    const goPath = path.join(tempDir, "prng_test.go");
+    fs.writeFileSync(
+      goPath,
+      `package main
+
+func Sample(prng func() float64) float64 {
+    return prng()
+}
+`
+    );
+
+    const env = makeTestEnv(goPath, "Sample");
+
+    const runner = new GoRunner(goPath, "Sample", env);
+    await runner.onRunStart();
+
+    // Invocation with a seeded PRNG payload succeeds deterministically
+    const res1 = await runner.run(
+      [{ __nanofuzz_type: "prng", seed: "fixed_seed_abc" }],
+      5000
+    );
+    expect(res1.result.tag).toBe("value");
+    if (res1.result.tag === "value") {
+      expect(typeof res1.result.value).toBe("number");
+      if (typeof res1.result.value === "number") {
+        expect(res1.result.value).toBeGreaterThanOrEqual(0);
+        expect(res1.result.value).toBeLessThan(1);
+      }
+    }
+
+    const res2 = await runner.run(
+      [{ __nanofuzz_type: "prng", seed: "fixed_seed_abc" }],
+      5000
+    );
+    expect(res2.result.tag).toBe("value");
+    if (res2.result.tag === "value" && res1.result.tag === "value") {
+      expect(res2.result.value).toBe(res1.result.value);
+    }
+
+    // Invocation without a seed runs unseeded / pure random and succeeds
+    const unseededRes = await runner.run([{}], 5000);
+    expect(unseededRes.result.tag).toBe("value");
+    if (unseededRes.result.tag === "value") {
+      expect(typeof unseededRes.result.value).toBe("number");
+      if (typeof unseededRes.result.value === "number") {
+        expect(unseededRes.result.value).toBeGreaterThanOrEqual(0);
+        expect(unseededRes.result.value).toBeLessThan(1);
+      }
+    }
+
+    runner.killHost();
+  });
 });
