@@ -610,6 +610,15 @@ export class TypescriptCompiler {
       module: module,
       global: globals,
       root: globals,
+      process: process,
+      console: console,
+      Buffer: Buffer,
+      setTimeout: setTimeout,
+      clearTimeout: clearTimeout,
+      setInterval: setInterval,
+      clearInterval: clearInterval,
+      setImmediate: setImmediate,
+      clearImmediate: clearImmediate,
     };
     vm.runInNewContext(src, context, {
       filename: jsname,

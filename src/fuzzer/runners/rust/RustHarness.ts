@@ -322,6 +322,7 @@ export function buildRustHarness(
     fs.existsSync(cachedBinaryPath) &&
     fs.statSync(cachedBinaryPath).mtimeMs >= maxMtime
   ) {
+    fs.mkdirSync(harnessDir, { recursive: true });
     return {
       binaryPath: cachedBinaryPath,
       harnessDir,

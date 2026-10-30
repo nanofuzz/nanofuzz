@@ -279,19 +279,20 @@ function toOxcamlFormat(val: unknown, argDef?: ArgDefContext): string {
     }
 
     const elemDef: ArgDefContext | undefined =
-      argDef?.getChildren()[0] ??
-      (argDef && argDef.getDim() > 0
-        ? {
-            isOptional: () => false,
-            getName: () => argDef.getName(),
-            getTypeRef: () => argDef.getTypeRef(),
-            getBaseTypeRef: () => argDef.getBaseTypeRef(),
-            getOptions: () => argDef.getOptions(),
-            getType: () => argDef.getType(),
-            getChildren: () => [],
-            getDim: () => argDef.getDim() - 1,
-          }
-        : undefined);
+      argDef?.getChildren().length === 1 && argDef.getType() !== ArgTag.UNION
+        ? argDef.getChildren()[0]
+        : argDef && argDef.getDim() > 0
+          ? {
+              isOptional: () => false,
+              getName: () => argDef.getName(),
+              getTypeRef: () => argDef.getTypeRef(),
+              getBaseTypeRef: () => argDef.getBaseTypeRef(),
+              getOptions: () => argDef.getOptions(),
+              getType: () => argDef.getType(),
+              getChildren: () => argDef.getChildren(),
+              getDim: () => argDef.getDim() - 1,
+            }
+          : argDef?.getChildren()[0];
     const items = val.map((item) => toOxcamlFormat(item, elemDef));
 
     if (argDef?.getTypeRef()?.includes("array")) {
