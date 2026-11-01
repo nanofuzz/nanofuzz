@@ -481,11 +481,14 @@ export async function runCliInProcess(
     let multiBar: MultiBar | undefined;
     let progressBar: SingleBar | undefined;
     let resultsBar: SingleBar | undefined;
+    const barSize = 20;
+    let barBlocks: ("pass" | "fail")[] = [];
+    let lastFailErrorCount = 0;
 
     restoreCursor = () => {
       isolator.asCli(() => {
-        if (process.stderr.isTTY) process.stderr.write("\x1B[?25h");
-        if (process.stdout.isTTY) process.stdout.write("\x1B[?25h");
+        if (process.stderr.isTTY) process.stderr.write("\x1B[0m\x1B[?25h");
+        if (process.stdout.isTTY) process.stdout.write("\x1B[0m\x1B[?25h");
       });
     }; // fn: restoreCursor
     process.on("exit", restoreCursor);
@@ -497,7 +500,11 @@ export async function runCliInProcess(
           multiBar = undefined;
           progressBar = undefined;
           resultsBar = undefined;
+          barBlocks = [];
+          lastFailErrorCount = 0;
           lastWasMilestone = true;
+          if (process.stderr.isTTY) process.stderr.write("\x1B[0m");
+          if (process.stdout.isTTY) process.stdout.write("\x1B[0m");
           if (restoreCursor) restoreCursor();
         });
       }
@@ -566,14 +573,19 @@ export async function runCliInProcess(
           const testResults = formatTestResults(lastStats);
 
           if (lastWasMilestone) {
+            barBlocks = [];
+            lastFailErrorCount = 0;
             isolator.asCli(() => {
               if (process.stderr.isTTY) process.stderr.write("\x1B[?25l");
               if (process.stdout.isTTY) process.stdout.write("\x1B[?25l");
+              const isTty = Boolean(
+                process.stderr.isTTY && !process.env.NO_COLOR
+              );
               multiBar = new MultiBar(
                 {
                   clearOnComplete: true,
-                  linewrap: true,
-                  barsize: 20,
+                  linewrap: false,
+                  barsize: barSize,
                   hideCursor: true,
                   gracefulExit: true,
                 },
@@ -587,10 +599,12 @@ export async function runCliInProcess(
                   inputsRate: inputsRate,
                   execsRate: execsRate,
                   rate: execsRate,
+                  coloredBar: "░".repeat(barSize),
                 },
                 {
-                  format:
-                    " - Testing [{bar}] {percentage}% @ {runtime}, {inputsRate}, {execsRate}",
+                  format: isTty
+                    ? " - Testing [{coloredBar}] {percentage}% @ {runtime}, {inputsRate}, {execsRate}"
+                    : " - Testing [{bar}] {percentage}% @ {runtime}, {inputsRate}, {execsRate}",
                 }
               );
               resultsBar = multiBar.create(
@@ -618,12 +632,41 @@ export async function runCliInProcess(
             const rb = resultsBar;
             const mb = multiBar;
             isolator.asCli(() => {
-              pb.update(Math.max(0, Math.min(pct, 100)), {
+              const isTty = Boolean(
+                process.stderr.isTTY && !process.env.NO_COLOR
+              );
+              const updateTokens: Record<string, string> = {
                 runtime: formatDuration(elapsedSec),
                 inputsRate: inputsRate,
                 execsRate: execsRate,
                 rate: execsRate,
-              });
+              };
+              if (isTty) {
+                const targetBlocks = Math.max(
+                  0,
+                  Math.min(barSize, Math.floor((pct / 100) * barSize))
+                );
+                if (targetBlocks > barBlocks.length) {
+                  const currentFailErrorCount =
+                    (lastStats?.counters.failedTests ?? 0) +
+                    (lastStats?.counters.erroredTests ?? 0);
+                  const hasFailures =
+                    currentFailErrorCount > lastFailErrorCount;
+                  while (barBlocks.length < targetBlocks) {
+                    barBlocks.push(hasFailures ? "fail" : "pass");
+                  }
+                  lastFailErrorCount = currentFailErrorCount;
+                }
+                updateTokens.coloredBar =
+                  barBlocks
+                    .map((b) =>
+                      b === "fail" ? "\x1b[31m█\x1b[0m" : "\x1b[32m█\x1b[0m"
+                    )
+                    .join("") +
+                  "░".repeat(Math.max(0, barSize - barBlocks.length)) +
+                  "\x1b[0m";
+              }
+              pb.update(Math.max(0, Math.min(pct, 100)), updateTokens);
               rb.update(0, {
                 results: testResults,
               });

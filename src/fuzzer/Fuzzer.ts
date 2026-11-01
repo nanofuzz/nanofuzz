@@ -814,6 +814,7 @@ export class Tester {
             type: "testing-complete",
             cancelled: cancelFn(),
             pct: 100,
+            stats: runStats,
           });
 
           this._state = "paused";

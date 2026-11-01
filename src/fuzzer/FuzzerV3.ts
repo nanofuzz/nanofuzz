@@ -1158,6 +1158,7 @@ export class FuzzerV3 {
       type: "testing-complete",
       cancelled: Boolean(cancelFn && cancelFn()),
       pct: 100,
+      stats: this._stats.currentRun,
     });
 
     this._state = "paused";

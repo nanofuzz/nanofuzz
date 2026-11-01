@@ -2955,7 +2955,9 @@ export class FuzzPanel {
         html += /*html*/ `
             <!-- Fuzzer Busy Status Message -->
             <div id="fuzzBusyStatusBarContainer">
-              <div id="fuzzBusyStatusBar" style="width: 0%;">0%</div>
+              <div id="fuzzBusyStatusBar" style="width: 0%;"></div>
+              <canvas id="fuzzBusyDotCanvas"></canvas>
+              <div id="fuzzBusyPercent">0%</div>
             </div>
             <div id="fuzzBusyMessage">
               <pre id="fuzzBusyMessageNonMilestone">Initializing<span class="loading-dots">............</span></pre>
