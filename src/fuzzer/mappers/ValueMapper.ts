@@ -5,6 +5,7 @@ import * as TypescriptValueMapper from "./typescript/TypescriptValueMapper";
 import * as RustValueMapper from "./rust/RustValueMapper";
 import * as OxcamlValueMapper from "./oxcaml/OxcamlValueMapper";
 import * as JavaValueMapper from "./java/JavaValueMapper";
+import * as GoValueMapper from "./go/GoValueMapper";
 
 export function toLang(
   lang: Omit<ProgramLanguage, "*">,
@@ -22,6 +23,8 @@ export function toLang(
       return OxcamlValueMapper.toOxcaml(val, argDef);
     case "java":
       return JavaValueMapper.toJava(val, argDef);
+    case "go":
+      return GoValueMapper.toGo(val, argDef);
   }
   throw new Error(`Unknown language: ${lang}`);
 }
@@ -38,6 +41,8 @@ export function fromLang<T>(lang: Omit<ProgramLanguage, "*">, text: string): T {
       return OxcamlValueMapper.fromOxcaml(text);
     case "java":
       return JavaValueMapper.fromJava(text);
+    case "go":
+      return GoValueMapper.fromGo(text);
   }
   throw new Error(`Unknown language: ${lang}`);
 }
