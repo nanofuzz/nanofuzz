@@ -3,6 +3,7 @@ import { FunctionDef } from "../analysis/FunctionDef";
 import { PythonProgram } from "../analysis/python/PythonProgram";
 import { RustProgram } from "../analysis/rust/RustProgram";
 import { OxcamlProgram } from "../analysis/oxcaml/OxcamlProgram";
+import { GoProgram } from "../analysis/go/GoProgram";
 import { ProgramLanguage } from "../analysis/Types";
 import { CompanionManager } from "../analysis/CompanionManager";
 import { ArgDefGenerator } from "../analysis/ArgDefGenerator";
@@ -185,6 +186,37 @@ export function synthesizeUserGenerator(
     ];
 
     const skeleton = `\n\npublic static Object[] ${userGenName}(DoubleSupplier prng) {\n  // Return an argument array for ${fn.getName()}, or return null when exhausted\n  // Call prng.getAsDouble() to generate random double values in [0.0, 1.0)\n  return ${javaDefaultArgs};\n}`;
+    const importData = imports.map((i) => i.stmt).join("");
+    const fullTemplate = `${importData}${skeleton.trimStart()}`;
+
+    return {
+      name: userGenName,
+      skeleton,
+      imports,
+      fullTemplate,
+    };
+  } else if (targetLang === "go") {
+    const goTypes = inArgs
+      .map((a) => GoProgram.getTypeAnnotation(a))
+      .join(", ");
+    const returnSig =
+      inArgs.length === 0 ? "bool" : `(${goTypes}, bool)`;
+
+    const defaultArgs = inArgs
+      .map((a) =>
+        ValueMapper.toLang(
+          "go",
+          ArgDefGenerator.gen(a, seedrandom("skeleton")),
+          a
+        )
+      )
+      .join(", ");
+
+    const returnStmt =
+      inArgs.length === 0 ? "return true" : `return ${defaultArgs}, true`;
+
+    const imports: { name: string; stmt: string }[] = [];
+    const skeleton = `\n\nfunc ${userGenName}(prng func() float64) ${returnSig} {\n\t// Return generated arguments, or ok=false when sequence exhausted\n\t// Call prng() to generate random float64 values in [0.0, 1.0)\n\t${returnStmt}\n}`;
     const importData = imports.map((i) => i.stmt).join("");
     const fullTemplate = `${importData}${skeleton.trimStart()}`;
 

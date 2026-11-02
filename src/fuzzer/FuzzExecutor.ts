@@ -430,7 +430,19 @@ export class FuzzExecutor {
         });
         break;
 
-      case "error":
+      case "error": {
+        const errMsg = transformerResult.result.message ?? "";
+        const errName = transformerResult.result.name ?? "";
+        if (
+          errName === "UnsatisfiedAssumption" ||
+          errName === "UnsatisfiedAssumptionError" ||
+          errMsg.toLowerCase().startsWith("unsatisfied assumption")
+        ) {
+          result.skipped = true;
+          const cleanMsg = errMsg.replace(/^unsatisfied assumption:\s*/i, "");
+          result.skipReason = `(${fnName}) ${cleanMsg}`;
+          break;
+        }
         result.harnessErrors.push({
           kind: "exception",
           stage: "transformer",
@@ -440,6 +452,7 @@ export class FuzzExecutor {
           stack: transformerResult.result.stack ?? "<no stack>",
         });
         break;
+      }
 
       case "value":
         break;
