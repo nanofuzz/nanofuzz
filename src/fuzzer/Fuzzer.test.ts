@@ -459,6 +459,46 @@ describe("fuzzer: general & parameterized engine tests", () => {
         expect<unknown>(results.results[0].input[1].value).toBe(99);
       });
 
+      it("reports progress based on injected count when gen is false", async () => {
+        const injected = Array.from({ length: 10 }, (_, i) => ({
+          input: [
+            {
+              name: "a",
+              offset: 0,
+              value: i,
+              origin: { type: "user" as const },
+            },
+            {
+              name: "b",
+              offset: 1,
+              value: i * 2,
+              origin: { type: "user" as const },
+            },
+          ],
+          output: [],
+          pinned: true,
+        }));
+
+        const updates: FuzzBusyStatusMessage[] = [];
+        const results = await FuzzerFactory(
+          "nanofuzz-study/examples/1.ts",
+          "minValue",
+          { ...intOptions, maxTests: 1000 },
+          { engine }
+        ).test(
+          injected,
+          {},
+          { update: (u) => updates.push(u), granularity: "result" }
+        );
+
+        expect(results.stopReason).toBe(FuzzStopReason.NOMOREINPUTS);
+        expect(results.stats.counters.inputsInjected).toBe(10);
+        const testingPcts = updates
+          .filter((u) => u.type === "testing")
+          .map((u) => (u as any).pct);
+        expect(testingPcts.some((pct) => pct >= 10)).toBe(true);
+      });
+
       it("injected pinned tests are not interrupted by cancellation", async () => {
         const options = {
           ...intOptions,

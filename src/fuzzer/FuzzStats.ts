@@ -256,20 +256,24 @@ export class FuzzStats {
     }
 
     // Max Tests limit
-    const executedNonInjected = gen
-      ? this._currentRun.counters.inputsGenerated -
+    if (gen && options.maxTests > 0) {
+      const executedNonInjected =
+        this._currentRun.counters.inputsGenerated -
         this._currentRun.counters.dupesGenerated -
-        this._currentRun.counters.inputsSkipped
-      : 0;
-    const totalInputsCount =
-      this._currentRun.counters.inputsInjected + executedNonInjected;
-    const targetCount = injectCount + (gen ? options.maxTests : 0);
+        this._currentRun.counters.inputsSkipped;
+      const totalInputsCount =
+        this._currentRun.counters.inputsInjected + executedNonInjected;
+      const targetCount = injectCount + options.maxTests;
 
-    if (totalInputsCount >= targetCount) {
-      return FuzzStopReason.MAXTESTS;
-    }
-    if (targetCount > 0) {
-      const testsPct = totalInputsCount / targetCount;
+      if (totalInputsCount >= targetCount) {
+        return FuzzStopReason.MAXTESTS;
+      }
+      if (targetCount > 0) {
+        const testsPct = totalInputsCount / targetCount;
+        if (testsPct > maxPct) maxPct = testsPct;
+      }
+    } else if (!gen && injectCount > 0) {
+      const testsPct = this._currentRun.counters.inputsInjected / injectCount;
       if (testsPct > maxPct) maxPct = testsPct;
     }
 
