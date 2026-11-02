@@ -96,4 +96,34 @@ public class MathUtil {
     const argList = Parser.getNamedChildrenNoComments(typeArgs!);
     expect(argList[0].text).toBe("String");
   });
+
+  it("parses Go code into a valid syntax tree and executes a query", () => {
+    const goSrc = `
+package mathutil
+
+// Add sums two integers.
+func Add(a int, b int) int {
+    return a + b
+}
+`;
+    const tree = Parser.parse("go", goSrc);
+    expect(tree).not.toBeNull();
+    expect(tree?.rootNode.type).toBe("source_file");
+    const fnDecl = tree?.rootNode.descendantsOfType("function_declaration")[0];
+    expect(fnDecl).toBeDefined();
+
+    const q = Parser.query(
+      "go",
+      `
+(function_declaration
+  name: (identifier) @fn.name
+  parameters: (parameter_list) @fn.params
+  result: (type_identifier)? @fn.return) @fn.item
+`
+    );
+    const matches = q.matches(tree!.rootNode);
+    expect(matches.length).toBe(1);
+    const nameCap = matches[0].captures.find((c) => c.name === "fn.name");
+    expect(nameCap?.node.text).toBe("Add");
+  });
 });

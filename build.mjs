@@ -50,6 +50,13 @@ copyfiles(
   () => console.log("copied .ml runner template")
 );
 
+// Copy Go assets
+copyfiles(
+  ["./src/fuzzer/runners/go/GoRunnerHost.template.go", "./build/extension"],
+  true,
+  () => console.log("copied .go runner template")
+);
+
 // Copy Python runtime package (nanofuzz_runtime)
 const pyRuntimeSrc = path.resolve(
   "./packages/runtime/python/src/nanofuzz_runtime"
@@ -204,6 +211,17 @@ if (fs.existsSync(javaRuntimeDir)) {
   console.log("copied nanofuzz-runtime (java)");
 }
 
+// Copy Go runtime package
+const goRuntimeDir = path.resolve("./packages/runtime/go");
+if (fs.existsSync(goRuntimeDir)) {
+  const destGoRuntime = path.resolve("./build/extension/nanofuzz-runtime-go");
+  fs.mkdirSync(destGoRuntime, { recursive: true });
+  fs.cpSync(goRuntimeDir, destGoRuntime, {
+    recursive: true,
+  });
+  console.log("copied nanofuzz-runtime (go)");
+}
+
 // Copy Python imports
 let interpreter = "python";
 if (!fs.existsSync(path.resolve(path.join(".", ".venv")))) {
@@ -275,6 +293,7 @@ await esbuild.build({
     "tree-sitter-rust",
     "tree-sitter-ocaml",
     "tree-sitter-java",
+    "tree-sitter-go",
     "web-tree-sitter",
   ],
   define: {
@@ -326,6 +345,7 @@ await esbuild.build({
     "tree-sitter-rust",
     "tree-sitter-ocaml",
     "tree-sitter-java",
+    "tree-sitter-go",
     "web-tree-sitter",
   ],
   plugins: [
@@ -403,6 +423,7 @@ await esbuild.build({
     "tree-sitter-rust",
     "tree-sitter-ocaml",
     "tree-sitter-java",
+    "tree-sitter-go",
     "web-tree-sitter",
   ],
   define: {

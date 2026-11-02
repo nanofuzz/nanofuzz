@@ -4,6 +4,7 @@ import { PythonProgram } from "../analysis/python/PythonProgram";
 import { RustProgram } from "../analysis/rust/RustProgram";
 import { OxcamlProgram } from "../analysis/oxcaml/OxcamlProgram";
 import { JavaProgram } from "../analysis/java/JavaProgram";
+import { GoProgram } from "../analysis/go/GoProgram";
 import { ProgramLanguage } from "../analysis/Types";
 import { CompanionManager } from "../analysis/CompanionManager";
 import { FuzzerCodeSnippet } from "./Types";
@@ -268,6 +269,55 @@ export function synthesizeValidator(
     const skeleton = `\n\npublic static ValidatorResult ${validatorName}(FuzzTestResult ${validatorArgs.resultArgName}) {\n${bodyLines.join("\n")}`;
     const importData = imports.map((i) => i.stmt).join("");
     const fullTemplate = `${importData}${skeleton.trimStart()}`;
+    return {
+      name: validatorName,
+      skeleton,
+      imports,
+      fullTemplate,
+    };
+  } else if (targetLang === "go") {
+    const inArgLines = inArgs.map((argDef, i) => {
+      const typeAnnot = GoProgram.getTypeAnnotation(argDef);
+      return `\t${argDef.getName()} := ${validatorArgs.resultArgName}.In[${i}].(${typeAnnot})`;
+    });
+    const outTypeAsArg = fn.getReturnArg();
+    const returnTypeStr = outTypeAsArg
+      ? GoProgram.getTypeAnnotation(outTypeAsArg)
+      : undefined;
+    const outVarName = getIdentifierNameAvoidingConflicts(
+      inArgs,
+      outVarCandidateNames,
+      maxOutVarSuffix
+    );
+    const outArgLine =
+      !fn.isVoid() && returnTypeStr && returnTypeStr !== "void"
+        ? `\t${outVarName.name} := ${validatorArgs.resultArgName}.Out.(${returnTypeStr})`
+        : `\t_ = ${validatorArgs.resultArgName}.Out`;
+
+    const imports = [
+      {
+        name: "runtime",
+        stmt: `import "github.com/nanofuzz/runtime"\n`,
+      },
+    ];
+
+    const bodyLines: string[] = [];
+    bodyLines.push(
+      "\t// Extract input arguments and return value from execution result"
+    );
+    if (inArgLines.length > 0) {
+      bodyLines.push(...inArgLines);
+    }
+    bodyLines.push(outArgLine);
+    bodyLines.push(
+      `\n\t// Validate properties and return runtime.Pass, runtime.Fail, or runtime.Unknown`
+    );
+    bodyLines.push(`\treturn runtime.Pass\n}`);
+
+    const skeleton = `\n\nfunc ${validatorName}(${validatorArgs.resultArgName} runtime.FuzzTestResult) runtime.ValidatorResult {\n${bodyLines.join("\n")}`;
+    const importData = imports.map((i) => i.stmt).join("");
+    const fullTemplate = `${importData}${skeleton.trimStart()}`;
+
     return {
       name: validatorName,
       skeleton,

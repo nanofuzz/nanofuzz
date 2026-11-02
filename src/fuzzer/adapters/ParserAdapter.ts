@@ -17,6 +17,7 @@ const grammarsToLoad = [
   "tree-sitter-rust",
   "tree-sitter-ocaml",
   "tree-sitter-java",
+  "tree-sitter-go",
 ];
 let loaded: "no" | "pending" | "yes" = "no";
 let initPromise: Promise<void> | undefined; // init only once
@@ -210,6 +211,8 @@ function _langToGrammarName(lang: ProgramLanguage): string {
       return "tree-sitter-ocaml";
     case "java":
       return "tree-sitter-java";
+    case "go":
+      return "tree-sitter-go";
     case "typescript":
     case "python":
     case "rust":
