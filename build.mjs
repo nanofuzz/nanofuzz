@@ -58,7 +58,7 @@ if (fs.existsSync(pyRuntimeSrc)) {
   const destPyRuntime = path.resolve("./build/extension/nanofuzz_runtime");
   fs.mkdirSync(destPyRuntime, { recursive: true });
   fs.cpSync(pyRuntimeSrc, destPyRuntime, { recursive: true });
-  console.log("copied nanofuzz_runtime");
+  console.log("copied runtime (python)");
 }
 
 // Build and copy TypeScript runtime package (@nanofuzz/runtime)
@@ -78,7 +78,7 @@ if (fs.existsSync(tsRuntimeDir)) {
     recursive: true,
     filter: (src) => !src.includes(`${path.sep}node_modules`),
   });
-  console.log("copied @nanofuzz/runtime");
+  console.log("copied runtime (typescript)");
 }
 
 // Build and copy Rust runtime crate (nanofuzz-runtime)
@@ -111,7 +111,7 @@ if (fs.existsSync(rustRuntimeDir)) {
     recursive: true,
     filter: (src) => !src.includes(`${path.sep}target`),
   });
-  console.log("copied nanofuzz-runtime");
+  console.log("copied runtime (rust)");
 }
 
 // Build and copy OCaml runtime library (nanofuzz_runtime)
@@ -145,7 +145,7 @@ if (fs.existsSync(oxRuntimeDir)) {
     recursive: true,
     filter: (src) => !src.includes(`${path.sep}_build`),
   });
-  console.log("copied nanofuzz_runtime_oxcaml");
+  console.log("copied runtime (ocaml)");
 }
 
 // Build and copy Java runtime package (nanofuzz-runtime)
@@ -201,7 +201,7 @@ if (fs.existsSync(javaRuntimeDir)) {
     javaTargetJar,
     path.join(destJavaRuntime, "nanofuzz-runtime.jar")
   );
-  console.log("copied nanofuzz-runtime (java)");
+  console.log("copied runtime (java)");
 }
 
 // Copy Python imports

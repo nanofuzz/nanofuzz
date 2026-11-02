@@ -1007,7 +1007,7 @@
     ]
   },
   "scripts": {
-    "build": "yarn --cwd packages/runtime/typescript build && npx tsc -noEmit && node build.mjs",
+    "build": "yarn --cwd packages/runtime/typescript build && node ./node_modules/ts7/bin/tsc -noEmit && node build.mjs",
     "test": "node test.cjs",
     "test:runtime": "pytest packages/runtime/python/tests && yarn --cwd packages/runtime/typescript test && cargo test --manifest-path packages/runtime/rust/Cargo.toml && mvn test -f packages/runtime/java/pom.xml",
     "lint": "eslint src",
@@ -1085,6 +1085,7 @@
     "nanofuzz-study": "github:nanofuzz/nanofuzz-study#main",
     "rimraf": "^5.0.5",
     "seedrandom": "^3.0.5",
+    "ts7": "npm:typescript@7",
     "tslib": "^2.1.0",
     "typescript-eslint": "^8.59.1",
     "zod": "^4.3.6"
