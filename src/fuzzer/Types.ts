@@ -423,6 +423,7 @@ export type FuzzTestingCompleteMessage = {
   type: "testing-complete";
   cancelled: boolean;
   pct: number;
+  stats?: CurrentRunStats;
 };
 
 /**

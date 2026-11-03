@@ -7,6 +7,7 @@ import {
   formatTestingCompleteStatus,
 } from "./FuzzTextFormatter";
 import {
+  CurrentRunStats,
   FuzzArgOverride,
   FuzzIoElement,
   FuzzPinnedTest,
@@ -137,6 +138,21 @@ let lastResultsTableShown: Element | undefined = undefined;
 
 // Coverage Heatmap Status
 let coverageHeatmapIsStale = false;
+
+// Busy status bar error dots & stats stored as normalized Uint16 coordinates (0..65535)
+let busyDotBuffer = new Uint16Array(2048); // [x0, y0, r0, x1, y1, r1, ...]
+let busyDotCount = 0;
+let busyLastFailErrorCount = 0;
+let busyLastTotalExecuted = 0;
+let busyLastXNorm = 0;
+let busyFailRateEMA = 0;
+let busyHasEma = false;
+let busyBurstFailures = 0;
+let busyLastStats: CurrentRunStats | undefined;
+let busyCanvasCached: HTMLCanvasElement | null = null;
+let busyCtxCached: CanvasRenderingContext2D | null = null;
+let busyCanvasWidth = 0;
+let busyCanvasHeight = 0;
 
 /**
  * Sets up the UI when the page is loaded, including setting up
@@ -412,10 +428,15 @@ async function main() {
     });
 
     // Event listener for window resize
+    let resizeEvent: NodeJS.Timeout | undefined = undefined;
     window.addEventListener("resize", () => {
-      if (lastResultsTableShown) {
-        syncTabStripWidth(resultsTabStrip, lastResultsTableShown);
-      }
+      clearTimeout(resizeEvent);
+      resizeEvent = setTimeout(() => {
+        if (lastResultsTableShown) {
+          syncTabStripWidth(resultsTabStrip, lastResultsTableShown);
+        }
+        redrawBusyDots();
+      }, 100);
     }); // onResize event handler
 
     // Event listener for scroll
@@ -505,21 +526,32 @@ async function main() {
 
         switch (msg.type) {
           case "compiling":
+            clearBusyDots();
             displayText = `${htmlEscape("Compiling: " + msg.file)}<span class="loading-dots">............</span>`;
             break;
           case "instrumenting":
+            clearBusyDots();
             displayText = `${htmlEscape("Instrumenting: " + msg.file)}<span class="loading-dots">............</span>`;
             break;
           case "testing":
+            if ("stats" in msg && msg.stats) {
+              busyLastStats = msg.stats;
+            }
             displayText = htmlEscape(formatTestingStatus(msg));
             break;
           case "waiting-for-generator":
+            if ("stats" in msg && msg.stats) {
+              busyLastStats = msg.stats;
+            }
             displayText = htmlEscape(formatWaitingStatus(msg)).replace(
               /(input generator(?:s)?)\.\.\./,
               `$1<span class="loading-dots">............</span>`
             );
             break;
           case "testing-complete":
+            if ("stats" in msg && msg.stats) {
+              busyLastStats = msg.stats;
+            }
             displayText = htmlEscape(formatTestingCompleteStatus(msg));
             break;
           case "progress-tick":
@@ -533,11 +565,155 @@ async function main() {
         if ("pct" in msg && typeof msg.pct === "number") {
           const pct = Math.max(0.1, Math.min(msg.pct, 100));
           const progressBar = getElementByIdOrThrow("fuzzBusyStatusBar");
+          const percentLabel = document.getElementById("fuzzBusyPercent");
           progressBar.style.width = pct + "%";
-          if (pct > 0) {
-            progressBar.innerHTML = Math.floor(pct) + "%";
+          if (percentLabel) {
+            percentLabel.textContent = pct > 0 ? `${Math.floor(pct)}%` : "";
+          } else if (pct > 0) {
+            progressBar.textContent = `${Math.floor(pct)}%`;
           } else {
-            progressBar.innerHTML = "";
+            progressBar.textContent = "";
+          }
+
+          if (pct < 5 && busyDotCount > 5) {
+            clearBusyDots();
+          }
+
+          const currentTotalExecuted =
+            (busyLastStats?.counters.passedTests ?? 0) +
+            (busyLastStats?.counters.failedTests ?? 0) +
+            (busyLastStats?.counters.erroredTests ?? 0);
+          const currentFailErrorCount =
+            (busyLastStats?.counters.failedTests ?? 0) +
+            (busyLastStats?.counters.erroredTests ?? 0);
+
+          const dExec = currentTotalExecuted - busyLastTotalExecuted;
+          const failDelta = currentFailErrorCount - busyLastFailErrorCount;
+
+          if (dExec > 0) {
+            const instantRate = Math.min(1.0, Math.max(0.0, failDelta / dExec));
+            if (!busyHasEma) {
+              busyFailRateEMA = instantRate;
+              busyHasEma = true;
+            } else {
+              const weight = Math.min(1.0, dExec / 40);
+              busyFailRateEMA =
+                busyFailRateEMA * (1 - weight) + instantRate * weight;
+            }
+          }
+
+          if (failDelta > 0) {
+            // Track consecutive failure burst across updates for logarithmic scaling
+            busyBurstFailures += failDelta;
+
+            // Approximate dot count: <10% -> 1, 10-25% -> 2, 26-50% -> 3-4, 51-75% -> 5-6, >75% -> 7-8
+            const numDots = Math.min(
+              8,
+              Math.max(1, Math.round(1 + 7 * busyFailRateEMA))
+            );
+
+            // Log-scale radius based on burst volume: 1 -> 2.0px, 10 -> 3.25px, 100 -> 4.5px, 1000 -> 5.75px
+            const dotRadius = Math.min(
+              6.5,
+              Math.max(2.0, 2.0 + 1.25 * Math.log10(busyBurstFailures))
+            );
+            const uR = Math.round(dotRadius * 100);
+
+            const currentXNorm = Math.max(0, Math.min(1, pct / 100));
+            const priorXNorm =
+              busyLastXNorm > 0
+                ? Math.max(0, Math.min(currentXNorm, busyLastXNorm))
+                : currentXNorm;
+            const spanX = currentXNorm - priorXNorm;
+            const defaultJitter = 0.015;
+
+            const spanMultiplier =
+              spanX > defaultJitter
+                ? Math.max(1, Math.round(spanX / defaultJitter))
+                : 1;
+            const totalDotsToDraw = Math.min(120, numDots * spanMultiplier);
+
+            const neededLen = (busyDotCount + totalDotsToDraw) * 3;
+            if (neededLen > busyDotBuffer.length) {
+              const nextLen = Math.max(neededLen, busyDotBuffer.length * 2);
+              const nextBuf = new Uint16Array(nextLen);
+              nextBuf.set(busyDotBuffer);
+              busyDotBuffer = nextBuf;
+            }
+
+            const canvas =
+              busyCanvasCached ?? document.getElementById("fuzzBusyDotCanvas");
+            let ctx: CanvasRenderingContext2D | null = null;
+            if (canvas instanceof HTMLCanvasElement) {
+              busyCanvasCached = canvas;
+              ctx = busyCtxCached ?? canvas.getContext("2d");
+              if (ctx) busyCtxCached = ctx;
+              if (busyCanvasWidth <= 0 || busyCanvasHeight <= 0) {
+                const rect = canvas.getBoundingClientRect();
+                busyCanvasWidth = Math.floor(rect.width);
+                busyCanvasHeight = Math.floor(rect.height);
+                if (
+                  canvas.width !== busyCanvasWidth ||
+                  canvas.height !== busyCanvasHeight
+                ) {
+                  canvas.width = busyCanvasWidth;
+                  canvas.height = busyCanvasHeight;
+                }
+              }
+              if (ctx) {
+                ctx.fillStyle = "#e51400";
+                ctx.strokeStyle = "#5a0000";
+                ctx.lineWidth = 1;
+              }
+            }
+
+            const w = busyCanvasWidth;
+            const h = busyCanvasHeight;
+
+            for (let d = 0; d < totalDotsToDraw; d++) {
+              let dotXNorm: number;
+              if (spanX > defaultJitter) {
+                // Randomize across the freeze / lag span [priorX, currentX]
+                dotXNorm = priorXNorm + Math.random() * spanX;
+              } else {
+                // Symmetrical jitter around current progress extent; center reaches right at current extent
+                const jitter = (Math.random() - 0.5) * defaultJitter;
+                dotXNorm = currentXNorm + jitter;
+              }
+              // Maximum x position is bounded by 1.0 (the maximum of the progress bar)
+              dotXNorm = Math.max(0, Math.min(1.0, dotXNorm));
+              const dotYNorm = Math.random(); // Full vertical range 0..1
+              const uX = Math.round(dotXNorm * 65535);
+              const uY = Math.round(dotYNorm * 65535);
+
+              const offset = busyDotCount * 3;
+              busyDotBuffer[offset] = uX;
+              busyDotBuffer[offset + 1] = uY;
+              busyDotBuffer[offset + 2] = uR;
+              busyDotCount++;
+
+              if (ctx && w > 0 && h > 0) {
+                const px = Math.round(dotXNorm * w);
+                const py = Math.round(dotYNorm * h);
+                ctx.beginPath();
+                ctx.arc(px, py, dotRadius, 0, 2 * Math.PI);
+                ctx.fill();
+                ctx.stroke();
+              }
+            }
+
+            busyLastFailErrorCount = currentFailErrorCount;
+            busyLastTotalExecuted = currentTotalExecuted;
+            busyLastXNorm = currentXNorm;
+          } else {
+            // Decay consecutive failure burst if we had a purely passing execution batch
+            if (dExec > 0) {
+              busyBurstFailures = Math.max(
+                0,
+                Math.floor(busyBurstFailures * 0.5)
+              );
+              busyLastTotalExecuted = currentTotalExecuted;
+            }
           }
         }
         break;
@@ -2253,6 +2429,7 @@ function buildExpectedTestCase(
  * from the UI and sends them to the extension to start the fuzzer.
  */
 function handleFuzzRun() {
+  clearBusyDots();
   const message: FuzzPanelMessageFromWebView = {
     command: "fuzz.run",
     json: JSONN.stringify(getConfigFromUi()),
@@ -2265,18 +2442,20 @@ function handleFuzzRun() {
  * from the UI and sends them to the extension to start the fuzzer.
  */
 function handleFuzzContinue() {
+  clearBusyDots();
   const message: FuzzPanelMessageFromWebView = {
     command: "fuzz.continue",
     json: JSONN.stringify(getConfigFromUi()),
   };
   postToController(message);
-} // fn: handleFuzzRun
+} // fn: handleFuzzContinue
 
 /**
  * Handles the fuzz.retest button onClick() event: retrieves the fuzzer options
  * from the UI and sends them to the extension to start the fuzzer.
  */
 function handleFuzzRetest() {
+  clearBusyDots();
   const message: FuzzPanelMessageFromWebView = {
     command: "fuzz.retest",
     json: JSONN.stringify(getConfigFromUi()),
@@ -2289,6 +2468,7 @@ function handleFuzzRetest() {
  * from the UI and sends them to the extension to clear the FuzzPanel
  */
 function handleFuzzClear() {
+  clearBusyDots();
   const message: FuzzPanelMessageFromWebView = {
     command: "fuzz.clear",
     json: JSONN.stringify(getConfigFromUi()),
@@ -2948,3 +3128,65 @@ function isJsonnEnvelope(obj: unknown): obj is { jsonn: string } {
     typeof obj.jsonn === "string"
   );
 } // fn: isJsonnEnvelope()
+
+/**
+ * Redraws the error dots on the busy status bar canvas using the preserved
+ * normalized coordinates in busyDotBuffer.
+ */
+function redrawBusyDots(): void {
+  const canvas =
+    busyCanvasCached ?? document.getElementById("fuzzBusyDotCanvas");
+  if (!(canvas instanceof HTMLCanvasElement)) return;
+  busyCanvasCached = canvas;
+  const ctx = busyCtxCached ?? canvas.getContext("2d");
+  if (!ctx) return;
+  busyCtxCached = ctx;
+
+  const rect = canvas.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) return;
+  busyCanvasWidth = Math.floor(rect.width);
+  busyCanvasHeight = Math.floor(rect.height);
+  if (canvas.width !== busyCanvasWidth || canvas.height !== busyCanvasHeight) {
+    canvas.width = busyCanvasWidth;
+    canvas.height = busyCanvasHeight;
+  }
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (busyDotCount === 0) return;
+  ctx.fillStyle = "#e51400";
+  ctx.strokeStyle = "#5a0000";
+  ctx.lineWidth = 1;
+  for (let i = 0; i < busyDotCount; i++) {
+    const offset = i * 3;
+    const x = Math.round((busyDotBuffer[offset] / 65535) * canvas.width);
+    const y = Math.round((busyDotBuffer[offset + 1] / 65535) * canvas.height);
+    const r = busyDotBuffer[offset + 2] / 100;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, 2 * Math.PI);
+    ctx.fill();
+    ctx.stroke();
+  }
+} // fn: redrawBusyDots
+
+/**
+ * Clears recorded busy status bar error dots and resets the canvas.
+ */
+function clearBusyDots(): void {
+  busyDotCount = 0;
+  busyLastFailErrorCount = 0;
+  busyLastTotalExecuted = 0;
+  busyLastXNorm = 0;
+  busyFailRateEMA = 0;
+  busyHasEma = false;
+  busyBurstFailures = 0;
+  busyLastStats = undefined;
+  const canvas =
+    busyCanvasCached ?? document.getElementById("fuzzBusyDotCanvas");
+  if (canvas instanceof HTMLCanvasElement) {
+    busyCanvasCached = canvas;
+    const ctx = busyCtxCached ?? canvas.getContext("2d");
+    if (ctx) {
+      busyCtxCached = ctx;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+  }
+} // fn: clearBusyDots
