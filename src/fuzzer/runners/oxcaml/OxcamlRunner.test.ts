@@ -9,7 +9,6 @@ import * as ProgramFactory from "../../analysis/ProgramFactory";
 import * as Parser from "../../adapters/ParserAdapter";
 import { FuzzEnv } from "../../Types";
 import { getDefaultFuzzExecutionOptions } from "../../FuzzerFactory";
-import { OxcamlCompiler } from "../../compilers/oxcaml/OxcamlCompiler";
 
 describe("fuzzer/runners/oxcaml/OxcamlRunner: ", () => {
   let tempDir: string;
@@ -35,12 +34,6 @@ describe("fuzzer/runners/oxcaml/OxcamlRunner: ", () => {
   });
 
   it("executes basic OCaml functions with numbers and return values", async () => {
-    const duneBin = OxcamlCompiler.resolveDune();
-    if (!duneBin) {
-      pending("Dune not found in environment");
-      return;
-    }
-
     const mlPath = path.join(tempDir, "add.ml");
     fs.writeFileSync(
       mlPath,
@@ -66,12 +59,6 @@ describe("fuzzer/runners/oxcaml/OxcamlRunner: ", () => {
   });
 
   it("executes functions with strings, booleans, and lists", async () => {
-    const duneBin = OxcamlCompiler.resolveDune();
-    if (!duneBin) {
-      pending("Dune not found in environment");
-      return;
-    }
-
     const mlPath = path.join(tempDir, "compound.ml");
     fs.writeFileSync(
       mlPath,
@@ -99,12 +86,6 @@ describe("fuzzer/runners/oxcaml/OxcamlRunner: ", () => {
   });
 
   it("catches exceptions without terminating the host process", async () => {
-    const duneBin = OxcamlCompiler.resolveDune();
-    if (!duneBin) {
-      pending("Dune not found in environment");
-      return;
-    }
-
     const mlPath = path.join(tempDir, "divide.ml");
     fs.writeFileSync(
       mlPath,
@@ -150,12 +131,6 @@ describe("fuzzer/runners/oxcaml/OxcamlRunner: ", () => {
   });
 
   it("executes in-host property validators and reports pass/fail", async () => {
-    const duneBin = OxcamlCompiler.resolveDune();
-    if (!duneBin) {
-      pending("Dune not found in environment");
-      return;
-    }
-
     const mlPath = path.join(tempDir, "validator_test.ml");
     fs.writeFileSync(
       mlPath,
@@ -198,12 +173,6 @@ let doubleValidator (result : Nanofuzz_runtime.fuzz_test_result) : Nanofuzz_runt
   });
 
   it("handles timeouts and recovers cleanly on subsequent calls", async () => {
-    const duneBin = OxcamlCompiler.resolveDune();
-    if (!duneBin) {
-      pending("Dune not found in environment");
-      return;
-    }
-
     const mlPath = path.join(tempDir, "timeout_test.ml");
     fs.writeFileSync(
       mlPath,
@@ -237,12 +206,6 @@ let doubleValidator (result : Nanofuzz_runtime.fuzz_test_result) : Nanofuzz_runt
   });
 
   it("executes functions with record types over the IPC bridge", async () => {
-    const duneBin = OxcamlCompiler.resolveDune();
-    if (!duneBin) {
-      pending("Dune not found in environment");
-      return;
-    }
-
     const mlPath = path.join(tempDir, "record_test.ml");
     fs.writeFileSync(
       mlPath,
@@ -270,12 +233,6 @@ let birthday (u : user) : user =
   });
 
   it("executes functions with Hashtbl types over the IPC bridge", async () => {
-    const duneBin = OxcamlCompiler.resolveDune();
-    if (!duneBin) {
-      pending("Dune not found in environment");
-      return;
-    }
-
     const mlPath = path.join(tempDir, "hashtbl_test.ml");
     fs.writeFileSync(
       mlPath,
@@ -312,12 +269,6 @@ let birthday (u : user) : user =
   });
 
   it("executes functions with Set and Map functor types over the IPC bridge", async () => {
-    const duneBin = OxcamlCompiler.resolveDune();
-    if (!duneBin) {
-      pending("Dune not found in environment");
-      return;
-    }
-
     const mlPath = path.join(tempDir, "functors_test.ml");
     fs.writeFileSync(
       mlPath,
@@ -375,12 +326,6 @@ let uppercase_map (m : int StringMap.t) : int StringMap.t =
   });
 
   it("executes functions with association lists over the IPC bridge", async () => {
-    const duneBin = OxcamlCompiler.resolveDune();
-    if (!duneBin) {
-      pending("Dune not found in environment");
-      return;
-    }
-
     const mlPath = path.join(tempDir, "assoc_test.ml");
     fs.writeFileSync(
       mlPath,
@@ -417,12 +362,6 @@ let uppercase_map (m : int StringMap.t) : int StringMap.t =
   });
 
   it("executes functions with list types over the IPC bridge", async () => {
-    const duneBin = OxcamlCompiler.resolveDune();
-    if (!duneBin) {
-      pending("Dune not found in environment");
-      return;
-    }
-
     const mlPath = path.join(tempDir, "list_ipc_test.ml");
     fs.writeFileSync(
       mlPath,
@@ -448,12 +387,6 @@ let uppercase_map (m : int StringMap.t) : int StringMap.t =
   });
 
   it("executes functions with array types over the IPC bridge", async () => {
-    const duneBin = OxcamlCompiler.resolveDune();
-    if (!duneBin) {
-      pending("Dune not found in environment");
-      return;
-    }
-
     const mlPath = path.join(tempDir, "array_ipc_test.ml");
     fs.writeFileSync(
       mlPath,
@@ -479,12 +412,6 @@ let uppercase_map (m : int StringMap.t) : int StringMap.t =
   });
 
   it("executes functions with tuple types over the IPC bridge", async () => {
-    const duneBin = OxcamlCompiler.resolveDune();
-    if (!duneBin) {
-      pending("Dune not found in environment");
-      return;
-    }
-
     const mlPath = path.join(tempDir, "tuple_ipc_test.ml");
     fs.writeFileSync(
       mlPath,
@@ -510,12 +437,6 @@ let uppercase_map (m : int StringMap.t) : int StringMap.t =
   });
 
   it("executes functions with option types over the IPC bridge", async () => {
-    const duneBin = OxcamlCompiler.resolveDune();
-    if (!duneBin) {
-      pending("Dune not found in environment");
-      return;
-    }
-
     const mlPath = path.join(tempDir, "option_ipc_test.ml");
     fs.writeFileSync(
       mlPath,
@@ -549,12 +470,6 @@ let uppercase_map (m : int StringMap.t) : int StringMap.t =
   });
 
   it("executes functions with bytes types over the IPC bridge", async () => {
-    const duneBin = OxcamlCompiler.resolveDune();
-    if (!duneBin) {
-      pending("Dune not found in environment");
-      return;
-    }
-
     const mlPath = path.join(tempDir, "bytes_ipc_test.ml");
     fs.writeFileSync(
       mlPath,
@@ -586,12 +501,6 @@ let uppercase_map (m : int StringMap.t) : int StringMap.t =
   });
 
   it("executes functions with nested record types over the IPC bridge", async () => {
-    const duneBin = OxcamlCompiler.resolveDune();
-    if (!duneBin) {
-      pending("Dune not found in environment");
-      return;
-    }
-
     const mlPath = path.join(tempDir, "nested_record_test.ml");
     fs.writeFileSync(
       mlPath,
@@ -627,12 +536,6 @@ let promote (c : company) : company =
   });
 
   it("executes functions with result types over the IPC bridge", async () => {
-    const duneBin = OxcamlCompiler.resolveDune();
-    if (!duneBin) {
-      pending("Dune not found in environment");
-      return;
-    }
-
     const mlPath = path.join(tempDir, "result_ipc_test.ml");
     fs.writeFileSync(
       mlPath,
@@ -665,12 +568,6 @@ let promote (c : company) : company =
   });
 
   it("executes functions with enum variant types over the IPC bridge", async () => {
-    const duneBin = OxcamlCompiler.resolveDune();
-    if (!duneBin) {
-      pending("Dune not found in environment");
-      return;
-    }
-
     const mlPath = path.join(tempDir, "enum_ipc_test.ml");
     fs.writeFileSync(
       mlPath,
@@ -708,12 +605,6 @@ let level_to_weight (l : level) : int =
   });
 
   it("executes functions with Buffer and bigstring types over the IPC bridge", async () => {
-    const duneBin = OxcamlCompiler.resolveDune();
-    if (!duneBin) {
-      pending("Dune not found in environment");
-      return;
-    }
-
     const mlPath = path.join(tempDir, "buffers_ipc_test.ml");
     fs.writeFileSync(
       mlPath,
@@ -762,12 +653,6 @@ let sum_bigarray (ba : (char, int8_unsigned_elt, c_layout) Array1.t) : int =
   });
 
   it("executes functions with tagged sum types (payload variants) over the IPC bridge", async () => {
-    const duneBin = OxcamlCompiler.resolveDune();
-    if (!duneBin) {
-      pending("Dune not found in environment");
-      return;
-    }
-
     const mlPath = path.join(tempDir, "variants_ipc_test.ml");
     fs.writeFileSync(
       mlPath,
@@ -838,12 +723,6 @@ let double_shape (s : shape) : shape =
   });
 
   it("executes functions with polymorphic variants over the IPC bridge", async () => {
-    const duneBin = OxcamlCompiler.resolveDune();
-    if (!duneBin) {
-      pending("Dune not found in environment");
-      return;
-    }
-
     const mlPath = path.join(tempDir, "poly_ipc_test.ml");
     fs.writeFileSync(
       mlPath,
@@ -910,12 +789,6 @@ let next_color (c : color) : color =
   });
 
   it("executes functions with nested tuple in list parameter (repro_variant_list)", async () => {
-    const duneBin = OxcamlCompiler.resolveDune();
-    if (!duneBin) {
-      pending("Dune not found in environment");
-      return;
-    }
-
     const mlPath = path.join(tempDir, "repro_variant_list.ml");
     fs.writeFileSync(
       mlPath,
@@ -952,12 +825,6 @@ let test_ops (ops : (buffer_op * int) list) : int =
   });
 
   it("executes functions with variant list parameter", async () => {
-    const duneBin = OxcamlCompiler.resolveDune();
-    if (!duneBin) {
-      pending("Dune not found in environment");
-      return;
-    }
-
     const mlPath = path.join(tempDir, "variant_list_ipc_test.ml");
     fs.writeFileSync(
       mlPath,
