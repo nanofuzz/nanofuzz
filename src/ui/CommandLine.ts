@@ -592,7 +592,7 @@ export async function runCliInProcess(
                 },
                 Presets.shades_classic
               );
-              const cpuToken = `${cpuSampler.getCpu()}% cpu`;
+              const cpuToken = `${cpuSampler.getCpu()}% sys cpu`;
               progressBar = multiBar.create(
                 100,
                 0,
@@ -638,7 +638,7 @@ export async function runCliInProcess(
               const isTty = Boolean(
                 process.stderr.isTTY && !process.env.NO_COLOR
               );
-              const cpuToken = `${cpuSampler.getCpu()}% cpu`;
+              const cpuToken = `${cpuSampler.getCpu()}% sys cpu`;
               const updateTokens: Record<string, string> = {
                 runtime: formatDuration(elapsedSec),
                 inputsRate: inputsRate,
