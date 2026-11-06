@@ -134,12 +134,31 @@ export class FuzzFunctionTool implements vscode.LanguageModelTool<FuzzFunctionIn
     options: vscode.LanguageModelToolInvocationPrepareOptions<FuzzFunctionInput>
   ): vscode.ProviderResult<vscode.PreparedToolInvocation> {
     const toolName = getToolName();
-    const { functionName, filePath } = options.input;
+    const { functionName, filePath, timeoutMs, maxTests, maxFailures } =
+      options.input;
+    const target = `'${filePath}::${functionName}'`;
+
+    const constraints: string[] = [];
+    if (typeof timeoutMs === "number" && timeoutMs > 0) {
+      constraints.push(formatDuration(timeoutMs));
+    }
+    if (typeof maxTests === "number" && maxTests > 0) {
+      constraints.push(`${formatCount(maxTests)} execs`);
+    }
+    if (typeof maxFailures === "number" && maxFailures > 0) {
+      constraints.push(
+        maxFailures === 1 ? "1 failure" : `${maxFailures} failures`
+      );
+    }
+
+    const constraintSuffix =
+      constraints.length > 0 ? ` up to ${constraints.join(" or ")}` : "";
+
     return {
-      invocationMessage: `Running ${toolName} on \`${functionName}\` in \`${filePath}\``,
+      invocationMessage: `Running ${toolName} on ${target}${constraintSuffix}`,
       confirmationMessages: {
-        title: `Run ${toolName}`,
-        message: `Run ${toolName} fuzz testing on \`${functionName}\` in \`${filePath}\`?`,
+        title: `${toolName} ${target}`,
+        message: `Run ${toolName} on ${target}${constraintSuffix}?`,
       },
     };
   }
@@ -363,3 +382,37 @@ export type ShowResultsInput = ShowResultsOptions;
  * Input arguments for the nanofuzz_shrinkInputs tool
  */
 export type ShrinkInputsInput = AgentShrinkOptions;
+
+/**
+ * Formats duration in milliseconds into a concise string (e.g. 500ms, 3s, 5m, 1h).
+ */
+function formatDuration(ms: number): string {
+  if (ms < 1000) {
+    return `${ms}ms`;
+  }
+  const seconds = ms / 1000;
+  if (seconds < 60) {
+    return Number.isInteger(seconds) ? `${seconds}s` : `${seconds.toFixed(1)}s`;
+  }
+  const minutes = seconds / 60;
+  if (minutes < 60) {
+    return Number.isInteger(minutes) ? `${minutes}m` : `${minutes.toFixed(1)}m`;
+  }
+  const hours = minutes / 60;
+  return Number.isInteger(hours) ? `${hours}h` : `${hours.toFixed(1)}h`;
+} // fn: formatDuration
+
+/**
+ * Formats a count into a concise metric format (e.g. 100, 5k, 100k, 1M).
+ */
+function formatCount(count: number): string {
+  if (count < 1000) {
+    return `${count}`;
+  }
+  if (count < 1_000_000) {
+    const k = count / 1000;
+    return Number.isInteger(k) ? `${k}k` : `${k.toFixed(1)}k`;
+  }
+  const m = count / 1_000_000;
+  return Number.isInteger(m) ? `${m}M` : `${m.toFixed(1)}M`;
+} // fn: formatCount
