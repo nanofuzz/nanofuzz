@@ -219,7 +219,7 @@ if (fs.existsSync(goRuntimeDir)) {
   fs.cpSync(goRuntimeDir, destGoRuntime, {
     recursive: true,
   });
-  console.log("copied nanofuzz-runtime (go)");
+  console.log("copied runtime (go)");
 }
 
 // Copy Python imports

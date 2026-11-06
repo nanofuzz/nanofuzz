@@ -53,7 +53,6 @@ jobs:
 
       # opam runtime library
       - name: NaNofuzz runtime (oxcaml)
-        if: runner.os != 'Windows'
         working-directory: packages/runtime/oxcaml
         run: |
           dune runtest

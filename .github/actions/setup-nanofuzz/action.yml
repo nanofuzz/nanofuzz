@@ -13,6 +13,8 @@ runs:
       uses: actions/setup-python@v5
       with:
         python-version: "3.13"
+        cache: "pip"
+        cache-dependency-path: "requirements.txt"
 
     - name: Create Python virtual env
       run: python -m venv .venv
@@ -32,6 +34,18 @@ runs:
 
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
+
+    - name: Cache Cargo registry and target
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          packages/runtime/rust/target/
+        key: cargo-${{ runner.os }}-${{ hashFiles('packages/runtime/rust/Cargo.toml') }}
+        restore-keys: |
+          cargo-${{ runner.os }}-
 
     - name: Install OCaml
       uses: ocaml/setup-ocaml@v3
