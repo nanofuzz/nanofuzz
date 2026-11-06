@@ -1457,6 +1457,7 @@ describe("cli:", () => {
       expect(res.stderr).toMatch(/@ \d+s/);
       expect(res.stderr).toMatch(/(inputs\/s|inputs\/min)/);
       expect(res.stderr).toMatch(/(execs\/s|inputs\/min)/);
+      expect(res.stderr).toMatch(/\d+% cpu/);
       expect(res.stderr).toMatch(/Results \[.*Passed:/);
     } finally {
       Object.defineProperty(process.stderr, "isTTY", {
