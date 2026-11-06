@@ -13,6 +13,7 @@ import {
 } from "../../ui/Agent";
 import { CoverageScope } from "../measures/Types";
 import { findBugs, FindBugsOptions, FindBugsPhase } from "../../ui/FindBugs";
+import { getDisplayPath } from "../../Util";
 
 // -------------------------------------------------------------------------- //
 // Tool Implementations & Helpers
@@ -136,7 +137,7 @@ export class FuzzFunctionTool implements vscode.LanguageModelTool<FuzzFunctionIn
     const toolName = getToolName();
     const { functionName, filePath, timeoutMs, maxTests, maxFailures } =
       options.input;
-    const displayPath = normalizePathForDisplay(filePath);
+    const displayPath = getDisplayPath(filePath);
     const target = `'${displayPath}::${functionName}'`;
 
     const constraints: string[] = [];
@@ -189,7 +190,7 @@ export class FuzzFunctionTool implements vscode.LanguageModelTool<FuzzFunctionIn
     const resolved = await resolveMatchingModel(vendor, model);
 
     const toolName = getToolName();
-    const displayPath = normalizePathForDisplay(filePath);
+    const displayPath = getDisplayPath(filePath);
     const target = `'${displayPath}::${functionName}'`;
 
     // Create a live status bar item on the bottom toolbar
@@ -492,23 +493,3 @@ function formatCount(count: number): string {
   const m = count / 1_000_000;
   return Number.isInteger(m) ? `${m}M` : `${m.toFixed(1)}M`;
 } // fn: formatCount
-
-/**
- * Normalizes a file path relative to workspace or cwd for user-facing display.
- */
-function normalizePathForDisplay(filePath: string): string {
-  let displayPath = filePath;
-  if (typeof vscode?.workspace?.asRelativePath === "function") {
-    displayPath = vscode.workspace.asRelativePath(filePath, false);
-  } else if (
-    typeof process !== "undefined" &&
-    typeof process.cwd === "function"
-  ) {
-    const cwd = process.cwd().replace(/\\/g, "/");
-    const normalized = filePath.replace(/\\/g, "/");
-    if (normalized.startsWith(cwd + "/")) {
-      displayPath = normalized.slice(cwd.length + 1);
-    }
-  }
-  return displayPath.replace(/\\/g, "/");
-} // fn: normalizePathForDisplay

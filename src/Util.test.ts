@@ -3,6 +3,7 @@ import {
   decodeEscapeSequences,
   removeTickFromOrigin,
   deepFreeze,
+  getDisplayPath,
 } from "./Util";
 import { FuzzValueOrigin } from "./fuzzer/Types";
 
@@ -49,5 +50,23 @@ describe("src/Util escape sequence encoder/decoder", () => {
     });
     const res2 = removeTickFromOrigin(frozenOrigin);
     expect("tick" in res2).toBeFalse();
+  });
+});
+
+describe("src/Util getDisplayPath", () => {
+  it("normalizes absolute paths under process.cwd() to relative paths with forward slashes", () => {
+    const cwd = process.cwd();
+    const filePath = `${cwd}/src/math.ts`;
+    expect(getDisplayPath(filePath)).toBe("src/math.ts");
+  });
+
+  it("normalizes Windows backslashes to forward slashes", () => {
+    const cwd = process.cwd().replace(/\\/g, "/");
+    const winPath = `${cwd}\\src\\utils\\helper.ts`;
+    expect(getDisplayPath(winPath)).toBe("src/utils/helper.ts");
+  });
+
+  it("preserves already relative paths", () => {
+    expect(getDisplayPath("src/index.ts")).toBe("src/index.ts");
   });
 });

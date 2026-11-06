@@ -32,7 +32,7 @@ import { parseCoverageScope } from "../fuzzer/measures/Util";
 import path from "node:path";
 import * as JSONN from "../Jsonn";
 import { isError } from "../fuzzer/Util";
-import { isKeyedObject } from "../Util";
+import { isKeyedObject, getDisplayPath } from "../Util";
 import { LlmAdapter } from "../fuzzer/adapters/LlmAdapter";
 import { LlmDelayCalculator } from "../fuzzer/adapters/LlmDelayCalculator";
 import { FuzzPinnedTest } from "../fuzzer/Types";
@@ -1010,10 +1010,7 @@ export async function runCliInProcess(
       const workerWord =
         workersCount === 1 ? "1 worker" : `${workersCount} workers`;
 
-      const relPath = path.relative(process.cwd(), filename);
-      const displayPath = (
-        relPath && relPath.length < filename.length ? relPath : filename
-      ).replace(/\\/g, "/");
+      const displayPath = getDisplayPath(filename);
 
       const activeGenerators: string[] = [];
       if (injectTests.length > 0) {
