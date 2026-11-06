@@ -136,14 +136,15 @@ export class FuzzFunctionTool implements vscode.LanguageModelTool<FuzzFunctionIn
     const toolName = getToolName();
     const { functionName, filePath, timeoutMs, maxTests, maxFailures } =
       options.input;
-    const target = `'${filePath}::${functionName}'`;
+    const displayPath = normalizePathForDisplay(filePath);
+    const target = `'${displayPath}::${functionName}'`;
 
     const constraints: string[] = [];
     if (typeof timeoutMs === "number" && timeoutMs > 0) {
       constraints.push(formatDuration(timeoutMs));
     }
     if (typeof maxTests === "number" && maxTests > 0) {
-      constraints.push(`${formatCount(maxTests)} execs`);
+      constraints.push(`${formatCount(maxTests)} tests`);
     }
     if (typeof maxFailures === "number" && maxFailures > 0) {
       constraints.push(
@@ -188,7 +189,24 @@ export class FuzzFunctionTool implements vscode.LanguageModelTool<FuzzFunctionIn
     const resolved = await resolveMatchingModel(vendor, model);
 
     const toolName = getToolName();
-    const target = `'${filePath}::${functionName}'`;
+    const displayPath = normalizePathForDisplay(filePath);
+    const target = `'${displayPath}::${functionName}'`;
+
+    // Create a live status bar item on the bottom toolbar
+    const statusBarItem =
+      typeof vscode.window?.createStatusBarItem === "function"
+        ? vscode.window.createStatusBarItem(
+            vscode.StatusBarAlignment?.Left,
+            10000
+          )
+        : undefined;
+    if (statusBarItem) {
+      statusBarItem.name = `${toolName} Progress`;
+      statusBarItem.text = `$(beaker) ${toolName}: ${target}`;
+      statusBarItem.tooltip = `Fuzzing ${target} with ${toolName}`;
+      statusBarItem.show();
+    }
+
     const runFuzzWithOptions = async (
       progress?: vscode.Progress<{ message?: string; increment?: number }>
     ) => {
@@ -214,44 +232,58 @@ export class FuzzFunctionTool implements vscode.LanguageModelTool<FuzzFunctionIn
         },
         () => token.isCancellationRequested,
         (status) => {
-          if (!progress) return;
+          let detail = "";
           if (status.type === "compiling") {
-            progress.report({ message: `compiling...` });
+            detail = "compiling...";
           } else if (status.type === "instrumenting") {
-            progress.report({ message: `instrumenting...` });
+            detail = "instrumenting...";
           } else if (status.type === "testing") {
             const testsCount = status.stats?.outcomes?.total ?? 0;
             const formattedTests =
               testsCount >= 1000 ? formatCount(testsCount) : `${testsCount}`;
-            const pct = Math.round(status.pct * 100);
+            const rawPct =
+              status.pct <= 1 && status.pct > 0 ? status.pct * 100 : status.pct;
+            const pct = Math.min(100, Math.max(0, Math.round(rawPct)));
+            detail = `${formattedTests} tests (${pct}%)`;
             if (pct !== lastReportedPct || testsCount % 500 === 0) {
               lastReportedPct = pct;
-              progress.report({
+              progress?.report({
                 message: `${formattedTests} tests (${pct}% complete)`,
               });
             }
           } else if (status.type === "waiting-for-generator") {
-            progress.report({ message: `waiting for AI generator...` });
+            detail = "waiting for AI generator...";
+            progress?.report({ message: detail });
           } else if (status.type === "testing-complete") {
-            progress.report({ message: `done` });
+            detail = "done";
+            progress?.report({ message: detail });
+          }
+
+          if (statusBarItem && detail) {
+            statusBarItem.text = `$(beaker) ${toolName}: ${target} - ${detail}`;
           }
         }
       );
     };
 
-    const hasWithProgress =
-      typeof vscode.window?.withProgress === "function" &&
-      vscode.ProgressLocation?.Window !== undefined;
+    let result: Awaited<ReturnType<typeof runFuzzWithOptions>>;
+    try {
+      const hasWithProgress =
+        typeof vscode.window?.withProgress === "function" &&
+        vscode.ProgressLocation?.Window !== undefined;
 
-    const result = hasWithProgress
-      ? await vscode.window.withProgress(
-          {
-            location: vscode.ProgressLocation.Window,
-            title: `${toolName}: ${target}`,
-          },
-          runFuzzWithOptions
-        )
-      : await runFuzzWithOptions();
+      result = hasWithProgress
+        ? await vscode.window.withProgress(
+            {
+              location: vscode.ProgressLocation.Window,
+              title: `${toolName}: ${target}`,
+            },
+            runFuzzWithOptions
+          )
+        : await runFuzzWithOptions();
+    } finally {
+      statusBarItem?.dispose();
+    }
 
     return new vscode.LanguageModelToolResult([
       new vscode.LanguageModelTextPart(result.summaryText),
@@ -460,3 +492,23 @@ function formatCount(count: number): string {
   const m = count / 1_000_000;
   return Number.isInteger(m) ? `${m}M` : `${m.toFixed(1)}M`;
 } // fn: formatCount
+
+/**
+ * Normalizes a file path relative to workspace or cwd for user-facing display.
+ */
+function normalizePathForDisplay(filePath: string): string {
+  let displayPath = filePath;
+  if (typeof vscode?.workspace?.asRelativePath === "function") {
+    displayPath = vscode.workspace.asRelativePath(filePath, false);
+  } else if (
+    typeof process !== "undefined" &&
+    typeof process.cwd === "function"
+  ) {
+    const cwd = process.cwd().replace(/\\/g, "/");
+    const normalized = filePath.replace(/\\/g, "/");
+    if (normalized.startsWith(cwd + "/")) {
+      displayPath = normalized.slice(cwd.length + 1);
+    }
+  }
+  return displayPath.replace(/\\/g, "/");
+} // fn: normalizePathForDisplay

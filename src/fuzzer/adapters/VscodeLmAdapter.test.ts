@@ -85,14 +85,14 @@ describe("VscodeLmAdapter", () => {
     expect(prepared).toBeDefined();
     if (prepared && !("then" in prepared)) {
       expect(prepared.invocationMessage).toBe(
-        `Running NaNofuzz on '${tsFixture}::testStandardVoidReturnUndefined'`
+        `Running NaNofuzz on 'src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts::testStandardVoidReturnUndefined'`
       );
       expect(prepared.confirmationMessages).toBeDefined();
       expect(prepared.confirmationMessages?.title).toBe(
-        `NaNofuzz '${tsFixture}::testStandardVoidReturnUndefined'`
+        `NaNofuzz 'src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts::testStandardVoidReturnUndefined'`
       );
       expect(prepared.confirmationMessages?.message).toBe(
-        `Run NaNofuzz on '${tsFixture}::testStandardVoidReturnUndefined'?`
+        `Run NaNofuzz on 'src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts::testStandardVoidReturnUndefined'?`
       );
     }
   });
@@ -111,10 +111,10 @@ describe("VscodeLmAdapter", () => {
     expect(prepared).toBeDefined();
     if (prepared && !("then" in prepared)) {
       expect(prepared.invocationMessage).toBe(
-        `Running NaNofuzz on '${tsFixture}::testStandardVoidReturnUndefined' up to 5m or 100k execs`
+        `Running NaNofuzz on 'src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts::testStandardVoidReturnUndefined' up to 5m or 100k tests`
       );
       expect(prepared.confirmationMessages?.message).toBe(
-        `Run NaNofuzz on '${tsFixture}::testStandardVoidReturnUndefined' up to 5m or 100k execs?`
+        `Run NaNofuzz on 'src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts::testStandardVoidReturnUndefined' up to 5m or 100k tests?`
       );
     }
   });
@@ -133,10 +133,10 @@ describe("VscodeLmAdapter", () => {
     expect(prepared).toBeDefined();
     if (prepared && !("then" in prepared)) {
       expect(prepared.invocationMessage).toBe(
-        `Running NaNofuzz on '${tsFixture}::testStandardVoidReturnUndefined' up to 5m`
+        `Running NaNofuzz on 'src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts::testStandardVoidReturnUndefined' up to 5m`
       );
       expect(prepared.confirmationMessages?.message).toBe(
-        `Run NaNofuzz on '${tsFixture}::testStandardVoidReturnUndefined' up to 5m?`
+        `Run NaNofuzz on 'src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts::testStandardVoidReturnUndefined' up to 5m?`
       );
     }
   });
