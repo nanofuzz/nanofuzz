@@ -246,9 +246,7 @@ describe("fuzzer: python targets", () => {
       "./test_fixtures/Fuzzer.testfixtures.py",
       "py_transformed",
       { ...intOptions, maxTests: 0 }
-    ).test([injectedInput], { gen: true }, undefined, undefined, (r) =>
-      results.push(r)
-    );
+    ).test([injectedInput], {}, undefined, undefined, (r) => results.push(r));
 
     expect(results.length).toBe(1);
     const injectedResult = results[0];

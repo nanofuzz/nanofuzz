@@ -22,8 +22,9 @@ pids
 lib-cov
 
 # Coverage directory used by tools like istanbul
-coverage
+/coverage
 *.lcov
+!packages/runtime/go/coverage/
 
 # nyc test coverage
 .nyc_output

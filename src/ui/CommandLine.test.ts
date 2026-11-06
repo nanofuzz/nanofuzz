@@ -1247,15 +1247,24 @@ describe("cli:", () => {
 
   it("returns exit code 4 when invalid --rust-sanitizer is passed", async () => {
     const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
-    const res = await runCli([targetFile, "testBoolean", "--rust-sanitizer", "invalid"]);
+    const res = await runCli([
+      targetFile,
+      "testBoolean",
+      "--rust-sanitizer",
+      "invalid",
+    ]);
     expect(res.status).toBe(4);
-    expect(res.stderr).toContain("Invalid rust sanitizer 'invalid'. Allowed: none, borrow, address");
+    expect(res.stderr).toContain(
+      "Invalid rust sanitizer 'invalid'. Allowed: none, borrow, address"
+    );
   });
 
   it("returns exit code 4 when invalid mcp --transport is passed", async () => {
     const res = await runCli(["mcp", "--transport", "invalid"]);
     expect(res.status).toBe(4);
-    expect(res.stderr).toContain("Invalid transport 'invalid'. Allowed: stdio, sse");
+    expect(res.stderr).toContain(
+      "Invalid transport 'invalid'. Allowed: stdio, sse"
+    );
   });
 
   it("formatTestResults: formats non-zero groups and omits empty/zero groups", () => {
@@ -1443,10 +1452,48 @@ describe("cli:", () => {
 
       expect(res.status).toBe(0);
       expect(res.stderr).toMatch(/Testing \[.*\] \d+%/);
+      expect(res.stderr).toContain("\x1b[32m█\x1b[0m");
+      expect(res.stderr).not.toContain("\x1b[31m█\x1b[0m");
       expect(res.stderr).toMatch(/@ \d+s/);
       expect(res.stderr).toMatch(/(inputs\/s|inputs\/min)/);
       expect(res.stderr).toMatch(/(execs\/s|inputs\/min)/);
       expect(res.stderr).toMatch(/Results \[.*Passed:/);
+    } finally {
+      Object.defineProperty(process.stderr, "isTTY", {
+        value: origIsTTY,
+        configurable: true,
+        writable: true,
+      });
+    }
+  });
+
+  it("progress bar includes red blocks when errors occur in TTY mode", async () => {
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testStandardVoidReturnException";
+
+    const origIsTTY = process.stderr.isTTY;
+    try {
+      Object.defineProperty(process.stderr, "isTTY", {
+        value: true,
+        configurable: true,
+        writable: true,
+      });
+      const res = await runCli(
+        [
+          targetFile,
+          targetFn,
+          "--max-failures",
+          "2",
+          "--max-tests",
+          "10",
+          "--seed",
+          "cli_seed_bar_errors",
+        ],
+        { progressBar: true }
+      );
+
+      expect(res.stderr).toMatch(/Testing \[.*\] \d+%/);
+      expect(res.stderr).toContain("\x1b[31m█\x1b[0m");
     } finally {
       Object.defineProperty(process.stderr, "isTTY", {
         value: origIsTTY,

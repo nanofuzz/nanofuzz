@@ -253,9 +253,7 @@ describe("fuzzer: oxcaml targets", () => {
       "./test_fixtures/Fuzzer.testfixtures.ml",
       "ox_transformed",
       { ...intOptions, maxTests: 0, suiteTimeout: 10000 }
-    ).test([injectedInput], { gen: true }, undefined, undefined, (r) =>
-      results.push(r)
-    );
+    ).test([injectedInput], {}, undefined, undefined, (r) => results.push(r));
 
     expect(results.length).toBe(1);
     const injectedResult = results[0];

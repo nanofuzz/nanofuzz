@@ -3,6 +3,7 @@ import { PythonProgram } from "../analysis/python/PythonProgram";
 import { RustProgram } from "../analysis/rust/RustProgram";
 import { OxcamlProgram } from "../analysis/oxcaml/OxcamlProgram";
 import { JavaProgram } from "../analysis/java/JavaProgram";
+import { GoProgram } from "../analysis/go/GoProgram";
 import { ProgramLanguage } from "../analysis/Types";
 import { CompanionManager } from "../analysis/CompanionManager";
 import { FuzzerCodeSnippet } from "./Types";
@@ -191,6 +192,40 @@ export function synthesizeTransformer(
     ];
 
     const skeleton = `\n\npublic static Object[] ${transformerName}(${javaParams}) {\n  // Use Assume.that(condition, "msg") or throw new UnsatisfiedAssumptionException("msg") to filter out-of-domain inputs\n  // Otherwise, return the transformed inputs\n  return ${javaReturn};\n}`;
+    const importData = imports.map((i) => i.stmt).join("");
+    const fullTemplate = `${importData}${skeleton.trimStart()}`;
+
+    return {
+      name: transformerName,
+      skeleton,
+      imports,
+      fullTemplate,
+    };
+  } else if (targetLang === "go") {
+    const goParams = inArgs
+      .map((a) => `${a.getName()} ${GoProgram.getTypeAnnotation(a)}`)
+      .join(", ");
+    const goReturnTypes =
+      inArgs.length === 0
+        ? ""
+        : inArgs.length === 1
+          ? GoProgram.getTypeAnnotation(inArgs[0])
+          : `(${inArgs
+              .map((a) => GoProgram.getTypeAnnotation(a))
+              .join(", ")})`;
+
+    const returnSig = goReturnTypes ? ` ${goReturnTypes}` : "";
+    const returnValues =
+      inArgs.length === 0 ? "" : `return ${argDestructuring}`;
+
+    const imports = [
+      {
+        name: "runtime",
+        stmt: `import "github.com/nanofuzz/runtime"\n`,
+      },
+    ];
+
+    const skeleton = `\n\nfunc ${transformerName}(${goParams})${returnSig} {\n\t// Use runtime.Assume(condition, "msg") to filter out-of-domain inputs\n\t// Otherwise, return the transformed inputs\n\t${returnValues}\n}`;
     const importData = imports.map((i) => i.stmt).join("");
     const fullTemplate = `${importData}${skeleton.trimStart()}`;
 

@@ -1,6 +1,6 @@
 # NaNofuzz
 
-NaNofuzz is a fast and easy-to-use property-based fuzzer and test generator for Typescript, Python, Rust, Java, and OCaml/OxCaml that combines human insight, heuristics, and property checking to help you quickly reach working code nirvana. NaNofuzz is intended to be used during testing and development and is available in the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=penrose.nanofuzz) (GUI) and [npm](https://www.npmjs.com/package/@nanofuzz/cli) (CLI, MCP).
+NaNofuzz is a fast and easy-to-use property-based fuzzer and test generator for Typescript, Python, Rust, Java, OCaml/OxCaml, and Go that combines human insight, heuristics, and property checking to help you quickly reach working code nirvana. NaNofuzz is intended to be used during testing and development and is available in the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=penrose.nanofuzz) (GUI) and [npm](https://www.npmjs.com/package/@nanofuzz/cli) (CLI, MCP).
 
 ![NaNofuzz Screenshot](https://github.com/user-attachments/assets/33a5fcda-19ac-459c-a50a-20cc0d8502c1)
 
@@ -36,6 +36,8 @@ To use NaNofuzz in your own projects:
     - OCaml / OxCaml projects:
       - **opam**: `opam install nanofuzz_runtime` or
       - **dune**: add `nanofuzz_runtime` to your `dune` libraries
+    - Go projects (Go 1.22+):
+      - **go get**: `go get github.com/nanofuzz/runtime`
 - **Step 2**: Add the NaNofuzz extension to your repo's `./.vscode/extensions.json` recommendations:
     ```json
     {
@@ -45,7 +47,7 @@ To use NaNofuzz in your own projects:
     }
     ```
 
-To export a NaNofuzz test to CI, click the pin button beside an example. NaNofuzz exports pinned tests to Jest/Jasmine, pytest, cargo test, JUnit 5, or dune runtest format, depending on the target language.
+To export a NaNofuzz test to CI, click the pin button beside an example. NaNofuzz exports pinned tests to Jest/Jasmine, pytest, cargo test, JUnit 5, dune runtest, or go test format, depending on the target language.
 
 ### To run NaNofuzz via CLI (outside of VS Code):
 

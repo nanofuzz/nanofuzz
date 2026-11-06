@@ -500,7 +500,8 @@ export class FuzzerV3 {
           update,
           cancelFn,
           stillInjecting,
-          stopCondition
+          stopCondition,
+          Boolean(mode.gen)
         );
 
         if (!slot) {
@@ -679,7 +680,8 @@ export class FuzzerV3 {
     update: FuzzStatusUpdater,
     cancelFn?: () => boolean,
     stillInjecting: boolean = false,
-    stopCondition: FuzzStopReason | number = 0
+    stopCondition: FuzzStopReason | number = 0,
+    gen: boolean = true
   ): Promise<PipelineSlot | undefined> {
     const startGenTime = performance.now();
     if (!stillInjecting && this._stats.startGenTime === 0) {
@@ -758,7 +760,7 @@ export class FuzzerV3 {
 
     const currentStopCondition = this._shouldGenStop(
       this._injectMap.size,
-      true,
+      gen,
       Boolean(cancelFn && cancelFn())
     );
     const currentPct =
@@ -1158,6 +1160,7 @@ export class FuzzerV3 {
       type: "testing-complete",
       cancelled: Boolean(cancelFn && cancelFn()),
       pct: 100,
+      stats: this._stats.currentRun,
     });
 
     this._state = "paused";

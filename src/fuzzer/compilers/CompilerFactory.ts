@@ -3,9 +3,16 @@ import { TypescriptCompiler } from "./TypescriptCompiler";
 import { RustCompiler } from "./rust/RustCompiler";
 import { OxcamlCompiler } from "./oxcaml/OxcamlCompiler";
 import { JavaCompiler } from "./java/JavaCompiler";
+import { GoCompiler } from "./go/GoCompiler";
 import { Instrumenter } from "./Instrumenter";
 
-export { TypescriptCompiler, RustCompiler, OxcamlCompiler, JavaCompiler };
+export {
+  TypescriptCompiler,
+  RustCompiler,
+  OxcamlCompiler,
+  JavaCompiler,
+  GoCompiler,
+};
 
 // TODO: Create an AbstractCompiler class & a matching strategy
 export function fromSourcefile(fqSrcFile: string): Compiler | undefined {
@@ -19,6 +26,8 @@ export function fromSourcefile(fqSrcFile: string): Compiler | undefined {
       return new OxcamlCompiler(fqSrcFile);
     case "java":
       return new JavaCompiler(fqSrcFile);
+    case "go":
+      return new GoCompiler(fqSrcFile);
     case "python":
     case "*":
     default:
@@ -32,7 +41,8 @@ export function needsCompilation(fqSrcFile: string): boolean {
     lang === "typescript" ||
     lang === "rust" ||
     lang === "oxcaml" ||
-    lang === "java"
+    lang === "java" ||
+    lang === "go"
   );
 } // fn: needsCompilation
 
@@ -45,10 +55,12 @@ export function clean(): void {
   RustCompiler.clean();
   OxcamlCompiler.clean();
   JavaCompiler.clean();
+  GoCompiler.clean();
 } // fn: clean
 
 export type Compiler =
   | TypescriptCompiler
   | RustCompiler
   | OxcamlCompiler
-  | JavaCompiler;
+  | JavaCompiler
+  | GoCompiler;

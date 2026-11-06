@@ -50,6 +50,13 @@ copyfiles(
   () => console.log("copied .ml runner template")
 );
 
+// Copy Go assets
+copyfiles(
+  ["./src/fuzzer/runners/go/GoRunnerHost.template.go", "./build/extension"],
+  true,
+  () => console.log("copied .go runner template")
+);
+
 // Copy Python runtime package (nanofuzz_runtime)
 const pyRuntimeSrc = path.resolve(
   "./packages/runtime/python/src/nanofuzz_runtime"
@@ -58,7 +65,7 @@ if (fs.existsSync(pyRuntimeSrc)) {
   const destPyRuntime = path.resolve("./build/extension/nanofuzz_runtime");
   fs.mkdirSync(destPyRuntime, { recursive: true });
   fs.cpSync(pyRuntimeSrc, destPyRuntime, { recursive: true });
-  console.log("copied nanofuzz_runtime");
+  console.log("copied runtime (python)");
 }
 
 // Build and copy TypeScript runtime package (@nanofuzz/runtime)
@@ -78,7 +85,7 @@ if (fs.existsSync(tsRuntimeDir)) {
     recursive: true,
     filter: (src) => !src.includes(`${path.sep}node_modules`),
   });
-  console.log("copied @nanofuzz/runtime");
+  console.log("copied runtime (typescript)");
 }
 
 // Build and copy Rust runtime crate (nanofuzz-runtime)
@@ -111,7 +118,7 @@ if (fs.existsSync(rustRuntimeDir)) {
     recursive: true,
     filter: (src) => !src.includes(`${path.sep}target`),
   });
-  console.log("copied nanofuzz-runtime");
+  console.log("copied runtime (rust)");
 }
 
 // Build and copy OCaml runtime library (nanofuzz_runtime)
@@ -145,7 +152,7 @@ if (fs.existsSync(oxRuntimeDir)) {
     recursive: true,
     filter: (src) => !src.includes(`${path.sep}_build`),
   });
-  console.log("copied nanofuzz_runtime_oxcaml");
+  console.log("copied runtime (ocaml)");
 }
 
 // Build and copy Java runtime package (nanofuzz-runtime)
@@ -201,7 +208,18 @@ if (fs.existsSync(javaRuntimeDir)) {
     javaTargetJar,
     path.join(destJavaRuntime, "nanofuzz-runtime.jar")
   );
-  console.log("copied nanofuzz-runtime (java)");
+  console.log("copied runtime (java)");
+}
+
+// Copy Go runtime package
+const goRuntimeDir = path.resolve("./packages/runtime/go");
+if (fs.existsSync(goRuntimeDir)) {
+  const destGoRuntime = path.resolve("./build/extension/nanofuzz-runtime-go");
+  fs.mkdirSync(destGoRuntime, { recursive: true });
+  fs.cpSync(goRuntimeDir, destGoRuntime, {
+    recursive: true,
+  });
+  console.log("copied runtime (go)");
 }
 
 // Copy Python imports
@@ -275,6 +293,7 @@ await esbuild.build({
     "tree-sitter-rust",
     "tree-sitter-ocaml",
     "tree-sitter-java",
+    "tree-sitter-go",
     "web-tree-sitter",
   ],
   define: {
@@ -326,6 +345,7 @@ await esbuild.build({
     "tree-sitter-rust",
     "tree-sitter-ocaml",
     "tree-sitter-java",
+    "tree-sitter-go",
     "web-tree-sitter",
   ],
   plugins: [
@@ -403,6 +423,7 @@ await esbuild.build({
     "tree-sitter-rust",
     "tree-sitter-ocaml",
     "tree-sitter-java",
+    "tree-sitter-go",
     "web-tree-sitter",
   ],
   define: {

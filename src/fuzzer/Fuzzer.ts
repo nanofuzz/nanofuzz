@@ -814,6 +814,7 @@ export class Tester {
             type: "testing-complete",
             cancelled: cancelFn(),
             pct: 100,
+            stats: runStats,
           });
 
           this._state = "paused";
@@ -1461,19 +1462,24 @@ const _checkStopCondition = (
   }
 
   // End testing if we exceed the maximum number of tests
-  const executedNonInjected = gen
-    ? stats.counters.inputsGenerated -
+  if (gen && options.maxTests > 0) {
+    const executedNonInjected =
+      stats.counters.inputsGenerated -
       stats.counters.dupesGenerated -
-      stats.counters.inputsSkipped
-    : 0;
-  const totalInputsCount = stats.counters.inputsInjected + executedNonInjected;
-  const targetCount = injectCount + (gen ? options.maxTests : 0);
+      stats.counters.inputsSkipped;
+    const totalInputsCount =
+      stats.counters.inputsInjected + executedNonInjected;
+    const targetCount = injectCount + options.maxTests;
 
-  if (totalInputsCount >= targetCount) {
-    return FuzzStopReason.MAXTESTS;
-  }
-  if (targetCount > 0) {
-    const testsPct = totalInputsCount / targetCount;
+    if (totalInputsCount >= targetCount) {
+      return FuzzStopReason.MAXTESTS;
+    }
+    if (targetCount > 0) {
+      const testsPct = totalInputsCount / targetCount;
+      if (testsPct > maxPct) maxPct = testsPct;
+    }
+  } else if (!gen && injectCount > 0) {
+    const testsPct = stats.counters.inputsInjected / injectCount;
     if (testsPct > maxPct) maxPct = testsPct;
   }
 
