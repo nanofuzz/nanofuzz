@@ -187,27 +187,71 @@ export class FuzzFunctionTool implements vscode.LanguageModelTool<FuzzFunctionIn
 
     const resolved = await resolveMatchingModel(vendor, model);
 
-    const result = await runFuzz(
-      {
-        filePath,
-        functionName,
-        maxTests,
-        fnTimeout,
-        suiteTimeout: timeoutMs,
-        maxFailures,
-        seed,
-        model: resolved.model,
-        vendor: resolved.vendor,
-        inputs,
-        tests,
-        exportSuite,
-        exportFilePath,
-        coverageScope,
-        useTransformer,
-        enableCopilotAi: true,
-      },
-      () => token.isCancellationRequested
-    );
+    const toolName = getToolName();
+    const target = `'${filePath}::${functionName}'`;
+    const runFuzzWithOptions = async (
+      progress?: vscode.Progress<{ message?: string; increment?: number }>
+    ) => {
+      let lastReportedPct = -1;
+      return await runFuzz(
+        {
+          filePath,
+          functionName,
+          maxTests,
+          fnTimeout,
+          suiteTimeout: timeoutMs,
+          maxFailures,
+          seed,
+          model: resolved.model,
+          vendor: resolved.vendor,
+          inputs,
+          tests,
+          exportSuite,
+          exportFilePath,
+          coverageScope,
+          useTransformer,
+          enableCopilotAi: true,
+        },
+        () => token.isCancellationRequested,
+        (status) => {
+          if (!progress) return;
+          if (status.type === "compiling") {
+            progress.report({ message: `compiling...` });
+          } else if (status.type === "instrumenting") {
+            progress.report({ message: `instrumenting...` });
+          } else if (status.type === "testing") {
+            const testsCount = status.stats?.outcomes?.total ?? 0;
+            const formattedTests =
+              testsCount >= 1000 ? formatCount(testsCount) : `${testsCount}`;
+            const pct = Math.round(status.pct * 100);
+            if (pct !== lastReportedPct || testsCount % 500 === 0) {
+              lastReportedPct = pct;
+              progress.report({
+                message: `${formattedTests} tests (${pct}% complete)`,
+              });
+            }
+          } else if (status.type === "waiting-for-generator") {
+            progress.report({ message: `waiting for AI generator...` });
+          } else if (status.type === "testing-complete") {
+            progress.report({ message: `done` });
+          }
+        }
+      );
+    };
+
+    const hasWithProgress =
+      typeof vscode.window?.withProgress === "function" &&
+      vscode.ProgressLocation?.Window !== undefined;
+
+    const result = hasWithProgress
+      ? await vscode.window.withProgress(
+          {
+            location: vscode.ProgressLocation.Window,
+            title: `${toolName}: ${target}`,
+          },
+          runFuzzWithOptions
+        )
+      : await runFuzzWithOptions();
 
     return new vscode.LanguageModelToolResult([
       new vscode.LanguageModelTextPart(result.summaryText),
