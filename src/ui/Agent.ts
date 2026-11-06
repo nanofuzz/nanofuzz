@@ -208,10 +208,23 @@ export async function listTargets(filePath: string): Promise<TargetListResult> {
       Object.keys(program.functions)
     );
 
+    // Compute targeting priority from export visibility, callee fan-out, and signature complexity
+    let priority = 0;
+    if (fnDef.isExported()) {
+      priority += 50;
+    }
+    const callees = program.getCallees(fnDef.getName());
+    priority += Math.min(30, callees.size * 10);
+    const argCount = fnDef.getArgDefs().length;
+    if (argCount >= 1) {
+      priority += Math.min(20, 5 + argCount * 5);
+    }
+
     functions.push({
       name: fnDef.getName(),
       signature: formatFunctionSignature(fnDef, language),
       isExported: fnDef.isExported(),
+      priority,
       args,
       returnType: fnDef.getReturnType()?.name,
       isVoid: fnDef.isVoid(),
@@ -1878,6 +1891,7 @@ export type TargetFunction = {
   name: string;
   signature: string;
   isExported: boolean;
+  priority: number;
   args: TargetFunctionArg[];
   returnType?: string;
   isVoid: boolean;

@@ -77,6 +77,7 @@ describe("Agent", () => {
     const voidFn = fnMap.get("testStandardVoidReturnUndefined")!;
     expect(voidFn.isVoid).toBe(true);
     expect(voidFn.isExported).toBe(true);
+    expect(voidFn.priority).toBeGreaterThanOrEqual(50);
     expect(voidFn.args.length).toBe(1);
     expect(voidFn.args[0].name).toBe("_x");
     expect(voidFn.args[0].type).toBe("number");
