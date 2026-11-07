@@ -42,6 +42,7 @@ import {
   FuzzTestsFunction,
   HarnessError,
 } from "../fuzzer/Types";
+import { sessionManager } from "./FindBugsSessionManager";
 import { FuzzerFactory } from "../fuzzer/FuzzerFactory";
 import { Judgment } from "../fuzzer/oracles/Types";
 import * as TestAdapterFactory from "../fuzzer/adapters/TestAdapterFactory";
@@ -627,20 +628,38 @@ export async function runFuzz(
       ...(options.argDefaults ?? {}),
     };
 
+    const isDeepFuzzingRun =
+      (options.suiteTimeout !== undefined && options.suiteTimeout >= 60_000) ||
+      sessionManager.hasActiveSession();
+    let sanitizedMaxTests = options.maxTests;
+    let sanitizedMaxFailures = options.maxFailures;
+
+    if (isDeepFuzzingRun) {
+      // In deep fuzzing runs / active bug-hunting sessions:
+      // 1. Force maxFailures = 0 so early bugs do not prevent discovering deeper secondary defects
+      if (sanitizedMaxFailures !== undefined && sanitizedMaxFailures > 0) {
+        sanitizedMaxFailures = 0;
+      }
+      // 2. If the caller accidentally passed a low ceiling like 1000, unconstrain it to 0 (run until timeout)
+      if (sanitizedMaxTests === 1000) {
+        sanitizedMaxTests = 0;
+      }
+    }
+
     const normalizedOptions = normalizeAgentFuzzOptions({
       ...options,
       maxTests:
-        options.maxTests !== undefined
-          ? options.maxTests
+        sanitizedMaxTests !== undefined
+          ? sanitizedMaxTests
           : (fnConfig.options?.maxTests ?? fnFuzzOptions?.maxTests),
       maxDupeInputs:
         options.maxDupeInputs ??
         fnConfig.options?.maxDupeInputs ??
         fnFuzzOptions?.maxDupeInputs,
       maxFailures:
-        options.maxFailures ??
-        fnConfig.options?.maxFailures ??
-        fnFuzzOptions?.maxFailures,
+        sanitizedMaxFailures !== undefined
+          ? sanitizedMaxFailures
+          : (fnConfig.options?.maxFailures ?? fnFuzzOptions?.maxFailures),
       fnTimeout:
         options.fnTimeout ??
         fnConfig.options?.fnTimeout ??
@@ -754,6 +773,27 @@ export async function runFuzz(
 
     // Cache the raw results for immediate display via showResults / FuzzPanel
     cacheRawResults(resolvedPath, options.functionName, rawResults);
+
+    // Record stats in FindBugs session manager if active
+    const durationMs = rawResults.stats.timers.total
+      ? rawResults.stats.timers.total
+      : (options.suiteTimeout ?? 0);
+    const cov = await getCoverageSummary(rawResults);
+    sessionManager.recordFuzzRun({
+      functionName: options.functionName,
+      filePath: resolvedPath,
+      timestamp: Date.now(),
+      totalTests: rawResults.stats.outcomes.total,
+      passedTests: rawResults.stats.outcomes.categories.ok,
+      failedTests: rawResults.stats.counters.failedTests,
+      erroredTests: rawResults.stats.counters.erroredTests,
+      skippedTests: rawResults.stats.counters.inputsSkipped,
+      timeouts: rawResults.stats.outcomes.timeouts,
+      exceptions: rawResults.stats.outcomes.exceptions,
+      durationMs,
+      statementCoveragePct: cov?.statementCoveragePercent,
+      branchCoveragePct: cov?.branchCoveragePercent,
+    });
 
     return await formatFuzzResult(
       rawResults,

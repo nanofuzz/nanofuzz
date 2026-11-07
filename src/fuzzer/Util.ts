@@ -284,29 +284,41 @@ export function getIoKey(io: FuzzIoElement[]): string {
  * @returns Clean normalized display path (e.g. "src/math.ts")
  */
 export function getDisplayPath(filePath: string): string {
-  let displayPath = filePath;
+  // Normalize backslashes and repair POSIX paths missing leading slash (e.g. "Users/..." or "home/...")
+  let normalizedInput = filePath.replace(/\\/g, "/");
+  if (
+    !normalizedInput.startsWith("/") &&
+    (normalizedInput.startsWith("Users/") ||
+      normalizedInput.startsWith("home/") ||
+      normalizedInput.startsWith("var/") ||
+      normalizedInput.startsWith("tmp/") ||
+      normalizedInput.startsWith("private/"))
+  ) {
+    normalizedInput = "/" + normalizedInput;
+  }
+
+  let displayPath = normalizedInput;
 
   // Query workspace relative path when running in VS Code host
   const vs = Reflect.get(globalThis, "vscode");
   if (isVscodeLike(vs)) {
-    displayPath = vs.workspace.asRelativePath(filePath, false);
+    displayPath = vs.workspace.asRelativePath(normalizedInput, false);
   } else if (
     typeof process !== "undefined" &&
     typeof process.cwd === "function"
   ) {
     // Check direct prefix match after normalizing path separators
-    const normalizedInput = filePath.replace(/\\/g, "/");
     const cwd = process.cwd().replace(/\\/g, "/");
     if (normalizedInput.startsWith(cwd + "/")) {
       displayPath = normalizedInput.slice(cwd.length + 1);
     } else {
       // Fall back to path.relative if shorter and not traversing out
-      const rel = path.relative(process.cwd(), filePath);
+      const rel = path.relative(process.cwd(), normalizedInput);
       if (
         rel &&
         !rel.startsWith("..") &&
         !path.isAbsolute(rel) &&
-        rel.length < filePath.length
+        rel.length < normalizedInput.length
       ) {
         displayPath = rel;
       }

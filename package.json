@@ -124,7 +124,7 @@
             "maxTests": {
               "type": "integer",
               "minimum": 0,
-              "description": "Maximum number of test cases to generate and execute (default: 1000, 0 for no limit / run until timeoutMs)."
+              "description": "Maximum number of test cases to generate and execute. Set to 0 for unlimited / continuous fuzzing until timeoutMs (REQUIRED for deep fuzzing). Avoid setting a low cap like 1000."
             },
             "timeoutMs": {
               "type": "integer",
@@ -134,7 +134,7 @@
             "maxFailures": {
               "type": "integer",
               "minimum": 0,
-              "description": "Maximum number of failures to find before stopping (default: 0 for no limit)."
+              "description": "Maximum number of failures to find before stopping. Default: 0 (no limit). For autonomous bug hunting, leave at 0 so early bugs do not prevent discovering deeper secondary defects."
             },
             "seed": {
               "type": "string",
@@ -811,6 +811,34 @@
             "type": "string",
             "default": "",
             "description": "Regex of files for NaNofuzz to ignore",
+            "tags": [
+              "experimental"
+            ]
+          },
+          "nanofuzz.experimental.findBugs.tool": {
+            "title": "FindBugs testing engine",
+            "type": "string",
+            "enum": [
+              "nanofuzz",
+              "hypothesis",
+              "hypofuzz"
+            ],
+            "default": "nanofuzz",
+            "description": "Experimental: Test engine/harness paradigm for findBugs workflows.",
+            "tags": [
+              "experimental"
+            ]
+          },
+          "nanofuzz.experimental.findBugs.invariantSource": {
+            "title": "FindBugs invariant source",
+            "type": "string",
+            "enum": [
+              "tests",
+              "docs",
+              "all"
+            ],
+            "default": "tests",
+            "description": "Experimental: Source of specification invariants (tests=unit test suites, docs=documentation, all=both docs and tests).",
             "tags": [
               "experimental"
             ]

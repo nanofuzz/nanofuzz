@@ -15,6 +15,7 @@ import {
 import { CoverageScope } from "../measures/Types";
 import { CurrentRunStats } from "../Types";
 import { findBugs, FindBugsOptions, FindBugsPhase } from "../../ui/FindBugs";
+import { sessionManager } from "../../ui/FindBugsSessionManager";
 import { getDisplayPath } from "../Util";
 
 // -------------------------------------------------------------------------- //
@@ -127,7 +128,7 @@ export class ListTargetsTool implements vscode.LanguageModelTool<ListTargetsInpu
       new vscode.LanguageModelTextPart(text),
     ]);
   }
-}
+} // class: ListTargetsTool
 
 /**
  * Language model tool for running fuzzing sessions on target functions.
@@ -137,8 +138,22 @@ export class FuzzFunctionTool implements vscode.LanguageModelTool<FuzzFunctionIn
     options: vscode.LanguageModelToolInvocationPrepareOptions<FuzzFunctionInput>
   ): vscode.ProviderResult<vscode.PreparedToolInvocation> {
     const toolName = getToolName();
-    const { functionName, filePath, timeoutMs, maxTests, maxFailures } =
-      options.input;
+    const { functionName, filePath, timeoutMs, maxFailures } = options.input;
+    let maxTests = options.input.maxTests;
+    let effectiveMaxFailures = maxFailures;
+
+    const isDeepRun =
+      (typeof timeoutMs === "number" && timeoutMs >= 60_000) ||
+      sessionManager.hasActiveSession();
+    if (isDeepRun) {
+      if (effectiveMaxFailures !== undefined && effectiveMaxFailures > 0) {
+        effectiveMaxFailures = 0;
+      }
+      if (maxTests === 1000) {
+        maxTests = 0;
+      }
+    }
+
     const displayPath = getDisplayPath(filePath);
     const target = `'${displayPath}::${functionName}'`;
 
@@ -149,9 +164,11 @@ export class FuzzFunctionTool implements vscode.LanguageModelTool<FuzzFunctionIn
     if (typeof maxTests === "number" && maxTests > 0) {
       constraints.push(`${formatCount(maxTests)} tests`);
     }
-    if (typeof maxFailures === "number" && maxFailures > 0) {
+    if (typeof effectiveMaxFailures === "number" && effectiveMaxFailures > 0) {
       constraints.push(
-        maxFailures === 1 ? "1 failure" : `${maxFailures} failures`
+        effectiveMaxFailures === 1
+          ? "1 failure"
+          : `${effectiveMaxFailures} failures`
       );
     }
 
@@ -174,9 +191,7 @@ export class FuzzFunctionTool implements vscode.LanguageModelTool<FuzzFunctionIn
     const {
       filePath,
       functionName,
-      maxTests,
       timeoutMs,
-      maxFailures,
       seed,
       model,
       vendor,
@@ -188,6 +203,20 @@ export class FuzzFunctionTool implements vscode.LanguageModelTool<FuzzFunctionIn
       fnTimeout,
       useTransformer,
     } = options.input;
+    let maxTests = options.input.maxTests;
+    let maxFailures = options.input.maxFailures;
+
+    const isDeepRun =
+      (typeof timeoutMs === "number" && timeoutMs >= 60_000) ||
+      sessionManager.hasActiveSession();
+    if (isDeepRun) {
+      if (maxFailures !== undefined && maxFailures > 0) {
+        maxFailures = 0;
+      }
+      if (maxTests === 1000) {
+        maxTests = 0;
+      }
+    }
 
     const resolved = await resolveMatchingModel(vendor, model);
 
@@ -273,7 +302,7 @@ export class FuzzFunctionTool implements vscode.LanguageModelTool<FuzzFunctionIn
       new vscode.LanguageModelTextPart(result.summaryText),
     ]);
   }
-}
+} // class: FuzzFunctionTool
 
 /**
  * Language model tool for multi-turn bug discovery workflows.
@@ -298,7 +327,7 @@ export class FindBugsTool implements vscode.LanguageModelTool<FindBugsInput> {
       new vscode.LanguageModelTextPart(result.summaryText),
     ]);
   }
-}
+} // class: FindBugsTool
 
 /**
  * Language model tool for displaying fuzz test results in FuzzPanel.
@@ -323,7 +352,7 @@ export class ShowResultsTool implements vscode.LanguageModelTool<ShowResultsInpu
       new vscode.LanguageModelTextPart(res.message),
     ]);
   }
-}
+} // class: ShowResultsTool
 
 /**
  * Language model tool for standalone input shrinking.
@@ -348,7 +377,7 @@ export class ShrinkInputsTool implements vscode.LanguageModelTool<ShrinkInputsIn
       new vscode.LanguageModelTextPart(res.summaryText),
     ]);
   }
-}
+} // class: ShrinkInputsTool
 
 /**
  * Registers all Language Model Tools with VS Code.
