@@ -39,7 +39,12 @@
     "onLanguage:java",
     "onLanguage:go",
     "onLanguage:typescriptreact",
-    "onWebviewPanel:FuzzPanel"
+    "onWebviewPanel:FuzzPanel",
+    "onLanguageModelTool:nanofuzz_listTargets",
+    "onLanguageModelTool:nanofuzz_fuzzFunction",
+    "onLanguageModelTool:nanofuzz_findBugs",
+    "onLanguageModelTool:nanofuzz_showResults",
+    "onLanguageModelTool:nanofuzz_shrinkInputs"
   ],
   "contributes": {
     "commands": [

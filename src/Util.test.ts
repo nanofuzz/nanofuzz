@@ -3,8 +3,8 @@ import {
   decodeEscapeSequences,
   removeTickFromOrigin,
   deepFreeze,
-  getDisplayPath,
 } from "./Util";
+import { getDisplayPath } from "./fuzzer/Util";
 import { FuzzValueOrigin } from "./fuzzer/Types";
 
 describe("src/Util escape sequence encoder/decoder", () => {

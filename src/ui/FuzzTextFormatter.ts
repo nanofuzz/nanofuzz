@@ -11,7 +11,6 @@ import {
   FuzzStopReason,
   FuzzWaitingForGeneratorMessage,
 } from "../fuzzer/Types";
-import { getDisplayPath } from "../Util";
 
 /**
  * Formats full execution results and outcome metrics into summary lines for display.
@@ -507,7 +506,13 @@ export function normalizeDisplayPath(
  * @returns Normalized user-facing path
  */
 function normalizePathForDisplay(filePath: string): string {
-  let displayPath = getDisplayPath(filePath);
+  let displayPath = filePath.replace(/\\/g, "/");
+  if (typeof process !== "undefined" && typeof process.cwd === "function") {
+    const cwd = process.cwd().replace(/\\/g, "/");
+    if (displayPath.startsWith(cwd + "/")) {
+      displayPath = displayPath.slice(cwd.length + 1);
+    }
+  }
   if (displayPath.endsWith(".js")) {
     displayPath = displayPath.slice(0, -3) + ".ts";
   }

@@ -10,10 +10,12 @@ import {
   ShowResultsResult,
   AgentShrinkOptions,
   AgentTestCase,
+  AgentFuzzResult,
 } from "../../ui/Agent";
 import { CoverageScope } from "../measures/Types";
+import { CurrentRunStats } from "../Types";
 import { findBugs, FindBugsOptions, FindBugsPhase } from "../../ui/FindBugs";
-import { getDisplayPath } from "../../Util";
+import { getDisplayPath } from "../Util";
 
 // -------------------------------------------------------------------------- //
 // Tool Implementations & Helpers
@@ -203,16 +205,21 @@ export class FuzzFunctionTool implements vscode.LanguageModelTool<FuzzFunctionIn
         : undefined;
     if (statusBarItem) {
       statusBarItem.name = `${toolName} Progress`;
-      statusBarItem.text = `$(beaker) ${toolName}: ${target}`;
-      statusBarItem.tooltip = `Fuzzing ${target} with ${toolName}`;
+      statusBarItem.text = `$(beaker) ${toolName}: ${functionName}`;
+      statusBarItem.tooltip = `${target}\nRunning with ${toolName}`;
       statusBarItem.show();
     }
 
-    const runFuzzWithOptions = async (
-      progress?: vscode.Progress<{ message?: string; increment?: number }>
-    ) => {
-      let lastReportedPct = -1;
-      return await runFuzz(
+    let lastStats: CurrentRunStats | undefined;
+    const updateStatusBar = (detail: string) => {
+      if (!statusBarItem) return;
+      statusBarItem.text = `$(beaker) ${toolName}: ${functionName} ${detail}`;
+      statusBarItem.tooltip = `${target}\n${detail}`;
+    };
+
+    let result: AgentFuzzResult;
+    try {
+      result = await runFuzz(
         {
           filePath,
           functionName,
@@ -233,55 +240,31 @@ export class FuzzFunctionTool implements vscode.LanguageModelTool<FuzzFunctionIn
         },
         () => token.isCancellationRequested,
         (status) => {
-          let detail = "";
           if (status.type === "compiling") {
-            detail = "compiling...";
+            updateStatusBar("(compiling...)");
           } else if (status.type === "instrumenting") {
-            detail = "instrumenting...";
-          } else if (status.type === "testing") {
-            const testsCount = status.stats?.outcomes?.total ?? 0;
+            updateStatusBar("(instrumenting...)");
+          } else if (status.type === "waiting-for-generator") {
+            updateStatusBar("(waiting for AI...)");
+          } else if (status.type === "testing-complete") {
+            updateStatusBar("(done)");
+          } else if (
+            status.type === "testing" ||
+            status.type === "progress-tick"
+          ) {
+            if ("stats" in status && status.stats) {
+              lastStats = status.stats;
+            }
+            const testsCount = lastStats?.outcomes?.total ?? 0;
             const formattedTests =
               testsCount >= 1000 ? formatCount(testsCount) : `${testsCount}`;
             const rawPct =
               status.pct <= 1 && status.pct > 0 ? status.pct * 100 : status.pct;
             const pct = Math.min(100, Math.max(0, Math.round(rawPct)));
-            detail = `${formattedTests} tests (${pct}%)`;
-            if (pct !== lastReportedPct || testsCount % 500 === 0) {
-              lastReportedPct = pct;
-              progress?.report({
-                message: `${formattedTests} tests (${pct}% complete)`,
-              });
-            }
-          } else if (status.type === "waiting-for-generator") {
-            detail = "waiting for AI generator...";
-            progress?.report({ message: detail });
-          } else if (status.type === "testing-complete") {
-            detail = "done";
-            progress?.report({ message: detail });
-          }
-
-          if (statusBarItem && detail) {
-            statusBarItem.text = `$(beaker) ${toolName}: ${target} - ${detail}`;
+            updateStatusBar(`(${formattedTests} tests, ${pct}%)`);
           }
         }
       );
-    };
-
-    let result: Awaited<ReturnType<typeof runFuzzWithOptions>>;
-    try {
-      const hasWithProgress =
-        typeof vscode.window?.withProgress === "function" &&
-        vscode.ProgressLocation?.Window !== undefined;
-
-      result = hasWithProgress
-        ? await vscode.window.withProgress(
-            {
-              location: vscode.ProgressLocation.Window,
-              title: `${toolName}: ${target}`,
-            },
-            runFuzzWithOptions
-          )
-        : await runFuzzWithOptions();
     } finally {
       statusBarItem?.dispose();
     }
