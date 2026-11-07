@@ -79,6 +79,7 @@ describe("FindBugs", () => {
     expect(result.instructions).toContain("Anti-Suppression Rule");
     expect(result.instructions).toContain("Multi-Defect Rule");
     expect(result.instructions).toContain("Defect Shadowing Mitigation");
+    expect(result.instructions).toContain("Validator Immobility Rule");
     expect(result.instructions).toContain("Max 5 Retries");
     expect(result.instructions).toContain("contextualize_bugs");
   });

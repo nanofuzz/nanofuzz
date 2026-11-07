@@ -10,9 +10,12 @@ import {
   ShowResultsResult,
   AgentShrinkOptions,
   AgentTestCase,
+  AgentFuzzResult,
 } from "../../ui/Agent";
 import { CoverageScope } from "../measures/Types";
+import { CurrentRunStats } from "../Types";
 import { findBugs, FindBugsOptions, FindBugsPhase } from "../../ui/FindBugs";
+import { getDisplayPath } from "../Util";
 
 // -------------------------------------------------------------------------- //
 // Tool Implementations & Helpers
@@ -134,12 +137,32 @@ export class FuzzFunctionTool implements vscode.LanguageModelTool<FuzzFunctionIn
     options: vscode.LanguageModelToolInvocationPrepareOptions<FuzzFunctionInput>
   ): vscode.ProviderResult<vscode.PreparedToolInvocation> {
     const toolName = getToolName();
-    const { functionName, filePath } = options.input;
+    const { functionName, filePath, timeoutMs, maxTests, maxFailures } =
+      options.input;
+    const displayPath = getDisplayPath(filePath);
+    const target = `'${displayPath}::${functionName}'`;
+
+    const constraints: string[] = [];
+    if (typeof timeoutMs === "number" && timeoutMs > 0) {
+      constraints.push(formatDuration(timeoutMs));
+    }
+    if (typeof maxTests === "number" && maxTests > 0) {
+      constraints.push(`${formatCount(maxTests)} tests`);
+    }
+    if (typeof maxFailures === "number" && maxFailures > 0) {
+      constraints.push(
+        maxFailures === 1 ? "1 failure" : `${maxFailures} failures`
+      );
+    }
+
+    const constraintSuffix =
+      constraints.length > 0 ? ` up to ${constraints.join(" or ")}` : "";
+
     return {
-      invocationMessage: `Running ${toolName} on \`${functionName}\` in \`${filePath}\``,
+      invocationMessage: `Running ${toolName} on ${target}${constraintSuffix}`,
       confirmationMessages: {
-        title: `Run ${toolName}`,
-        message: `Run ${toolName} fuzz testing on \`${functionName}\` in \`${filePath}\`?`,
+        title: `${toolName} ${target}`,
+        message: `Run ${toolName} on ${target}${constraintSuffix}?`,
       },
     };
   }
@@ -168,27 +191,83 @@ export class FuzzFunctionTool implements vscode.LanguageModelTool<FuzzFunctionIn
 
     const resolved = await resolveMatchingModel(vendor, model);
 
-    const result = await runFuzz(
-      {
-        filePath,
-        functionName,
-        maxTests,
-        fnTimeout,
-        suiteTimeout: timeoutMs,
-        maxFailures,
-        seed,
-        model: resolved.model,
-        vendor: resolved.vendor,
-        inputs,
-        tests,
-        exportSuite,
-        exportFilePath,
-        coverageScope,
-        useTransformer,
-        enableCopilotAi: true,
-      },
-      () => token.isCancellationRequested
-    );
+    const toolName = getToolName();
+    const displayPath = getDisplayPath(filePath);
+    const target = `'${displayPath}::${functionName}'`;
+
+    // Create a live status bar item on the bottom toolbar
+    const statusBarItem =
+      typeof vscode.window?.createStatusBarItem === "function"
+        ? vscode.window.createStatusBarItem(
+            vscode.StatusBarAlignment?.Left,
+            10000
+          )
+        : undefined;
+    if (statusBarItem) {
+      statusBarItem.name = `${toolName} Progress`;
+      statusBarItem.text = `$(beaker) ${toolName}: ${functionName}`;
+      statusBarItem.tooltip = `${target}\nRunning with ${toolName}`;
+      statusBarItem.show();
+    }
+
+    let lastStats: CurrentRunStats | undefined;
+    const updateStatusBar = (detail: string) => {
+      if (!statusBarItem) return;
+      statusBarItem.text = `$(beaker) ${toolName}: ${functionName} ${detail}`;
+      statusBarItem.tooltip = `${target}\n${detail}`;
+    };
+
+    let result: AgentFuzzResult;
+    try {
+      result = await runFuzz(
+        {
+          filePath,
+          functionName,
+          maxTests,
+          fnTimeout,
+          suiteTimeout: timeoutMs,
+          maxFailures,
+          seed,
+          model: resolved.model,
+          vendor: resolved.vendor,
+          inputs,
+          tests,
+          exportSuite,
+          exportFilePath,
+          coverageScope,
+          useTransformer,
+          enableCopilotAi: true,
+        },
+        () => token.isCancellationRequested,
+        (status) => {
+          if (status.type === "compiling") {
+            updateStatusBar("(compiling...)");
+          } else if (status.type === "instrumenting") {
+            updateStatusBar("(instrumenting...)");
+          } else if (status.type === "waiting-for-generator") {
+            updateStatusBar("(waiting for AI...)");
+          } else if (status.type === "testing-complete") {
+            updateStatusBar("(done)");
+          } else if (
+            status.type === "testing" ||
+            status.type === "progress-tick"
+          ) {
+            if ("stats" in status && status.stats) {
+              lastStats = status.stats;
+            }
+            const testsCount = lastStats?.outcomes?.total ?? 0;
+            const formattedTests =
+              testsCount >= 1000 ? formatCount(testsCount) : `${testsCount}`;
+            const rawPct =
+              status.pct <= 1 && status.pct > 0 ? status.pct * 100 : status.pct;
+            const pct = Math.min(100, Math.max(0, Math.round(rawPct)));
+            updateStatusBar(`(${formattedTests} tests, ${pct}%)`);
+          }
+        }
+      );
+    } finally {
+      statusBarItem?.dispose();
+    }
 
     return new vscode.LanguageModelToolResult([
       new vscode.LanguageModelTextPart(result.summaryText),
@@ -363,3 +442,37 @@ export type ShowResultsInput = ShowResultsOptions;
  * Input arguments for the nanofuzz_shrinkInputs tool
  */
 export type ShrinkInputsInput = AgentShrinkOptions;
+
+/**
+ * Formats duration in milliseconds into a concise string (e.g. 500ms, 3s, 5m, 1h).
+ */
+function formatDuration(ms: number): string {
+  if (ms < 1000) {
+    return `${ms}ms`;
+  }
+  const seconds = ms / 1000;
+  if (seconds < 60) {
+    return Number.isInteger(seconds) ? `${seconds}s` : `${seconds.toFixed(1)}s`;
+  }
+  const minutes = seconds / 60;
+  if (minutes < 60) {
+    return Number.isInteger(minutes) ? `${minutes}m` : `${minutes.toFixed(1)}m`;
+  }
+  const hours = minutes / 60;
+  return Number.isInteger(hours) ? `${hours}h` : `${hours.toFixed(1)}h`;
+} // fn: formatDuration
+
+/**
+ * Formats a count into a concise metric format (e.g. 100, 5k, 100k, 1M).
+ */
+function formatCount(count: number): string {
+  if (count < 1000) {
+    return `${count}`;
+  }
+  if (count < 1_000_000) {
+    const k = count / 1000;
+    return Number.isInteger(k) ? `${k}k` : `${k.toFixed(1)}k`;
+  }
+  const m = count / 1_000_000;
+  return Number.isInteger(m) ? `${m}M` : `${m.toFixed(1)}M`;
+} // fn: formatCount
