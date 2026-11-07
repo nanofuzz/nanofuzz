@@ -792,7 +792,7 @@ export async function runFuzz(
       exceptions: rawResults.stats.outcomes.exceptions,
       durationMs,
       suiteTimeout: options.suiteTimeout,
-      maxTests: normalizedOptions.maxTests,
+      maxTests: options.maxTests ?? normalizedOptions.maxTests,
       statementCoveragePct: cov?.statementCoveragePercent,
       branchCoveragePct: cov?.branchCoveragePercent,
     });

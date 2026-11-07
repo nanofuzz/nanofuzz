@@ -284,7 +284,9 @@ class FindBugsSessionManager {
     const s = this.getSession(sessionId);
     if (!s || s.fuzzRuns.length === 0) return false;
     return s.fuzzRuns.some(
-      (r) => (r.suiteTimeout ?? 0) >= 60000 && r.maxTests === 0
+      (r) =>
+        (r.suiteTimeout ?? 0) >= 60000 &&
+        (r.maxTests === 0 || r.maxTests === Number.MAX_SAFE_INTEGER)
     );
   } // fn: hasCompletedDeepRun
 
