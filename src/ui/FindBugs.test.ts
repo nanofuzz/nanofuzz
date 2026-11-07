@@ -134,6 +134,8 @@ describe("FindBugs", () => {
         timeouts: 0,
         exceptions: 0,
         durationMs: 300000,
+        suiteTimeout: 300000,
+        maxTests: 0,
       },
       sessionId
     );

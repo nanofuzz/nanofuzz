@@ -1119,6 +1119,8 @@ def py_double(x: int) -> int:
         aiQueriesSent: 1,
         mutationInputs: 30,
         randomInputs: 50,
+        userInputs: 0,
+        injectedInputs: 0,
       },
     });
 

@@ -21,6 +21,8 @@ export type FuzzRunStatsSnapshot = {
   timeouts: number;
   exceptions: number;
   durationMs: number;
+  suiteTimeout?: number;
+  maxTests?: number;
   statementCoveragePct?: number;
   branchCoveragePct?: number;
 };
@@ -276,13 +278,13 @@ class FindBugsSessionManager {
 
   /**
    * Returns true if at least one deep fuzzing run has executed in this session.
-   * Deep runs are identified by suiteTimeout >= 60000 ms, duration >= 30000 ms, or maxTests === 0.
+   * A true deep run must have been invoked with suiteTimeout >= 60000 ms and maxTests === 0.
    */
   public hasCompletedDeepRun(sessionId?: string): boolean {
     const s = this.getSession(sessionId);
     if (!s || s.fuzzRuns.length === 0) return false;
     return s.fuzzRuns.some(
-      (r) => r.durationMs >= 30000 || r.totalTests >= 1000
+      (r) => (r.suiteTimeout ?? 0) >= 60000 && r.maxTests === 0
     );
   } // fn: hasCompletedDeepRun
 

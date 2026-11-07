@@ -104,10 +104,7 @@ export async function findBugs(
       // or if only smoke runs occurred without executing Stage 2 deep fuzzing.
       const hasCompletedFuzzing =
         session.fuzzRuns.length > 0 &&
-        (sessionManager.hasCompletedDeepRun(session.sessionId) ||
-          session.fuzzRuns.some(
-            (r) => r.durationMs >= 30000 || r.totalTests >= 1000
-          ));
+        sessionManager.hasCompletedDeepRun(session.sessionId);
 
       if (tool === "nanofuzz" && !hasCompletedFuzzing) {
         const failureReason =

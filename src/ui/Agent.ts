@@ -791,6 +791,8 @@ export async function runFuzz(
       timeouts: rawResults.stats.outcomes.timeouts,
       exceptions: rawResults.stats.outcomes.exceptions,
       durationMs,
+      suiteTimeout: options.suiteTimeout,
+      maxTests: normalizedOptions.maxTests,
       statementCoveragePct: cov?.statementCoveragePercent,
       branchCoveragePct: cov?.branchCoveragePercent,
     });
@@ -1649,8 +1651,13 @@ export function buildSummaryMarkdown(
         `- 🎲 **Random Generator**: **${g.randomInputs}** input(s)`
       );
     }
-    if (g.userInputs && g.userInputs > 0) {
+    if (g.userInputs > 0) {
       partsList.push(`- 👤 **User Generator**: **${g.userInputs}** input(s)`);
+    }
+    if (g.injectedInputs > 0) {
+      partsList.push(
+        `- 📌 **Injected Inputs**: **${g.injectedInputs}** input(s)`
+      );
     }
     if (partsList.length > 0) {
       parts.push(`\n**Generator Breakdown**:`, ...partsList);
@@ -1783,6 +1790,10 @@ export async function formatFuzzResult(
   const coverage = await getCoverageSummary(results);
 
   const genStats = results.stats?.generators;
+  const injectedInputs = results.stats?.counters?.inputsInjected ?? 0;
+  const userGenInputs =
+    genStats?.UserInputGenerator?.counters?.inputsGenerated ?? 0;
+
   const generators: AgentGeneratorSummary = {
     randomInputs:
       genStats?.RandomInputGenerator?.counters?.inputsGenerated ?? 0,
@@ -1790,7 +1801,8 @@ export async function formatFuzzResult(
       genStats?.MutationInputGenerator?.counters?.inputsGenerated ?? 0,
     aiInputs: genStats?.AiInputGenerator?.counters?.inputsGenerated ?? 0,
     aiQueriesSent: genStats?.AiInputGenerator?.gen?.calls?.sent ?? 0,
-    userInputs: genStats?.UserInputGenerator?.counters?.inputsGenerated ?? 0,
+    userInputs: userGenInputs,
+    injectedInputs,
   };
 
   const diagnostics: string[] = [];
@@ -2041,7 +2053,8 @@ export type AgentGeneratorSummary = {
   mutationInputs: number;
   aiInputs: number;
   aiQueriesSent: number;
-  userInputs?: number;
+  userInputs: number;
+  injectedInputs: number;
 };
 
 /**
