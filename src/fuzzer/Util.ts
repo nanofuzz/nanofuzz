@@ -274,3 +274,53 @@ export function getIoKey(io: FuzzIoElement[]): string {
     })
   );
 } // fn: getIoKey
+
+/**
+ * Samples and calculates aggregate system CPU utilization across all platforms.
+ */
+export class CpuSampler {
+  private _lastSample?: { idle: number; total: number; time: number };
+  private _cachedCpu: number = 0;
+
+  /**
+   * Returns the current aggregate system CPU percentage (0–100%).
+   * Re-samples at most once every intervalMs (default 1000ms).
+   */
+  public getCpu(intervalMs: number = 1000): number {
+    const now = Date.now();
+    const current = this._getTicks();
+
+    if (!this._lastSample) {
+      this._lastSample = { ...current, time: now };
+      return this._cachedCpu;
+    }
+
+    const elapsed = now - this._lastSample.time;
+    if (elapsed >= intervalMs) {
+      const deltaIdle = current.idle - this._lastSample.idle;
+      const deltaTotal = current.total - this._lastSample.total;
+      if (deltaTotal > 0) {
+        this._cachedCpu = Math.max(
+          0,
+          Math.min(100, Math.round((1 - deltaIdle / deltaTotal) * 100))
+        );
+      }
+      this._lastSample = { ...current, time: now };
+    }
+
+    return this._cachedCpu;
+  } // fn: getCpu
+
+  private _getTicks(): { idle: number; total: number } {
+    const cpus = os.cpus();
+    let idle = 0;
+    let total = 0;
+    for (const cpu of cpus) {
+      for (const type in cpu.times) {
+        total += cpu.times[type as keyof typeof cpu.times];
+      }
+      idle += cpu.times.idle;
+    }
+    return { idle, total };
+  } // fn: _getTicks
+} // class: CpuSampler
