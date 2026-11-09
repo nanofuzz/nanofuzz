@@ -99,7 +99,20 @@ export function parse(lang: ProgramLanguage, text: string): Tree | null {
         : `init() must complete prior to calling getParser()`
     );
   }
-  return _getGrammarOrThrow(_langToGrammarName(lang)).parser.parse(text);
+  const entry = _getGrammarOrThrow(_langToGrammarName(lang));
+  try {
+    return entry.parser.parse(text);
+  } catch (err: unknown) {
+    try {
+      entry.parser.delete();
+    } catch {
+      // Ignore deletion failure on faulted parser instance
+    }
+    const freshParser = new TSWeb.Parser();
+    freshParser.setLanguage(entry.grammar);
+    entry.parser = freshParser;
+    throw err;
+  }
 } // fn: parse()
 
 /**
