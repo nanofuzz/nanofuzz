@@ -140,6 +140,43 @@ def _flush():
     cov_data = _collect_coverage()
     if cov_data:
         run_data["coverage"] = cov_data
+
+    # Multi-process coordination: if an idle coordinator/hub process with 0 executions flushes,
+    # do NOT overwrite a report already populated with executions from worker processes.
+    if os.path.exists(REPORT_PATH):
+        try:
+            with open(REPORT_PATH, "rb") as existing_file:
+                from PythonIpc import unpack_payload
+
+                existing_data = unpack_payload(existing_file.read())
+                if isinstance(existing_data, dict):
+                    existing_execs = existing_data.get("total_executions", 0)
+                    if existing_execs > run_data["total_executions"]:
+                        run_data["total_executions"] = existing_execs
+                        run_data["pass_count"] = max(
+                            run_data["pass_count"], existing_data.get(
+                                "pass_count", 0)
+                        )
+                        run_data["fail_count"] = max(
+                            run_data["fail_count"], existing_data.get(
+                                "fail_count", 0)
+                        )
+                        run_data["timeout_count"] = max(
+                            run_data["timeout_count"],
+                            existing_data.get("timeout_count", 0),
+                        )
+                        if run_data["primary_counterexample"] is None:
+                            run_data["primary_counterexample"] = existing_data.get(
+                                "primary_counterexample"
+                            )
+                        if not run_data.get("coverage") and existing_data.get(
+                            "coverage"
+                        ):
+                            run_data["coverage"] = existing_data.get(
+                                "coverage")
+        except Exception:
+            pass
+
     tmp_path = f"{REPORT_PATH}.{os.getpid()}.tmp"
     packed = pack_payload(run_data)
     with open(tmp_path, "wb") as f:
@@ -189,7 +226,8 @@ def pytest_configure(config):
     settings.register_profile(
         "nanofuzz_pbt",
         phases=(Phase.explicit, Phase.reuse, Phase.generate),
-        suppress_health_check=list(HealthCheck),
+        suppress_health_check=[
+            h for h in HealthCheck if h != HealthCheck.nested_given],
         deadline=None,
         max_examples=max_examples,
     )

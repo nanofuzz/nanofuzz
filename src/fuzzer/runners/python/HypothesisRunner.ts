@@ -583,11 +583,24 @@ function buildCliArgs(
   const bridgeModuleName = "HypothesisRunnerHost";
 
   if (tool === "hypofuzz") {
-    const args = ["-m", "hypofuzz"];
+    const args = ["-m", "hypofuzz", "--no-dashboard"];
     if (workerCount > 1) {
       args.push("-n", String(workerCount));
+    } else {
+      args.push("-n", "1");
     }
-    args.push("--", filePath, "-k", functionName, "-p", bridgeModuleName);
+    args.push(
+      "--",
+      "-o",
+      "addopts=",
+      "-W",
+      "ignore",
+      filePath,
+      "-k",
+      functionName,
+      "-p",
+      bridgeModuleName
+    );
     return args;
   }
 
