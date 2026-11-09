@@ -631,18 +631,25 @@ export class PythonRunner extends AbstractRunner {
     //  2. Executing within Node as /build/cli/cli.cjs
     //  3. Executing within Jasmine as /src/fuzzer/runners/PythonRunner.ts
     const currModuleDir = path.dirname(path.resolve(module.filename));
-    const projectRoot = findInAncestor(currModuleDir, "package.json");
-    if (projectRoot === undefined) {
-      throw new Error(`Unable to find project root from: ${currModuleDir}`);
+    let runnerHost = path.join(currModuleDir, "PythonRunnerHost.py");
+    if (!fs.existsSync(runnerHost)) {
+      const projectRoot = findInAncestor(currModuleDir, "package.json");
+      if (projectRoot !== undefined) {
+        runnerHost = path.resolve(
+          path.join(
+            path.dirname(projectRoot),
+            "build",
+            "extension",
+            "PythonRunnerHost.py"
+          )
+        );
+      }
     }
-    const runnerHost = path.resolve(
-      path.join(
-        path.dirname(projectRoot),
-        "build",
-        "extension",
-        "PythonRunnerHost.py"
-      )
-    );
+    if (!fs.existsSync(runnerHost)) {
+      throw new Error(
+        `Unable to find PythonRunnerHost.py from: ${currModuleDir}`
+      );
+    }
 
     const filenameBase = path.basename(this._filename);
     const coverageScopeRaw = Config.get<unknown>(

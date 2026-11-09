@@ -197,4 +197,60 @@ def test_timeout(x):
       }
     }
   });
+
+  it("respects maxTests limit and returns code coverage data", async () => {
+    Config.override("nanofuzz.experimental.findBugs.tool", "hypothesis");
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nanofuzz-hypo-cov-"));
+    // Create dummy module and test file
+    const modFile = path.join(tmpDir, "helper_logic.py");
+    fs.writeFileSync(
+      modFile,
+      `def classify(n):
+    if n > 0:
+        return "positive"
+    elif n < 0:
+        return "negative"
+    return "zero"
+`,
+      "utf8"
+    );
+
+    const testFile = path.join(tmpDir, "test_helper.py");
+    fs.writeFileSync(
+      testFile,
+      `from hypothesis import given, strategies as st
+from helper_logic import classify
+
+@given(n=st.integers(min_value=-1000, max_value=1000))
+def test_helper(n):
+    res = classify(n)
+    assert res in ("positive", "negative", "zero")
+`,
+      "utf8"
+    );
+
+    try {
+      const res = await runFuzz({
+        filePath: testFile,
+        functionName: "test_helper",
+        suiteTimeout: 10000,
+        maxTests: 25,
+      });
+
+      expect(res).toBeDefined();
+      expect(res.totalTests).toBe(25);
+      expect(res.stopReason).toBe(FuzzStopReason.NOMOREINPUTS);
+      expect(res.coverage).toBeDefined();
+      if (res.coverage) {
+        expect(res.coverage.statementsTotal).toBeGreaterThan(0);
+        expect(res.coverage.statementCoveragePercent).toBeGreaterThan(0);
+      }
+    } finally {
+      try {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      } catch {
+        // ignore cleanup error
+      }
+    }
+  });
 });

@@ -9,6 +9,7 @@ import {
   AgentFuzzResult,
   AgentFuzzStatus,
   AgentCounterexample,
+  AgentCoverageSummary,
   AgentGeneratorSummary,
   buildSummaryMarkdown,
   shrinkInputs,
@@ -95,6 +96,7 @@ export class HypothesisRunner {
       NANOFUZZ_PBT_OUT_FILE: reportFile,
       NANOFUZZ_SUITE_TIMEOUT_SEC: String(suiteTimeoutSec),
       NANOFUZZ_MAX_FAILURES: String(this._options.maxFailures ?? 0),
+      NANOFUZZ_MAX_TESTS: String(this._options.maxTests ?? 0),
     };
 
     if (injectedFile) {
@@ -359,6 +361,23 @@ export class HypothesisRunner {
         ? FuzzStopReason.MAXTIME
         : FuzzStopReason.NOMOREINPUTS;
 
+    let coverageSummary: AgentCoverageSummary | undefined;
+    if (reportData?.coverage) {
+      const cov = reportData.coverage;
+      coverageSummary = {
+        statementsTotal: cov.statements_total,
+        statementsCovered: cov.statements_covered,
+        statementCoveragePercent: cov.statement_pct,
+        branchesTotal: cov.branches_total,
+        branchesCovered: cov.branches_covered,
+        branchCoveragePercent: cov.branch_pct,
+        functionsTotal: 0,
+        functionsCovered: 0,
+        functionCoveragePercent: 100,
+        uncoveredLinesByFile: cov.uncovered_lines,
+      };
+    }
+
     const resultBase: Omit<AgentFuzzResult, "summaryText"> = {
       status,
       filePath,
@@ -376,6 +395,7 @@ export class HypothesisRunner {
       counterexamples,
       primaryCounterexample,
       generators,
+      coverage: coverageSummary,
     };
 
     const summaryText = buildSummaryMarkdown(resultBase);
@@ -404,6 +424,15 @@ interface PbtRunReport {
   };
   stop_reason: string;
   duration_ms: number;
+  coverage?: {
+    statements_total: number;
+    statements_covered: number;
+    statement_pct: number;
+    branches_total: number;
+    branches_covered: number;
+    branch_pct: number;
+    uncovered_lines?: Record<string, number[]>;
+  };
 }
 
 function parsePbtRunReport(val: unknown): PbtRunReport | undefined {
@@ -435,6 +464,45 @@ function parsePbtRunReport(val: unknown): PbtRunReport | undefined {
     };
   }
 
+  let coverage: PbtRunReport["coverage"];
+  if (isRecord(val.coverage)) {
+    const rawCov = val.coverage;
+    const statements_total =
+      typeof rawCov.statements_total === "number" ? rawCov.statements_total : 0;
+    const statements_covered =
+      typeof rawCov.statements_covered === "number"
+        ? rawCov.statements_covered
+        : 0;
+    const statement_pct =
+      typeof rawCov.statement_pct === "number" ? rawCov.statement_pct : 0;
+    const branches_total =
+      typeof rawCov.branches_total === "number" ? rawCov.branches_total : 0;
+    const branches_covered =
+      typeof rawCov.branches_covered === "number" ? rawCov.branches_covered : 0;
+    const branch_pct =
+      typeof rawCov.branch_pct === "number" ? rawCov.branch_pct : 0;
+
+    let uncovered_lines: Record<string, number[]> | undefined;
+    if (isRecord(rawCov.uncovered_lines)) {
+      uncovered_lines = {};
+      for (const [k, v] of Object.entries(rawCov.uncovered_lines)) {
+        if (Array.isArray(v)) {
+          uncovered_lines[k] = v.map(Number);
+        }
+      }
+    }
+
+    coverage = {
+      statements_total,
+      statements_covered,
+      statement_pct,
+      branches_total,
+      branches_covered,
+      branch_pct,
+      uncovered_lines,
+    };
+  }
+
   return {
     total_executions,
     pass_count,
@@ -443,6 +511,7 @@ function parsePbtRunReport(val: unknown): PbtRunReport | undefined {
     primary_counterexample,
     stop_reason,
     duration_ms,
+    coverage,
   };
 } // fn: parsePbtRunReport
 
