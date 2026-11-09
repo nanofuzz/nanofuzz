@@ -190,8 +190,9 @@ export class HypothesisRunner {
       });
       proc.stdout?.resume();
 
-      // Cancellation and timeout watchdog
+      // Cancellation and timeout watchdog + periodic progress updater
       const hardTimeoutMs = suiteTimeoutMs + 45000;
+      let lastReportCheck = 0;
       const watchdogInterval = setInterval(() => {
         if (processExited) {
           clearInterval(watchdogInterval);
@@ -210,6 +211,76 @@ export class HypothesisRunner {
               proc.kill("SIGKILL");
             }
           }, 5000).unref();
+        }
+
+        // Periodically sample progress from the report file and fire _updateFn
+        if (this._updateFn && elapsed - lastReportCheck >= 1000) {
+          lastReportCheck = elapsed;
+          try {
+            if (fs.existsSync(reportFile)) {
+              const raw = fs.readFileSync(reportFile);
+              const interim = parsePbtRunReport(JSONN.unpack(raw));
+              if (interim) {
+                const total = interim.total_executions;
+                const passed = interim.pass_count;
+                const failed = interim.fail_count;
+                const pct =
+                  suiteTimeoutMs > 0
+                    ? Math.min(
+                        100,
+                        Math.round((elapsed / suiteTimeoutMs) * 100)
+                      )
+                    : 0;
+                this._updateFn({
+                  type: "testing",
+                  fnName: functionName,
+                  lang: "python",
+                  inputs: [],
+                  stats: {
+                    counters: {
+                      inputsInjected: 0,
+                      inputsGenerated: total,
+                      dupesGenerated: 0,
+                      dupesSequential: 0,
+                      erroredTests: 0,
+                      failedTests: failed,
+                      passedTests: passed,
+                      inputsSkipped: 0,
+                      inputsInterrupted: 0,
+                    },
+                    outcomes: {
+                      total,
+                      exceptions: failed,
+                      timeouts: interim.timeout_count,
+                      categories: {
+                        ok: passed,
+                        badValue: 0,
+                        exception: failed,
+                        timeout: interim.timeout_count,
+                        failure: failed,
+                        disagree: 0,
+                        skip: 0,
+                      },
+                      oracles: {
+                        heuristic: { pass: passed, fail: failed, unknown: 0 },
+                        human: { pass: 0, fail: 0, unknown: 0 },
+                        property: { pass: passed, fail: failed, unknown: 0 },
+                      },
+                    },
+                    timers: {
+                      startTime: performance.now() - elapsed,
+                      startGenTime: performance.now() - elapsed,
+                    },
+                  },
+                  pct,
+                  stillInjecting: false,
+                  isCancelled: false,
+                });
+              }
+            }
+          } catch {
+            // Ignore interim read/parse race conditions
+          }
         }
       }, 500);
 
