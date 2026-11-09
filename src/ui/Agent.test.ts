@@ -71,6 +71,13 @@ describe("Agent", () => {
     expect(result.language).toBe("typescript");
     expect(result.functions.length).toBeGreaterThan(0);
 
+    // Verify functions are sorted in descending order of priority
+    for (let i = 1; i < result.functions.length; i++) {
+      expect(result.functions[i - 1].priority ?? 0).toBeGreaterThanOrEqual(
+        result.functions[i].priority ?? 0
+      );
+    }
+
     const fnMap = new Map(result.functions.map((f) => [f.name, f]));
     expect(fnMap.has("testStandardVoidReturnUndefined")).toBe(true);
 

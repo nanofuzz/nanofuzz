@@ -44,6 +44,7 @@ import {
 } from "../fuzzer/Types";
 import { sessionManager } from "./FindBugsSessionManager";
 import { FuzzerFactory } from "../fuzzer/FuzzerFactory";
+import { HypothesisRunner } from "../fuzzer/runners/python/HypothesisRunner";
 import { Judgment } from "../fuzzer/oracles/Types";
 import * as TestAdapterFactory from "../fuzzer/adapters/TestAdapterFactory";
 import {
@@ -238,6 +239,9 @@ export async function listTargets(filePath: string): Promise<TargetListResult> {
       generatorTemplate: genSkel.fullTemplate,
     });
   }
+
+  // Sort discovered functions in descending order of priority so agents see top entrypoints first
+  functions.sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0));
 
   const unsupportedFunctions: { name: string; reason: string }[] = [];
   const unsupported = program.functionsNotSupported;
@@ -583,6 +587,39 @@ export async function runFuzz(
     }
     if (options.coverageScope) {
       Config.override("nanofuzz.fuzzer.coverageScope", options.coverageScope);
+    }
+
+    const experimentalTool = Config.get<string>(
+      "nanofuzz.experimental.findBugs.tool",
+      "nanofuzz"
+    );
+
+    if (experimentalTool === "hypothesis" || experimentalTool === "hypofuzz") {
+      const runner = new HypothesisRunner(
+        options,
+        experimentalTool,
+        cancelFn,
+        updateFn
+      );
+      const result = await runner.run();
+      sessionManager.recordFuzzRun({
+        functionName: options.functionName,
+        filePath: resolvedPath,
+        timestamp: Date.now(),
+        totalTests: result.totalTests,
+        passedTests: result.passedTests,
+        failedTests: result.failedTests,
+        erroredTests: result.erroredTests,
+        skippedTests: result.skippedTests ?? 0,
+        timeouts: result.timeouts,
+        exceptions: result.exceptions,
+        durationMs: options.suiteTimeout ?? 0,
+        suiteTimeout: options.suiteTimeout,
+        maxTests: options.maxTests ?? 0,
+        statementCoveragePct: result.coverage?.statementCoveragePercent,
+        branchCoveragePct: result.coverage?.branchCoveragePercent,
+      });
+      return result;
     }
 
     // Extract in-source fuzz options if present

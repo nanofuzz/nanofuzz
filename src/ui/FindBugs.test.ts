@@ -44,7 +44,10 @@ describe("FindBugs", () => {
       model,
       vendor,
       statePayload: {
-        entrypoints: [{ name: "encode", filePath: "src/codec.ts" }],
+        entrypoints: [
+          { name: "encode", filePath: "src/codec.ts", invariants: ["inv1"] },
+          { name: "decode", filePath: "src/codec.ts", invariants: ["inv2"] },
+        ],
       },
     });
 
@@ -66,14 +69,69 @@ describe("FindBugs", () => {
   });
 
   it("handles phase 'fuzz_entrypoint' with 5-retry coverage loop and anti-suppression rule", async () => {
+    // Register entrypoints in session first
+    await findBugs({
+      phase: "invariants_extracted",
+      model,
+      vendor,
+      statePayload: {
+        sessionId: "deep-loop-session",
+        entrypoints: [
+          {
+            name: "fuzz_encode",
+            filePath: "src/codec.ts",
+            invariants: ["inv1"],
+          },
+        ],
+      },
+    });
+
+    // Record a smoke run and a 100% branch coverage deep run so stopping criteria is met
+    sessionManager.recordFuzzRun(
+      {
+        functionName: "fuzz_encode",
+        filePath: "nanofuzz_harness_encode.ts",
+        timestamp: Date.now(),
+        totalTests: 100,
+        passedTests: 100,
+        failedTests: 0,
+        erroredTests: 0,
+        skippedTests: 0,
+        timeouts: 0,
+        exceptions: 0,
+        durationMs: 3000,
+      },
+      "deep-loop-session"
+    );
+    sessionManager.recordFuzzRun(
+      {
+        functionName: "fuzz_encode",
+        filePath: "nanofuzz_harness_encode.ts",
+        timestamp: Date.now(),
+        totalTests: 10000,
+        passedTests: 10000,
+        failedTests: 0,
+        erroredTests: 0,
+        skippedTests: 0,
+        timeouts: 0,
+        exceptions: 0,
+        durationMs: 300000,
+        suiteTimeout: 300000,
+        maxTests: 0,
+        branchCoveragePct: 100,
+      },
+      "deep-loop-session"
+    );
+
     const result = await findBugs({
       phase: "fuzz_entrypoint",
       model,
       vendor,
       statePayload: {
+        sessionId: "deep-loop-session",
         stage: "deep",
-        harnessFilePath: "nanofuzz_harness_encode.ts",
         functionName: "fuzz_encode",
+        harnessFilePath: "nanofuzz_harness_encode.ts",
       },
     });
 
@@ -93,11 +151,28 @@ describe("FindBugs", () => {
   });
 
   it("handles phase 'fuzz_entrypoint' stage 'smoke' with fast smoke test", async () => {
+    await findBugs({
+      phase: "invariants_extracted",
+      model,
+      vendor,
+      statePayload: {
+        sessionId: "smoke-stage-session",
+        entrypoints: [
+          {
+            name: "fuzz_encode",
+            filePath: "src/codec.ts",
+            invariants: ["inv1"],
+          },
+        ],
+      },
+    });
+
     const result = await findBugs({
       phase: "fuzz_entrypoint",
       model,
       vendor,
       statePayload: {
+        sessionId: "smoke-stage-session",
         stage: "smoke",
         harnessFilePath: "nanofuzz_harness_encode.ts",
         functionName: "fuzz_encode",
@@ -112,7 +187,7 @@ describe("FindBugs", () => {
   });
 
   it("handles phase 'contextualize_bugs' with maintainer intent verification and anti-rationalization rule", async () => {
-    // Session needs a completed deep run to pass the execution gate
+    // Session needs at least 2 entrypoints with smoke runs and a completed deep run
     const sessionId = "deep-run-valid-session";
     sessionManager.getOrCreateSession(
       sessionId,
@@ -121,6 +196,40 @@ describe("FindBugs", () => {
       4,
       "fuzz_entrypoint"
     );
+    // Record smoke runs for 2 distinct entrypoints
+    sessionManager.recordFuzzRun(
+      {
+        functionName: "fuzz_encode",
+        filePath: "src/codec.ts",
+        timestamp: Date.now(),
+        totalTests: 100,
+        passedTests: 100,
+        failedTests: 0,
+        erroredTests: 0,
+        skippedTests: 0,
+        timeouts: 0,
+        exceptions: 0,
+        durationMs: 3000,
+      },
+      sessionId
+    );
+    sessionManager.recordFuzzRun(
+      {
+        functionName: "fuzz_decode",
+        filePath: "src/codec.ts",
+        timestamp: Date.now(),
+        totalTests: 100,
+        passedTests: 100,
+        failedTests: 0,
+        erroredTests: 0,
+        skippedTests: 0,
+        timeouts: 0,
+        exceptions: 0,
+        durationMs: 3000,
+      },
+      sessionId
+    );
+    // Record deep run
     sessionManager.recordFuzzRun(
       {
         functionName: "fuzz_encode",
@@ -168,10 +277,30 @@ describe("FindBugs", () => {
   });
 
   it("handles phase 'complete' with report guidelines and user disposition options", async () => {
+    sessionManager.recordFuzzRun(
+      {
+        functionName: "test_fn",
+        filePath: "src/fn.ts",
+        timestamp: Date.now(),
+        totalTests: 1000,
+        passedTests: 1000,
+        failedTests: 0,
+        erroredTests: 0,
+        skippedTests: 0,
+        timeouts: 0,
+        exceptions: 0,
+        durationMs: 300000,
+        suiteTimeout: 300000,
+        maxTests: 0,
+      },
+      "complete-test-session"
+    );
+
     const result = await findBugs({
       phase: "complete",
       model,
       vendor,
+      statePayload: { sessionId: "complete-test-session" },
     });
 
     expect(result.phase).toBe("complete");
@@ -217,7 +346,21 @@ describe("FindBugs", () => {
       phase: "invariants_extracted",
       model,
       vendor,
-      statePayload: { sessionId: "exp-session-1" },
+      statePayload: {
+        sessionId: "exp-session-1",
+        entrypoints: [
+          {
+            name: "encode",
+            filePath: "tests/test_pbt_encode.py",
+            invariants: ["inv1"],
+          },
+          {
+            name: "decode",
+            filePath: "tests/test_pbt_encode.py",
+            invariants: ["inv2"],
+          },
+        ],
+      },
     });
 
     expect(synthRes.instructions).toContain("Hypothesis Test Suite Synthesis");
@@ -225,25 +368,129 @@ describe("FindBugs", () => {
     expect(synthRes.instructions).toContain(".map()");
     expect(synthRes.instructions).toContain("@given");
 
+    // Record smoke runs for both declared entrypoints
+    sessionManager.recordFuzzRun(
+      {
+        functionName: "encode",
+        filePath: "tests/test_pbt_encode.py",
+        timestamp: Date.now(),
+        totalTests: 100,
+        passedTests: 100,
+        failedTests: 0,
+        erroredTests: 0,
+        skippedTests: 0,
+        timeouts: 0,
+        exceptions: 0,
+        durationMs: 3000,
+      },
+      "exp-session-1"
+    );
+    sessionManager.recordFuzzRun(
+      {
+        functionName: "decode",
+        filePath: "tests/test_pbt_encode.py",
+        timestamp: Date.now(),
+        totalTests: 100,
+        passedTests: 100,
+        failedTests: 0,
+        erroredTests: 0,
+        skippedTests: 0,
+        timeouts: 0,
+        exceptions: 0,
+        durationMs: 3000,
+      },
+      "exp-session-1"
+    );
+
     const fuzzRes = await findBugs({
       phase: "fuzz_entrypoint",
       model,
       vendor,
       statePayload: {
         sessionId: "exp-session-1",
+        stage: "deep",
         harnessFilePath: "tests/test_pbt_encode.py",
         functionName: "encode",
       },
     });
 
-    expect(fuzzRes.instructions).toContain("pytest -n");
+    expect(fuzzRes.instructions).toContain("nanofuzz_fuzzFunction");
     expect(fuzzRes.instructions).toContain("tests/test_pbt_encode.py");
+    expect(fuzzRes.instructions).toContain("Stage 2: Deep Fuzzing Run");
+
+    // Record deep fuzz runs satisfying stopping criteria (100% branch coverage) so gate passes
+    sessionManager.recordFuzzRun(
+      {
+        functionName: "encode",
+        filePath: "tests/test_pbt_encode.py",
+        timestamp: Date.now(),
+        totalTests: 10000,
+        passedTests: 9999,
+        failedTests: 1,
+        erroredTests: 0,
+        skippedTests: 0,
+        timeouts: 0,
+        exceptions: 0,
+        durationMs: 300000,
+        suiteTimeout: 300000,
+        maxTests: 0,
+        branchCoveragePct: 100,
+      },
+      "exp-session-1"
+    );
+    sessionManager.recordFuzzRun(
+      {
+        functionName: "decode",
+        filePath: "tests/test_pbt_encode.py",
+        timestamp: Date.now(),
+        totalTests: 10000,
+        passedTests: 10000,
+        failedTests: 0,
+        erroredTests: 0,
+        skippedTests: 0,
+        timeouts: 0,
+        exceptions: 0,
+        durationMs: 300000,
+        suiteTimeout: 300000,
+        maxTests: 0,
+        branchCoveragePct: 100,
+      },
+      "exp-session-1"
+    );
+
+    // Contextualize bugs before complete
+    await findBugs({
+      phase: "contextualize_bugs",
+      model,
+      vendor,
+      statePayload: {
+        sessionId: "exp-session-1",
+        bugs: [
+          {
+            entrypoint: "encode",
+            status: "Novel / Unreported",
+            evidence: "tests/test_pbt_encode.py",
+            maintainerRationale: "Test bug",
+          },
+        ],
+      },
+    });
 
     const compRes = await findBugs({
       phase: "complete",
       model,
       vendor,
-      statePayload: { sessionId: "exp-session-1" },
+      statePayload: {
+        sessionId: "exp-session-1",
+        bugs: [
+          {
+            entrypoint: "encode",
+            status: "Novel / Unreported",
+            evidence: "tests/test_pbt_encode.py",
+            maintainerRationale: "Test bug",
+          },
+        ],
+      },
     });
 
     expect(compRes.instructions).toContain("Workflow Execution Telemetry");
@@ -254,18 +501,55 @@ describe("FindBugs", () => {
     Config.override("nanofuzz.experimental.findBugs.tool", "hypofuzz");
     Config.override("nanofuzz.experimental.findBugs.invariantSource", "tests");
 
+    // Register entrypoints in session first
+    await findBugs({
+      phase: "invariants_extracted",
+      model,
+      vendor,
+      statePayload: {
+        sessionId: "hypofuzz-session",
+        entrypoints: [
+          {
+            name: "parse",
+            filePath: "tests/test_pbt_parser.py",
+            invariants: ["inv1"],
+          },
+        ],
+      },
+    });
+
+    // Record smoke run first so it can advance to Stage 2
+    sessionManager.recordFuzzRun(
+      {
+        functionName: "parse",
+        filePath: "tests/test_pbt_parser.py",
+        timestamp: Date.now(),
+        totalTests: 100,
+        passedTests: 100,
+        failedTests: 0,
+        erroredTests: 0,
+        skippedTests: 0,
+        timeouts: 0,
+        exceptions: 0,
+        durationMs: 3000,
+      },
+      "hypofuzz-session"
+    );
+
     const fuzzRes = await findBugs({
       phase: "fuzz_entrypoint",
       model,
       vendor,
       statePayload: {
+        sessionId: "hypofuzz-session",
+        stage: "deep",
         harnessFilePath: "tests/test_pbt_parser.py",
         functionName: "parse",
       },
     });
 
-    expect(fuzzRes.instructions).toContain("hypofuzz -n");
-    expect(fuzzRes.instructions).toContain("--max-total-time=300s");
+    expect(fuzzRes.instructions).toContain("nanofuzz_fuzzFunction");
+    expect(fuzzRes.instructions).toContain("Stage 2: Deep Fuzzing Run");
   });
 
   it("handles experimental option: invariantSource='all'", async () => {
@@ -280,33 +564,58 @@ describe("FindBugs", () => {
 
     expect(initRes.instructions).toContain("Source: all");
     expect(initRes.instructions).toContain(
-      "Inspect Documentation and Existing Test Suite"
+      "Inspect Documentation (Step 1/2: Documented Invariants)"
     );
     expect(initRes.instructions).toContain("Strict Information Barrier");
-    expect(initRes.instructions).toContain("from docs & unit tests");
     expect(initRes.instructions).toContain(
-      "Formulate invariants by combining documented specifications with empirical test cases, such as:"
+      "2. Documented Invariants (from docs)"
     );
+    expect(initRes.instructions).toContain(
+      "3. Empirical Invariants & Seed Extraction (from unit tests)"
+    );
+    expect(initRes.recommendedNextPhase).toBe("invariants_from_tests");
+
+    // Advance to Step 2
+    const step2Res = await findBugs({
+      phase: "invariants_from_tests",
+      model,
+      vendor,
+      statePayload: {
+        sessionId: "exp-session-all",
+        entrypoints: [
+          { name: "foo", filePath: "foo.py", invariants: ["inv1"] },
+          { name: "bar", filePath: "bar.py", invariants: ["inv2"] },
+        ],
+      },
+    });
+
+    expect(step2Res.instructions).toContain(
+      "Phase 1b: Empirical Invariant & Seed Extraction"
+    );
+    expect(step2Res.instructions).toContain("Step 2/2: Tests");
+    expect(step2Res.recommendedNextPhase).toBe("invariants_extracted");
   });
 
   it("blocks transition to contextualize_bugs when nanofuzz fuzzing was never executed", async () => {
     Config.override("nanofuzz.experimental.findBugs.tool", "nanofuzz");
 
-    const blockedRes = await findBugs({
-      phase: "contextualize_bugs",
-      model,
-      vendor,
-      statePayload: { sessionId: "gate-test-session" },
-    });
-
-    expect(blockedRes.phase).toBe("contextualize_bugs");
-    expect(blockedRes.recommendedNextPhase).toBe("contextualize_bugs");
-    expect(blockedRes.instructions).toContain(
-      "Execution Gate Blocked: Deep Fuzzing Required"
-    );
-    expect(blockedRes.instructions).toContain(
-      "No fuzzing runs were recorded for this session"
-    );
+    let threw = false;
+    try {
+      await findBugs({
+        phase: "contextualize_bugs",
+        model,
+        vendor,
+        statePayload: { sessionId: "gate-test-session" },
+      });
+    } catch (err: unknown) {
+      threw = true;
+      if (err instanceof Error) {
+        expect(err.message).toContain("Execution Gate Blocked");
+      } else {
+        fail("Expected error to be an instance of Error");
+      }
+    }
+    expect(threw).toBe(true);
   });
 
   it("blocks transition to contextualize_bugs when only smoke runs occurred without Stage 2 deep fuzzing", async () => {
@@ -321,17 +630,47 @@ describe("FindBugs", () => {
     });
     expect(initRes.phase).toBe("init");
 
-    // Advance to fuzz_entrypoint
+    // Advance to fuzz_entrypoint with at least 2 valid entrypoints
     await findBugs({
       phase: "invariants_extracted",
       model,
       vendor,
-      statePayload: { sessionId: "smoke-only-session" },
+      statePayload: {
+        sessionId: "smoke-only-session",
+        entrypoints: [
+          {
+            name: "fuzz_target1",
+            filePath: "src/foo.ts",
+            invariants: ["inv1"],
+          },
+          {
+            name: "fuzz_target2",
+            filePath: "src/foo.ts",
+            invariants: ["inv2"],
+          },
+        ],
+      },
     });
 
     sessionManager.recordFuzzRun(
       {
-        functionName: "fuzz_target",
+        functionName: "fuzz_target1",
+        filePath: "src/foo.ts",
+        timestamp: Date.now(),
+        totalTests: 100,
+        passedTests: 90,
+        failedTests: 10,
+        erroredTests: 0,
+        skippedTests: 0,
+        timeouts: 0,
+        exceptions: 0,
+        durationMs: 3000,
+      },
+      "smoke-only-session"
+    );
+    sessionManager.recordFuzzRun(
+      {
+        functionName: "fuzz_target2",
         filePath: "src/foo.ts",
         timestamp: Date.now(),
         totalTests: 100,
@@ -347,21 +686,363 @@ describe("FindBugs", () => {
     );
 
     // Attempt to skip to contextualize_bugs
-    const blockedRes = await findBugs({
-      phase: "contextualize_bugs",
+    let threw = false;
+    try {
+      await findBugs({
+        phase: "contextualize_bugs",
+        model,
+        vendor,
+        statePayload: {
+          sessionId: "smoke-only-session",
+          bugs: [{ entrypoint: "fuzz_target1", error: "smoke failure" }],
+        },
+      });
+    } catch (err: unknown) {
+      threw = true;
+      if (err instanceof Error) {
+        expect(err.message).toContain("Execution Gate Blocked");
+        expect(err.message).toContain("Gate 3: Deep Fuzzing Required");
+      } else {
+        fail("Expected error to be an instance of Error");
+      }
+    }
+    expect(threw).toBe(true);
+  });
+
+  it("blocks transition to complete when Stage 2 deep fuzzing was never executed", async () => {
+    Config.override("nanofuzz.experimental.findBugs.tool", "nanofuzz");
+
+    let threw = false;
+    try {
+      await findBugs({
+        phase: "complete",
+        model,
+        vendor,
+        statePayload: { sessionId: "incomplete-session" },
+      });
+    } catch (err: unknown) {
+      threw = true;
+      if (err instanceof Error) {
+        expect(err.message).toContain("Execution Gate Blocked");
+      } else {
+        fail("Expected error to be an instance of Error");
+      }
+    }
+    expect(threw).toBe(true);
+  });
+
+  it("handles pre-selected targetScope option: instructs agent and blocks Gate 1 if entrypoints are omitted", async () => {
+    Config.override("nanofuzz.experimental.findBugs.tool", "hypothesis");
+    Config.override("nanofuzz.experimental.findBugs.targetScope", [
+      "TreeValue",
+      "DerivationTree",
+      "Fandango",
+      "_distance_norm",
+      "make_def",
+    ]);
+
+    const initRes = await findBugs({
+      phase: "init",
+      model,
+      vendor,
+      statePayload: { sessionId: "target-scope-session" },
+    });
+
+    expect(initRes.instructions).toContain("Prescribed Target Scope");
+    expect(initRes.instructions).toContain("TreeValue");
+    expect(initRes.instructions).toContain("DerivationTree");
+    expect(initRes.instructions).toContain("Fandango");
+    expect(initRes.instructions).toContain("_distance_norm");
+    expect(initRes.instructions).toContain("make_def");
+
+    // Agent attempts to submit only 2 of the 5 entrypoints
+    let threw = false;
+    try {
+      await findBugs({
+        phase: "invariants_extracted",
+        model,
+        vendor,
+        statePayload: {
+          sessionId: "target-scope-session",
+          entrypoints: [
+            {
+              name: "TreeValue",
+              filePath: "src/fandango/language/tree_value.py",
+              invariants: ["inv1"],
+            },
+            {
+              name: "_distance_norm",
+              filePath: "src/fandango/constraints/comparison.py",
+              invariants: ["inv2"],
+            },
+          ],
+        },
+      });
+    } catch (err: unknown) {
+      threw = true;
+      if (err instanceof Error) {
+        expect(err.message).toContain("Execution Gate Blocked");
+        expect(err.message).toContain(
+          "Gate 1: Missing Pre-Selected Entrypoints"
+        );
+        expect(err.message).toContain("DerivationTree");
+        expect(err.message).toContain("Fandango");
+        expect(err.message).toContain("make_def");
+      } else {
+        fail("Expected error to be an instance of Error");
+      }
+    }
+    expect(threw).toBe(true);
+  });
+
+  it("allows Gate 1 to pass when all pre-selected entrypoints in targetScope are registered", async () => {
+    Config.override("nanofuzz.experimental.findBugs.tool", "hypothesis");
+    Config.override("nanofuzz.experimental.findBugs.targetScope", [
+      "TreeValue",
+      "DerivationTree",
+      "Fandango",
+      "_distance_norm",
+      "make_def",
+    ]);
+
+    const extractedRes = await findBugs({
+      phase: "invariants_extracted",
       model,
       vendor,
       statePayload: {
-        sessionId: "smoke-only-session",
-        bugs: [{ entrypoint: "fuzz_target", error: "smoke failure" }],
+        sessionId: "target-scope-pass-session",
+        entrypoints: [
+          {
+            name: "TreeValue",
+            filePath: "src/fandango/language/tree_value.py",
+            invariants: ["inv1"],
+          },
+          {
+            name: "DerivationTree",
+            filePath: "src/fandango/language/tree.py",
+            invariants: ["inv2"],
+          },
+          {
+            name: "parse", // Synonym for Fandango
+            filePath: "src/fandango/language/parse/parse.py",
+            invariants: ["inv3"],
+          },
+          {
+            name: "_sigmoid", // Coupled with _distance_norm in comparison.py
+            filePath: "src/fandango/constraints/comparison.py",
+            invariants: ["inv4"],
+          },
+          {
+            name: "make_def",
+            filePath: "src/fandango/language/stdlib.py",
+            invariants: ["inv5"],
+          },
+        ],
       },
     });
 
-    expect(blockedRes.phase).toBe("contextualize_bugs");
-    expect(blockedRes.recommendedNextPhase).toBe("contextualize_bugs");
-    expect(blockedRes.instructions).toContain(
-      "Execution Gate Blocked: Deep Fuzzing Required"
-    );
-    expect(blockedRes.instructions).toContain("Only 1 smoke run(s) recorded");
+    expect(extractedRes.phase).toBe("invariants_extracted");
+    expect(extractedRes.recommendedNextPhase).toBe("fuzz_entrypoint");
   });
+
+  it("runs normally through Gate 1 when targetScope is empty", async () => {
+    Config.override("nanofuzz.experimental.findBugs.targetScope", []);
+
+    const initRes = await findBugs({
+      phase: "init",
+      model,
+      vendor,
+      statePayload: { sessionId: "empty-scope-session" },
+    });
+
+    expect(initRes.instructions).not.toContain("Prescribed Target Scope");
+
+    const extractedRes = await findBugs({
+      phase: "invariants_extracted",
+      model,
+      vendor,
+      statePayload: {
+        sessionId: "empty-scope-session",
+        entrypoints: [
+          {
+            name: "custom_fn",
+            filePath: "src/custom.ts",
+            invariants: ["inv1"],
+          },
+        ],
+      },
+    });
+
+    expect(extractedRes.phase).toBe("invariants_extracted");
+    expect(extractedRes.recommendedNextPhase).toBe("fuzz_entrypoint");
+  });
+
+  const tools = ["nanofuzz", "hypothesis", "hypofuzz"] as const;
+  const sources = ["docs", "tests", "all"] as const;
+
+  for (const tool of tools) {
+    for (const source of sources) {
+      it(`walks through full workflow with all gates for tool='${tool}' and invariantSource='${source}'`, async () => {
+        Config.override("nanofuzz.experimental.findBugs.tool", tool);
+        Config.override(
+          "nanofuzz.experimental.findBugs.invariantSource",
+          source
+        );
+
+        const sessionId = `full-workflow-${tool}-${source}`;
+
+        // 1. Phase: init
+        const initRes = await findBugs({
+          phase: "init",
+          model,
+          vendor,
+          statePayload: { sessionId },
+        });
+        expect(initRes.phase).toBe("init");
+        if (source === "all") {
+          expect(initRes.recommendedNextPhase).toBe("invariants_from_tests");
+
+          // 1b. Phase: invariants_from_tests
+          const testsRes = await findBugs({
+            phase: "invariants_from_tests",
+            model,
+            vendor,
+            statePayload: { sessionId },
+          });
+          expect(testsRes.phase).toBe("invariants_from_tests");
+          expect(testsRes.recommendedNextPhase).toBe("invariants_extracted");
+        } else {
+          expect(initRes.recommendedNextPhase).toBe("invariants_extracted");
+        }
+
+        // 2. Gate 1: Register entrypoint
+        const epName = tool === "nanofuzz" ? "fuzz_target" : "test_target";
+        const synthRes = await findBugs({
+          phase: "invariants_extracted",
+          model,
+          vendor,
+          statePayload: {
+            sessionId,
+            entrypoints: [
+              {
+                name: epName,
+                filePath: "src/target.py",
+                invariants: ["inv_always_positive"],
+                harnessFunctionName: epName,
+              },
+            ],
+          },
+        });
+        expect(synthRes.phase).toBe("invariants_extracted");
+        expect(synthRes.recommendedNextPhase).toBe("fuzz_entrypoint");
+
+        // 3. Stage 1 Smoke Guidance
+        const smokeRes = await findBugs({
+          phase: "fuzz_entrypoint",
+          model,
+          vendor,
+          statePayload: {
+            sessionId,
+            stage: "smoke",
+            functionName: epName,
+            harnessFilePath: "src/target.py",
+          },
+        });
+        expect(smokeRes.phase).toBe("fuzz_entrypoint");
+        expect(smokeRes.recommendedNextPhase).toBe("fuzz_entrypoint");
+
+        // Record Stage 1 Smoke Run
+        sessionManager.recordFuzzRun(
+          {
+            functionName: epName,
+            filePath: "src/target.py",
+            timestamp: Date.now(),
+            totalTests: 100,
+            passedTests: 99,
+            failedTests: 1,
+            erroredTests: 0,
+            skippedTests: 0,
+            timeouts: 0,
+            exceptions: 0,
+            durationMs: 3000,
+            suiteTimeout: 3000,
+            maxTests: 100,
+          },
+          sessionId
+        );
+
+        // 4. Stage 2 Deep Guidance
+        const deepRes = await findBugs({
+          phase: "fuzz_entrypoint",
+          model,
+          vendor,
+          statePayload: {
+            sessionId,
+            stage: "deep",
+            functionName: epName,
+            harnessFilePath: "src/target.py",
+          },
+        });
+        expect(deepRes.phase).toBe("fuzz_entrypoint");
+        expect(deepRes.recommendedNextPhase).toBe("contextualize_bugs");
+
+        // Record Stage 2 Deep Run satisfying exit criteria (100% branch coverage)
+        sessionManager.recordFuzzRun(
+          {
+            functionName: epName,
+            filePath: "src/target.py",
+            timestamp: Date.now(),
+            totalTests: 10000,
+            passedTests: 9990,
+            failedTests: 10,
+            erroredTests: 0,
+            skippedTests: 0,
+            timeouts: 0,
+            exceptions: 0,
+            durationMs: 300000,
+            suiteTimeout: 300000,
+            maxTests: 0,
+            branchCoveragePct: 100,
+          },
+          sessionId
+        );
+
+        // 5. Phase: contextualize_bugs
+        const bugs = [
+          {
+            entrypoint: epName,
+            status: "Novel / Unreported",
+            evidence: "src/target.py",
+            maintainerRationale: "Discovered novel edge case",
+          },
+        ];
+        const ctxRes = await findBugs({
+          phase: "contextualize_bugs",
+          model,
+          vendor,
+          statePayload: {
+            sessionId,
+            bugs,
+          },
+        });
+        expect(ctxRes.phase).toBe("contextualize_bugs");
+        expect(ctxRes.recommendedNextPhase).toBe("complete");
+
+        // 6. Phase: complete
+        const compRes = await findBugs({
+          phase: "complete",
+          model,
+          vendor,
+          statePayload: {
+            sessionId,
+            bugs,
+          },
+        });
+        expect(compRes.phase).toBe("complete");
+        expect(compRes.recommendedNextPhase).toBeUndefined();
+        expect(compRes.instructions).toContain("Structured Summary Report");
+        expect(compRes.instructions).toContain("Workflow Execution Telemetry");
+      });
+    }
+  }
 });

@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import * as JSONN from "../../Jsonn";
+import { Logger, LoggerEntry } from "../../telemetry/Logger";
 import {
   getToolName,
   listTargets,
@@ -45,7 +46,7 @@ export async function resolveMatchingModel(
 
   let candidates = allModels;
 
-  // 1. If vendor is specified, attempt vendor filtering
+  // If vendor is specified, attempt vendor filtering
   if (vendor) {
     const vNorm = vendor.toLowerCase().replace(/[^a-z0-9]/g, "");
     const vendorMatches = allModels.filter((m) => {
@@ -58,7 +59,7 @@ export async function resolveMatchingModel(
     }
   }
 
-  // 2. If model is specified, attempt model name/family/id matching
+  // If model is specified, attempt model name/family/id matching
   let selected = candidates[0];
   if (model) {
     const mNorm = model.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -122,7 +123,23 @@ export class ListTargetsTool implements vscode.LanguageModelTool<ListTargetsInpu
     options: vscode.LanguageModelToolInvocationOptions<ListTargetsInput>,
     _token: vscode.CancellationToken
   ): Promise<vscode.LanguageModelToolResult> {
+    const start = performance.now();
     const targets = await listTargets(options.input.filePath);
+    const durationMs = Math.round(performance.now() - start);
+
+    Logger.getLogger().push(
+      new LoggerEntry(
+        "VscodeLmAdapter.listTargets",
+        JSONN.stringify({
+          filePath: options.input.filePath,
+          language: targets.language,
+          targetsFound: targets.functions.length,
+          unsupportedCount: targets.unsupportedFunctions.length,
+          durationMs,
+        })
+      )
+    );
+
     const text = JSONN.stringify(targets, null, 2);
     return new vscode.LanguageModelToolResult([
       new vscode.LanguageModelTextPart(text),
@@ -298,6 +315,27 @@ export class FuzzFunctionTool implements vscode.LanguageModelTool<FuzzFunctionIn
       statusBarItem?.dispose();
     }
 
+    Logger.getLogger().push(
+      new LoggerEntry(
+        "VscodeLmAdapter.fuzzFunction",
+        JSONN.stringify({
+          filePath,
+          functionName,
+          status: result.status,
+          totalTests: result.totalTests,
+          passedTests: result.passedTests,
+          failedTests: result.failedTests,
+          erroredTests: result.erroredTests,
+          stopReason: result.stopReason,
+          durationMs: timeoutMs,
+        })
+      )
+    );
+
+    if (result.status === "error") {
+      throw new Error(result.summaryText);
+    }
+
     return new vscode.LanguageModelToolResult([
       new vscode.LanguageModelTextPart(result.summaryText),
     ]);
@@ -323,6 +361,17 @@ export class FindBugsTool implements vscode.LanguageModelTool<FindBugsInput> {
     _token: vscode.CancellationToken
   ): Promise<vscode.LanguageModelToolResult> {
     const result = await findBugs(options.input);
+
+    Logger.getLogger().push(
+      new LoggerEntry(
+        "VscodeLmAdapter.findBugs",
+        JSONN.stringify({
+          phase: options.input.phase ?? "init",
+          recommendedNextPhase: result.recommendedNextPhase,
+        })
+      )
+    );
+
     return new vscode.LanguageModelToolResult([
       new vscode.LanguageModelTextPart(result.summaryText),
     ]);
@@ -348,6 +397,18 @@ export class ShowResultsTool implements vscode.LanguageModelTool<ShowResultsInpu
     _token: vscode.CancellationToken
   ): Promise<vscode.LanguageModelToolResult> {
     const res: ShowResultsResult = await showResults(options.input);
+
+    Logger.getLogger().push(
+      new LoggerEntry(
+        "VscodeLmAdapter.showResults",
+        JSONN.stringify({
+          filePath: options.input.filePath,
+          functionName: options.input.functionName,
+          success: res.success,
+        })
+      )
+    );
+
     return new vscode.LanguageModelToolResult([
       new vscode.LanguageModelTextPart(res.message),
     ]);
@@ -373,6 +434,21 @@ export class ShrinkInputsTool implements vscode.LanguageModelTool<ShrinkInputsIn
     _token: vscode.CancellationToken
   ): Promise<vscode.LanguageModelToolResult> {
     const res = await shrinkInputs(options.input);
+
+    const shrunkenCount =
+      res.shrunkInputs?.filter((s) => s.status === "shrunk").length ?? 0;
+    Logger.getLogger().push(
+      new LoggerEntry(
+        "VscodeLmAdapter.shrinkInputs",
+        JSONN.stringify({
+          filePath: options.input.filePath,
+          functionName: options.input.functionName,
+          inputCount: options.input.inputs.length,
+          shrunkenCount,
+        })
+      )
+    );
+
     return new vscode.LanguageModelToolResult([
       new vscode.LanguageModelTextPart(res.summaryText),
     ]);

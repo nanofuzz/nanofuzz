@@ -23,9 +23,19 @@ console.log("copied svg assets");
 
 // Copy Python assets
 copyfiles(
+  ["./src/fuzzer/runners/python/PythonIpc.py", "./build/extension"],
+  true,
+  () => console.log("copied .py ipc")
+);
+copyfiles(
   ["./src/fuzzer/runners/python/PythonRunnerHost.py", "./build/extension"],
   true,
   () => console.log("copied .py runner")
+);
+copyfiles(
+  ["./src/fuzzer/runners/python/HypothesisRunnerHost.py", "./build/extension"],
+  true,
+  () => console.log("copied .py hypothesis runner host")
 );
 copyfiles(
   ["./src/fuzzer/oracles/ImplicitOracle.py", "./build/extension"],

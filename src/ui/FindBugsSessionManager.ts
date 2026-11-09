@@ -4,6 +4,7 @@ import {
   FindBugsTool,
   FindBugsInvariantSource,
 } from "./FindBugs";
+import { functionMatchesEntrypoint } from "../fuzzer/Util";
 import * as crypto from "node:crypto";
 
 /**
@@ -47,10 +48,18 @@ export type WorkflowSession = {
   sessionId: string;
   tool: FindBugsTool;
   invariantSource: FindBugsInvariantSource;
+  targetScope?: string[];
   workerCount: number;
   startedAt: number;
   lastPhaseStartedAt: number;
   currentPhase: FindBugsPhase;
+  entrypoints?: {
+    name: string;
+    filePath: string;
+    invariants: string[];
+    harnessFilePath?: string;
+    harnessFunctionName?: string;
+  }[];
   fuzzRuns: FuzzRunStatsSnapshot[];
   transitions: PhaseTransitionRecord[];
 };
@@ -70,7 +79,8 @@ class FindBugsSessionManager {
     tool: FindBugsTool,
     invariantSource: FindBugsInvariantSource,
     workerCount: number,
-    initialPhase: FindBugsPhase
+    initialPhase: FindBugsPhase,
+    targetScope: string[] = []
   ): WorkflowSession {
     const id =
       sessionId && this._sessions.has(sessionId)
@@ -84,6 +94,7 @@ class FindBugsSessionManager {
         sessionId: id,
         tool,
         invariantSource,
+        targetScope,
         workerCount,
         startedAt: now,
         lastPhaseStartedAt: now,
@@ -95,6 +106,7 @@ class FindBugsSessionManager {
     } else {
       session.tool = tool;
       session.invariantSource = invariantSource;
+      session.targetScope = targetScope;
       session.workerCount = workerCount;
     }
 
@@ -119,7 +131,16 @@ class FindBugsSessionManager {
    * Records a fuzzing run's execution stats in the session.
    */
   public recordFuzzRun(stats: FuzzRunStatsSnapshot, sessionId?: string): void {
-    const session = this.getSession(sessionId);
+    let session = this.getSession(sessionId);
+    if (!session && sessionId) {
+      session = this.getOrCreateSession(
+        sessionId,
+        "nanofuzz",
+        "tests",
+        1,
+        "fuzz_entrypoint"
+      );
+    }
     if (session) {
       session.fuzzRuns.push(stats);
     }
@@ -130,6 +151,7 @@ class FindBugsSessionManager {
    */
   public recordTransition(
     session: WorkflowSession,
+    currentPhase: FindBugsPhase,
     nextPhase: FindBugsPhase | "complete"
   ): PhaseTransitionRecord {
     const now = Date.now();
@@ -149,7 +171,7 @@ class FindBugsSessionManager {
     const failedTests = runsSince.reduce((sum, r) => sum + r.failedTests, 0);
 
     const record: PhaseTransitionRecord = {
-      phaseFrom: session.currentPhase,
+      phaseFrom: currentPhase,
       phaseTo: nextPhase,
       transitionTimestamp: now,
       durationMs,
@@ -160,15 +182,14 @@ class FindBugsSessionManager {
 
     session.transitions.push(record);
     session.lastPhaseStartedAt = now;
-    if (nextPhase !== "complete") {
-      session.currentPhase = nextPhase;
-    }
+    session.currentPhase = nextPhase !== "complete" ? nextPhase : currentPhase;
 
     // Log telemetry event for every phase transition
     const transitionPayload = {
       sessionId: session.sessionId,
       tool: session.tool,
       invariantSource: session.invariantSource,
+      targetScope: session.targetScope ?? [],
       workerCount: session.workerCount,
       phaseFrom: record.phaseFrom,
       phaseTo: record.phaseTo,
@@ -217,6 +238,7 @@ class FindBugsSessionManager {
       sessionId: session.sessionId,
       tool: session.tool,
       invariantSource: session.invariantSource,
+      targetScope: session.targetScope ?? [],
       workerCount: session.workerCount,
       totalDurationMs,
       totalFuzzRuns: session.fuzzRuns.length,
@@ -251,6 +273,7 @@ class FindBugsSessionManager {
       `- **Session ID**: \`${session.sessionId}\``,
       `- **Testing Engine**: \`${session.tool}\`${session.tool !== "nanofuzz" ? ` (workers: ${session.workerCount})` : " (workers: auto)"}`,
       `- **Invariant Source**: \`${session.invariantSource}\``,
+      `- **Target Scope**: \`${session.targetScope && session.targetScope.length > 0 ? session.targetScope.join(", ") : "Auto-discovered"}\``,
       `- **Total Duration**: ${formatMs(totalDurationMs)}`,
       `- **Total Fuzzer Runs**: ${session.fuzzRuns.length}`,
       `- **Total Executions**: ${session.fuzzRuns.reduce((sum, r) => sum + r.totalTests, 0).toLocaleString()}`,
@@ -277,18 +300,138 @@ class FindBugsSessionManager {
   } // fn: hasActiveSession
 
   /**
-   * Returns true if at least one deep fuzzing run has executed in this session.
-   * A true deep run must have been invoked with suiteTimeout >= 60000 ms and maxTests === 0.
+   * Returns true if all declared entrypoints have met the required stopping criteria:
+   * 1. At least one Stage 2 deep fuzzing run (suiteTimeout >= 300000 ms, maxTests === 0).
+   * 2. Either 100% branch coverage was attained OR at least 5 deep exploration attempts were executed.
    */
   public hasCompletedDeepRun(sessionId?: string): boolean {
     const s = this.getSession(sessionId);
     if (!s || s.fuzzRuns.length === 0) return false;
+
+    if (s.entrypoints && s.entrypoints.length > 0) {
+      return s.entrypoints.every((e) => this.isEntrypointDeepCriteriaMet(s, e));
+    }
+
+    // Default if no entrypoints formally registered: at least one 300,000ms run
     return s.fuzzRuns.some(
       (r) =>
-        (r.suiteTimeout ?? 0) >= 60000 &&
+        (r.suiteTimeout ?? 0) >= 300000 &&
         (r.maxTests === 0 || r.maxTests === Number.MAX_SAFE_INTEGER)
     );
   } // fn: hasCompletedDeepRun
+
+  /**
+   * Evaluates whether an entrypoint has satisfied stopping criteria:
+   * - Must have at least one deep run (suiteTimeout >= 300000, maxTests === 0).
+   * - Must achieve 100% branch coverage OR execute at least 5 exploration retries.
+   */
+  public isEntrypointDeepCriteriaMet(
+    session: WorkflowSession,
+    entrypoint: { name: string; harnessFunctionName?: string }
+  ): boolean {
+    const matchingDeepRuns = session.fuzzRuns.filter(
+      (r) =>
+        functionMatchesEntrypoint(r.functionName, entrypoint) &&
+        (r.suiteTimeout ?? 0) >= 300000 &&
+        (r.maxTests === 0 || r.maxTests === Number.MAX_SAFE_INTEGER)
+    );
+
+    if (matchingDeepRuns.length === 0) return false;
+
+    // Check if 100% branch coverage was reached
+    const reachedFullCoverage = matchingDeepRuns.some(
+      (r) => r.branchCoveragePct !== undefined && r.branchCoveragePct >= 100
+    );
+    if (reachedFullCoverage) return true;
+
+    // Otherwise must have executed at least 5 exploration attempts
+    return matchingDeepRuns.length >= 5;
+  } // fn: isEntrypointDeepCriteriaMet
+
+  /**
+   * Returns declared entrypoints that have not yet satisfied Stage 2 deep fuzzing stopping criteria.
+   */
+  public getPendingDeepEntrypoints(sessionId?: string): string[] {
+    const s = this.getSession(sessionId);
+    if (!s || !s.entrypoints) return [];
+
+    return s.entrypoints
+      .filter((e) => !this.isEntrypointDeepCriteriaMet(s, e))
+      .map((e) => {
+        const deepRuns = s.fuzzRuns.filter(
+          (r) =>
+            functionMatchesEntrypoint(r.functionName, e) &&
+            (r.suiteTimeout ?? 0) >= 300000 &&
+            (r.maxTests === 0 || r.maxTests === Number.MAX_SAFE_INTEGER)
+        );
+        const lastCov =
+          deepRuns.length > 0
+            ? deepRuns[deepRuns.length - 1].branchCoveragePct
+            : undefined;
+        const covStr =
+          lastCov !== undefined
+            ? `${lastCov}% branch coverage`
+            : "no coverage reported";
+        return `${e.name} (${deepRuns.length}/5 retries, ${covStr})`;
+      });
+  } // fn: getPendingDeepEntrypoints
+
+  /**
+   * Returns declared entrypoints that have not yet completed a Stage 1 smoke run.
+   */
+  public getPendingSmokeEntrypoints(sessionId?: string): string[] {
+    const s = this.getSession(sessionId);
+    if (!s || !s.entrypoints) return [];
+
+    return s.entrypoints
+      .filter(
+        (e) =>
+          !s.fuzzRuns.some((r) => functionMatchesEntrypoint(r.functionName, e))
+      )
+      .map((e) => e.name);
+  } // fn: getPendingSmokeEntrypoints
+
+  /**
+   * Returns the count of distinct entrypoints that have completed at least one smoke run.
+   */
+  public getSmokeEntrypointsCount(sessionId?: string): number {
+    const s = this.getSession(sessionId);
+    if (!s || s.fuzzRuns.length === 0) return 0;
+    if (s.entrypoints && s.entrypoints.length > 0) {
+      return s.entrypoints.filter((e) =>
+        s.fuzzRuns.some((r) => functionMatchesEntrypoint(r.functionName, e))
+      ).length;
+    }
+    return new Set(s.fuzzRuns.map((r) => r.functionName)).size;
+  } // fn: getSmokeEntrypointsCount
+
+  /**
+   * Returns the count of distinct entrypoints that have completed at least one deep run.
+   */
+  public getDeepEntrypointsCount(sessionId?: string): number {
+    const s = this.getSession(sessionId);
+    if (!s || s.fuzzRuns.length === 0) return 0;
+    if (s.entrypoints && s.entrypoints.length > 0) {
+      const deepRuns = s.fuzzRuns.filter(
+        (r) =>
+          (r.suiteTimeout ?? 0) >= 300000 &&
+          (r.maxTests === 0 || r.maxTests === Number.MAX_SAFE_INTEGER)
+      );
+      return s.entrypoints.filter((e) =>
+        deepRuns.some((r) => functionMatchesEntrypoint(r.functionName, e))
+      ).length;
+    }
+    const deepRunFns = new Set(
+      s.fuzzRuns
+        .filter(
+          (r) =>
+            (r.suiteTimeout ?? 0) >= 300000 &&
+            (r.maxTests === 0 || r.maxTests === Number.MAX_SAFE_INTEGER)
+        )
+        .map((r) => r.functionName)
+    );
+    return deepRunFns.size;
+  } // fn: getDeepEntrypointsCount
 
   /**
    * Resets sessions (for testing).
