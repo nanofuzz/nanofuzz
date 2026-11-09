@@ -36,6 +36,11 @@ export async function findBugs(
 
   const targetScope: string[] = getTargetScope();
 
+  const skipContextualization: boolean = Config.get<boolean>(
+    "nanofuzz.experimental.findBugs.skipContextualization",
+    false
+  );
+
   const workerCount = determineWorkerCount(
     Config.get("nanofuzz.fuzzer.workers", "auto"),
     false
@@ -162,7 +167,76 @@ export async function findBugs(
         invariantSource,
         session.sessionId
       );
-      nextPhase = "fuzz_entrypoint";
+      nextPhase = "fuzz_smoke";
+      break;
+    }
+    case "fuzz_smoke": {
+      if (!session.entrypoints || session.entrypoints.length === 0) {
+        throw new Error(
+          "Execution Gate Blocked (Invariant Registration Required): You cannot begin fuzzing before discovering entrypoints and registering invariants. Call nanofuzz_findBugs with phase: 'invariants_extracted' and register your target entrypoints first."
+        );
+      }
+
+      instructions = buildFuzzSmokeGuidance(
+        options,
+        toolName,
+        tool,
+        invariantSource,
+        session.sessionId
+      );
+      nextPhase = "fuzz_deep";
+      break;
+    }
+    case "fuzz_deep": {
+      if (!session.entrypoints || session.entrypoints.length === 0) {
+        throw new Error(
+          "Execution Gate Blocked (Invariant Registration Required): You cannot begin fuzzing before discovering entrypoints and registering invariants. Call nanofuzz_findBugs with phase: 'invariants_extracted' and register your target entrypoints first."
+        );
+      }
+
+      const fnName =
+        typeof payload.functionName === "string" ? payload.functionName : "";
+      const hasSmokeRun = session.fuzzRuns.some((r) =>
+        functionMatchesEntrypoint(r.functionName, fnName)
+      );
+      // Gate 2: Enforce Stage 1 smoke testing before deep fuzzing.
+      if (!hasSmokeRun) {
+        throw new Error(
+          `Execution Gate Blocked (Gate 2: Smoke Testing Required): Missing smoke test for '${fnName}'. You must execute Phase: 'fuzz_smoke' before proceeding to Phase: 'fuzz_deep'.`
+        );
+      }
+
+      instructions = buildFuzzEntrypointGuidance(
+        options,
+        toolName,
+        tool,
+        invariantSource,
+        workerCount,
+        session.sessionId
+      );
+
+      // Check if other declared entrypoints still need smoke or deep fuzzing
+      const otherPendingSmoke = session.entrypoints.filter(
+        (e) =>
+          !session.fuzzRuns.some((r) =>
+            functionMatchesEntrypoint(r.functionName, e)
+          )
+      );
+      if (otherPendingSmoke.length > 0) {
+        nextPhase = "fuzz_smoke";
+      } else {
+        const otherPendingDeep = session.entrypoints.filter(
+          (e) =>
+            !functionMatchesEntrypoint(fnName, e) &&
+            !sessionManager.isEntrypointDeepCriteriaMet(session, e)
+        );
+        nextPhase =
+          otherPendingDeep.length > 0
+            ? "fuzz_deep"
+            : skipContextualization
+              ? "complete"
+              : "contextualize_bugs";
+      }
       break;
     }
     case "fuzz_entrypoint": {
@@ -188,7 +262,7 @@ export async function findBugs(
           invariantSource,
           session.sessionId
         );
-        nextPhase = "fuzz_entrypoint";
+        nextPhase = "fuzz_deep";
       } else {
         instructions = buildFuzzEntrypointGuidance(
           options,
@@ -207,8 +281,10 @@ export async function findBugs(
         );
         nextPhase =
           otherPendingDeep.length > 0
-            ? "fuzz_entrypoint"
-            : "contextualize_bugs";
+            ? "fuzz_deep"
+            : skipContextualization
+              ? "complete"
+              : "contextualize_bugs";
       }
       break;
     }
@@ -282,7 +358,11 @@ export async function findBugs(
           t.phaseTo === "contextualize_bugs" ||
           t.phaseFrom === "contextualize_bugs"
       );
-      if (totalFailuresInSession > 0 && !hasContextualized) {
+      if (
+        totalFailuresInSession > 0 &&
+        !hasContextualized &&
+        !skipContextualization
+      ) {
         throw new Error(
           "Execution Gate Blocked (Phase 4 Contextualization Required): Defect failures were recorded during fuzzing, but Phase 4 (Bug Contextualization & Maintainer Intent Verification) was skipped. You must call nanofuzz_findBugs with phase: 'contextualize_bugs' to verify findings against public issues/PRs before completing the workflow."
         );
@@ -607,10 +687,10 @@ function buildInvariantsGuidance(
       `   - ⚠️ **STRICT EXECUTION RULE — DO NOT RUN PYTEST IN TERMINAL**: Do NOT run \`pytest\`, \`python\`, or shell commands in the terminal to "verify" or execute your tests. As soon as you write your test functions, proceed IMMEDIATELY to calling \`${toolName.toLowerCase()}_findBugs\` with \`phase: "fuzz_entrypoint"\`. NaNofuzz executes, measures, and triages Hypothesis tests automatically through its execution engine.`,
       "",
       `4. **Next Step**:`,
-      `   - Call \`${toolName.toLowerCase()}_findBugs\` for your first entrypoint (pass the test file path and the \`test_*\` function name):`,
+      `   - Call \`${toolName.toLowerCase()}_findBugs\` for your first entrypoint to begin Stage 1 Smoke Testing:`,
       "   ```json",
       "   {",
-      '     "phase": "fuzz_entrypoint",',
+      '     "phase": "fuzz_smoke",',
       `     "model": "${options.model}",`,
       `     "vendor": "${options.vendor}",`,
       '     "statePayload": {',
@@ -661,7 +741,7 @@ function buildInvariantsGuidance(
     `   - Call \`${toolName.toLowerCase()}_findBugs\` for your first entrypoint to begin Stage 1 smoke testing:`,
     "   ```json",
     "   {",
-    '     "phase": "fuzz_entrypoint",',
+    '     "phase": "fuzz_smoke",',
     `     "model": "${options.model}",`,
     `     "vendor": "${options.vendor}",`,
     '     "statePayload": {',
@@ -697,7 +777,7 @@ function buildFuzzSmokeGuidance(
       : "<harnessFnName>";
 
   return [
-    `### Instructions for Phase 3: Fuzzing Execution — Stage 1: Fast Smoke Test [Engine: ${tool} | Source: ${invariantSource}]`,
+    `### Instructions for Phase 4: Fast Smoke Testing & Oracle Validation [Engine: ${tool} | Source: ${invariantSource}]`,
     "",
     `Execute Stage 1 Smoke Testing for \`${fnName}\` in \`${harnessPath}\`:`,
     "",
@@ -734,7 +814,7 @@ function buildFuzzSmokeGuidance(
     `   - Once Stage 1 completes cleanly without errors or oracle disagreements, call \`${toolName.toLowerCase()}_findBugs\` to get Stage 2 Deep Fuzzing guidance:`,
     "   ```json",
     "   {",
-    '     "phase": "fuzz_entrypoint",',
+    '     "phase": "fuzz_deep",',
     `     "model": "${options.model}",`,
     `     "vendor": "${options.vendor}",`,
     '     "statePayload": {',
@@ -750,7 +830,7 @@ function buildFuzzSmokeGuidance(
 } // fn: buildFuzzSmokeGuidance
 
 /**
- * Builds guidance for Phase 3: Fuzzing execution, triage protocol, and 5-retry coverage loop.
+ * Builds guidance for Phase 5: Deep Fuzzing execution, triage protocol, and 5-retry coverage loop.
  */
 function buildFuzzEntrypointGuidance(
   options: FindBugsOptions,
@@ -771,7 +851,7 @@ function buildFuzzEntrypointGuidance(
       : "<harnessFnName>";
 
   return [
-    `### Instructions for Phase 3: Fuzzing Execution — Stage 2: Deep Fuzzing & Exploration Loop [Engine: ${tool} | Source: ${invariantSource}]`,
+    `### Instructions for Phase 5: Deep Fuzzing & Exploration Loop [Engine: ${tool} | Source: ${invariantSource}]`,
     "",
     `Execute Stage 2 Deep Fuzzing for \`${fnName}\` in \`${harnessPath}\`:`,
     "",
@@ -937,6 +1017,8 @@ export type FindBugsPhase =
   | "invariants_from_docs"
   | "invariants_from_tests"
   | "invariants_extracted"
+  | "fuzz_smoke"
+  | "fuzz_deep"
   | "fuzz_entrypoint"
   | "contextualize_bugs"
   | "complete";

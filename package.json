@@ -59,6 +59,21 @@
         "category": "NaNofuzz"
       },
       {
+        "command": "nanofuzz.RunBenchmark",
+        "title": "Run Benchmark Matrix (45 tasks: 3x3x5)",
+        "category": "NaNofuzz"
+      },
+      {
+        "command": "nanofuzz.RunBenchmarkFull",
+        "title": "Run Full Benchmark Matrix (135 tasks: 3x3x5x3)",
+        "category": "NaNofuzz"
+      },
+      {
+        "command": "nanofuzz.CancelBenchmark",
+        "title": "Cancel Active Benchmark Matrix",
+        "category": "NaNofuzz"
+      },
+      {
         "command": "nanofuzz.telemetry.FlushLog",
         "title": "Flush Telemetry Log to storage",
         "category": "NaNofuzz"
@@ -226,11 +241,13 @@
                 "invariants_from_docs",
                 "invariants_from_tests",
                 "invariants_extracted",
+                "fuzz_smoke",
+                "fuzz_deep",
                 "fuzz_entrypoint",
                 "contextualize_bugs",
                 "complete"
               ],
-              "description": "Workflow phase: 'init' to start discovery and black-box invariant extraction; 'invariants_from_docs' for documented extraction; 'invariants_from_tests' for empirical test extraction; 'invariants_extracted' (legacy); 'fuzz_entrypoint' for execution; 'contextualize_bugs' to verify findings; 'complete' to finalize."
+              "description": "Workflow phase: 'init' to start discovery and black-box invariant extraction; 'invariants_from_docs' for documented extraction; 'invariants_from_tests' for empirical test extraction; 'invariants_extracted' for harness synthesis; 'fuzz_smoke' for fast smoke testing; 'fuzz_deep' for deep exploration; 'contextualize_bugs' to verify findings; 'complete' to finalize."
             },
             "model": {
               "type": "string",
@@ -857,6 +874,15 @@
               "experimental"
             ]
           },
+          "nanofuzz.experimental.findBugs.skipContextualization": {
+            "title": "Skip Bug Contextualization",
+            "type": "boolean",
+            "default": false,
+            "description": "Experimental: When true, skips Phase 4/5 bug contextualization against external issue trackers and completes as soon as deep fuzzing stopping criteria are met.",
+            "tags": [
+              "experimental"
+            ]
+          },
           "nanofuzz.generators.scheduler.impl": {
             "title": "Composite generator scheduler algorithm",
             "type": "string",
@@ -1073,7 +1099,9 @@
     "vscode:publish": "npx @vscode/vsce publish --yarn",
     "package": "npx @vscode/vsce package --yarn",
     "pretest": "yarn build && yarn run lint",
-    "nanofuzz": "node --max-old-space-size=8192 ./build/cli/cli.cjs"
+    "nanofuzz": "node --max-old-space-size=8192 ./build/cli/cli.cjs",
+    "benchmark": "node run_agent_benchmark.mjs",
+    "benchmark:full": "node run_agent_benchmark.mjs --full"
   },
   "babel": {
     "presets": [

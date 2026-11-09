@@ -247,14 +247,18 @@ export async function createMcpServer(
       phase: z
         .enum([
           "init",
+          "invariants_from_docs",
+          "invariants_from_tests",
           "invariants_extracted",
+          "fuzz_smoke",
+          "fuzz_deep",
           "fuzz_entrypoint",
           "contextualize_bugs",
           "complete",
         ])
         .optional()
         .describe(
-          "Workflow phase: 'init' to start discovery and black-box invariant extraction; 'invariants_extracted' to submit invariants and receive harness/validator instructions; 'fuzz_entrypoint' to get execution and triage guidance for a specific entrypoint; 'contextualize_bugs' to verify discovered bugs against issues, PRs, and docs; 'complete' to finalize findings and choose artifact disposition."
+          "Workflow phase: 'init' to start discovery and black-box invariant extraction; 'invariants_from_docs' for documented extraction; 'invariants_from_tests' for empirical extraction; 'invariants_extracted' to submit invariants and receive harness/validator instructions; 'fuzz_smoke' for fast smoke testing; 'fuzz_deep' for deep exploration; 'contextualize_bugs' to verify discovered bugs against issues, PRs, and docs; 'complete' to finalize findings and choose artifact disposition."
         ),
       model: z
         .string()

@@ -44,6 +44,7 @@ import { synthesizeValidator } from "../fuzzer/synthesis/ValidatorSynthesizer";
 import { synthesizeTransformer } from "../fuzzer/synthesis/TransformerSynthesizer";
 import { synthesizeUserGenerator } from "../fuzzer/synthesis/UserGeneratorSynthesizer";
 import { FuzzConfigStore, CURR_FILE_FMT_VER } from "../fuzzer/FuzzConfigStore";
+import { cancelBenchmarkMatrix, runBenchmarkMatrix } from "./BenchmarkRunner";
 
 /**
  * FuzzPanel displays fuzzer options, actions, and the last results for a
@@ -4037,6 +4038,24 @@ export const commands = {
     fn: () => {
       CompilerFactory.clean();
       vscode.window.showInformationMessage(`Compile cache cleared`);
+    },
+  },
+  runBenchmark: {
+    name: "nanofuzz.RunBenchmark",
+    fn: () => {
+      void runBenchmarkMatrix(1);
+    },
+  },
+  runBenchmarkFull: {
+    name: "nanofuzz.RunBenchmarkFull",
+    fn: () => {
+      void runBenchmarkMatrix(3);
+    },
+  },
+  cancelBenchmark: {
+    name: "nanofuzz.CancelBenchmark",
+    fn: () => {
+      cancelBenchmarkMatrix();
     },
   },
 };

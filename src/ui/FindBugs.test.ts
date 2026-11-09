@@ -52,7 +52,7 @@ describe("FindBugs", () => {
     });
 
     expect(result.phase).toBe("invariants_extracted");
-    expect(result.recommendedNextPhase).toBe("fuzz_entrypoint");
+    expect(result.recommendedNextPhase).toBe("fuzz_smoke");
     expect(result.instructions).toContain(
       "inside the project root/source tree"
     );
@@ -180,7 +180,7 @@ describe("FindBugs", () => {
     });
 
     expect(result.phase).toBe("fuzz_entrypoint");
-    expect(result.recommendedNextPhase).toBe("fuzz_entrypoint");
+    expect(result.recommendedNextPhase).toBe("fuzz_deep");
     expect(result.instructions).toContain("Stage 1: Fast Smoke Test");
     expect(result.instructions).toContain('"timeoutMs": 3000');
     expect(result.instructions).toContain('"stage": "deep"');
@@ -842,7 +842,7 @@ describe("FindBugs", () => {
     });
 
     expect(extractedRes.phase).toBe("invariants_extracted");
-    expect(extractedRes.recommendedNextPhase).toBe("fuzz_entrypoint");
+    expect(extractedRes.recommendedNextPhase).toBe("fuzz_smoke");
   });
 
   it("runs normally through Gate 1 when targetScope is empty", async () => {
@@ -874,7 +874,104 @@ describe("FindBugs", () => {
     });
 
     expect(extractedRes.phase).toBe("invariants_extracted");
-    expect(extractedRes.recommendedNextPhase).toBe("fuzz_entrypoint");
+    expect(extractedRes.recommendedNextPhase).toBe("fuzz_smoke");
+  });
+
+  it("handles skipContextualization: skips Phase 4 directly to complete without error", async () => {
+    Config.override("nanofuzz.experimental.findBugs.tool", "nanofuzz");
+    Config.override(
+      "nanofuzz.experimental.findBugs.skipContextualization",
+      true
+    );
+
+    const sessionId = "skip-context-session";
+    await findBugs({
+      phase: "init",
+      model,
+      vendor,
+      statePayload: { sessionId },
+    });
+
+    await findBugs({
+      phase: "invariants_extracted",
+      model,
+      vendor,
+      statePayload: {
+        sessionId,
+        entrypoints: [
+          {
+            name: "fuzz_target",
+            filePath: "src/foo.ts",
+            invariants: ["inv1"],
+          },
+        ],
+      },
+    });
+
+    // Record smoke run
+    sessionManager.recordFuzzRun(
+      {
+        functionName: "fuzz_target",
+        filePath: "src/foo.ts",
+        timestamp: Date.now(),
+        totalTests: 100,
+        passedTests: 90,
+        failedTests: 10,
+        erroredTests: 0,
+        skippedTests: 0,
+        timeouts: 0,
+        exceptions: 0,
+        durationMs: 3000,
+      },
+      sessionId
+    );
+
+    // Record deep run meeting criteria (300000ms, maxTests: 0, 100% branch coverage)
+    sessionManager.recordFuzzRun(
+      {
+        functionName: "fuzz_target",
+        filePath: "src/foo.ts",
+        timestamp: Date.now(),
+        totalTests: 5000,
+        passedTests: 4900,
+        failedTests: 100,
+        erroredTests: 0,
+        skippedTests: 0,
+        timeouts: 0,
+        exceptions: 0,
+        durationMs: 300000,
+        suiteTimeout: 300000,
+        maxTests: 0,
+        branchCoveragePct: 100,
+      },
+      sessionId
+    );
+
+    // Check fuzz_entrypoint nextPhase
+    const deepRes = await findBugs({
+      phase: "fuzz_entrypoint",
+      model,
+      vendor,
+      statePayload: {
+        sessionId,
+        stage: "deep",
+        functionName: "fuzz_target",
+      },
+    });
+    expect(deepRes.recommendedNextPhase).toBe("complete");
+
+    // Complete directly without contextualize_bugs
+    const compRes = await findBugs({
+      phase: "complete",
+      model,
+      vendor,
+      statePayload: {
+        sessionId,
+        bugs: [{ entrypoint: "fuzz_target", error: "test failure" }],
+      },
+    });
+    expect(compRes.phase).toBe("complete");
+    expect(compRes.instructions).toContain("Workflow Execution Telemetry");
   });
 
   const tools = ["nanofuzz", "hypothesis", "hypofuzz"] as const;
@@ -891,7 +988,7 @@ describe("FindBugs", () => {
 
         const sessionId = `full-workflow-${tool}-${source}`;
 
-        // 1. Phase: init
+        // Phase: init
         const initRes = await findBugs({
           phase: "init",
           model,
@@ -902,7 +999,7 @@ describe("FindBugs", () => {
         if (source === "all") {
           expect(initRes.recommendedNextPhase).toBe("invariants_from_tests");
 
-          // 1b. Phase: invariants_from_tests
+          // Phase: invariants_from_tests
           const testsRes = await findBugs({
             phase: "invariants_from_tests",
             model,
@@ -915,7 +1012,7 @@ describe("FindBugs", () => {
           expect(initRes.recommendedNextPhase).toBe("invariants_extracted");
         }
 
-        // 2. Gate 1: Register entrypoint
+        // Gate 1: Register entrypoint
         const epName = tool === "nanofuzz" ? "fuzz_target" : "test_target";
         const synthRes = await findBugs({
           phase: "invariants_extracted",
@@ -934,9 +1031,9 @@ describe("FindBugs", () => {
           },
         });
         expect(synthRes.phase).toBe("invariants_extracted");
-        expect(synthRes.recommendedNextPhase).toBe("fuzz_entrypoint");
+        expect(synthRes.recommendedNextPhase).toBe("fuzz_smoke");
 
-        // 3. Stage 1 Smoke Guidance
+        // Stage 1 Smoke Guidance
         const smokeRes = await findBugs({
           phase: "fuzz_entrypoint",
           model,
@@ -949,7 +1046,7 @@ describe("FindBugs", () => {
           },
         });
         expect(smokeRes.phase).toBe("fuzz_entrypoint");
-        expect(smokeRes.recommendedNextPhase).toBe("fuzz_entrypoint");
+        expect(smokeRes.recommendedNextPhase).toBe("fuzz_deep");
 
         // Record Stage 1 Smoke Run
         sessionManager.recordFuzzRun(
@@ -971,7 +1068,7 @@ describe("FindBugs", () => {
           sessionId
         );
 
-        // 4. Stage 2 Deep Guidance
+        // Stage 2 Deep Guidance
         const deepRes = await findBugs({
           phase: "fuzz_entrypoint",
           model,
@@ -1007,7 +1104,7 @@ describe("FindBugs", () => {
           sessionId
         );
 
-        // 5. Phase: contextualize_bugs
+        // Phase: contextualize_bugs
         const bugs = [
           {
             entrypoint: epName,
@@ -1028,7 +1125,7 @@ describe("FindBugs", () => {
         expect(ctxRes.phase).toBe("contextualize_bugs");
         expect(ctxRes.recommendedNextPhase).toBe("complete");
 
-        // 6. Phase: complete
+        // Phase: complete
         const compRes = await findBugs({
           phase: "complete",
           model,
