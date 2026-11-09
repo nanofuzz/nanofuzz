@@ -31,7 +31,7 @@ import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
 import { parseCoverageScope } from "../fuzzer/measures/Util";
 import path from "node:path";
 import * as JSONN from "../Jsonn";
-import { isError } from "../fuzzer/Util";
+import { isError, CpuSampler } from "../fuzzer/Util";
 import { isKeyedObject } from "../Util";
 import { LlmAdapter } from "../fuzzer/adapters/LlmAdapter";
 import { LlmDelayCalculator } from "../fuzzer/adapters/LlmDelayCalculator";
@@ -473,6 +473,7 @@ export async function runCliInProcess(
     const showProgressBar = options["progressBar"] !== false;
 
     // Setup update message handler & the progress bar
+    const cpuSampler = new CpuSampler();
     let isCancelled = false;
     let isHeaderFlushed = false;
     let flushHeader = () => {};
@@ -591,6 +592,7 @@ export async function runCliInProcess(
                 },
                 Presets.shades_classic
               );
+              const cpuToken = `${cpuSampler.getCpu()}% sys cpu`;
               progressBar = multiBar.create(
                 100,
                 0,
@@ -599,12 +601,13 @@ export async function runCliInProcess(
                   inputsRate: inputsRate,
                   execsRate: execsRate,
                   rate: execsRate,
+                  cpu: cpuToken,
                   coloredBar: "░".repeat(barSize),
                 },
                 {
                   format: isTty
-                    ? " - Testing [{coloredBar}] {percentage}% @ {runtime}, {inputsRate}, {execsRate}"
-                    : " - Testing [{bar}] {percentage}% @ {runtime}, {inputsRate}, {execsRate}",
+                    ? " - Testing [{coloredBar}] {percentage}% @ {runtime}, {inputsRate}, {execsRate}, {cpu}"
+                    : " - Testing [{bar}] {percentage}% @ {runtime}, {inputsRate}, {execsRate}, {cpu}",
                 }
               );
               resultsBar = multiBar.create(
@@ -635,11 +638,13 @@ export async function runCliInProcess(
               const isTty = Boolean(
                 process.stderr.isTTY && !process.env.NO_COLOR
               );
+              const cpuToken = `${cpuSampler.getCpu()}% sys cpu`;
               const updateTokens: Record<string, string> = {
                 runtime: formatDuration(elapsedSec),
                 inputsRate: inputsRate,
                 execsRate: execsRate,
                 rate: execsRate,
+                cpu: cpuToken,
               };
               if (isTty) {
                 const targetBlocks = Math.max(
