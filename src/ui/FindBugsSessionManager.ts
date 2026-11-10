@@ -333,8 +333,8 @@ class FindBugsSessionManager {
    * 1. At least one Stage 2 deep fuzzing run (suiteTimeout >= 300000 ms, maxTests === 0).
    * 2. Either 100% branch coverage was attained OR at least 5 deep exploration attempts were executed.
    */
-  public hasCompletedDeepRun(sessionId?: string): boolean {
-    const s = this.getSession(sessionId);
+  public hasCompletedDeepRun(sessionId?: string, filePath?: string): boolean {
+    const s = this.getSession(sessionId, filePath);
     if (!s || s.fuzzRuns.length === 0) return false;
 
     if (s.entrypoints && s.entrypoints.length > 0) {
@@ -380,8 +380,11 @@ class FindBugsSessionManager {
   /**
    * Returns declared entrypoints that have not yet satisfied Stage 2 deep fuzzing stopping criteria.
    */
-  public getPendingDeepEntrypoints(sessionId?: string): string[] {
-    const s = this.getSession(sessionId);
+  public getPendingDeepEntrypoints(
+    sessionId?: string,
+    filePath?: string
+  ): string[] {
+    const s = this.getSession(sessionId, filePath);
     if (!s || !s.entrypoints) return [];
 
     return s.entrypoints

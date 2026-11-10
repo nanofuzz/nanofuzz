@@ -1,5 +1,6 @@
 import * as path from "node:path";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import { fileURLToPath } from "node:url";
 import vscode from "vscode";
 import seedrandom from "seedrandom";
@@ -2476,12 +2477,28 @@ function coerceAgentInputForArgDef(
  * Asynchronous counting semaphore for concurrency throttling.
  */
 export class AsyncSemaphore {
+  private _capacity: number;
   private _available: number;
   private readonly _queue: (() => void)[] = [];
 
   constructor(maxConcurrent: number) {
+    this._capacity = maxConcurrent;
     this._available = maxConcurrent;
   }
+
+  public get capacity(): number {
+    return this._capacity;
+  } // get: capacity
+
+  public setCapacity(newCapacity: number): void {
+    if (newCapacity <= 0) return;
+    const diff = newCapacity - this._capacity;
+    this._capacity = newCapacity;
+    this._available = Math.max(0, this._available + diff);
+    while (this._available > 0 && this._queue.length > 0) {
+      this._release();
+    }
+  } // fn: setCapacity
 
   public async acquire(cancelFn?: () => boolean): Promise<() => void> {
     if (cancelFn?.()) {
@@ -2557,4 +2574,16 @@ export class AsyncSemaphore {
   } // fn: _release
 } // class: AsyncSemaphore
 
-export const deepFuzzSemaphore = new AsyncSemaphore(2);
+function getAutoDeepSlots(): number {
+  if (process.env.BENCHMARK_DEEP_SLOTS) {
+    const val = parseInt(process.env.BENCHMARK_DEEP_SLOTS, 10);
+    if (!isNaN(val) && val >= 1) return val;
+  }
+  const cpus =
+    typeof os.availableParallelism === "function"
+      ? os.availableParallelism()
+      : os.cpus().length;
+  return Math.max(1, Math.floor(cpus / 4));
+} // fn: getAutoDeepSlots
+
+export const deepFuzzSemaphore = new AsyncSemaphore(getAutoDeepSlots());
