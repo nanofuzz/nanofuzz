@@ -972,7 +972,6 @@ export async function runSingleBenchmarkSession(
   ];
 
   let turn = 0;
-  const MAX_TURNS = 120;
   let sessionCompleted = false;
   let totalRetryWaitMs = 0;
   let totalRetryAttempts = 0;
@@ -1021,7 +1020,7 @@ export async function runSingleBenchmarkSession(
     shrinkSteps?: number;
   }> = [];
 
-  while (!sessionCompleted && turn < MAX_TURNS) {
+  while (!sessionCompleted) {
     if (token?.isCancellationRequested) {
       log(`${prefix} Cancellation requested.`);
       cleanTargetRepo();
