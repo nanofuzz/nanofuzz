@@ -734,11 +734,11 @@ describe("FindBugs", () => {
   it("handles pre-selected targetScope option: instructs agent and blocks Gate 1 if entrypoints are omitted", async () => {
     Config.override("nanofuzz.experimental.findBugs.tool", "hypothesis");
     Config.override("nanofuzz.experimental.findBugs.targetScope", [
-      "TreeValue",
-      "DerivationTree",
-      "Fandango",
-      "_distance_norm",
-      "make_def",
+      "encode",
+      "decode",
+      "parse",
+      "validate",
+      "serialize",
     ]);
 
     const initRes = await findBugs({
@@ -749,11 +749,11 @@ describe("FindBugs", () => {
     });
 
     expect(initRes.instructions).toContain("Prescribed Target Scope");
-    expect(initRes.instructions).toContain("TreeValue");
-    expect(initRes.instructions).toContain("DerivationTree");
-    expect(initRes.instructions).toContain("Fandango");
-    expect(initRes.instructions).toContain("_distance_norm");
-    expect(initRes.instructions).toContain("make_def");
+    expect(initRes.instructions).toContain("encode");
+    expect(initRes.instructions).toContain("decode");
+    expect(initRes.instructions).toContain("parse");
+    expect(initRes.instructions).toContain("validate");
+    expect(initRes.instructions).toContain("serialize");
 
     // Agent attempts to submit only 2 of the 5 entrypoints
     let threw = false;
@@ -766,13 +766,13 @@ describe("FindBugs", () => {
           sessionId: "target-scope-session",
           entrypoints: [
             {
-              name: "TreeValue",
-              filePath: "src/fandango/language/tree_value.py",
+              name: "encode",
+              filePath: "src/codec/encode.py",
               invariants: ["inv1"],
             },
             {
-              name: "_distance_norm",
-              filePath: "src/fandango/constraints/comparison.py",
+              name: "validate",
+              filePath: "src/codec/validate.py",
               invariants: ["inv2"],
             },
           ],
@@ -785,9 +785,9 @@ describe("FindBugs", () => {
         expect(err.message).toContain(
           "Gate 1: Missing Pre-Selected Entrypoints"
         );
-        expect(err.message).toContain("DerivationTree");
-        expect(err.message).toContain("Fandango");
-        expect(err.message).toContain("make_def");
+        expect(err.message).toContain("decode");
+        expect(err.message).toContain("parse");
+        expect(err.message).toContain("serialize");
       } else {
         fail("Expected error to be an instance of Error");
       }
@@ -798,11 +798,11 @@ describe("FindBugs", () => {
   it("allows Gate 1 to pass when all pre-selected entrypoints in targetScope are registered", async () => {
     Config.override("nanofuzz.experimental.findBugs.tool", "hypothesis");
     Config.override("nanofuzz.experimental.findBugs.targetScope", [
-      "TreeValue",
-      "DerivationTree",
-      "Fandango",
-      "_distance_norm",
-      "make_def",
+      "encode",
+      "decode",
+      "parse",
+      "validate",
+      "serialize",
     ]);
 
     const extractedRes = await findBugs({
@@ -813,28 +813,28 @@ describe("FindBugs", () => {
         sessionId: "target-scope-pass-session",
         entrypoints: [
           {
-            name: "TreeValue",
-            filePath: "src/fandango/language/tree_value.py",
+            name: "encode",
+            filePath: "src/codec/encode.py",
             invariants: ["inv1"],
           },
           {
-            name: "DerivationTree",
-            filePath: "src/fandango/language/tree.py",
+            name: "decode",
+            filePath: "src/codec/decode.py",
             invariants: ["inv2"],
           },
           {
-            name: "parse", // Synonym for Fandango
-            filePath: "src/fandango/language/parse/parse.py",
+            name: "parse",
+            filePath: "src/codec/parse.py",
             invariants: ["inv3"],
           },
           {
-            name: "_sigmoid", // Coupled with _distance_norm in comparison.py
-            filePath: "src/fandango/constraints/comparison.py",
+            name: "validate",
+            filePath: "src/codec/validate.py",
             invariants: ["inv4"],
           },
           {
-            name: "make_def",
-            filePath: "src/fandango/language/stdlib.py",
+            name: "serialize",
+            filePath: "src/codec/serialize.py",
             invariants: ["inv5"],
           },
         ],

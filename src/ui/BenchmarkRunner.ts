@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import * as os from "node:os";
 import { execSync } from "node:child_process";
 import * as Config from "../Config";
 import { isKeyedObject } from "../Util";
@@ -13,10 +14,8 @@ import { clearCachedRawResultsForPath } from "./Agent";
 // ============================================================================
 
 const SEED = "qwertonyuiop";
-const WORKSPACE_ROOT = path.resolve(".");
-const SOURCE_REPO = path.resolve("./benchmark/target");
-export const TARGET_COMMIT = "d06277caa78a64816e74afc3085be193c64cf434";
-export const TARGET_VERSION = "v1.3.1-81-gd06277ca";
+const WORKSPACE_ROOT = resolveWorkspaceRoot();
+const SOURCE_REPO = resolveSourceRepo();
 
 const BENCHMARK_DIR = path.join(WORKSPACE_ROOT, "benchmark");
 const WORKTREES_DIR = path.join(BENCHMARK_DIR, "worktrees");
@@ -31,195 +30,27 @@ const SURVEY_RESPONSES_CSV_PATH = path.join(
   "survey_responses.csv"
 );
 const STATE_JSON_PATH = path.join(RESULTS_DIR, "benchmark_state.json");
+const RUBRIC_JSON_PATH = path.join(
+  WORKSPACE_ROOT,
+  "benchmark",
+  "scripts",
+  "ground_truth_rubric.json"
+);
 
-export const CONCURRENCY_LANES = 4;
-export const MAX_DEEP_FUZZ_SLOTS = 2;
+const rubricData = loadBenchmarkRubric(RUBRIC_JSON_PATH);
+export const TARGET_NAME = rubricData.targetMetadata.name;
+export const TARGET_COMMIT = rubricData.targetMetadata.commit;
+export const TARGET_VERSION = rubricData.targetMetadata.version;
+export const BENCHMARK_TASKS = rubricData.tasks;
+export type BenchmarkTaskName = string;
+export const GROUND_TRUTH_BUGS = rubricData.groundTruthBugs;
+export const ALL_GROUND_TRUTH_BUG_IDS = rubricData.allGroundTruthBugIds;
+
+export const CONCURRENCY_LANES = getAutoConcurrencyLanes();
+export const MAX_DEEP_FUZZ_SLOTS = getAutoDeepFuzzSlots();
 
 const ENGINES = ["nanofuzz", "hypothesis", "hypofuzz"] as const;
 const SOURCES = ["tests", "docs", "all"] as const;
-
-export const BENCHMARK_TASKS = [
-  "TreeValue",
-  "DerivationTree",
-  "parse",
-  "_distance_norm",
-  "make_def",
-] as const;
-
-export type BenchmarkTaskName = (typeof BENCHMARK_TASKS)[number];
-
-export interface GroundTruthBug {
-  id: string;
-  name: string;
-  description: string;
-  matchPatterns: RegExp[];
-}
-
-export const GROUND_TRUTH_BUGS: Record<BenchmarkTaskName, GroundTruthBug[]> = {
-  TreeValue: [
-    {
-      id: "TV_EQ_NONE",
-      name: "TypeError / AttributeError on __eq__(None)",
-      description:
-        "Comparing TreeValue == None raises TypeError or AttributeError instead of returning False",
-      matchPatterns: [
-        /attributeerror.*none/i,
-        /typeerror.*none/i,
-        /__eq__.*none/i,
-        /cannot compare.*none/i,
-        /eq.*none/i,
-        /eq.*attribute/i,
-      ],
-    },
-    {
-      id: "TV_HASH_CONTRACT",
-      name: "Hash contract violation on equal values",
-      description:
-        "Two TreeValue instances with equal content produce unequal hashes",
-      matchPatterns: [/hash.*contract/i, /hash.*equal/i, /__hash__/i],
-    },
-    {
-      id: "TV_TO_INT_VAL",
-      name: "Unhandled ValueError in to_int()",
-      description: "to_int() raises unhandled ValueError on non-numeric bytes",
-      matchPatterns: [
-        /to_int.*valueerror/i,
-        /valueerror.*to_int/i,
-        /invalid literal for int/i,
-      ],
-    },
-    {
-      id: "TV_RADD_STR",
-      name: "Crash on __radd__ with string or bytes",
-      description:
-        "String concatenation '' + TreeValue(...) crashes with ValueError or TypeError",
-      matchPatterns: [
-        /__radd__/i,
-        /radd.*typeerror/i,
-        /radd.*valueerror/i,
-        /can only concatenate str/i,
-        /invalid literal for int/i,
-        /fandangoconversionerror/i,
-      ],
-    },
-    {
-      id: "TV_ENCODING",
-      name: "LookupError on invalid codec encoding",
-      description:
-        "_str_to_bytes raises unhandled LookupError on unknown codec",
-      matchPatterns: [/lookuperror/i, /unknown encoding/i, /codec/i],
-    },
-  ],
-  DerivationTree: [
-    {
-      id: "DT_TO_GRAMMAR_ASSERT",
-      name: "AssertionError in to_grammar()",
-      description:
-        "Single-node or degenerate trees fail internal assertions in to_grammar()",
-      matchPatterns: [/to_grammar.*assertion/i, /assertionerror.*to_grammar/i],
-    },
-    {
-      id: "DT_ROUNDTRIP",
-      name: "Round-trip serialization structural drift",
-      description:
-        "from_dict(to_dict()) does not preserve exact node attributes",
-      matchPatterns: [/round.?trip/i, /to_dict.*from_dict/i, /deserializ/i],
-    },
-    {
-      id: "DT_REPR_CRASH",
-      name: "Unhandled crash in __repr__",
-      description:
-        "Cyclic parent pointers or unquoted token strings crash repr()",
-      matchPatterns: [/repr.*crash/i, /__repr__/i, /recursion.*repr/i],
-    },
-    {
-      id: "DT_PREFIX_SLICE",
-      name: "IndexError in root prefix() slice",
-      description:
-        "tree.prefix(0) or negative slices crashes with unhandled IndexError",
-      matchPatterns: [/prefix.*indexerror/i, /indexerror.*prefix/i],
-    },
-    {
-      id: "DT_CHILD_SLICE",
-      name: "IndexError on unexpanded child slice",
-      description:
-        "Indexing children of unexpanded non-terminal raises IndexError",
-      matchPatterns: [/child.*indexerror/i, /unexpanded.*child/i],
-    },
-  ],
-  parse: [
-    {
-      id: "PARSE_EMPTY_CONSTRAINT",
-      name: "IndexError on empty/whitespace constraint",
-      description:
-        "parse(..., constraints=['']) crashes on constraint.split()[0] with IndexError",
-      matchPatterns: [
-        /constraint\.split/i,
-        /indexerror.*constraint/i,
-        /empty.*constraint/i,
-      ],
-    },
-    {
-      id: "PARSE_LEXER_STALL",
-      name: "ANTLR lexer stall on escaped delimiter",
-      description: "Grammar with escaped delimiter causes lexer freeze/stall",
-      matchPatterns: [/lexer.*stall/i, /escaped.*pipe/i, /regex.*hang/i],
-    },
-    {
-      id: "PARSE_NAME_ERROR",
-      name: "Leaked NameError on unresolved identifier",
-      description:
-        "Unresolved grammar identifiers leak raw NameError instead of FandangoError",
-      matchPatterns: [/nameerror/i, /unresolved identifier/i],
-    },
-    {
-      id: "PARSE_SILENT_DROP",
-      name: "Silent constraint drop on trailing syntax",
-      description:
-        "Constraints with trailing comments are dropped silently without validation",
-      matchPatterns: [/silent.*drop/i, /constraint.*drop/i],
-    },
-  ],
-  _distance_norm: [
-    {
-      id: "SIGMOID_OVERFLOW",
-      name: "OverflowError in _sigmoid() on extreme negative floats",
-      description:
-        "_sigmoid(x) with x <= -710.0 raises math range error / OverflowError",
-      matchPatterns: [
-        /overflowerror.*sigmoid/i,
-        /sigmoid.*overflow/i,
-        /math range error/i,
-      ],
-    },
-    {
-      id: "NORM_ZERO_DIV",
-      name: "ZeroDivisionError in _distance_norm when lower == upper",
-      description: "Normalizing with equal bounds causes ZeroDivisionError",
-      matchPatterns: [/zerodivision/i, /division by zero/i],
-    },
-  ],
-  make_def: [
-    {
-      id: "DEF_EMPTY_RHS",
-      name: "SyntaxError on empty RHS definition",
-      description:
-        "Generating definition with empty RHS string crashes with SyntaxError",
-      matchPatterns: [/empty rhs/i, /syntaxerror.*rhs/i, /make_def.*empty/i],
-    },
-    {
-      id: "DEF_UNICODE_CORRUPT",
-      name: "Grammar corruption on non-ASCII identifiers",
-      description:
-        "Non-ASCII Unicode in identifier names corrupts symbol table",
-      matchPatterns: [/unicode.*corrupt/i, /non-ascii/i, /homoglyph/i],
-    },
-  ],
-};
-
-const ALL_GROUND_TRUTH_BUG_IDS = Object.values(GROUND_TRUTH_BUGS)
-  .flat()
-  .map((b) => b.id);
 
 export interface BenchmarkRunSpec {
   participant: string; // e.g. "P01", "P02", ...
@@ -310,7 +141,7 @@ export function generateBenchmarkSchedule(
     for (const eng of ENGINES) {
       for (const src of SOURCES) {
         for (const task of BENCHMARK_TASKS) {
-          const reportFilename = `fandango fuzzer ${eng}+${src}+${task} rep${rep} v6.md`;
+          const reportFilename = `${TARGET_NAME} ${eng}+${src}+${task} rep${rep} v6.md`;
           runs.push({
             replicate: rep,
             task,
@@ -353,6 +184,8 @@ export interface BenchmarkScheduleItemState {
   completedAt?: string;
   durationSec?: number;
   score?: string;
+  bugsElicited?: number;
+  taskBugCount?: number;
   error?: string;
 }
 
@@ -386,15 +219,35 @@ export function loadCompletedParticipants(): Map<
       if (!file.endsWith(".telemetry.json")) continue;
       const filePath = path.join(TELEMETRY_DIR, file);
       const t = JSON.parse(fs.readFileSync(filePath, "utf8"));
-      if (t && t.participant && !completed.has(t.participant)) {
-        const score =
+      const hasDeep =
+        Array.isArray(t.fuzzRuns) &&
+        t.fuzzRuns.some(
+          (r: { suiteTimeout?: number; maxTests?: number }) =>
+            (r.suiteTimeout ?? 0) >= 300000 &&
+            (r.maxTests === 0 || r.maxTests === Number.MAX_SAFE_INTEGER)
+        );
+      if (
+        t &&
+        t.participant &&
+        !t.error &&
+        t.success !== false &&
+        hasDeep &&
+        !completed.has(t.participant)
+      ) {
+        const taskName = t.task;
+        const taskBugs = GROUND_TRUTH_BUGS[taskName] || [];
+        const taskBugCount =
           Array.isArray(t.evalResults) && t.evalResults.length > 0
-            ? (
-                t.evalResults.filter(
-                  (r: { elicited: number }) => r.elicited === 1
-                ).length / t.evalResults.length
-              ).toFixed(3)
-            : "0.000";
+            ? t.evalResults.length
+            : taskBugs.length;
+        const bugsElicited =
+          Array.isArray(t.evalResults) && t.evalResults.length > 0
+            ? t.evalResults.filter(
+                (r: { elicited: number }) => r.elicited === 1
+              ).length
+            : 0;
+        const score =
+          taskBugCount > 0 ? (bugsElicited / taskBugCount).toFixed(3) : "0.000";
         completed.set(t.participant, {
           participant: t.participant,
           sequence: t.sequence,
@@ -407,6 +260,8 @@ export function loadCompletedParticipants(): Map<
           completedAt: t.completedAt,
           durationSec: t.durationSeconds,
           score,
+          bugsElicited,
+          taskBugCount,
         });
       }
     }
@@ -679,7 +534,7 @@ function writeScoringSheet(
     `- **Task (Entrypoint)**: \`${run.task}\``,
     `- **Testing Engine**: \`${run.engine}\``,
     `- **Invariant Source**: \`${run.source}\``,
-    `- **PUT Version**: Fandango \`${TARGET_VERSION}\` (\`${TARGET_COMMIT.slice(0, 8)}\`)`,
+    `- **PUT Version**: ${TARGET_NAME} \`${TARGET_VERSION}\` (\`${TARGET_COMMIT.slice(0, 8)}\`)`,
     `- **Replicate**: ${run.replicate} (Sequence Order: ${run.sequence})`,
     `- **Date**: ${new Date().toISOString().split("T")[0]}`,
     `- **Duration**: ${Math.floor(durationSec / 60)}m ${durationSec % 60}s (active: ${splits.totalExtract.activeSec + splits.synthesis.activeSec + splits.smoke.activeSec + splits.deep.activeSec + splits.contextualize.activeSec}s, retry: ${splits.totalExtract.retrySec + splits.synthesis.retrySec + splits.smoke.retrySec + splits.deep.retrySec + splits.contextualize.retrySec}s, deep slot wait: ${splits.deep.slotWaitSec}s)`,
@@ -1146,7 +1001,7 @@ export async function runSingleBenchmarkSession(
     `Invariant Source: ${run.source}`,
     `Session ID: ${sessionId}`,
     "",
-    `Use NaNofuzz to find bugs in the entrypoint '${run.task}' in fandango fuzzer for Python located at ${laneRepoPath}.`,
+    `Use NaNofuzz to find bugs in the entrypoint '${run.task}' in ${TARGET_NAME} located at ${laneRepoPath}.`,
     `(when calling nanofuzz_findBugs, always include statePayload: { sessionId: "${sessionId}" }; after the find_bugs workflow completes, save your bug report to '${run.reportPath}')`,
   ].join("\n");
 
@@ -1963,8 +1818,7 @@ export async function runBenchmarkMatrix(
     `Parallel Lanes: ${concurrency} | Max Deep Fuzzing Slots: ${MAX_DEEP_FUZZ_SLOTS}`
   );
   log(
-    `Base 
-  } (${TARGET_VERSION} @ ${TARGET_COMMIT.slice(0, 8)})`
+    `Base Repo: ${SOURCE_REPO} (${TARGET_VERSION} @ ${TARGET_COMMIT.slice(0, 8)})`
   );
   log(`Worktrees: ${WORKTREES_DIR}/w1 ... w${concurrency}`);
   log(`Results Directory: ${RESULTS_DIR}`);
@@ -2132,23 +1986,27 @@ export async function runBenchmarkMatrix(
 } // fn: runBenchmarkMatrix
 
 export function runAnalysisPipeline(): void {
-  const pythonBin = fs.existsSync(
-    "/Users/mcd2/git/cmumatt/nanofuzz-6/.venv/bin/python"
-  )
-    ? "/Users/mcd2/git/cmumatt/nanofuzz-6/.venv/bin/python"
-    : fs.existsSync(
-          "/Users/mcd2/git/cmumatt/nanofuzz-2024-analysis/.venv/bin/python"
-        )
-      ? "/Users/mcd2/git/cmumatt/nanofuzz-2024-analysis/.venv/bin/python"
+  const localVenvPython = path.join(WORKSPACE_ROOT, ".venv", "bin", "python");
+  const analysisVenvPython = path.resolve(
+    WORKSPACE_ROOT,
+    "..",
+    "nanofuzz-2024-analysis",
+    ".venv",
+    "bin",
+    "python"
+  );
+  const pythonBin = fs.existsSync(localVenvPython)
+    ? localVenvPython
+    : fs.existsSync(analysisVenvPython)
+      ? analysisVenvPython
       : "python3";
 
-  const scriptPath = fs.existsSync(
-    "/Users/mcd2/git/cmumatt/nanofuzz-6/benchmark/scripts/analyze_quarton.py"
-  )
-    ? "/Users/mcd2/git/cmumatt/nanofuzz-6/benchmark/scripts/analyze_quarton.py"
-    : path.resolve(
-        "/Users/mcd2/git/cmumatt/nanofuzz-6/scripts/analyze_quarton.py"
-      );
+  const scriptCandidates = [
+    path.join(WORKSPACE_ROOT, "benchmark", "scripts", "analyze_quarton.py"),
+    path.join(WORKSPACE_ROOT, "scripts", "analyze_quarton.py"),
+  ];
+  const scriptPath =
+    scriptCandidates.find((cand) => fs.existsSync(cand)) ?? scriptCandidates[0];
   if (!fs.existsSync(scriptPath)) {
     log(`[ANALYSIS] [WARN] Analysis script not found at ${scriptPath}`);
     return;
@@ -2342,6 +2200,72 @@ class BenchmarkDashboardTracker {
       }
     }
 
+    const scored = this._finished.filter((f) => f.score !== undefined);
+    if (scored.length > 0) {
+      lines.push(``);
+
+      const calcStats = (items: FinishedSessionStatus[]) => {
+        if (items.length === 0) return "- (0/0)";
+        const totalBugs = items.reduce(
+          (sum, f) =>
+            sum + (f.taskBugCount ?? GROUND_TRUTH_BUGS[f.task]?.length ?? 0),
+          0
+        );
+        const elicitedBugs = items.reduce(
+          (sum, f) => sum + (f.bugsElicited ?? 0),
+          0
+        );
+        const avgScore =
+          items.reduce((sum, f) => sum + parseFloat(f.score ?? "0"), 0) /
+          items.length;
+        return `${avgScore.toFixed(3)} (${elicitedBugs}/${totalBugs})`;
+      };
+
+      const toolEntries = ENGINES.map((eng) => {
+        const stats = calcStats(scored.filter((f) => f.engine === eng));
+        return `${eng}: ${stats}`;
+      });
+      const maxTool = Math.max(...toolEntries.map((e) => e.length));
+
+      const srcEntries = SOURCES.map((src) => {
+        const stats = calcStats(scored.filter((f) => f.source === src));
+        return `${src}: ${stats}`;
+      });
+      const maxSrc = Math.max(...srcEntries.map((e) => e.length));
+
+      const taskEntries = BENCHMARK_TASKS.map((task) => {
+        const stats = calcStats(scored.filter((f) => f.task === task));
+        return `${task}: ${stats}`;
+      });
+
+      const maxTaskCol1 = Math.max(
+        taskEntries[0]?.length ?? 0,
+        taskEntries[1]?.length ?? 0,
+        taskEntries[2]?.length ?? 0
+      );
+
+      const row1Col3 = (taskEntries[0] ?? "").padEnd(maxTaskCol1, " ");
+      const row1Col4 = taskEntries[3] ?? "";
+      const row2Col3 = (taskEntries[1] ?? "").padEnd(maxTaskCol1, " ");
+      const row2Col4 = taskEntries[4] ?? "";
+      const row3Col3 = taskEntries[2] ?? "";
+
+      const r1Tool = (toolEntries[0] ?? "").padEnd(maxTool, " ");
+      const r1Src = (srcEntries[0] ?? "").padEnd(maxSrc, " ");
+      const r2Tool = (toolEntries[1] ?? "").padEnd(maxTool, " ");
+      const r2Src = (srcEntries[1] ?? "").padEnd(maxSrc, " ");
+      const r3Tool = (toolEntries[2] ?? "").padEnd(maxTool, " ");
+      const r3Src = (srcEntries[2] ?? "").padEnd(maxSrc, " ");
+
+      lines.push(
+        `SCORES: ${r1Tool} | ${r1Src} | ${row1Col3}${row1Col4 ? ` | ${row1Col4}` : ""}`
+      );
+      lines.push(
+        `        ${r2Tool} | ${r2Src} | ${row2Col3}${row2Col4 ? ` | ${row2Col4}` : ""}`
+      );
+      lines.push(`        ${r3Tool} | ${r3Src} | ${row3Col3}`);
+    }
+
     lines.push(
       `================================================================================`
     );
@@ -2432,12 +2356,7 @@ class BenchmarkDashboardTracker {
       this._active.size
     );
 
-    const activeList = Array.from(this._active.values())
-      .sort((a, b) => a.lane - b.lane)
-      .map((a) => `L${a.lane}:${a.participant}`)
-      .join(" ");
-
-    this._statusBarItem.text = `$(beaker) NaNofuzz: ${completed}/${total} (${pct}%) ETA: ${etaStr}${activeList ? ` [${activeList}]` : ""}`;
+    this._statusBarItem.text = `$(beaker) NaNofuzz: ${completed}/${total} (${pct}%) ${etaStr}`;
     const md = new vscode.MarkdownString(this.renderMarkdownTooltip());
     md.isTrusted = true;
     this._statusBarItem.tooltip = md;
@@ -2548,15 +2467,15 @@ function estimateEta(
  */
 function formatEta(totalSec: number): string {
   if (totalSec <= 0) return "0s";
-  if (totalSec < 60) return `~${totalSec}s`;
+  if (totalSec < 60) return `+${totalSec}s`;
   const m = Math.floor(totalSec / 60);
   const s = totalSec % 60;
   if (m < 60) {
-    return `~${m}m ${s}s`;
+    return `+${m}m ${s}s`;
   }
   const h = Math.floor(m / 60);
   const remM = m % 60;
-  return `~${h}h ${remM}m`;
+  return `+${h}h ${remM}m`;
 } // fn: formatEta
 
 export interface PhaseTimeSplit {
@@ -2585,3 +2504,165 @@ function cast<T>(val: unknown): T;
 function cast(val: unknown): unknown {
   return val;
 } // fn: cast
+
+function resolveWorkspaceRoot(): string {
+  const folders = vscode.workspace?.workspaceFolders;
+  if (folders && folders.length > 0) {
+    return folders[0].uri.fsPath;
+  }
+  return process.cwd();
+} // fn: resolveWorkspaceRoot
+
+function resolveSourceRepo(): string {
+  if (
+    process.env.BENCHMARK_TARGET_REPO &&
+    fs.existsSync(process.env.BENCHMARK_TARGET_REPO)
+  ) {
+    return path.resolve(process.env.BENCHMARK_TARGET_REPO);
+  }
+  const ws = resolveWorkspaceRoot();
+  const candidates = [
+    path.resolve(ws, "benchmark", "target"),
+    path.resolve(ws, "..", "nanofuzz", "test-repos", "fandango"),
+    path.resolve(ws, "..", "test-repos", "fandango"),
+    path.resolve(ws, "test-repos", "fandango"),
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return path.resolve(ws, "benchmark", "target");
+} // fn: resolveSourceRepo
+
+function getSystemCpus(): number {
+  return typeof os.availableParallelism === "function"
+    ? os.availableParallelism()
+    : os.cpus().length;
+} // fn: getSystemCpus
+
+export function getAutoConcurrencyLanes(): number {
+  if (process.env.BENCHMARK_LANES) {
+    const val = parseInt(process.env.BENCHMARK_LANES, 10);
+    if (!isNaN(val) && val >= 1) return val;
+  }
+  return Math.max(2, Math.floor(getSystemCpus() / 2));
+} // fn: getAutoConcurrencyLanes
+
+export function getAutoDeepFuzzSlots(): number {
+  if (process.env.BENCHMARK_DEEP_SLOTS) {
+    const val = parseInt(process.env.BENCHMARK_DEEP_SLOTS, 10);
+    if (!isNaN(val) && val >= 1) return val;
+  }
+  return Math.max(1, Math.floor(getSystemCpus() / 4));
+} // fn: getAutoDeepFuzzSlots
+
+interface BenchmarkRubricJson {
+  targetMetadata?: {
+    name?: string;
+    commit?: string;
+    version?: string;
+    language?: string;
+  };
+  tasks?: Record<
+    string,
+    {
+      file?: string;
+      target_symbols?: string[];
+      bugs?: Record<
+        string,
+        {
+          id?: string;
+          name?: string;
+          description?: string;
+          matchPatterns?: string[];
+        }
+      >;
+    }
+  >;
+}
+
+export interface GroundTruthBug {
+  id: string;
+  name: string;
+  description: string;
+  matchPatterns: RegExp[];
+}
+
+interface LoadedBenchmarkRubric {
+  targetMetadata: {
+    name: string;
+    commit: string;
+    version: string;
+    language: string;
+  };
+  tasks: string[];
+  groundTruthBugs: Record<string, GroundTruthBug[]>;
+  allGroundTruthBugIds: string[];
+}
+
+function loadBenchmarkRubric(jsonPath: string): LoadedBenchmarkRubric {
+  const fallback: LoadedBenchmarkRubric = {
+    targetMetadata: {
+      name: "target",
+      commit: "HEAD",
+      version: "v1.0.0",
+      language: "python",
+    },
+    tasks: [],
+    groundTruthBugs: {},
+    allGroundTruthBugIds: [],
+  };
+
+  if (!fs.existsSync(jsonPath)) {
+    return fallback;
+  }
+
+  try {
+    const parsed: BenchmarkRubricJson = JSON.parse(
+      fs.readFileSync(jsonPath, "utf8")
+    );
+    const tm = parsed.targetMetadata || {};
+    const targetMetadata = {
+      name: tm.name || "target",
+      commit: tm.commit || "HEAD",
+      version: tm.version || "v1.0.0",
+      language: tm.language || "python",
+    };
+
+    const taskKeys = Object.keys(parsed.tasks || {});
+    const groundTruthBugs: Record<string, GroundTruthBug[]> = {};
+    const allBugIds: string[] = [];
+
+    for (const [taskName, taskSpec] of Object.entries(parsed.tasks || {})) {
+      const bugList: GroundTruthBug[] = [];
+      for (const [bugKey, bugSpec] of Object.entries(taskSpec.bugs || {})) {
+        const id = bugSpec.id || bugKey;
+        const name = bugSpec.name || bugKey;
+        const description = bugSpec.description || name;
+        const patterns: RegExp[] = Array.isArray(bugSpec.matchPatterns)
+          ? bugSpec.matchPatterns.map((p) => new RegExp(p, "i"))
+          : [new RegExp(id, "i"), new RegExp(name, "i")];
+        bugList.push({
+          id,
+          name,
+          description,
+          matchPatterns: patterns,
+        });
+        if (!allBugIds.includes(id)) {
+          allBugIds.push(id);
+        }
+      }
+      groundTruthBugs[taskName] = bugList;
+    }
+
+    return {
+      targetMetadata,
+      tasks: taskKeys,
+      groundTruthBugs,
+      allGroundTruthBugIds: allBugIds,
+    };
+  } catch (_err: unknown) {
+    return fallback;
+  }
+} // fn: loadBenchmarkRubric

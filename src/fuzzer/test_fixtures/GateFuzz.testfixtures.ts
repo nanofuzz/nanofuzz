@@ -1,4 +1,7 @@
-import { functionMatchesEntrypoint, targetMatchesEntrypoint } from "../Util";
+import {
+  functionMatchesEntrypoint,
+  targetMatchesEntrypoint,
+} from "../../ui/FindBugs";
 
 /**
  * Fuzz harness for functionMatchesEntrypoint:

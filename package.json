@@ -869,7 +869,7 @@
               "type": "string"
             },
             "default": [],
-            "description": "Experimental: Optional list of pre-selected entrypoint names/symbols (e.g. ['TreeValue', 'DerivationTree', 'Fandango', '_distance_norm', 'make_def']) that the agent must strictly target. If empty, entrypoints are auto-discovered.",
+            "description": "Experimental: Optional list of pre-selected entrypoint names/symbols (e.g. ['encode', 'decode', 'parse']) that the agent must strictly target. If empty, entrypoints are auto-discovered.",
             "tags": [
               "experimental"
             ]

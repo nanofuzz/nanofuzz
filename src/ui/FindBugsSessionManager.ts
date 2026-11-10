@@ -3,8 +3,8 @@ import {
   FindBugsPhase,
   FindBugsTool,
   FindBugsInvariantSource,
+  functionMatchesEntrypoint,
 } from "./FindBugs";
-import { functionMatchesEntrypoint } from "../fuzzer/Util";
 import * as crypto from "node:crypto";
 
 /**

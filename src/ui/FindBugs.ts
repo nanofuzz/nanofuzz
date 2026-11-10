@@ -1,10 +1,6 @@
 import { resolveFilePath, getToolName } from "./Agent";
 import * as Config from "../Config";
-import {
-  determineWorkerCount,
-  functionMatchesEntrypoint,
-  targetMatchesEntrypoint,
-} from "../fuzzer/Util";
+import { determineWorkerCount } from "../fuzzer/Util";
 import { sessionManager } from "./FindBugsSessionManager";
 
 function isRecord(val: unknown): val is Record<string, unknown> {
@@ -1078,3 +1074,97 @@ export type FindBugsResult = {
   recommendedNextPhase?: FindBugsPhase;
   summaryText: string;
 };
+
+/**
+ * Tests whether a fuzz/test function name matches a declared entrypoint name,
+ * or its explicitly declared harness function name.
+ *
+ * @param runFn The function name executed during testing (e.g. "test_distance_norm", "fuzz_encode")
+ * @param entrypoint The entrypoint record or name registered during Phase 1
+ * @returns true if runFn matches the entrypoint
+ */
+export function functionMatchesEntrypoint(
+  runFn: string,
+  entrypoint: string | { name: string; harnessFunctionName?: string }
+): boolean {
+  const entryName =
+    typeof entrypoint === "string" ? entrypoint : entrypoint.name;
+  const harnessFn =
+    typeof entrypoint === "object" && entrypoint !== null
+      ? entrypoint.harnessFunctionName
+      : undefined;
+
+  if (runFn === entryName) return true;
+  if (harnessFn && runFn === harnessFn) return true;
+
+  // Normalized prefix/underscore matching: test_<fn> or fuzz_<fn>
+  const cleanRun = runFn
+    .toLowerCase()
+    .replace(/^(test_|fuzz_)/, "")
+    .replace(/^_+|_+$/g, "");
+  const cleanEntry = entryName
+    .toLowerCase()
+    .replace(/^(test_|fuzz_)/, "")
+    .replace(/^_+|_+$/g, "");
+
+  return cleanRun.length > 0 && cleanRun === cleanEntry;
+} // fn: functionMatchesEntrypoint
+
+/**
+ * Determines whether a target name or symbol from targetScope matches a registered entrypoint.
+ *
+ * @param target The target symbol or name specified in targetScope
+ * @param entry The registered entrypoint record
+ * @returns true if the entrypoint corresponds to the target
+ */
+export function targetMatchesEntrypoint(
+  target: string,
+  entry: {
+    name: string;
+    filePath?: string;
+    harnessFilePath?: string;
+    harnessFunctionName?: string;
+  }
+): boolean {
+  if (functionMatchesEntrypoint(entry.name, target)) return true;
+  if (
+    entry.harnessFunctionName &&
+    functionMatchesEntrypoint(entry.harnessFunctionName, target)
+  ) {
+    return true;
+  }
+
+  const strip = (s: string) =>
+    s
+      .toLowerCase()
+      .replace(/^(test_|fuzz_)/, "")
+      .replace(/[^a-z0-9]/g, "");
+
+  const cleanTarget = strip(target);
+  const cleanName = strip(entry.name);
+  const cleanHarness = strip(entry.harnessFunctionName ?? "");
+
+  if (cleanTarget.length > 0) {
+    if (cleanName === cleanTarget || cleanHarness === cleanTarget) return true;
+    if (cleanName.includes(cleanTarget) || cleanHarness.includes(cleanTarget)) {
+      return true;
+    }
+    if (cleanTarget.includes(cleanName) && cleanName.length >= 4) {
+      return true;
+    }
+  }
+
+  // Generic file path matching
+  if (entry.filePath && cleanTarget.length > 0) {
+    const fileName = entry.filePath.split("/").pop() ?? "";
+    const cleanFile = strip(fileName.replace(/\.[^.]+$/, ""));
+    if (cleanFile === cleanTarget || cleanFile.includes(cleanTarget)) {
+      return true;
+    }
+    if (cleanTarget.includes(cleanFile) && cleanFile.length >= 4) {
+      return true;
+    }
+  }
+
+  return false;
+} // fn: targetMatchesEntrypoint
