@@ -219,6 +219,7 @@ export class FuzzFunctionTool implements vscode.LanguageModelTool<FuzzFunctionIn
       coverageScope,
       fnTimeout,
       useTransformer,
+      sessionId,
     } = options.input;
     let maxTests = options.input.maxTests;
     let maxFailures = options.input.maxFailures;
@@ -269,6 +270,7 @@ export class FuzzFunctionTool implements vscode.LanguageModelTool<FuzzFunctionIn
         {
           filePath,
           functionName,
+          sessionId,
           maxTests,
           fnTimeout,
           suiteTimeout: timeoutMs,
@@ -517,6 +519,7 @@ export type ListTargetsInput = {
 export type FuzzFunctionInput = {
   filePath: string;
   functionName: string;
+  sessionId?: string;
   maxTests?: number;
   timeoutMs?: number;
   maxFailures?: number;

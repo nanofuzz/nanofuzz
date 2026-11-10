@@ -1099,9 +1099,7 @@
     "vscode:publish": "npx @vscode/vsce publish --yarn",
     "package": "npx @vscode/vsce package --yarn",
     "pretest": "yarn build && yarn run lint",
-    "nanofuzz": "node --max-old-space-size=8192 ./build/cli/cli.cjs",
-    "benchmark": "node run_agent_benchmark.mjs",
-    "benchmark:full": "node run_agent_benchmark.mjs --full"
+    "nanofuzz": "node --max-old-space-size=8192 ./build/cli/cli.cjs"
   },
   "babel": {
     "presets": [

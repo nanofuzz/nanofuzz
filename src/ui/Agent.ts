@@ -574,6 +574,7 @@ export async function runFuzz(
     "project static"
   );
   const shouldAutoEnableCopilot = Boolean(options.enableCopilotAi);
+  let releaseDeepFuzz: (() => void) | undefined;
 
   try {
     if (shouldAutoEnableCopilot) {
@@ -589,10 +590,27 @@ export async function runFuzz(
       Config.override("nanofuzz.fuzzer.coverageScope", options.coverageScope);
     }
 
-    const experimentalTool = Config.get<string>(
-      "nanofuzz.experimental.findBugs.tool",
-      "nanofuzz"
-    );
+    const session = sessionManager.getSession(options.sessionId, resolvedPath);
+    const experimentalTool =
+      session?.tool ??
+      Config.get<string>("nanofuzz.experimental.findBugs.tool", "nanofuzz");
+
+    let isDeepFuzzingRun =
+      (options.suiteTimeout !== undefined && options.suiteTimeout >= 60_000) ||
+      (options.maxTests === 0 &&
+        (options.suiteTimeout === undefined || options.suiteTimeout >= 60_000));
+
+    let deepSlotWaitMs = 0;
+    if (isDeepFuzzingRun) {
+      if (cancelFn?.()) {
+        throw new Error(
+          "Execution cancelled before deep fuzzing slot acquisition."
+        );
+      }
+      const waitStart = Date.now();
+      releaseDeepFuzz = await deepFuzzSemaphore.acquire();
+      deepSlotWaitMs = Math.max(0, Date.now() - waitStart);
+    }
 
     if (experimentalTool === "hypothesis" || experimentalTool === "hypofuzz") {
       const runner = new HypothesisRunner(
@@ -602,23 +620,27 @@ export async function runFuzz(
         updateFn
       );
       const result = await runner.run();
-      sessionManager.recordFuzzRun({
-        functionName: options.functionName,
-        filePath: resolvedPath,
-        timestamp: Date.now(),
-        totalTests: result.totalTests,
-        passedTests: result.passedTests,
-        failedTests: result.failedTests,
-        erroredTests: result.erroredTests,
-        skippedTests: result.skippedTests ?? 0,
-        timeouts: result.timeouts,
-        exceptions: result.exceptions,
-        durationMs: options.suiteTimeout ?? 0,
-        suiteTimeout: options.suiteTimeout,
-        maxTests: options.maxTests ?? 0,
-        statementCoveragePct: result.coverage?.statementCoveragePercent,
-        branchCoveragePct: result.coverage?.branchCoveragePercent,
-      });
+      sessionManager.recordFuzzRun(
+        {
+          functionName: options.functionName,
+          filePath: resolvedPath,
+          timestamp: Date.now(),
+          totalTests: result.totalTests,
+          passedTests: result.passedTests,
+          failedTests: result.failedTests,
+          erroredTests: result.erroredTests,
+          skippedTests: result.skippedTests ?? 0,
+          timeouts: result.timeouts,
+          exceptions: result.exceptions,
+          durationMs: options.suiteTimeout ?? 0,
+          suiteTimeout: options.suiteTimeout,
+          maxTests: options.maxTests ?? 0,
+          statementCoveragePct: result.coverage?.statementCoveragePercent,
+          branchCoveragePct: result.coverage?.branchCoveragePercent,
+          deepSlotWaitMs,
+        },
+        options.sessionId
+      );
       return result;
     }
 
@@ -665,7 +687,8 @@ export async function runFuzz(
       ...(options.argDefaults ?? {}),
     };
 
-    const isDeepFuzzingRun =
+    isDeepFuzzingRun =
+      isDeepFuzzingRun ||
       (options.suiteTimeout !== undefined && options.suiteTimeout >= 60_000) ||
       sessionManager.hasActiveSession();
     let sanitizedMaxTests = options.maxTests;
@@ -816,23 +839,27 @@ export async function runFuzz(
       ? rawResults.stats.timers.total
       : (options.suiteTimeout ?? 0);
     const cov = await getCoverageSummary(rawResults);
-    sessionManager.recordFuzzRun({
-      functionName: options.functionName,
-      filePath: resolvedPath,
-      timestamp: Date.now(),
-      totalTests: rawResults.stats.outcomes.total,
-      passedTests: rawResults.stats.outcomes.categories.ok,
-      failedTests: rawResults.stats.counters.failedTests,
-      erroredTests: rawResults.stats.counters.erroredTests,
-      skippedTests: rawResults.stats.counters.inputsSkipped,
-      timeouts: rawResults.stats.outcomes.timeouts,
-      exceptions: rawResults.stats.outcomes.exceptions,
-      durationMs,
-      suiteTimeout: options.suiteTimeout,
-      maxTests: options.maxTests ?? normalizedOptions.maxTests,
-      statementCoveragePct: cov?.statementCoveragePercent,
-      branchCoveragePct: cov?.branchCoveragePercent,
-    });
+    sessionManager.recordFuzzRun(
+      {
+        functionName: options.functionName,
+        filePath: resolvedPath,
+        timestamp: Date.now(),
+        totalTests: rawResults.stats.outcomes.total,
+        passedTests: rawResults.stats.outcomes.categories.ok,
+        failedTests: rawResults.stats.counters.failedTests,
+        erroredTests: rawResults.stats.counters.erroredTests,
+        skippedTests: rawResults.stats.counters.inputsSkipped,
+        timeouts: rawResults.stats.outcomes.timeouts,
+        exceptions: rawResults.stats.outcomes.exceptions,
+        durationMs,
+        suiteTimeout: options.suiteTimeout,
+        maxTests: options.maxTests ?? normalizedOptions.maxTests,
+        statementCoveragePct: cov?.statementCoveragePercent,
+        branchCoveragePct: cov?.branchCoveragePercent,
+        deepSlotWaitMs,
+      },
+      options.sessionId
+    );
 
     return await formatFuzzResult(
       rawResults,
@@ -881,6 +908,7 @@ export async function runFuzz(
       summaryText,
     };
   } finally {
+    releaseDeepFuzz?.();
     if (shouldAutoEnableCopilot) {
       Config.override("nanofuzz.ai.provider", currentProvider);
     }
@@ -2021,6 +2049,7 @@ export type AgentTestCase = {
 export type AgentFuzzOptions = {
   filePath: string;
   functionName: string;
+  sessionId?: string;
   maxTests?: number;
   maxDupeInputs?: number;
   maxFailures?: number;
@@ -2401,3 +2430,53 @@ function coerceAgentInputForArgDef(
       return val;
   }
 } // fn: coerceAgentInputForArgDef
+
+/**
+ * Asynchronous counting semaphore for concurrency throttling.
+ */
+export class AsyncSemaphore {
+  private _available: number;
+  private readonly _queue: (() => void)[] = [];
+
+  constructor(maxConcurrent: number) {
+    this._available = maxConcurrent;
+  }
+
+  public async acquire(): Promise<() => void> {
+    if (this._available > 0) {
+      this._available--;
+      let released = false;
+      return () => {
+        if (!released) {
+          released = true;
+          this._release();
+        }
+      };
+    }
+
+    return new Promise<() => void>((resolve) => {
+      this._queue.push(() => {
+        let released = false;
+        resolve(() => {
+          if (!released) {
+            released = true;
+            this._release();
+          }
+        });
+      });
+    });
+  } // fn: acquire
+
+  private _release(): void {
+    if (this._queue.length > 0) {
+      const next = this._queue.shift();
+      if (next) {
+        next();
+      }
+    } else {
+      this._available++;
+    }
+  } // fn: _release
+} // class: AsyncSemaphore
+
+export const deepFuzzSemaphore = new AsyncSemaphore(2);

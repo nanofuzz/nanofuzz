@@ -369,27 +369,20 @@ export class HypothesisRunner {
       let shrinkSteps = 0;
 
       // Delegate counterexample shrinking to NaNofuzz ArgDefShrinker
-      try {
-        const shrinkRes = await shrinkInputs({
-          filePath,
-          functionName,
-          inputs: [rawCe.inputs],
-          fnTimeout: this._options.fnTimeout,
-        });
+      const shrinkRes = await shrinkInputs({
+        filePath,
+        functionName,
+        inputs: [rawCe.inputs],
+        fnTimeout: this._options.fnTimeout,
+      });
 
-        if (shrinkRes.shrunkInputs.length > 0) {
-          const shrunk = shrinkRes.shrunkInputs[0];
-          if (shrunk.status === "shrunk" && isRecord(shrunk.shrunkenInput)) {
-            finalInputs = shrunk.shrunkenInput;
-            isShrunk = true;
-            shrinkSteps = shrunk.shrinkSteps;
-          }
+      if (shrinkRes.shrunkInputs.length > 0) {
+        const shrunk = shrinkRes.shrunkInputs[0];
+        if (shrunk.status === "shrunk" && isRecord(shrunk.shrunkenInput)) {
+          finalInputs = shrunk.shrunkenInput;
+          isShrunk = true;
+          shrinkSteps = shrunk.shrinkSteps;
         }
-      } catch (err: unknown) {
-        throw new Error(
-          `Counterexample shrinking failed: ${err instanceof Error ? err.message : String(err)}`,
-          { cause: err }
-        );
       }
 
       const inputElements = Object.entries(finalInputs).map(

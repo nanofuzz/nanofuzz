@@ -26,6 +26,7 @@ export type FuzzRunStatsSnapshot = {
   maxTests?: number;
   statementCoveragePct?: number;
   branchCoveragePct?: number;
+  deepSlotWaitMs?: number;
 };
 
 /**
@@ -49,10 +50,12 @@ export type WorkflowSession = {
   tool: FindBugsTool;
   invariantSource: FindBugsInvariantSource;
   targetScope?: string[];
+  targetRepoPath?: string;
   workerCount: number;
   startedAt: number;
   lastPhaseStartedAt: number;
   currentPhase: FindBugsPhase;
+  totalDeepSlotWaitMs?: number;
   entrypoints?: {
     name: string;
     filePath: string;
@@ -80,7 +83,8 @@ class FindBugsSessionManager {
     invariantSource: FindBugsInvariantSource,
     workerCount: number,
     initialPhase: FindBugsPhase,
-    targetScope: string[] = []
+    targetScope: string[] = [],
+    targetRepoPath?: string
   ): WorkflowSession {
     const id =
       sessionId && this._sessions.has(sessionId)
@@ -95,6 +99,7 @@ class FindBugsSessionManager {
         tool,
         invariantSource,
         targetScope,
+        targetRepoPath,
         workerCount,
         startedAt: now,
         lastPhaseStartedAt: now,
@@ -107,6 +112,9 @@ class FindBugsSessionManager {
       session.tool = tool;
       session.invariantSource = invariantSource;
       session.targetScope = targetScope;
+      if (targetRepoPath) {
+        session.targetRepoPath = targetRepoPath;
+      }
       session.workerCount = workerCount;
     }
 
@@ -117,9 +125,19 @@ class FindBugsSessionManager {
   /**
    * Retrieves a session by ID or returns the latest active session.
    */
-  public getSession(sessionId?: string): WorkflowSession | undefined {
+  public getSession(
+    sessionId?: string,
+    filePath?: string
+  ): WorkflowSession | undefined {
     if (sessionId && this._sessions.has(sessionId)) {
       return this._sessions.get(sessionId);
+    }
+    if (filePath) {
+      for (const s of this._sessions.values()) {
+        if (s.targetRepoPath && filePath.startsWith(s.targetRepoPath)) {
+          return s;
+        }
+      }
     }
     if (this._latestSessionId && this._sessions.has(this._latestSessionId)) {
       return this._sessions.get(this._latestSessionId);
@@ -131,7 +149,7 @@ class FindBugsSessionManager {
    * Records a fuzzing run's execution stats in the session.
    */
   public recordFuzzRun(stats: FuzzRunStatsSnapshot, sessionId?: string): void {
-    let session = this.getSession(sessionId);
+    let session = this.getSession(sessionId, stats.filePath);
     if (!session && sessionId) {
       session = this.getOrCreateSession(
         sessionId,
@@ -143,8 +161,20 @@ class FindBugsSessionManager {
     }
     if (session) {
       session.fuzzRuns.push(stats);
+      if (stats.deepSlotWaitMs && stats.deepSlotWaitMs > 0) {
+        session.totalDeepSlotWaitMs =
+          (session.totalDeepSlotWaitMs ?? 0) + stats.deepSlotWaitMs;
+      }
     }
   } // fn: recordFuzzRun
+
+  /**
+   * Returns the cumulative milliseconds spent waiting for deep fuzzing slot acquisition.
+   */
+  public getDeepSlotWaitMs(sessionId?: string, filePath?: string): number {
+    const s = this.getSession(sessionId, filePath);
+    return s?.totalDeepSlotWaitMs ?? 0;
+  } // fn: getDeepSlotWaitMs
 
   /**
    * Handles a phase transition, calculates timing deltas, and emits telemetry.
@@ -436,7 +466,14 @@ class FindBugsSessionManager {
   /**
    * Resets sessions (for testing).
    */
-  public clear(): void {
+  public clear(sessionId?: string): void {
+    if (sessionId) {
+      this._sessions.delete(sessionId);
+      if (this._latestSessionId === sessionId) {
+        this._latestSessionId = undefined;
+      }
+      return;
+    }
     this._sessions.clear();
     this._latestSessionId = undefined;
   } // fn: clear

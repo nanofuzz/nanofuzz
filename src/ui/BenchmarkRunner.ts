@@ -11,24 +11,29 @@ import { sessionManager } from "./FindBugsSessionManager";
 // ============================================================================
 
 const SEED = "qwertonyuiop";
-const TARGET_REPO = path.resolve(
+const WORKSPACE_ROOT = path.resolve("/Users/mcd2/git/cmumatt/nanofuzz-6");
+const SOURCE_FANDANGO_REPO = path.resolve(
   "/Users/mcd2/git/cmumatt/nanofuzz/test-repos/fandango"
 );
 export const TARGET_FANDANGO_COMMIT =
   "d06277caa78a64816e74afc3085be193c64cf434";
 export const TARGET_FANDANGO_VERSION = "v1.3.1-81-gd06277ca";
 
-const REPORTS_DIR = path.resolve(
-  "/Users/mcd2/git/cmumatt/nanofuzz/bug-reports/python"
-);
-const TELEMETRY_DIR = path.join(REPORTS_DIR, "telemetry");
+const BENCHMARK_DIR = path.join(WORKSPACE_ROOT, "benchmark");
+const WORKTREES_DIR = path.join(BENCHMARK_DIR, "worktrees");
+const RESULTS_DIR = path.join(BENCHMARK_DIR, "results");
+const REPORTS_DIR = RESULTS_DIR;
+const TELEMETRY_DIR = path.join(RESULTS_DIR, "telemetry");
 
-const SCORING_SHEETS_DIR = path.join(REPORTS_DIR, "scoring_sheets");
-const DATA_CSV_PATH = path.join(REPORTS_DIR, "data.csv");
+const SCORING_SHEETS_DIR = path.join(RESULTS_DIR, "scoring_sheets");
+const DATA_CSV_PATH = path.join(RESULTS_DIR, "data.csv");
 const SURVEY_RESPONSES_CSV_PATH = path.join(
-  REPORTS_DIR,
+  RESULTS_DIR,
   "survey_responses.csv"
 );
+
+export const CONCURRENCY_LANES = 4;
+export const MAX_DEEP_FUZZ_SLOTS = 2;
 
 const ENGINES = ["nanofuzz", "hypothesis", "hypofuzz"] as const;
 const SOURCES = ["tests", "docs", "all"] as const;
@@ -380,6 +385,8 @@ export function computeSusScore(responses: {
   return Math.max(0, Math.min(100, Math.round(total * 10) / 10));
 } // fn: computeSusScore
 
+let fileWriteChain: Promise<void> = Promise.resolve();
+
 function writeSurveyResponsesCsv(
   run: BenchmarkRunSpec,
   survey: ParticipantSurvey
@@ -440,23 +447,29 @@ function writeSurveyResponsesCsv(
     escapeCsv(survey.studyImprovementFeedback),
   ];
 
-  const fileExists = fs.existsSync(SURVEY_RESPONSES_CSV_PATH);
-  if (!fileExists) {
-    fs.writeFileSync(
+  fileWriteChain = fileWriteChain.then(async () => {
+    if (!fs.existsSync(REPORTS_DIR)) {
+      fs.mkdirSync(REPORTS_DIR, { recursive: true });
+    }
+
+    const fileExists = fs.existsSync(SURVEY_RESPONSES_CSV_PATH);
+    if (!fileExists) {
+      fs.writeFileSync(
+        SURVEY_RESPONSES_CSV_PATH,
+        headerCols.join(",") + "\n",
+        "utf8"
+      );
+    }
+
+    fs.appendFileSync(
       SURVEY_RESPONSES_CSV_PATH,
-      headerCols.join(",") + "\n",
+      rowCols.join(",") + "\n",
       "utf8"
     );
-  }
-
-  fs.appendFileSync(
-    SURVEY_RESPONSES_CSV_PATH,
-    rowCols.join(",") + "\n",
-    "utf8"
-  );
-  log(
-    `[SURVEY] Saved post-task survey responses to survey_responses.csv for ${run.participant}`
-  );
+    log(
+      `[SURVEY] Saved post-task survey responses to survey_responses.csv for ${run.participant}`
+    );
+  });
 } // fn: writeSurveyResponsesCsv
 
 // ============================================================================
@@ -549,14 +562,14 @@ function writeScoringSheet(
     `- **PUT Version**: Fandango \`${TARGET_FANDANGO_VERSION}\` (\`${TARGET_FANDANGO_COMMIT.slice(0, 8)}\`)`,
     `- **Replicate**: ${run.replicate} (Sequence Order: ${run.sequence})`,
     `- **Date**: ${new Date().toISOString().split("T")[0]}`,
-    `- **Duration**: ${Math.floor(durationSec / 60)}m ${durationSec % 60}s (active: ${splits.totalExtract.activeSec + splits.synthesis.activeSec + splits.smoke.activeSec + splits.deep.activeSec}s, retry: ${splits.totalExtract.retrySec + splits.synthesis.retrySec + splits.smoke.retrySec + splits.deep.retrySec}s)`,
+    `- **Duration**: ${Math.floor(durationSec / 60)}m ${durationSec % 60}s (active: ${splits.totalExtract.activeSec + splits.synthesis.activeSec + splits.smoke.activeSec + splits.deep.activeSec}s, retry: ${splits.totalExtract.retrySec + splits.synthesis.retrySec + splits.smoke.retrySec + splits.deep.retrySec}s, deep slot wait: ${splits.deep.slotWaitSec}s)`,
     `- **Phase Timing Splits**:`,
     `  - Invariant Extraction: ${splits.totalExtract.activeSec}s active (${splits.totalExtract.retrySec}s retry, ${splits.totalExtract.elapsedSec}s elapsed)`,
     `    - From Docs: ${splits.extractDocs.activeSec}s active (${splits.extractDocs.retrySec}s retry)`,
     `    - From Tests: ${splits.extractTests.activeSec}s active (${splits.extractTests.retrySec}s retry)`,
     `  - Harness Synthesis: ${splits.synthesis.activeSec}s active (${splits.synthesis.retrySec}s retry, ${splits.synthesis.elapsedSec}s elapsed)`,
     `  - Smoke Testing: ${splits.smoke.activeSec}s active (${splits.smoke.retrySec}s retry, ${splits.smoke.elapsedSec}s elapsed)`,
-    `  - Deep Fuzzing: ${splits.deep.activeSec}s active (${splits.deep.retrySec}s retry, ${splits.deep.elapsedSec}s elapsed)`,
+    `  - Deep Fuzzing: ${splits.deep.activeSec}s active (${splits.deep.slotWaitSec}s slot wait, ${splits.deep.retrySec}s retry, ${splits.deep.elapsedSec}s elapsed)`,
     `- **Task Bug Count**: ${evalResults.length}`,
     `- **Bugs Elicited**: ${evalResults.filter((r) => r.elicited === 1).length} / ${evalResults.length}`,
     `- **Normalized Score (0.000 - 1.000)**: **${normalizedScore}**`,
@@ -627,6 +640,7 @@ function appendToDataCsv(
   evalResults: BugEvaluationResult[],
   durationSec: number,
   retryWaitSec: number,
+  deepSlotWaitSec: number,
   activeSec: number,
   splits: ParticipantPhaseSplits,
   totalFuzzRuns: number,
@@ -644,6 +658,7 @@ function appendToDataCsv(
     "Date",
     "ElapsedSec",
     "ApiRetryWaitSec",
+    "DeepSlotWaitSec",
     "ActiveExecutionSec",
     "Extract_Docs.ElapsedSec",
     "Extract_Docs.RetrySec",
@@ -662,6 +677,7 @@ function appendToDataCsv(
     "Smoke.ActiveSec",
     "Deep.ElapsedSec",
     "Deep.RetrySec",
+    "Deep.SlotWaitSec",
     "Deep.ActiveSec",
     "TotalFuzzRuns",
     "TotalTestsExecuted",
@@ -669,6 +685,7 @@ function appendToDataCsv(
     "TaskBugCount",
     "BugsElicited",
     "NormalizedScore",
+    "Accuracy",
     "Realistic",
     "SUS_Score",
     "SUS1",
@@ -690,6 +707,10 @@ function appendToDataCsv(
   const bugsElicited = evalResults.filter((r) => r.elicited === 1).length;
   const score =
     taskBugCount > 0 ? (bugsElicited / taskBugCount).toFixed(3) : "0.000";
+
+  const bugsReported = evalResults.filter((r) => r.reported === 1).length;
+  const accuracy =
+    taskBugCount > 0 ? (bugsReported / taskBugCount).toFixed(3) : "0.000";
 
   const generators = evalResults
     .filter((r) => r.elicited === 1)
@@ -715,6 +736,7 @@ function appendToDataCsv(
     new Date().toISOString().split("T")[0],
     String(durationSec),
     String(retryWaitSec),
+    String(deepSlotWaitSec),
     String(activeSec),
     String(splits.extractDocs.elapsedSec),
     String(splits.extractDocs.retrySec),
@@ -733,6 +755,7 @@ function appendToDataCsv(
     String(splits.smoke.activeSec),
     String(splits.deep.elapsedSec),
     String(splits.deep.retrySec),
+    String(splits.deep.slotWaitSec),
     String(splits.deep.activeSec),
     String(totalFuzzRuns),
     String(totalTests),
@@ -740,6 +763,7 @@ function appendToDataCsv(
     String(taskBugCount),
     String(bugsElicited),
     score,
+    accuracy,
     survey ? String(survey.realistic) : "3",
     survey ? survey.susScore.toFixed(1) : "50.0",
     survey ? String(survey.sus1) : "3",
@@ -757,64 +781,109 @@ function appendToDataCsv(
     ...bugCols,
   ];
 
-  const fileExists = fs.existsSync(DATA_CSV_PATH);
-  if (!fileExists) {
-    fs.writeFileSync(DATA_CSV_PATH, headerCols.join(",") + "\n", "utf8");
-  }
+  fileWriteChain = fileWriteChain.then(async () => {
+    if (!fs.existsSync(REPORTS_DIR)) {
+      fs.mkdirSync(REPORTS_DIR, { recursive: true });
+    }
 
-  fs.appendFileSync(DATA_CSV_PATH, rowCols.join(",") + "\n", "utf8");
-  log(
-    `[DATA] Recorded ${run.participant} row in data.csv (Score: ${score}, SUS: ${survey ? survey.susScore.toFixed(1) : "N/A"})`
-  );
+    const fileExists = fs.existsSync(DATA_CSV_PATH);
+    if (!fileExists) {
+      fs.writeFileSync(DATA_CSV_PATH, headerCols.join(",") + "\n", "utf8");
+    }
 
-  // Write individual participant scoring sheet
-  writeScoringSheet(run, evalResults, score, durationSec, splits, survey);
+    fs.appendFileSync(DATA_CSV_PATH, rowCols.join(",") + "\n", "utf8");
+    log(
+      `[DATA] Recorded ${run.participant} row in data.csv (Score: ${score}, SUS: ${survey ? survey.susScore.toFixed(1) : "N/A"})`
+    );
+
+    // Write individual participant scoring sheet
+    writeScoringSheet(run, evalResults, score, durationSec, splits, survey);
+  });
 } // fn: appendToDataCsv
 
 // ============================================================================
 // Target Repo Hygiene & Settings
 // ============================================================================
 
-export function cleanTargetRepo(): void {
-  if (!fs.existsSync(TARGET_REPO)) return;
+export function initializeConcurrentWorktrees(
+  lanes: number = CONCURRENCY_LANES
+): void {
+  fs.mkdirSync(WORKTREES_DIR, { recursive: true });
+  fs.mkdirSync(RESULTS_DIR, { recursive: true });
+  fs.mkdirSync(TELEMETRY_DIR, { recursive: true });
+  fs.mkdirSync(SCORING_SHEETS_DIR, { recursive: true });
+
+  for (let lane = 1; lane <= lanes; lane++) {
+    const wtPath = path.join(WORKTREES_DIR, `w${lane}`);
+    if (!fs.existsSync(wtPath)) {
+      execSync(
+        `git -C "${SOURCE_FANDANGO_REPO}" worktree add --detach "${wtPath}" ${TARGET_FANDANGO_COMMIT}`,
+        { stdio: "ignore" }
+      );
+    }
+    const venvLink = path.join(wtPath, ".venv");
+    if (!fs.existsSync(venvLink)) {
+      try {
+        fs.symlinkSync(path.join(SOURCE_FANDANGO_REPO, ".venv"), venvLink);
+      } catch (_err) {
+        void _err;
+      }
+    }
+  }
+} // fn: initializeConcurrentWorktrees
+
+export function cleanLane(laneId: number): void {
+  const wtPath = path.join(WORKTREES_DIR, `w${laneId}`);
+  if (!fs.existsSync(wtPath)) return;
   try {
-    execSync("git checkout -- .", { cwd: TARGET_REPO, stdio: "ignore" });
-    execSync("git clean -fd", { cwd: TARGET_REPO, stdio: "ignore" });
+    execSync("git checkout -- .", { cwd: wtPath, stdio: "ignore" });
+    execSync("git clean -fd", { cwd: wtPath, stdio: "ignore" });
     execSync(`git checkout -q ${TARGET_FANDANGO_COMMIT}`, {
-      cwd: TARGET_REPO,
+      cwd: wtPath,
       stdio: "ignore",
     });
   } catch (err) {
-    log(`[WARN] git cleanup error: ${String(err)}`);
+    log(`[WARN] Lane ${laneId} git cleanup error: ${String(err)}`);
   }
 
+  // Ensure .venv symlink remains intact
+  const venvLink = path.join(wtPath, ".venv");
+  if (!fs.existsSync(venvLink)) {
+    try {
+      fs.symlinkSync(path.join(SOURCE_FANDANGO_REPO, ".venv"), venvLink);
+    } catch (_err) {
+      void _err;
+    }
+  }
+
+  // Clean lane-specific IPC temp files
   try {
     const tmpFiles = fs.readdirSync("/tmp");
     for (const f of tmpFiles) {
-      if (f.startsWith("nanofuzz_pbt_") || f.startsWith("nanofuzz_")) {
+      if (
+        f.startsWith(`nanofuzz_w${laneId}_`) ||
+        f.startsWith(`nanofuzz_pbt_w${laneId}_`)
+      ) {
         try {
           fs.unlinkSync(path.join("/tmp", f));
-        } catch (unlinkErr) {
-          log(`[DEBUG] could not remove tmp file ${f}: ${String(unlinkErr)}`);
+        } catch (_err) {
+          void _err;
         }
       }
     }
-  } catch (readdirErr) {
-    log(`[DEBUG] /tmp read error: ${String(readdirErr)}`);
+  } catch (_err) {
+    void _err;
+  }
+} // fn: cleanLane
+
+export function cleanTargetRepo(): void {
+  for (let lane = 1; lane <= CONCURRENCY_LANES; lane++) {
+    cleanLane(lane);
   }
 } // fn: cleanTargetRepo
 
-export function configureRunSettings(
-  engine: string,
-  source: string,
-  targetScope: string[]
-): void {
-  Config.override("nanofuzz.experimental.findBugs.tool", engine);
-  Config.override("nanofuzz.experimental.findBugs.invariantSource", source);
-  Config.override("nanofuzz.experimental.findBugs.targetScope", targetScope);
-
-  // Pre-approve target repo for reading and editing so no modal dialogs appear
-  Config.override("chat.additionalReadAccessPaths", [TARGET_REPO, REPORTS_DIR]);
+export function configureRunSettings(): void {
+  // Pre-approve workspace edits so no modal dialogs appear
   Config.override("chat.tools.edits.autoApprove", {
     "**/*": true,
   });
@@ -827,12 +896,15 @@ export function configureRunSettings(
 export async function runSingleBenchmarkSession(
   run: BenchmarkRunSpec,
   totalRuns: number,
+  laneId: number = 1,
   token?: vscode.CancellationToken
 ): Promise<{ success: boolean; durationSec: number; error?: string }> {
   const t0 = Date.now();
   const seqStr = String(run.sequence).padStart(2, "0");
   const totStr = String(totalRuns).padStart(2, "0");
-  const prefix = `[${run.participant} | Seq ${seqStr}/${totStr}]`;
+  const prefix = `[${run.participant} (L${laneId}, ${seqStr}/${totStr})]`;
+  const laneRepoPath = path.join(WORKTREES_DIR, `w${laneId}`);
+  const sessionId = `bench-w${laneId}-${run.participant}-${run.task}`;
 
   log(
     `\n================================================================================`
@@ -840,15 +912,31 @@ export async function runSingleBenchmarkSession(
   log(
     `[START] ${prefix}: Task ${run.task} (Engine: ${run.engine} | Source: ${run.source} | Rep ${run.replicate})`
   );
+  log(`Lane Target Repo: ${laneRepoPath}`);
   log(`Destination report: ${run.reportFilename}`);
   log(
     `================================================================================`
   );
 
-  // Clean repo, reset session manager state, and set settings
-  cleanTargetRepo();
-  sessionManager.clear();
-  configureRunSettings(run.engine, run.source, run.targetScope);
+  // Clean lane worktree, reset session state, and apply settings
+  cleanLane(laneId);
+  sessionManager.clear(sessionId);
+  sessionManager.getOrCreateSession(
+    sessionId,
+    run.engine,
+    run.source,
+    1,
+    "init",
+    run.targetScope,
+    laneRepoPath
+  );
+  configureRunSettings();
+
+  const tag = (phaseLabel?: string): string => {
+    const stepLabel = PHASE_STEPS[currentPhase] || "?/6";
+    const p = phaseLabel ?? stepLabel;
+    return `${prefix} [Phase ${p}]`;
+  };
 
   // Select Chat Model: Strictly require Gemini 3.8 Flash under "Google (paid)" / vendor "gemini"
   if (!vscode.lm || typeof vscode.lm.selectChatModels !== "function") {
@@ -923,11 +1011,14 @@ export async function runSingleBenchmarkSession(
 
   // Clean, focused task prompt
   const initialPrompt = [
-    `Target Repository: ${TARGET_REPO}`,
+    `Target Repository: ${laneRepoPath}`,
     `Target Task Entrypoint: ${run.task}`,
+    `Testing Engine: ${run.engine}`,
+    `Invariant Source: ${run.source}`,
+    `Session ID: ${sessionId}`,
     "",
-    `Use NaNofuzz to find bugs in the entrypoint '${run.task}' in fandango fuzzer for Python located at ${TARGET_REPO}.`,
-    `(do not look at '../nanofuzz/bug-reports'; after the find_bugs workflow completes, save your bug report to '../nanofuzz/bug-reports/python/${run.reportFilename}')`,
+    `Use NaNofuzz to find bugs in the entrypoint '${run.task}' in fandango fuzzer for Python located at ${laneRepoPath}.`,
+    `(when calling nanofuzz_findBugs, always include statePayload: { sessionId: "${sessionId}" }; after the find_bugs workflow completes, save your bug report to '${run.reportPath}')`,
   ].join("\n");
 
   const messages: vscode.LanguageModelChatMessage[] = [
@@ -939,37 +1030,41 @@ export async function runSingleBenchmarkSession(
   let sessionCompleted = false;
   let totalRetryWaitMs = 0;
   let totalRetryAttempts = 0;
+  let totalDeepSlotWaitMs = 0;
 
   // Track phase progress and timing splits
   const PHASE_STEPS: Record<string, string> = {
-    init: "1/5",
-    invariants_from_docs: "1/5",
-    invariants_from_tests: "2/5",
-    invariants_extracted: "3/5",
-    fuzz_smoke: "4/5",
-    fuzz_deep: "5/5",
-    fuzz_entrypoint: "4/5",
-    contextualize_bugs: "5/5",
-    complete: "5/5",
+    init: "1/6",
+    invariants_from_docs: "1/6",
+    invariants_from_tests: "2/6",
+    invariants_extracted: "3/6",
+    fuzz_smoke: "4/6",
+    fuzz_deep: "5/6",
+    fuzz_entrypoint: "4/6",
+    contextualize_bugs: "6/6",
+    complete: "6/6",
   };
   let currentPhase = "init";
   let phaseStartTime = t0;
   let phaseRetryWaitMs = 0;
+  let phaseSlotWaitMs = 0;
 
   const phaseTimings: Record<
     string,
-    { elapsedMs: number; retryWaitMs: number }
+    { elapsedMs: number; retryWaitMs: number; slotWaitMs: number }
   > = {};
 
   const commitPhaseTiming = (phaseName: string, endTime: number): void => {
     if (!phaseTimings[phaseName]) {
-      phaseTimings[phaseName] = { elapsedMs: 0, retryWaitMs: 0 };
+      phaseTimings[phaseName] = { elapsedMs: 0, retryWaitMs: 0, slotWaitMs: 0 };
     }
     const elapsed = Math.max(0, endTime - phaseStartTime);
     phaseTimings[phaseName].elapsedMs += elapsed;
     phaseTimings[phaseName].retryWaitMs += phaseRetryWaitMs;
+    phaseTimings[phaseName].slotWaitMs += phaseSlotWaitMs;
     phaseStartTime = endTime;
     phaseRetryWaitMs = 0;
+    phaseSlotWaitMs = 0;
   };
 
   const recordedToolEvents: Array<{
@@ -990,22 +1085,26 @@ export async function runSingleBenchmarkSession(
     }
 
     turn++;
-    const stepLabel = PHASE_STEPS[currentPhase] || "?/4";
+    const stepLabel = PHASE_STEPS[currentPhase] || "?/6";
     log(
-      `  [${run.participant}, Phase ${stepLabel} (${currentPhase})] Turn ${turn} sending to LLM...`
+      `  ${tag(`${stepLabel} (${currentPhase})`)} Turn ${turn} sending to LLM...`
     );
 
     // Stream and turn execution with automatic resilient retry on 503 / 429 / socket drops / stream errors
     let assistantText = "";
     let toolCalls: vscode.LanguageModelToolCallPart[] = [];
-    let allParts: AssistantStreamPart[] = [];
+    let allParts: (
+      | vscode.LanguageModelTextPart
+      | vscode.LanguageModelToolCallPart
+      | vscode.LanguageModelDataPart
+    )[] = [];
     let streamSucceeded = false;
     let attempt = 0;
     const maxRetries = 20;
 
     while (!streamSucceeded) {
       if (token?.isCancellationRequested) {
-        log(`${prefix} Cancellation requested.`);
+        log(`${tag()} Cancellation requested.`);
         cleanTargetRepo();
         return {
           success: false,
@@ -1027,14 +1126,11 @@ export async function runSingleBenchmarkSession(
         );
 
         for await (const part of response.stream) {
+          allParts.push(cast<AssistantStreamPart>(part));
           if (part instanceof vscode.LanguageModelTextPart) {
             assistantText += part.value;
-            allParts.push(part);
           } else if (part instanceof vscode.LanguageModelToolCallPart) {
             toolCalls.push(part);
-            allParts.push(part);
-          } else if (part instanceof vscode.LanguageModelDataPart) {
-            allParts.push(part);
           }
         }
 
@@ -1048,7 +1144,7 @@ export async function runSingleBenchmarkSession(
         streamSucceeded = true;
       } catch (err: unknown) {
         if (token?.isCancellationRequested) {
-          log(`  ${prefix} [CANCEL] Request cancelled by user.`);
+          log(`  ${tag()} [CANCEL] Request cancelled by user.`);
           cleanTargetRepo();
           return {
             success: false,
@@ -1067,11 +1163,14 @@ export async function runSingleBenchmarkSession(
           errStr.includes("Empty response") ||
           errStr.includes("ECONNRESET") ||
           errStr.includes("ETIMEDOUT") ||
+          errStr.includes("terminated") ||
+          errStr.includes("fetch failed") ||
+          errStr.includes("network") ||
           errStr.includes("socket hang up");
 
         if (!isTransient || attempt >= maxRetries) {
           log(
-            `  ${prefix} [FAILED] LLM request failed (attempt ${attempt}/${maxRetries}): ${errStr}`
+            `  ${tag()} [FAILED] LLM request failed (attempt ${attempt}/${maxRetries}): ${errStr}`
           );
           cleanTargetRepo();
           return {
@@ -1088,7 +1187,7 @@ export async function runSingleBenchmarkSession(
         totalRetryWaitMs += delayMs;
         phaseRetryWaitMs += delayMs;
         log(
-          `  ${prefix} [RETRY] Model busy / 503 spike (attempt ${attempt}/${maxRetries}): ${errStr}. Waiting ${Math.round(delayMs / 1000)}s before retry...`
+          `  ${tag()} [RETRY] Model busy (attempt ${attempt}/${maxRetries}): ${errStr}. Waiting ${Math.round(delayMs / 1000)}s before retry...`
         );
         await new Promise((res) => setTimeout(res, delayMs));
       }
@@ -1112,7 +1211,12 @@ export async function runSingleBenchmarkSession(
 
     // Append Assistant response to history preserving all raw stream parts (including LanguageModelThinkingPart)
     if (assistantParts.length > 0) {
-      messages.push(vscode.LanguageModelChatMessage.Assistant(assistantParts));
+      messages.push(
+        new vscode.LanguageModelChatMessage(
+          vscode.LanguageModelChatMessageRole.Assistant,
+          assistantParts
+        )
+      );
     } else if (assistantText) {
       messages.push(vscode.LanguageModelChatMessage.Assistant(assistantText));
     }
@@ -1120,13 +1224,13 @@ export async function runSingleBenchmarkSession(
     // If no tools were called, check if report already exists or encourage continuation
     if (toolCalls.length === 0) {
       log(
-        `  ${prefix} Model returned text without tool calls: ${assistantText.slice(0, 100)}...`
+        `  ${tag()} Model returned text without tool calls: ${assistantText.slice(0, 100)}...`
       );
       if (
         fs.existsSync(run.reportPath) &&
         fs.statSync(run.reportPath).size > 500
       ) {
-        log(`  ${prefix} Report detected on disk. Marking session complete.`);
+        log(`  ${tag()} Report detected on disk. Marking session complete.`);
         break;
       }
       messages.push(
@@ -1151,57 +1255,116 @@ export async function runSingleBenchmarkSession(
         timestamp: new Date().toISOString(),
       });
 
-      // Log structured turn feedback to console
+      // Log structured turn feedback to console and enforce lane isolation
       if (toolName === "nanofuzz_findBugs") {
+        if (!isKeyedObject(toolInput.statePayload)) {
+          toolInput.statePayload = {};
+        }
+        const sp = cast<Record<string, unknown>>(toolInput.statePayload);
+        if (!sp.sessionId) sp.sessionId = sessionId;
+        if (!sp.targetRepoPath) sp.targetRepoPath = laneRepoPath;
+        if (!sp.tool) sp.tool = run.engine;
+        if (!sp.invariantSource) sp.invariantSource = run.source;
+        if (!sp.targetScope) sp.targetScope = run.targetScope;
+
         const p =
           typeof toolInput.phase === "string" ? toolInput.phase : "init";
         if (p !== currentPhase) {
           commitPhaseTiming(currentPhase, Date.now());
           currentPhase = p;
         }
-        const sp: Record<string, unknown> = isKeyedObject(
-          toolInput.statePayload
-        )
-          ? toolInput.statePayload
-          : {};
         const stage =
           typeof sp.stage === "string" ? ` [Stage: ${sp.stage}]` : "";
         const fn =
           typeof sp.functionName === "string"
             ? ` (fn: ${sp.functionName})`
             : "";
-        const step = PHASE_STEPS[currentPhase] || "?/5";
+        const step = PHASE_STEPS[currentPhase] || "?/6";
         log(
-          `  [${run.participant}, Phase ${step} (${p})] State: ${p}${stage}${fn}`
+          `  [${run.participant} (L${laneId}), Phase ${step} (${p})] State: ${p}${stage}${fn}`
         );
         if (p === "complete") {
           sessionCompleted = true;
         }
       } else if (toolName === "nanofuzz_fuzzFunction") {
+        toolInput.sessionId = sessionId;
+        if (
+          typeof toolInput.filePath === "string" &&
+          !path.isAbsolute(toolInput.filePath)
+        ) {
+          toolInput.filePath = path.resolve(laneRepoPath, toolInput.filePath);
+        }
         const fn = toolInput.functionName || "";
         const maxTests =
           toolInput.maxTests === 0
             ? "continuous (maxTests=0)"
             : `${toolInput.maxTests} tests`;
         const to = Math.round(Number(toolInput.timeoutMs || 0) / 1000);
-        const step = PHASE_STEPS[currentPhase] || "?/5";
+        const step = PHASE_STEPS[currentPhase] || "?/6";
         log(
-          `  [Run ${seqStr}/${totStr}, Phase ${step}] Fuzzing: ${fn} (${maxTests}, timeout=${to}s)`
+          `  [${run.participant} (L${laneId}), Phase ${step}] Fuzzing: ${fn} (${maxTests}, timeout=${to}s)`
         );
       } else if (toolName === "nanofuzz_listTargets") {
+        if (
+          typeof toolInput.filePath === "string" &&
+          !path.isAbsolute(toolInput.filePath)
+        ) {
+          toolInput.filePath = path.resolve(laneRepoPath, toolInput.filePath);
+        }
         const rel = String(toolInput.filePath || "")
           .split("/")
           .slice(-2)
           .join("/");
-        const step = PHASE_STEPS[currentPhase] || "?/5";
-        log(`  [Run ${seqStr}/${totStr}, Phase ${step}] Scanning: ${rel}`);
+        const step = PHASE_STEPS[currentPhase] || "?/6";
+        log(
+          `  [${run.participant} (L${laneId}), Phase ${step}] Scanning: ${rel}`
+        );
+      } else if (
+        toolName === "read_file" ||
+        toolName === "copilot_readFile" ||
+        toolName === "create_file" ||
+        toolName === "copilot_createFile" ||
+        toolName === "replace_string_in_file" ||
+        toolName === "copilot_replaceString"
+      ) {
+        if (
+          typeof toolInput.filePath === "string" &&
+          !path.isAbsolute(toolInput.filePath)
+        ) {
+          toolInput.filePath = path.resolve(laneRepoPath, toolInput.filePath);
+        }
+        const step = PHASE_STEPS[currentPhase] || "?/6";
+        log(
+          `  [${run.participant} (L${laneId}), Phase ${step}] Tool: ${toolName}`
+        );
+      } else if (
+        toolName === "list_dir" ||
+        toolName === "copilot_listDirectory"
+      ) {
+        if (
+          typeof toolInput.dirPath === "string" &&
+          !path.isAbsolute(toolInput.dirPath)
+        ) {
+          toolInput.dirPath = path.resolve(laneRepoPath, toolInput.dirPath);
+        }
+        const step = PHASE_STEPS[currentPhase] || "?/6";
+        log(
+          `  [${run.participant} (L${laneId}), Phase ${step}] Tool: ${toolName}`
+        );
       } else {
-        const step = PHASE_STEPS[currentPhase] || "?/5";
-        log(`  [Run ${seqStr}/${totStr}, Phase ${step}] Tool: ${toolName}`);
+        const step = PHASE_STEPS[currentPhase] || "?/6";
+        log(
+          `  [${run.participant} (L${laneId}), Phase ${step}] Tool: ${toolName}`
+        );
       }
 
       // Invoke tool via vscode.lm.invokeTool
       let resultText = "";
+      const fuzzRunsCountBefore =
+        toolName === "nanofuzz_fuzzFunction"
+          ? (sessionManager.getSession(sessionId, laneRepoPath)?.fuzzRuns
+              .length ?? 0)
+          : 0;
       try {
         const toolRes = await vscode.lm.invokeTool(
           toolName,
@@ -1219,7 +1382,31 @@ export async function runSingleBenchmarkSession(
         }
       } catch (err: unknown) {
         resultText = `Tool invocation error: ${String(err)}`;
-        log(`  ${prefix} [WARN] Tool ${toolName} threw: ${String(err)}`);
+        const step = PHASE_STEPS[currentPhase] || "?/6";
+        log(`  ${tag(step)} [WARN] Tool ${toolName} threw: ${String(err)}`);
+      }
+
+      if (toolName === "nanofuzz_fuzzFunction") {
+        const activeSession = sessionManager.getSession(
+          sessionId,
+          laneRepoPath
+        );
+        if (
+          activeSession &&
+          activeSession.fuzzRuns.length > fuzzRunsCountBefore
+        ) {
+          const newRuns = activeSession.fuzzRuns.slice(fuzzRunsCountBefore);
+          for (const r of newRuns) {
+            if (r.deepSlotWaitMs && r.deepSlotWaitMs > 0) {
+              phaseSlotWaitMs += r.deepSlotWaitMs;
+              totalDeepSlotWaitMs += r.deepSlotWaitMs;
+              const step = PHASE_STEPS[currentPhase] || "?/6";
+              log(
+                `  ${tag(step)} Deep fuzzing slot wait: ${Math.round(r.deepSlotWaitMs / 1000)}s (discounted from active time)`
+              );
+            }
+          }
+        }
       }
 
       toolResults.push(
@@ -1249,14 +1436,20 @@ export async function runSingleBenchmarkSession(
   const ss = durationSec % 60;
 
   const retryWaitSec = Math.round(totalRetryWaitMs / 1000);
-  const activeSec = Math.max(0, durationSec - retryWaitSec);
+  const deepSlotWaitSec = Math.round(totalDeepSlotWaitMs / 1000);
+  const activeSec = Math.max(0, durationSec - retryWaitSec - deepSlotWaitSec);
 
   const getPhaseSec = (phaseName: string): PhaseTimeSplit => {
-    const t = phaseTimings[phaseName] || { elapsedMs: 0, retryWaitMs: 0 };
+    const t = phaseTimings[phaseName] || {
+      elapsedMs: 0,
+      retryWaitMs: 0,
+      slotWaitMs: 0,
+    };
     const elapsedSec = Math.round(t.elapsedMs / 1000);
     const retrySec = Math.round(t.retryWaitMs / 1000);
-    const activeSec = Math.max(0, elapsedSec - retrySec);
-    return { elapsedSec, retrySec, activeSec };
+    const slotWaitSec = Math.round((t.slotWaitMs ?? 0) / 1000);
+    const activeSec = Math.max(0, elapsedSec - retrySec - slotWaitSec);
+    return { elapsedSec, retrySec, slotWaitSec, activeSec };
   };
 
   let extractDocs: PhaseTimeSplit;
@@ -1268,11 +1461,12 @@ export async function runSingleBenchmarkSession(
     extractDocs = {
       elapsedSec: docs1.elapsedSec + docs2.elapsedSec,
       retrySec: docs1.retrySec + docs2.retrySec,
+      slotWaitSec: docs1.slotWaitSec + docs2.slotWaitSec,
       activeSec: docs1.activeSec + docs2.activeSec,
     };
-    extractTests = { elapsedSec: 0, retrySec: 0, activeSec: 0 };
+    extractTests = { elapsedSec: 0, retrySec: 0, slotWaitSec: 0, activeSec: 0 };
   } else if (run.source === "tests") {
-    extractDocs = { elapsedSec: 0, retrySec: 0, activeSec: 0 };
+    extractDocs = { elapsedSec: 0, retrySec: 0, slotWaitSec: 0, activeSec: 0 };
     extractTests = getPhaseSec("init");
   } else {
     // "all": init (or invariants_from_docs) is docs, invariants_from_tests is tests
@@ -1281,6 +1475,7 @@ export async function runSingleBenchmarkSession(
     extractDocs = {
       elapsedSec: docs1.elapsedSec + docs2.elapsedSec,
       retrySec: docs1.retrySec + docs2.retrySec,
+      slotWaitSec: docs1.slotWaitSec + docs2.slotWaitSec,
       activeSec: docs1.activeSec + docs2.activeSec,
     };
     extractTests = getPhaseSec("invariants_from_tests");
@@ -1289,6 +1484,7 @@ export async function runSingleBenchmarkSession(
   const totalExtract: PhaseTimeSplit = {
     elapsedSec: extractDocs.elapsedSec + extractTests.elapsedSec,
     retrySec: extractDocs.retrySec + extractTests.retrySec,
+    slotWaitSec: extractDocs.slotWaitSec + extractTests.slotWaitSec,
     activeSec: extractDocs.activeSec + extractTests.activeSec,
   };
 
@@ -1300,6 +1496,7 @@ export async function runSingleBenchmarkSession(
   const deep: PhaseTimeSplit = {
     elapsedSec: deep1.elapsedSec + deep2.elapsedSec,
     retrySec: deep1.retrySec + deep2.retrySec,
+    slotWaitSec: deep1.slotWaitSec + deep2.slotWaitSec,
     activeSec: deep1.activeSec + deep2.activeSec,
   };
 
@@ -1317,7 +1514,7 @@ export async function runSingleBenchmarkSession(
     ? fs.readFileSync(run.reportPath, "utf8")
     : "";
 
-  const activeSession = sessionManager.getSession();
+  const activeSession = sessionManager.getSession(sessionId, laneRepoPath);
   const fuzzRuns = activeSession?.fuzzRuns || [];
   const evalResults = evaluateBugsForParticipant(
     run.task,
@@ -1435,6 +1632,7 @@ export async function runSingleBenchmarkSession(
     evalResults,
     durationSec,
     retryWaitSec,
+    deepSlotWaitSec,
     activeSec,
     splits,
     fuzzRuns.length,
@@ -1454,6 +1652,7 @@ export async function runSingleBenchmarkSession(
   );
   const telemetryData = {
     participant: run.participant,
+    lane: laneId,
     sequence: run.sequence,
     replicate: run.replicate,
     task: run.task,
@@ -1466,6 +1665,7 @@ export async function runSingleBenchmarkSession(
     durationSeconds: durationSec,
     activeExecutionSeconds: activeSec,
     apiRetryWaitSeconds: retryWaitSec,
+    deepSlotWaitSeconds: deepSlotWaitSec,
     apiRetryAttempts: totalRetryAttempts,
     phaseSplits: splits,
     completedAt: new Date().toISOString(),
@@ -1481,9 +1681,9 @@ export async function runSingleBenchmarkSession(
   );
   log(`${prefix} Saved telemetry: ${path.basename(telemetryJsonPath)}`);
 
-  // Clean target repository
-  log(`${prefix} Cleaning target repository...`);
-  cleanTargetRepo();
+  // Clean target lane worktree
+  log(`${prefix} Cleaning lane ${laneId} worktree...`);
+  cleanLane(laneId);
 
   const score =
     evalResults.length > 0
@@ -1503,7 +1703,11 @@ export async function runSingleBenchmarkSession(
 // Master Orchestrator (45 or 135 Runs)
 // ============================================================================
 
-export async function runBenchmarkMatrix(replicates: 1 | 3 = 1): Promise<void> {
+export async function runBenchmarkMatrix(
+  replicates: 1 | 3 = 1,
+  concurrency: number = CONCURRENCY_LANES
+): Promise<void> {
+  initializeConcurrentWorktrees(concurrency);
   const schedule = generateBenchmarkSchedule(replicates);
   const totalRuns = schedule.length;
 
@@ -1519,11 +1723,16 @@ export async function runBenchmarkMatrix(replicates: 1 | 3 = 1): Promise<void> {
     "================================================================================"
   );
   log(
-    `[BENCHMARK] Starting unattended matrix: ${totalRuns} tasks (Seed: '${SEED}')`
+    `[BENCHMARK] Starting unattended concurrent matrix: ${totalRuns} tasks (Seed: '${SEED}')`
   );
   log(
-    `Target Repo: ${TARGET_REPO} (${TARGET_FANDANGO_VERSION} @ ${TARGET_FANDANGO_COMMIT.slice(0, 8)})`
+    `Parallel Lanes: ${concurrency} | Max Deep Fuzzing Slots: ${MAX_DEEP_FUZZ_SLOTS}`
   );
+  log(
+    `Base Repo: ${SOURCE_FANDANGO_REPO} (${TARGET_FANDANGO_VERSION} @ ${TARGET_FANDANGO_COMMIT.slice(0, 8)})`
+  );
+  log(`Worktrees: ${WORKTREES_DIR}/w1 ... w${concurrency}`);
+  log(`Results Directory: ${RESULTS_DIR}`);
   log(`Factorial Tasks: ${BENCHMARK_TASKS.join(", ")}`);
   log(`Engines: ${ENGINES.join(", ")} | Sources: ${SOURCES.join(", ")}`);
   log(
@@ -1532,6 +1741,7 @@ export async function runBenchmarkMatrix(replicates: 1 | 3 = 1): Promise<void> {
 
   const results: Array<{
     participant: string;
+    lane: number;
     task: string;
     engine: string;
     source: string;
@@ -1540,17 +1750,25 @@ export async function runBenchmarkMatrix(replicates: 1 | 3 = 1): Promise<void> {
     success: boolean;
   }> = [];
 
-  try {
-    for (const run of schedule) {
-      if (token.isCancellationRequested) {
-        log("[CANCEL] Benchmark loop cancelled.");
-        break;
-      }
+  let nextQueueIndex = 0;
+
+  async function laneWorker(laneId: number): Promise<void> {
+    while (nextQueueIndex < schedule.length) {
+      if (token.isCancellationRequested) break;
+      const runIndex = nextQueueIndex++;
+      if (runIndex >= schedule.length) break;
+      const run = schedule[runIndex];
 
       try {
-        const res = await runSingleBenchmarkSession(run, totalRuns, token);
+        const res = await runSingleBenchmarkSession(
+          run,
+          totalRuns,
+          laneId,
+          token
+        );
         results.push({
           participant: run.participant,
+          lane: laneId,
           task: run.task,
           engine: run.engine,
           source: run.source,
@@ -1560,11 +1778,12 @@ export async function runBenchmarkMatrix(replicates: 1 | 3 = 1): Promise<void> {
         });
       } catch (err: unknown) {
         log(
-          `[FAILED] Participant ${run.participant} crashed with error: ${String(err)}`
+          `[FAILED] [Lane ${laneId}] Participant ${run.participant} crashed with error: ${String(err)}`
         );
-        cleanTargetRepo();
+        cleanLane(laneId);
         results.push({
           participant: run.participant,
+          lane: laneId,
           task: run.task,
           engine: run.engine,
           source: run.source,
@@ -1574,6 +1793,14 @@ export async function runBenchmarkMatrix(replicates: 1 | 3 = 1): Promise<void> {
         });
       }
     }
+  }
+
+  try {
+    const laneWorkers: Promise<void>[] = [];
+    for (let l = 1; l <= concurrency; l++) {
+      laneWorkers.push(laneWorker(l));
+    }
+    await Promise.all(laneWorkers);
   } finally {
     if (activeCts?.token === token) {
       activeCts.dispose();
@@ -1582,6 +1809,7 @@ export async function runBenchmarkMatrix(replicates: 1 | 3 = 1): Promise<void> {
   }
 
   // Print final summary table
+  results.sort((a, b) => a.participant.localeCompare(b.participant));
   log(
     "\n================================================================================"
   );
@@ -1589,32 +1817,70 @@ export async function runBenchmarkMatrix(replicates: 1 | 3 = 1): Promise<void> {
   log(
     "================================================================================"
   );
-  log("| ID | Task | Engine | Source | Duration | Status |");
-  log("| :-: | :--- | :----: | :----: | :------: | :----: |");
+  log("| ID | Lane | Task | Engine | Source | Duration | Status |");
+  log("| :-: | :--: | :--- | :----: | :----: | :------: | :----: |");
   for (const r of results) {
     const dur = `${Math.floor(r.durationSec / 60)}m ${r.durationSec % 60}s`;
     const st = r.success ? "[PASS]" : "[FAIL]";
     log(
-      `| ${r.participant} | ${r.task} | ${r.engine} | ${r.source} | ${dur} | ${st} |`
+      `| ${r.participant} | Lane ${r.lane} | ${r.task} | ${r.engine} | ${r.source} | ${dur} | ${st} |`
     );
   }
   log(
     "================================================================================\n"
   );
-}
+
+  // Run statistical analysis and regenerate dissertation tables/figures
+  runAnalysisPipeline();
+} // fn: runBenchmarkMatrix
+
+export function runAnalysisPipeline(): void {
+  const pythonBin = fs.existsSync(
+    "/Users/mcd2/git/cmumatt/nanofuzz-6/.venv/bin/python"
+  )
+    ? "/Users/mcd2/git/cmumatt/nanofuzz-6/.venv/bin/python"
+    : fs.existsSync(
+          "/Users/mcd2/git/cmumatt/nanofuzz-2024-analysis/.venv/bin/python"
+        )
+      ? "/Users/mcd2/git/cmumatt/nanofuzz-2024-analysis/.venv/bin/python"
+      : "python3";
+
+  const scriptPath = fs.existsSync(
+    "/Users/mcd2/git/cmumatt/nanofuzz-6/benchmark/scripts/analyze_quarton.py"
+  )
+    ? "/Users/mcd2/git/cmumatt/nanofuzz-6/benchmark/scripts/analyze_quarton.py"
+    : path.resolve(
+        "/Users/mcd2/git/cmumatt/nanofuzz-6/scripts/analyze_quarton.py"
+      );
+  if (!fs.existsSync(scriptPath)) {
+    log(`[ANALYSIS] [WARN] Analysis script not found at ${scriptPath}`);
+    return;
+  }
+
+  log("[ANALYSIS] Running QuartoN dissertation analysis pipeline...");
+  try {
+    const stdout = execSync(`"${pythonBin}" "${scriptPath}"`, {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    for (const line of stdout.split("\n")) {
+      if (line.trim()) {
+        log(`  ${line}`);
+      }
+    }
+  } catch (err: unknown) {
+    log(`  [ANALYSIS] [WARN] Analysis pipeline error: ${String(err)}`);
+  }
+} // fn: runAnalysisPipeline
 
 // -------------------------------------------------------------------------- //
 // Auxiliary Types & Helpers
 // -------------------------------------------------------------------------- //
 
-type AssistantStreamPart =
-  | vscode.LanguageModelTextPart
-  | vscode.LanguageModelToolCallPart
-  | vscode.LanguageModelDataPart;
-
 export interface PhaseTimeSplit {
   elapsedSec: number;
   retrySec: number;
+  slotWaitSec: number;
   activeSec: number;
 }
 
@@ -1626,3 +1892,13 @@ export interface ParticipantPhaseSplits {
   smoke: PhaseTimeSplit;
   deep: PhaseTimeSplit;
 }
+
+type AssistantStreamPart =
+  | vscode.LanguageModelTextPart
+  | vscode.LanguageModelToolCallPart
+  | vscode.LanguageModelDataPart;
+
+function cast<T>(val: unknown): T;
+function cast(val: unknown): unknown {
+  return val;
+} // fn: cast

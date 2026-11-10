@@ -23,18 +23,18 @@ export async function findBugs(
   const phase: FindBugsPhase = options.phase ?? "init";
   const toolName = getToolName();
 
-  const tool: FindBugsTool = Config.get<FindBugsTool>(
+  const defaultTool: FindBugsTool = Config.get<FindBugsTool>(
     "nanofuzz.experimental.findBugs.tool",
     "nanofuzz"
   );
 
-  const invariantSource: FindBugsInvariantSource =
+  const defaultInvariantSource: FindBugsInvariantSource =
     Config.get<FindBugsInvariantSource>(
       "nanofuzz.experimental.findBugs.invariantSource",
       "tests"
     );
 
-  const targetScope: string[] = getTargetScope();
+  const defaultTargetScope: string[] = getTargetScope();
 
   const skipContextualization: boolean = Config.get<boolean>(
     "nanofuzz.experimental.findBugs.skipContextualization",
@@ -49,14 +49,39 @@ export async function findBugs(
   const payload = options.statePayload ?? {};
   const passedSessionId =
     typeof payload.sessionId === "string" ? payload.sessionId : undefined;
+  const payloadTool: FindBugsTool | undefined =
+    payload.tool === "nanofuzz" ||
+    payload.tool === "hypothesis" ||
+    payload.tool === "hypofuzz"
+      ? payload.tool
+      : undefined;
+  const payloadSource: FindBugsInvariantSource | undefined =
+    payload.invariantSource === "docs" ||
+    payload.invariantSource === "tests" ||
+    payload.invariantSource === "all"
+      ? payload.invariantSource
+      : undefined;
+  const payloadScope = Array.isArray(payload.targetScope)
+    ? payload.targetScope.map(String)
+    : undefined;
+  const payloadRepoPath =
+    typeof payload.targetRepoPath === "string"
+      ? payload.targetRepoPath
+      : undefined;
+
   const session = sessionManager.getOrCreateSession(
     passedSessionId,
-    tool,
-    invariantSource,
+    payloadTool ?? defaultTool,
+    payloadSource ?? defaultInvariantSource,
     workerCount,
     phase,
-    targetScope
+    payloadScope ?? defaultTargetScope,
+    payloadRepoPath
   );
+
+  const tool: FindBugsTool = session.tool;
+  const invariantSource: FindBugsInvariantSource = session.invariantSource;
+  const targetScope: string[] = session.targetScope ?? [];
 
   let instructions: string;
   let nextPhase: FindBugsPhase | undefined;
@@ -348,7 +373,7 @@ export async function findBugs(
         );
       }
 
-      // Phase 4 Check: If defects were found in fuzzing runs, Phase 4 contextualization must not have been skipped
+      // Phase 6 Check: If defects were found in fuzzing runs, Phase 6 contextualization must not have been skipped
       const totalFailuresInSession = session.fuzzRuns.reduce(
         (sum, r) => sum + r.failedTests + r.exceptions,
         0
@@ -364,7 +389,7 @@ export async function findBugs(
         !skipContextualization
       ) {
         throw new Error(
-          "Execution Gate Blocked (Phase 4 Contextualization Required): Defect failures were recorded during fuzzing, but Phase 4 (Bug Contextualization & Maintainer Intent Verification) was skipped. You must call nanofuzz_findBugs with phase: 'contextualize_bugs' to verify findings against public issues/PRs before completing the workflow."
+          "Execution Gate Blocked (Phase 6 Contextualization Required): Defect failures were recorded during fuzzing, but Phase 6 (Bug Contextualization & Maintainer Intent Verification) was skipped. You must call nanofuzz_findBugs with phase: 'contextualize_bugs' to verify findings against public issues/PRs before completing the workflow."
         );
       }
 
@@ -667,7 +692,7 @@ function buildInvariantsGuidance(
 ): string {
   if (tool === "hypothesis" || tool === "hypofuzz") {
     return [
-      `### Instructions for Phase 2: Hypothesis Test Suite Synthesis [Engine: ${tool} | Source: ${invariantSource}]`,
+      `### Instructions for Phase 3: Hypothesis Test Suite Synthesis [Engine: ${tool} | Source: ${invariantSource}]`,
       "",
       `1. **Create Test File**:`,
       `   - Create a dedicated test file in the project's test directory (e.g. \`tests/test_pbt_<entrypoint>.py\`).`,
@@ -704,7 +729,7 @@ function buildInvariantsGuidance(
   }
 
   return [
-    `### Instructions for Phase 2: Harness & Validator Synthesis [Engine: nanofuzz | Source: ${invariantSource}]`,
+    `### Instructions for Phase 3: Harness & Validator Synthesis [Engine: nanofuzz | Source: ${invariantSource}]`,
     "",
     `1. **Create Isolated Harness Files**:`,
     `   - For each entrypoint or coupled group, create a dedicated harness file **inside the project root/source tree** (e.g. \`<projectRoot>/nanofuzz_harness_<entrypoint>.<ext>\`).`,
@@ -902,7 +927,7 @@ function buildFuzzEntrypointGuidance(
 } // fn: buildFuzzEntrypointGuidance
 
 /**
- * Builds guidance for Phase 4: Bug contextualization and maintainer intent verification against public issues/PRs/docs.
+ * Builds guidance for Phase 6: Bug contextualization and maintainer intent verification against public issues/PRs/docs.
  */
 function buildContextualizeBugsGuidance(
   options: FindBugsOptions,
@@ -912,7 +937,7 @@ function buildContextualizeBugsGuidance(
   sessionId: string
 ): string {
   return [
-    `### Instructions for Phase 4: Bug Contextualization & Maintainer Intent Verification [Engine: ${tool} | Source: ${invariantSource}]`,
+    `### Instructions for Phase 6: Bug Contextualization & Maintainer Intent Verification [Engine: ${tool} | Source: ${invariantSource}]`,
     "",
     `For each confirmed bug or invariant failure discovered during testing:`,
     "",
@@ -969,7 +994,7 @@ function buildContextualizeBugsGuidance(
 } // fn: buildContextualizeBugsGuidance
 
 /**
- * Builds guidance for Phase 5: Final reporting and interactive user disposition prompt.
+ * Builds guidance for Phase 6: Final reporting and interactive user disposition prompt.
  */
 function buildCompleteGuidance(
   _options: FindBugsOptions,
@@ -981,7 +1006,7 @@ function buildCompleteGuidance(
     : "";
 
   return [
-    `### Instructions for Phase 5: Reporting & Artifact Disposition`,
+    `### Instructions for Phase 6: Reporting & Artifact Disposition`,
     "",
     `1. **Generate Structured Summary Report**:`,
     `   Present a clear summary of all tested entrypoints to the user:`,
