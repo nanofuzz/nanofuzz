@@ -5,6 +5,8 @@ import { execSync } from "node:child_process";
 import * as Config from "../Config";
 import { isKeyedObject } from "../Util";
 import { sessionManager } from "./FindBugsSessionManager";
+import { formatDuration } from "./FuzzTextFormatter";
+import { clearCachedRawResultsForPath } from "./Agent";
 
 // ============================================================================
 // Configuration
@@ -31,6 +33,7 @@ const SURVEY_RESPONSES_CSV_PATH = path.join(
   RESULTS_DIR,
   "survey_responses.csv"
 );
+const STATE_JSON_PATH = path.join(RESULTS_DIR, "benchmark_state.json");
 
 export const CONCURRENCY_LANES = 4;
 export const MAX_DEEP_FUZZ_SLOTS = 2;
@@ -246,7 +249,16 @@ function getOutput(): vscode.OutputChannel {
 function log(msg: string): void {
   const ts = new Date().toLocaleTimeString();
   getOutput().appendLine(`[${ts}] ${msg}`);
-}
+} // fn: log
+
+/**
+ * Appends unformatted raw text to the output channel.
+ *
+ * @param msg raw string message to append
+ */
+function logRaw(msg: string): void {
+  getOutput().appendLine(msg);
+} // fn: logRaw
 
 /**
  * Cancels any actively running benchmark matrix session.
@@ -256,6 +268,7 @@ export function cancelBenchmarkMatrix(): void {
     activeCts.cancel();
     activeCts.dispose();
     activeCts = undefined;
+    dashboardTracker.dispose();
     log("[CANCEL] Benchmark run cancelled by user.");
     cleanTargetRepo();
     vscode.window.showInformationMessage("NaNofuzz Benchmark cancelled.");
@@ -264,7 +277,7 @@ export function cancelBenchmarkMatrix(): void {
       "No active NaNofuzz Benchmark to cancel."
     );
   }
-}
+} // fn: cancelBenchmarkMatrix
 
 // ============================================================================
 // Deterministic Seeded Shuffle
@@ -326,6 +339,116 @@ export function generateBenchmarkSchedule(
     };
   });
 }
+
+// ============================================================================
+// State Checkpointing & Resumption
+// ============================================================================
+
+export interface BenchmarkScheduleItemState {
+  participant: string;
+  sequence: number;
+  replicate: number;
+  task: BenchmarkTaskName;
+  engine: (typeof ENGINES)[number];
+  source: (typeof SOURCES)[number];
+  reportFilename: string;
+  status: "pending" | "running" | "completed" | "failed";
+  completedAt?: string;
+  durationSec?: number;
+  score?: string;
+  error?: string;
+}
+
+/**
+ * Discovers previously completed participants from state file and disk telemetry.
+ *
+ * @returns map of participant ID to its completed schedule item state
+ */
+export function loadCompletedParticipants(): Map<
+  string,
+  BenchmarkScheduleItemState
+> {
+  const completed = new Map<string, BenchmarkScheduleItemState>();
+
+  // Recover from benchmark_state.json if present
+  if (fs.existsSync(STATE_JSON_PATH)) {
+    const parsed = JSON.parse(fs.readFileSync(STATE_JSON_PATH, "utf8"));
+    if (Array.isArray(parsed)) {
+      for (const item of parsed) {
+        if (item && item.participant && item.status === "completed") {
+          completed.set(item.participant, item);
+        }
+      }
+    }
+  }
+
+  // Discover from telemetry JSON files on disk (ground truth completed runs)
+  if (fs.existsSync(TELEMETRY_DIR)) {
+    const files = fs.readdirSync(TELEMETRY_DIR);
+    for (const file of files) {
+      if (!file.endsWith(".telemetry.json")) continue;
+      const filePath = path.join(TELEMETRY_DIR, file);
+      const t = JSON.parse(fs.readFileSync(filePath, "utf8"));
+      if (t && t.participant && !completed.has(t.participant)) {
+        const score =
+          Array.isArray(t.evalResults) && t.evalResults.length > 0
+            ? (
+                t.evalResults.filter(
+                  (r: { elicited: number }) => r.elicited === 1
+                ).length / t.evalResults.length
+              ).toFixed(3)
+            : "0.000";
+        completed.set(t.participant, {
+          participant: t.participant,
+          sequence: t.sequence,
+          replicate: t.replicate,
+          task: t.task,
+          engine: t.engine,
+          source: t.source,
+          reportFilename: t.reportFilename,
+          status: "completed",
+          completedAt: t.completedAt,
+          durationSec: t.durationSeconds,
+          score,
+        });
+      }
+    }
+  }
+
+  return completed;
+} // fn: loadCompletedParticipants
+
+/**
+ * Persists the current matrix schedule status to benchmark_state.json.
+ *
+ * @param schedule full list of benchmark runs
+ * @param completedMap map of participant IDs that have finished
+ */
+export function saveBenchmarkState(
+  schedule: BenchmarkRunSpec[],
+  completedMap: Map<string, BenchmarkScheduleItemState>
+): void {
+  if (!fs.existsSync(RESULTS_DIR)) {
+    fs.mkdirSync(RESULTS_DIR, { recursive: true });
+  }
+  const stateList: BenchmarkScheduleItemState[] = schedule.map((s) => {
+    const done = completedMap.get(s.participant);
+    if (done && done.status === "completed") {
+      return done;
+    }
+    return {
+      participant: s.participant,
+      sequence: s.sequence,
+      replicate: s.replicate,
+      task: s.task,
+      engine: s.engine,
+      source: s.source,
+      reportFilename: s.reportFilename,
+      status: "pending",
+    };
+  });
+  fs.writeFileSync(STATE_JSON_PATH, JSON.stringify(stateList, null, 2), "utf8");
+} // fn: saveBenchmarkState
 
 // ============================================================================
 // Post-Task Survey & SUS Evaluation
@@ -508,7 +631,7 @@ function evaluateBugsForParticipant(
         const isMatch = bug.matchPatterns.some((pat) => pat.test(textToCheck));
         if (isMatch) {
           elicited = 1;
-          generator = run.generatorName || "RandomInputGenerator";
+          generator = run.generatorName || "Unknown";
           break;
         }
       }
@@ -519,7 +642,7 @@ function evaluateBugsForParticipant(
       const isMatch = bug.matchPatterns.some((pat) => pat.test(reportText));
       if (isMatch) {
         elicited = 1;
-        generator = "RandomInputGenerator";
+        generator = "ReportedInSummary";
       }
     }
 
@@ -562,7 +685,7 @@ function writeScoringSheet(
     `- **PUT Version**: Fandango \`${TARGET_FANDANGO_VERSION}\` (\`${TARGET_FANDANGO_COMMIT.slice(0, 8)}\`)`,
     `- **Replicate**: ${run.replicate} (Sequence Order: ${run.sequence})`,
     `- **Date**: ${new Date().toISOString().split("T")[0]}`,
-    `- **Duration**: ${Math.floor(durationSec / 60)}m ${durationSec % 60}s (active: ${splits.totalExtract.activeSec + splits.synthesis.activeSec + splits.smoke.activeSec + splits.deep.activeSec}s, retry: ${splits.totalExtract.retrySec + splits.synthesis.retrySec + splits.smoke.retrySec + splits.deep.retrySec}s, deep slot wait: ${splits.deep.slotWaitSec}s)`,
+    `- **Duration**: ${Math.floor(durationSec / 60)}m ${durationSec % 60}s (active: ${splits.totalExtract.activeSec + splits.synthesis.activeSec + splits.smoke.activeSec + splits.deep.activeSec + splits.contextualize.activeSec}s, retry: ${splits.totalExtract.retrySec + splits.synthesis.retrySec + splits.smoke.retrySec + splits.deep.retrySec + splits.contextualize.retrySec}s, deep slot wait: ${splits.deep.slotWaitSec}s)`,
     `- **Phase Timing Splits**:`,
     `  - Invariant Extraction: ${splits.totalExtract.activeSec}s active (${splits.totalExtract.retrySec}s retry, ${splits.totalExtract.elapsedSec}s elapsed)`,
     `    - From Docs: ${splits.extractDocs.activeSec}s active (${splits.extractDocs.retrySec}s retry)`,
@@ -570,6 +693,7 @@ function writeScoringSheet(
     `  - Harness Synthesis: ${splits.synthesis.activeSec}s active (${splits.synthesis.retrySec}s retry, ${splits.synthesis.elapsedSec}s elapsed)`,
     `  - Smoke Testing: ${splits.smoke.activeSec}s active (${splits.smoke.retrySec}s retry, ${splits.smoke.elapsedSec}s elapsed)`,
     `  - Deep Fuzzing: ${splits.deep.activeSec}s active (${splits.deep.slotWaitSec}s slot wait, ${splits.deep.retrySec}s retry, ${splits.deep.elapsedSec}s elapsed)`,
+    `  - Bug Reporting & Context: ${splits.contextualize.activeSec}s active (${splits.contextualize.retrySec}s retry, ${splits.contextualize.elapsedSec}s elapsed)`,
     `- **Task Bug Count**: ${evalResults.length}`,
     `- **Bugs Elicited**: ${evalResults.filter((r) => r.elicited === 1).length} / ${evalResults.length}`,
     `- **Normalized Score (0.000 - 1.000)**: **${normalizedScore}**`,
@@ -679,6 +803,9 @@ function appendToDataCsv(
     "Deep.RetrySec",
     "Deep.SlotWaitSec",
     "Deep.ActiveSec",
+    "Contextualize.ElapsedSec",
+    "Contextualize.RetrySec",
+    "Contextualize.ActiveSec",
     "TotalFuzzRuns",
     "TotalTestsExecuted",
     "BranchCoveragePct",
@@ -757,6 +884,9 @@ function appendToDataCsv(
     String(splits.deep.retrySec),
     String(splits.deep.slotWaitSec),
     String(splits.deep.activeSec),
+    String(splits.contextualize.elapsedSec),
+    String(splits.contextualize.retrySec),
+    String(splits.contextualize.activeSec),
     String(totalFuzzRuns),
     String(totalTests),
     branchCoverage.toFixed(1),
@@ -764,18 +894,18 @@ function appendToDataCsv(
     String(bugsElicited),
     score,
     accuracy,
-    survey ? String(survey.realistic) : "3",
-    survey ? survey.susScore.toFixed(1) : "50.0",
-    survey ? String(survey.sus1) : "3",
-    survey ? String(survey.sus2) : "3",
-    survey ? String(survey.sus3) : "3",
-    survey ? String(survey.sus4) : "3",
-    survey ? String(survey.sus5) : "3",
-    survey ? String(survey.sus6) : "3",
-    survey ? String(survey.sus7) : "3",
-    survey ? String(survey.sus8) : "3",
-    survey ? String(survey.sus9) : "3",
-    survey ? String(survey.sus10) : "3",
+    survey ? String(survey.realistic) : "",
+    survey ? survey.susScore.toFixed(1) : "",
+    survey ? String(survey.sus1) : "",
+    survey ? String(survey.sus2) : "",
+    survey ? String(survey.sus3) : "",
+    survey ? String(survey.sus4) : "",
+    survey ? String(survey.sus5) : "",
+    survey ? String(survey.sus6) : "",
+    survey ? String(survey.sus7) : "",
+    survey ? String(survey.sus8) : "",
+    survey ? String(survey.sus9) : "",
+    survey ? String(survey.sus10) : "",
     `"${generators || "None"}"`,
     "COMPLETED",
     ...bugCols,
@@ -823,11 +953,7 @@ export function initializeConcurrentWorktrees(
     }
     const venvLink = path.join(wtPath, ".venv");
     if (!fs.existsSync(venvLink)) {
-      try {
-        fs.symlinkSync(path.join(SOURCE_FANDANGO_REPO, ".venv"), venvLink);
-      } catch (_err) {
-        void _err;
-      }
+      fs.symlinkSync(path.join(SOURCE_FANDANGO_REPO, ".venv"), venvLink);
     }
   }
 } // fn: initializeConcurrentWorktrees
@@ -849,31 +975,24 @@ export function cleanLane(laneId: number): void {
   // Ensure .venv symlink remains intact
   const venvLink = path.join(wtPath, ".venv");
   if (!fs.existsSync(venvLink)) {
-    try {
-      fs.symlinkSync(path.join(SOURCE_FANDANGO_REPO, ".venv"), venvLink);
-    } catch (_err) {
-      void _err;
-    }
+    fs.symlinkSync(path.join(SOURCE_FANDANGO_REPO, ".venv"), venvLink);
   }
 
   // Clean lane-specific IPC temp files
-  try {
-    const tmpFiles = fs.readdirSync("/tmp");
-    for (const f of tmpFiles) {
-      if (
-        f.startsWith(`nanofuzz_w${laneId}_`) ||
-        f.startsWith(`nanofuzz_pbt_w${laneId}_`)
-      ) {
-        try {
-          fs.unlinkSync(path.join("/tmp", f));
-        } catch (_err) {
-          void _err;
-        }
+  const tmpFiles = fs.readdirSync("/tmp");
+  for (const f of tmpFiles) {
+    if (
+      f.startsWith(`nanofuzz_w${laneId}_`) ||
+      f.startsWith(`nanofuzz_pbt_w${laneId}_`)
+    ) {
+      if (fs.existsSync(path.join("/tmp", f))) {
+        fs.unlinkSync(path.join("/tmp", f));
       }
     }
-  } catch (_err) {
-    void _err;
   }
+
+  // De-reference cached raw fuzz results to allow V8 garbage collection
+  clearCachedRawResultsForPath(wtPath);
 } // fn: cleanLane
 
 export function cleanTargetRepo(): void {
@@ -900,9 +1019,7 @@ export async function runSingleBenchmarkSession(
   token?: vscode.CancellationToken
 ): Promise<{ success: boolean; durationSec: number; error?: string }> {
   const t0 = Date.now();
-  const seqStr = String(run.sequence).padStart(2, "0");
-  const totStr = String(totalRuns).padStart(2, "0");
-  const prefix = `[${run.participant} (L${laneId}, ${seqStr}/${totStr})]`;
+  const prefix = `[${run.participant} (L${laneId})]`;
   const laneRepoPath = path.join(WORKTREES_DIR, `w${laneId}`);
   const sessionId = `bench-w${laneId}-${run.participant}-${run.task}`;
 
@@ -931,6 +1048,20 @@ export async function runSingleBenchmarkSession(
     laneRepoPath
   );
   configureRunSettings();
+
+  dashboardTracker.sessionStarted(laneId, {
+    participant: run.participant,
+    lane: laneId,
+    task: run.task,
+    engine: run.engine,
+    source: run.source,
+    replicate: run.replicate,
+    stage: "Phase 1/6 (init)",
+    turn: 0,
+    toolErrors: 0,
+    retryAttempts: 0,
+    startTime: t0,
+  });
 
   const tag = (phaseLabel?: string): string => {
     const stepLabel = PHASE_STEPS[currentPhase] || "?/6";
@@ -986,6 +1117,7 @@ export async function runSingleBenchmarkSession(
     "nanofuzz_listTargets",
     "nanofuzz_fuzzFunction",
     "nanofuzz_findBugs",
+    "nanofuzz_shrinkInputs",
     "manage_todo_list",
     "read_file",
     "copilot_readFile",
@@ -1071,6 +1203,8 @@ export async function runSingleBenchmarkSession(
     tool: string;
     args: unknown;
     timestamp: string;
+    result?: string;
+    shrinkSteps?: number;
   }> = [];
 
   while (!sessionCompleted && turn < MAX_TURNS) {
@@ -1085,6 +1219,7 @@ export async function runSingleBenchmarkSession(
     }
 
     turn++;
+    dashboardTracker.updateTurn(laneId, turn);
     const stepLabel = PHASE_STEPS[currentPhase] || "?/6";
     log(
       `  ${tag(`${stepLabel} (${currentPhase})`)} Turn ${turn} sending to LLM...`
@@ -1181,6 +1316,7 @@ export async function runSingleBenchmarkSession(
         }
 
         totalRetryAttempts++;
+        dashboardTracker.updateRetries(laneId, totalRetryAttempts);
         // Exponential backoff with jitter for 503 / 429 / busy spikes
         const baseDelay = Math.min(60000, 3000 * Math.pow(1.6, attempt - 1));
         const delayMs = baseDelay + Math.floor(Math.random() * 3000);
@@ -1249,43 +1385,43 @@ export async function runSingleBenchmarkSession(
         : {};
       const toolName = call.name;
 
-      recordedToolEvents.push({
+      const eventRecord: {
+        tool: string;
+        args: unknown;
+        timestamp: string;
+        result?: string;
+        shrinkSteps?: number;
+      } = {
         tool: toolName,
         args: toolInput,
         timestamp: new Date().toISOString(),
-      });
+      };
+      recordedToolEvents.push(eventRecord);
 
       // Log structured turn feedback to console and enforce lane isolation
       if (toolName === "nanofuzz_findBugs") {
+        toolInput.targetPath = laneRepoPath;
         if (!isKeyedObject(toolInput.statePayload)) {
           toolInput.statePayload = {};
         }
         const sp = cast<Record<string, unknown>>(toolInput.statePayload);
-        if (!sp.sessionId) sp.sessionId = sessionId;
-        if (!sp.targetRepoPath) sp.targetRepoPath = laneRepoPath;
+        // UNCONDITIONALLY bind sessionId to the runner session so findBugs and fuzzFunction never desync
+        sp.sessionId = sessionId;
+        sp.targetRepoPath = laneRepoPath;
         if (!sp.tool) sp.tool = run.engine;
         if (!sp.invariantSource) sp.invariantSource = run.source;
         if (!sp.targetScope) sp.targetScope = run.targetScope;
 
         const p =
           typeof toolInput.phase === "string" ? toolInput.phase : "init";
-        if (p !== currentPhase) {
-          commitPhaseTiming(currentPhase, Date.now());
-          currentPhase = p;
-        }
         const stage =
           typeof sp.stage === "string" ? ` [Stage: ${sp.stage}]` : "";
         const fn =
           typeof sp.functionName === "string"
             ? ` (fn: ${sp.functionName})`
             : "";
-        const step = PHASE_STEPS[currentPhase] || "?/6";
-        log(
-          `  [${run.participant} (L${laneId}), Phase ${step} (${p})] State: ${p}${stage}${fn}`
-        );
-        if (p === "complete") {
-          sessionCompleted = true;
-        }
+        const step = PHASE_STEPS[p] || "?/6";
+        log(`  ${tag(`${step} (${p})`)} State: ${p}${stage}${fn}`);
       } else if (toolName === "nanofuzz_fuzzFunction") {
         toolInput.sessionId = sessionId;
         if (
@@ -1300,10 +1436,17 @@ export async function runSingleBenchmarkSession(
             ? "continuous (maxTests=0)"
             : `${toolInput.maxTests} tests`;
         const to = Math.round(Number(toolInput.timeoutMs || 0) / 1000);
-        const step = PHASE_STEPS[currentPhase] || "?/6";
-        log(
-          `  [${run.participant} (L${laneId}), Phase ${step}] Fuzzing: ${fn} (${maxTests}, timeout=${to}s)`
-        );
+        log(`  ${tag()} Fuzzing: ${fn} (${maxTests}, timeout=${to}s)`);
+      } else if (toolName === "nanofuzz_shrinkInputs") {
+        toolInput.sessionId = sessionId;
+        if (
+          typeof toolInput.filePath === "string" &&
+          !path.isAbsolute(toolInput.filePath)
+        ) {
+          toolInput.filePath = path.resolve(laneRepoPath, toolInput.filePath);
+        }
+        const fn = toolInput.functionName || "";
+        log(`  ${tag()} Shrinking inputs for: ${fn}`);
       } else if (toolName === "nanofuzz_listTargets") {
         if (
           typeof toolInput.filePath === "string" &&
@@ -1315,10 +1458,7 @@ export async function runSingleBenchmarkSession(
           .split("/")
           .slice(-2)
           .join("/");
-        const step = PHASE_STEPS[currentPhase] || "?/6";
-        log(
-          `  [${run.participant} (L${laneId}), Phase ${step}] Scanning: ${rel}`
-        );
+        log(`  ${tag()} Scanning: ${rel}`);
       } else if (
         toolName === "read_file" ||
         toolName === "copilot_readFile" ||
@@ -1333,10 +1473,7 @@ export async function runSingleBenchmarkSession(
         ) {
           toolInput.filePath = path.resolve(laneRepoPath, toolInput.filePath);
         }
-        const step = PHASE_STEPS[currentPhase] || "?/6";
-        log(
-          `  [${run.participant} (L${laneId}), Phase ${step}] Tool: ${toolName}`
-        );
+        log(`  ${tag()} Tool: ${toolName}`);
       } else if (
         toolName === "list_dir" ||
         toolName === "copilot_listDirectory"
@@ -1347,19 +1484,14 @@ export async function runSingleBenchmarkSession(
         ) {
           toolInput.dirPath = path.resolve(laneRepoPath, toolInput.dirPath);
         }
-        const step = PHASE_STEPS[currentPhase] || "?/6";
-        log(
-          `  [${run.participant} (L${laneId}), Phase ${step}] Tool: ${toolName}`
-        );
+        log(`  ${tag()} Tool: ${toolName}`);
       } else {
-        const step = PHASE_STEPS[currentPhase] || "?/6";
-        log(
-          `  [${run.participant} (L${laneId}), Phase ${step}] Tool: ${toolName}`
-        );
+        log(`  ${tag()} Tool: ${toolName}`);
       }
 
       // Invoke tool via vscode.lm.invokeTool
       let resultText = "";
+      let toolSucceeded = false;
       const fuzzRunsCountBefore =
         toolName === "nanofuzz_fuzzFunction"
           ? (sessionManager.getSession(sessionId, laneRepoPath)?.fuzzRuns
@@ -1380,10 +1512,45 @@ export async function runSingleBenchmarkSession(
             resultText += JSON.stringify(part);
           }
         }
+        toolSucceeded = true;
       } catch (err: unknown) {
+        dashboardTracker.incrementToolError(laneId);
         resultText = `Tool invocation error: ${String(err)}`;
         const step = PHASE_STEPS[currentPhase] || "?/6";
         log(`  ${tag(step)} [WARN] Tool ${toolName} threw: ${String(err)}`);
+      }
+
+      // Record tool execution outcome and capture shrink steps
+      eventRecord.result =
+        resultText.length > 2000
+          ? resultText.slice(0, 2000) + "... [truncated]"
+          : resultText;
+
+      const shrinkMatch = resultText.match(
+        /(?:simplified through|Shrink Steps:?)\s*(\d+)/i
+      );
+      if (shrinkMatch) {
+        eventRecord.shrinkSteps = parseInt(shrinkMatch[1], 10);
+      } else if (toolName === "nanofuzz_shrinkInputs") {
+        const stepMatch = resultText.match(/(\d+)\s+step/i);
+        if (stepMatch) {
+          eventRecord.shrinkSteps = parseInt(stepMatch[1], 10);
+        }
+      }
+
+      // ONLY advance phase and commit timing if the tool invocation succeeded without error
+      if (toolSucceeded && toolName === "nanofuzz_findBugs") {
+        const p =
+          typeof toolInput.phase === "string" ? toolInput.phase : "init";
+        if (p !== currentPhase) {
+          commitPhaseTiming(currentPhase, Date.now());
+          currentPhase = p;
+          const step = PHASE_STEPS[currentPhase] || "?/6";
+          dashboardTracker.updatePhase(laneId, `Phase ${step} (${p})`);
+        }
+        if (p === "complete") {
+          sessionCompleted = true;
+        }
       }
 
       if (toolName === "nanofuzz_fuzzFunction") {
@@ -1467,7 +1634,14 @@ export async function runSingleBenchmarkSession(
     extractTests = { elapsedSec: 0, retrySec: 0, slotWaitSec: 0, activeSec: 0 };
   } else if (run.source === "tests") {
     extractDocs = { elapsedSec: 0, retrySec: 0, slotWaitSec: 0, activeSec: 0 };
-    extractTests = getPhaseSec("init");
+    const t1 = getPhaseSec("init");
+    const t2 = getPhaseSec("invariants_from_tests");
+    extractTests = {
+      elapsedSec: t1.elapsedSec + t2.elapsedSec,
+      retrySec: t1.retrySec + t2.retrySec,
+      slotWaitSec: t1.slotWaitSec + t2.slotWaitSec,
+      activeSec: t1.activeSec + t2.activeSec,
+    };
   } else {
     // "all": init (or invariants_from_docs) is docs, invariants_from_tests is tests
     const docs1 = getPhaseSec("init");
@@ -1500,6 +1674,8 @@ export async function runSingleBenchmarkSession(
     activeSec: deep1.activeSec + deep2.activeSec,
   };
 
+  const contextualize = getPhaseSec("contextualize_bugs");
+
   const splits: ParticipantPhaseSplits = {
     extractDocs,
     extractTests,
@@ -1507,6 +1683,7 @@ export async function runSingleBenchmarkSession(
     synthesis,
     smoke,
     deep,
+    contextualize,
   };
 
   // Evaluate ground-truth bugs elicited & reported for this participant
@@ -1671,6 +1848,23 @@ export async function runSingleBenchmarkSession(
     completedAt: new Date().toISOString(),
     toolEventCount: recordedToolEvents.length,
     events: recordedToolEvents,
+    fuzzRuns: activeSession?.fuzzRuns || [],
+    shrinkStats: {
+      totalShrinkSteps:
+        (activeSession?.fuzzRuns || []).reduce(
+          (sum, r) => sum + (r.shrinkSteps ?? 0),
+          0
+        ) +
+        recordedToolEvents.reduce((sum, e) => sum + (e.shrinkSteps ?? 0), 0),
+      runsWithShrinking: (activeSession?.fuzzRuns || []).filter(
+        (r) => (r.shrinkSteps ?? 0) > 0
+      ),
+      shrinkEvents: recordedToolEvents.filter(
+        (e) =>
+          e.tool === "nanofuzz_shrinkInputs" ||
+          (e.shrinkSteps !== undefined && e.shrinkSteps > 0)
+      ),
+    },
     evalResults,
     survey,
   };
@@ -1692,6 +1886,20 @@ export async function runSingleBenchmarkSession(
           evalResults.length
         ).toFixed(3)
       : "0.000";
+
+  dashboardTracker.sessionFinished(laneId, {
+    participant: run.participant,
+    lane: laneId,
+    task: run.task,
+    engine: run.engine,
+    source: run.source,
+    replicate: run.replicate,
+    durationSec,
+    success: true,
+    score,
+    bugsElicited: evalResults.filter((r) => r.elicited === 1).length,
+    taskBugCount: evalResults.length,
+  });
 
   log(
     `[SUCCESS] ${prefix} Completed in ${mm}m ${ss}s! Score: ${score} (${run.reportFilename})\n`
@@ -1718,6 +1926,30 @@ export async function runBenchmarkMatrix(
   activeCts = new vscode.CancellationTokenSource();
   const token = activeCts.token;
 
+  // Checkpoint & Resumption: Load completed runs from benchmark_state.json and telemetry files
+  const completedMap = loadCompletedParticipants();
+  saveBenchmarkState(schedule, completedMap);
+
+  const initialFinished: FinishedSessionStatus[] = [];
+  for (const s of schedule) {
+    const done = completedMap.get(s.participant);
+    if (done && done.status === "completed") {
+      initialFinished.push({
+        participant: done.participant,
+        lane: 0,
+        task: done.task,
+        engine: done.engine,
+        source: done.source,
+        replicate: done.replicate,
+        durationSec: done.durationSec ?? 0,
+        success: true,
+        score: done.score ?? "0.000",
+      });
+    }
+  }
+
+  dashboardTracker.startMatrix(totalRuns, initialFinished);
+
   getOutput().show(true);
   log(
     "================================================================================"
@@ -1725,6 +1957,11 @@ export async function runBenchmarkMatrix(
   log(
     `[BENCHMARK] Starting unattended concurrent matrix: ${totalRuns} tasks (Seed: '${SEED}')`
   );
+  if (completedMap.size > 0) {
+    log(
+      `[RESUME] Discovered ${completedMap.size}/${totalRuns} previously completed tasks. Resuming remaining tasks...`
+    );
+  }
   log(
     `Parallel Lanes: ${concurrency} | Max Deep Fuzzing Slots: ${MAX_DEEP_FUZZ_SLOTS}`
   );
@@ -1750,6 +1987,19 @@ export async function runBenchmarkMatrix(
     success: boolean;
   }> = [];
 
+  for (const init of initialFinished) {
+    results.push({
+      participant: init.participant,
+      lane: init.lane,
+      task: init.task,
+      engine: init.engine,
+      source: init.source,
+      replicate: init.replicate,
+      durationSec: init.durationSec,
+      success: true,
+    });
+  }
+
   let nextQueueIndex = 0;
 
   async function laneWorker(laneId: number): Promise<void> {
@@ -1759,6 +2009,15 @@ export async function runBenchmarkMatrix(
       if (runIndex >= schedule.length) break;
       const run = schedule[runIndex];
 
+      // Checkpoint skip: If task is already completed, do not rerun
+      if (completedMap.has(run.participant)) {
+        log(
+          `[SKIP] [Lane ${laneId}] ${run.participant} (Task: ${run.task}, Engine: ${run.engine}, Source: ${run.source}) already completed. Skipping.`
+        );
+        continue;
+      }
+
+      const sessionStart = Date.now();
       try {
         const res = await runSingleBenchmarkSession(
           run,
@@ -1766,6 +2025,33 @@ export async function runBenchmarkMatrix(
           laneId,
           token
         );
+        if (!res.success) {
+          dashboardTracker.sessionFinished(laneId, {
+            participant: run.participant,
+            lane: laneId,
+            task: run.task,
+            engine: run.engine,
+            source: run.source,
+            replicate: run.replicate,
+            durationSec: res.durationSec,
+            success: false,
+            error: res.error,
+          });
+        } else {
+          completedMap.set(run.participant, {
+            participant: run.participant,
+            sequence: run.sequence,
+            replicate: run.replicate,
+            task: run.task,
+            engine: run.engine,
+            source: run.source,
+            reportFilename: run.reportFilename,
+            status: "completed",
+            durationSec: res.durationSec,
+            completedAt: new Date().toISOString(),
+          });
+          saveBenchmarkState(schedule, completedMap);
+        }
         results.push({
           participant: run.participant,
           lane: laneId,
@@ -1777,10 +2063,22 @@ export async function runBenchmarkMatrix(
           success: res.success,
         });
       } catch (err: unknown) {
+        const crashDurationSec = Math.floor((Date.now() - sessionStart) / 1000);
         log(
-          `[FAILED] [Lane ${laneId}] Participant ${run.participant} crashed with error: ${String(err)}`
+          `[FAILED] [Lane ${laneId}] Participant ${run.participant} crashed after ${crashDurationSec}s with error: ${String(err)}`
         );
         cleanLane(laneId);
+        dashboardTracker.sessionFinished(laneId, {
+          participant: run.participant,
+          lane: laneId,
+          task: run.task,
+          engine: run.engine,
+          source: run.source,
+          replicate: run.replicate,
+          durationSec: crashDurationSec,
+          success: false,
+          error: String(err),
+        });
         results.push({
           participant: run.participant,
           lane: laneId,
@@ -1788,7 +2086,7 @@ export async function runBenchmarkMatrix(
           engine: run.engine,
           source: run.source,
           replicate: run.replicate,
-          durationSec: 0,
+          durationSec: crashDurationSec,
           success: false,
         });
       }
@@ -1802,6 +2100,7 @@ export async function runBenchmarkMatrix(
     }
     await Promise.all(laneWorkers);
   } finally {
+    dashboardTracker.dispose();
     if (activeCts?.token === token) {
       activeCts.dispose();
       activeCts = undefined;
@@ -1874,8 +2173,393 @@ export function runAnalysisPipeline(): void {
 } // fn: runAnalysisPipeline
 
 // -------------------------------------------------------------------------- //
+// Benchmark Execution Dashboard
+// -------------------------------------------------------------------------- //
+
+class BenchmarkDashboardTracker {
+  private _matrixStartTime: number = 0;
+  private _totalRuns: number = 0;
+  private _active: Map<number, ActiveSessionStatus> = new Map();
+  private _finished: FinishedSessionStatus[] = [];
+  private _statusBarItem: vscode.StatusBarItem | undefined;
+  private _lastLogTime: number = 0;
+
+  public startMatrix(
+    totalRuns: number,
+    initialFinished: FinishedSessionStatus[] = []
+  ): void {
+    this._matrixStartTime = Date.now();
+    this._totalRuns = totalRuns;
+    this._active.clear();
+    this._finished = [...initialFinished];
+    this._lastLogTime = 0;
+    this.updateStatusBar();
+    this.writeDashboardFile();
+  } // fn: startMatrix
+
+  public sessionStarted(lane: number, status: ActiveSessionStatus): void {
+    this._active.set(lane, status);
+    this.updateStatusBar();
+    this.writeDashboardFile();
+    this.logDashboard(true);
+  } // fn: sessionStarted
+
+  public updateTurn(lane: number, turn: number): void {
+    const s = this._active.get(lane);
+    if (s) {
+      s.turn = turn;
+      this.updateStatusBar();
+      this.logDashboardIfDue();
+    }
+  } // fn: updateTurn
+
+  public updatePhase(lane: number, stage: string): void {
+    const s = this._active.get(lane);
+    if (s) {
+      s.stage = stage;
+      this.updateStatusBar();
+      this.writeDashboardFile();
+      this.logDashboard(true);
+    }
+  } // fn: updatePhase
+
+  public updateRetries(lane: number, retries: number): void {
+    const s = this._active.get(lane);
+    if (s) {
+      s.retryAttempts = retries;
+      this.updateStatusBar();
+    }
+  } // fn: updateRetries
+
+  public incrementToolError(lane: number): void {
+    const s = this._active.get(lane);
+    if (s) {
+      s.toolErrors++;
+      this.updateStatusBar();
+    }
+  } // fn: incrementToolError
+
+  public sessionFinished(lane: number, result: FinishedSessionStatus): void {
+    this._active.delete(lane);
+    const existingIdx = this._finished.findIndex(
+      (f) => f.participant === result.participant
+    );
+    if (existingIdx !== -1) {
+      this._finished[existingIdx] = result;
+    } else {
+      this._finished.push(result);
+    }
+    this.updateStatusBar();
+    this.writeDashboardFile();
+    this.logDashboard(true);
+  } // fn: sessionFinished
+
+  public logDashboardIfDue(): void {
+    const now = Date.now();
+    if (now - this._lastLogTime >= 45000) {
+      this.logDashboard(true);
+    }
+  } // fn: logDashboardIfDue
+
+  public logDashboard(force: boolean = false): void {
+    if (!force) {
+      this.logDashboardIfDue();
+      return;
+    }
+    this._lastLogTime = Date.now();
+    logRaw("\n" + this.renderDashboard());
+  } // fn: logDashboard
+
+  public renderDashboard(maxFinished: number = 8): string {
+    const completed = this._finished.length;
+    const total = this._totalRuns;
+    const pct = total > 0 ? ((completed / total) * 100).toFixed(1) : "0.0";
+    const elapsedSec = Math.max(
+      0,
+      Math.floor((Date.now() - (this._matrixStartTime || Date.now())) / 1000)
+    );
+    const elapsedStr = formatDuration(elapsedSec);
+    const etaStr = estimateEta(
+      total,
+      completed,
+      this._finished,
+      this._active.size
+    );
+
+    const lines: string[] = [
+      `================================================================================`,
+      `[BENCHMARK DASHBOARD] ${completed}/${total} complete (${pct}%) | Elapsed: ${elapsedStr} | ETA: ${etaStr}`,
+      `--------------------------------------------------------------------------------`,
+      `RUNNING (${this._active.size} lanes):`,
+    ];
+
+    if (this._active.size === 0) {
+      lines.push(`  (none - all lanes idle)`);
+    } else {
+      const activeList = Array.from(this._active.values()).sort(
+        (a, b) => a.lane - b.lane
+      );
+      for (const a of activeList) {
+        const laneElapsed = Math.max(
+          0,
+          Math.floor((Date.now() - a.startTime) / 1000)
+        );
+        const laneElapsedStr = formatDuration(laneElapsed);
+        const errCount = a.toolErrors + a.retryAttempts;
+        const treatment = `${a.engine}+${a.source}`;
+        lines.push(
+          `  L${a.lane}: ${a.participant} | ${a.task} | ${treatment} | ${a.stage} | Turn ${a.turn} | Err: ${errCount} | Active: ${laneElapsedStr}`
+        );
+      }
+    }
+
+    lines.push(``);
+    lines.push(`FINISHED (${this._finished.length}):`);
+    if (this._finished.length === 0) {
+      lines.push(`  (none yet)`);
+    } else {
+      const showCount = Math.min(this._finished.length, maxFinished);
+      const slice = this._finished.slice(-showCount);
+      for (const f of slice) {
+        const durStr = formatDuration(f.durationSec);
+        const st = f.success ? "[PASS]" : "[FAIL]";
+        const treatment = `${f.engine}+${f.source} (Rep ${f.replicate})`;
+        const scoreStr =
+          f.score !== undefined
+            ? ` | Score: ${f.score} (${f.bugsElicited ?? 0}/${f.taskBugCount ?? 0} bugs)`
+            : f.error
+              ? ` | Error: ${f.error}`
+              : "";
+        lines.push(
+          `  ${f.participant} (L${f.lane}) | ${f.task} | ${treatment} | ${durStr} | ${st}${scoreStr}`
+        );
+      }
+      if (this._finished.length > maxFinished) {
+        const earlier = this._finished.slice(0, -maxFinished);
+        const passCount = earlier.filter((e) => e.success).length;
+        const failCount = earlier.length - passCount;
+        lines.push(
+          `  ... and ${earlier.length} earlier completed (${passCount} [PASS], ${failCount} [FAIL])`
+        );
+      }
+    }
+
+    lines.push(
+      `================================================================================`
+    );
+    return lines.join("\n");
+  } // fn: renderDashboard
+
+  public renderMarkdownTooltip(): string {
+    const completed = this._finished.length;
+    const total = this._totalRuns;
+    const pct = total > 0 ? ((completed / total) * 100).toFixed(1) : "0.0";
+    const elapsedSec = Math.max(
+      0,
+      Math.floor((Date.now() - (this._matrixStartTime || Date.now())) / 1000)
+    );
+    const elapsedStr = formatDuration(elapsedSec);
+    const etaStr = estimateEta(
+      total,
+      completed,
+      this._finished,
+      this._active.size
+    );
+
+    const lines: string[] = [
+      `### 🧪 NaNofuzz Benchmark Progress`,
+      `- **Progress**: ${completed}/${total} complete (${pct}%)`,
+      `- **Elapsed**: ${elapsedStr} | **ETA**: ${etaStr}`,
+      ``,
+      `#### 🏃 Running Sessions`,
+    ];
+
+    if (this._active.size === 0) {
+      lines.push(`*(No active sessions)*`);
+    } else {
+      lines.push(
+        `| Lane | P# | Task | Treatment | Phase | Turn | Err | Active |`,
+        `| :---: | :---: | :--- | :--- | :--- | :---: | :---: | :---: |`
+      );
+      const activeList = Array.from(this._active.values()).sort(
+        (a, b) => a.lane - b.lane
+      );
+      for (const a of activeList) {
+        const laneElapsed = formatDuration(
+          Math.max(0, Math.floor((Date.now() - a.startTime) / 1000))
+        );
+        lines.push(
+          `| L${a.lane} | **${a.participant}** | ${a.task} | \`${a.engine}+${a.source}\` | ${a.stage} | ${a.turn} | ${a.toolErrors + a.retryAttempts} | ${laneElapsed} |`
+        );
+      }
+    }
+
+    lines.push(``, `#### ✅ Finished Sessions (${this._finished.length})`);
+    if (this._finished.length === 0) {
+      lines.push(`*(No finished sessions yet)*`);
+    } else {
+      lines.push(
+        `| P# | Lane | Task | Treatment | Duration | Status | Score |`,
+        `| :---: | :---: | :--- | :--- | :---: | :---: | :---: |`
+      );
+      for (const f of this._finished.slice(-10)) {
+        const durStr = formatDuration(f.durationSec);
+        const scoreStr =
+          f.score !== undefined
+            ? `${f.score} (${f.bugsElicited ?? 0}/${f.taskBugCount ?? 0})`
+            : "-";
+        lines.push(
+          `| **${f.participant}** | L${f.lane} | ${f.task} | \`${f.engine}+${f.source}\` | ${durStr} | ${f.success ? "PASS" : "FAIL"} | ${scoreStr} |`
+        );
+      }
+    }
+
+    return lines.join("\n");
+  } // fn: renderMarkdownTooltip
+
+  public updateStatusBar(): void {
+    if (!this._statusBarItem) {
+      this._statusBarItem = vscode.window.createStatusBarItem(
+        vscode.StatusBarAlignment.Left,
+        100
+      );
+    }
+    const completed = this._finished.length;
+    const total = this._totalRuns;
+    const pct = total > 0 ? ((completed / total) * 100).toFixed(1) : "0.0";
+    const etaStr = estimateEta(
+      total,
+      completed,
+      this._finished,
+      this._active.size
+    );
+
+    const activeList = Array.from(this._active.values())
+      .sort((a, b) => a.lane - b.lane)
+      .map((a) => `L${a.lane}:${a.participant}`)
+      .join(" ");
+
+    this._statusBarItem.text = `$(beaker) NaNofuzz: ${completed}/${total} (${pct}%) ETA: ${etaStr}${activeList ? ` [${activeList}]` : ""}`;
+    const md = new vscode.MarkdownString(this.renderMarkdownTooltip());
+    md.isTrusted = true;
+    this._statusBarItem.tooltip = md;
+    this._statusBarItem.show();
+  } // fn: updateStatusBar
+
+  public writeDashboardFile(): void {
+    if (!fs.existsSync(RESULTS_DIR)) {
+      fs.mkdirSync(RESULTS_DIR, { recursive: true });
+    }
+    const dashboardPath = path.join(RESULTS_DIR, "DASHBOARD.md");
+    const content = [
+      `# NaNofuzz Benchmark Execution Dashboard`,
+      ``,
+      `*Last Updated: ${new Date().toLocaleTimeString()}*`,
+      ``,
+      this.renderMarkdownTooltip(),
+      ``,
+    ].join("\n");
+    fs.writeFileSync(dashboardPath, content, "utf8");
+  } // fn: writeDashboardFile
+
+  public dispose(): void {
+    if (this._statusBarItem) {
+      this._statusBarItem.hide();
+      this._statusBarItem.dispose();
+      this._statusBarItem = undefined;
+    }
+  } // fn: dispose
+} // class: BenchmarkDashboardTracker
+
+export const dashboardTracker = new BenchmarkDashboardTracker();
+
+// -------------------------------------------------------------------------- //
 // Auxiliary Types & Helpers
 // -------------------------------------------------------------------------- //
+
+export interface ActiveSessionStatus {
+  participant: string;
+  lane: number;
+  task: string;
+  engine: string;
+  source: string;
+  replicate: number;
+  stage: string;
+  turn: number;
+  toolErrors: number;
+  retryAttempts: number;
+  startTime: number;
+}
+
+export interface FinishedSessionStatus {
+  participant: string;
+  lane: number;
+  task: string;
+  engine: string;
+  source: string;
+  replicate: number;
+  durationSec: number;
+  success: boolean;
+  score?: string;
+  bugsElicited?: number;
+  taskBugCount?: number;
+  error?: string;
+}
+
+/**
+ * Estimates remaining wall-clock time based on finished sessions and active lanes.
+ *
+ * @param totalRuns total planned trials
+ * @param completedRuns count of completed trials
+ * @param finished array of finished session records
+ * @param activeLanesCount number of concurrently running lanes
+ * @returns formatted ETA duration string
+ */
+function estimateEta(
+  totalRuns: number,
+  completedRuns: number,
+  finished: FinishedSessionStatus[],
+  activeLanesCount: number
+): string {
+  if (completedRuns === 0 || totalRuns === 0) {
+    return "calculating...";
+  }
+  const remaining = totalRuns - completedRuns;
+  if (remaining <= 0) {
+    return "0s";
+  }
+
+  const totalFinishedSec = finished.reduce((sum, s) => sum + s.durationSec, 0);
+  const avgSecPerRun = totalFinishedSec / completedRuns;
+  const effectiveConcurrency = Math.max(
+    1,
+    Math.min(activeLanesCount || 1, remaining)
+  );
+  const remainingSec = Math.round(
+    (remaining * avgSecPerRun) / effectiveConcurrency
+  );
+
+  return formatEta(remainingSec);
+} // fn: estimateEta
+
+/**
+ * Formats a duration in seconds into a human-readable ETA string.
+ *
+ * @param totalSec total seconds
+ * @returns human-readable string like '~45m 12s' or '~2h 10m'
+ */
+function formatEta(totalSec: number): string {
+  if (totalSec <= 0) return "0s";
+  if (totalSec < 60) return `~${totalSec}s`;
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  if (m < 60) {
+    return `~${m}m ${s}s`;
+  }
+  const h = Math.floor(m / 60);
+  const remM = m % 60;
+  return `~${h}h ${remM}m`;
+} // fn: formatEta
 
 export interface PhaseTimeSplit {
   elapsedSec: number;
@@ -1891,6 +2575,7 @@ export interface ParticipantPhaseSplits {
   synthesis: PhaseTimeSplit;
   smoke: PhaseTimeSplit;
   deep: PhaseTimeSplit;
+  contextualize: PhaseTimeSplit;
 }
 
 type AssistantStreamPart =

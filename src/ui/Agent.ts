@@ -107,6 +107,20 @@ export function clearCachedRawResults(): void {
   _rawResultsCache.clear();
 } // fn: clearCachedRawResults
 
+/**
+ * Removes cached raw results for a specific path prefix or file.
+ *
+ * @param pathPrefix directory or file path prefix
+ */
+export function clearCachedRawResultsForPath(pathPrefix: string): void {
+  const norm = normalizePathForKey(pathPrefix);
+  for (const key of _rawResultsCache.keys()) {
+    if (key.startsWith(norm)) {
+      _rawResultsCache.delete(key);
+    }
+  }
+} // fn: clearCachedRawResultsForPath
+
 // -------------------------------------------------------------------------- //
 // Primary Public API
 // -------------------------------------------------------------------------- //
@@ -575,6 +589,7 @@ export async function runFuzz(
   );
   const shouldAutoEnableCopilot = Boolean(options.enableCopilotAi);
   let releaseDeepFuzz: (() => void) | undefined;
+  const fuzzStartTime = Date.now();
 
   try {
     if (shouldAutoEnableCopilot) {
@@ -598,7 +613,9 @@ export async function runFuzz(
     let isDeepFuzzingRun =
       (options.suiteTimeout !== undefined && options.suiteTimeout >= 60_000) ||
       (options.maxTests === 0 &&
-        (options.suiteTimeout === undefined || options.suiteTimeout >= 60_000));
+        (options.suiteTimeout === undefined ||
+          options.suiteTimeout >= 60_000)) ||
+      session?.currentPhase === "fuzz_deep";
 
     let deepSlotWaitMs = 0;
     if (isDeepFuzzingRun) {
@@ -608,18 +625,24 @@ export async function runFuzz(
         );
       }
       const waitStart = Date.now();
-      releaseDeepFuzz = await deepFuzzSemaphore.acquire();
+      releaseDeepFuzz = await deepFuzzSemaphore.acquire(cancelFn);
       deepSlotWaitMs = Math.max(0, Date.now() - waitStart);
     }
 
     if (experimentalTool === "hypothesis" || experimentalTool === "hypofuzz") {
+      const runnerOptions: AgentFuzzOptions = {
+        ...options,
+        // Limit smoke tests (non-deep runs) to 1 worker process
+        workers: !isDeepFuzzingRun ? 1 : options.workers,
+      };
       const runner = new HypothesisRunner(
-        options,
+        runnerOptions,
         experimentalTool,
         cancelFn,
         updateFn
       );
       const result = await runner.run();
+      const fuzzDurationMs = Math.max(0, Date.now() - fuzzStartTime);
       sessionManager.recordFuzzRun(
         {
           functionName: options.functionName,
@@ -632,12 +655,17 @@ export async function runFuzz(
           skippedTests: result.skippedTests ?? 0,
           timeouts: result.timeouts,
           exceptions: result.exceptions,
-          durationMs: options.suiteTimeout ?? 0,
+          durationMs: fuzzDurationMs,
           suiteTimeout: options.suiteTimeout,
           maxTests: options.maxTests ?? 0,
           statementCoveragePct: result.coverage?.statementCoveragePercent,
           branchCoveragePct: result.coverage?.branchCoveragePercent,
           deepSlotWaitMs,
+          generatorName:
+            result.primaryCounterexample?.origin ??
+            (experimentalTool === "hypofuzz" ? "Hypofuzz" : "Hypothesis"),
+          details: result.primaryCounterexample?.exceptionDisplay,
+          shrinkSteps: result.primaryCounterexample?.shrinkSteps ?? 0,
         },
         options.sessionId
       );
@@ -690,17 +718,20 @@ export async function runFuzz(
     isDeepFuzzingRun =
       isDeepFuzzingRun ||
       (options.suiteTimeout !== undefined && options.suiteTimeout >= 60_000) ||
-      sessionManager.hasActiveSession();
+      (options.maxTests === 0 &&
+        (options.suiteTimeout === undefined ||
+          options.suiteTimeout >= 60_000)) ||
+      session?.currentPhase === "fuzz_deep";
     let sanitizedMaxTests = options.maxTests;
     let sanitizedMaxFailures = options.maxFailures;
 
     if (isDeepFuzzingRun) {
       // In deep fuzzing runs / active bug-hunting sessions:
-      // 1. Force maxFailures = 0 so early bugs do not prevent discovering deeper secondary defects
+      // Force maxFailures = 0 so early bugs do not prevent discovering deeper secondary defects
       if (sanitizedMaxFailures !== undefined && sanitizedMaxFailures > 0) {
         sanitizedMaxFailures = 0;
       }
-      // 2. If the caller accidentally passed a low ceiling like 1000, unconstrain it to 0 (run until timeout)
+      // If the caller accidentally passed a low ceiling like 1000, unconstrain it to 0 (run until timeout)
       if (sanitizedMaxTests === 1000) {
         sanitizedMaxTests = 0;
       }
@@ -756,9 +787,11 @@ export async function runFuzz(
 
     const executionOptions: FuzzExecutionOptions = {
       engine: "auto",
-      workers:
-        options.workers ??
-        Config.get<number | "auto">("nanofuzz.fuzzer.workers", "auto"),
+      // Limit smoke tests (non-deep runs) to 1 worker process
+      workers: !isDeepFuzzingRun
+        ? 1
+        : (options.workers ??
+          Config.get<number | "auto">("nanofuzz.fuzzer.workers", "auto")),
       outputResults: options.outputResults ?? "all",
       precompile: false,
     };
@@ -834,10 +867,22 @@ export async function runFuzz(
     // Cache the raw results for immediate display via showResults / FuzzPanel
     cacheRawResults(resolvedPath, options.functionName, rawResults);
 
+    const formatted = await formatFuzzResult(
+      rawResults,
+      resolvedPath,
+      options.functionName,
+      {
+        testSuiteCode,
+        testSuiteFilePath,
+        diagnostics: generatorDiagnostics,
+      }
+    );
+
     // Record stats in FindBugs session manager if active
-    const durationMs = rawResults.stats.timers.total
-      ? rawResults.stats.timers.total
-      : (options.suiteTimeout ?? 0);
+    const durationMs =
+      rawResults.stats.timers.total && rawResults.stats.timers.total > 0
+        ? rawResults.stats.timers.total
+        : Math.max(0, Date.now() - fuzzStartTime);
     const cov = await getCoverageSummary(rawResults);
     sessionManager.recordFuzzRun(
       {
@@ -857,20 +902,16 @@ export async function runFuzz(
         statementCoveragePct: cov?.statementCoveragePercent,
         branchCoveragePct: cov?.branchCoveragePercent,
         deepSlotWaitMs,
+        generatorName: formatted.primaryCounterexample?.origin,
+        details:
+          formatted.primaryCounterexample?.exceptionDisplay ??
+          formatted.primaryCounterexample?.exceptionMessage,
+        shrinkSteps: formatted.primaryCounterexample?.shrinkSteps ?? 0,
       },
       options.sessionId
     );
 
-    return await formatFuzzResult(
-      rawResults,
-      resolvedPath,
-      options.functionName,
-      {
-        testSuiteCode,
-        testSuiteFilePath,
-        diagnostics: generatorDiagnostics,
-      }
-    );
+    return formatted;
   } catch (e: unknown) {
     const errorMsg = isError(e) ? e.message : String(e);
     const stack = isError(e) ? e.stack : undefined;
@@ -1263,7 +1304,7 @@ export function selectCoveringResults(
   const selected: FuzzTestResult[] = [];
   const seenInputs = new Set<string>();
 
-  // 1. All failing counterexamples
+  // All failing counterexamples
   const failures = results.filter((r) => r.category !== "ok");
   for (const f of failures) {
     const key = getIoKey(f.input);
@@ -1273,7 +1314,7 @@ export function selectCoveringResults(
     }
   }
 
-  // 2. Passing inputs that were marked as interesting (e.g. branch coverage expansion)
+  // Passing inputs that were marked as interesting (e.g. branch coverage expansion)
   const interesting = results.filter(
     (r) =>
       r.category === "ok" &&
@@ -1288,7 +1329,7 @@ export function selectCoveringResults(
     }
   }
 
-  // 3. Fallback: if no interesting or failing inputs, take the first non-skipped passing result
+  // Fallback: if no interesting or failing inputs, take the first non-skipped passing result
   if (selected.length === 0) {
     const firstOk = results.find((r) => r.category === "ok" && !r.skipped);
     if (firstOk) {
@@ -2442,7 +2483,13 @@ export class AsyncSemaphore {
     this._available = maxConcurrent;
   }
 
-  public async acquire(): Promise<() => void> {
+  public async acquire(cancelFn?: () => boolean): Promise<() => void> {
+    if (cancelFn?.()) {
+      throw new Error(
+        "Execution cancelled before deep fuzzing slot acquisition."
+      );
+    }
+
     if (this._available > 0) {
       this._available--;
       let released = false;
@@ -2454,8 +2501,20 @@ export class AsyncSemaphore {
       };
     }
 
-    return new Promise<() => void>((resolve) => {
-      this._queue.push(() => {
+    return new Promise<() => void>((resolve, reject) => {
+      let pollTimer: NodeJS.Timeout | undefined;
+      const waiter = () => {
+        if (pollTimer) clearInterval(pollTimer);
+        if (cancelFn?.()) {
+          // If cancelled by the time a slot frees up, immediately pass the slot to next waiter
+          this._release();
+          reject(
+            new Error(
+              "Execution cancelled before deep fuzzing slot acquisition."
+            )
+          );
+          return;
+        }
         let released = false;
         resolve(() => {
           if (!released) {
@@ -2463,7 +2522,26 @@ export class AsyncSemaphore {
             this._release();
           }
         });
-      });
+      };
+
+      if (cancelFn) {
+        pollTimer = setInterval(() => {
+          if (cancelFn()) {
+            clearInterval(pollTimer);
+            const idx = this._queue.indexOf(waiter);
+            if (idx !== -1) {
+              this._queue.splice(idx, 1);
+            }
+            reject(
+              new Error(
+                "Execution cancelled while waiting in deep fuzzing queue."
+              )
+            );
+          }
+        }, 250);
+      }
+
+      this._queue.push(waiter);
     });
   } // fn: acquire
 

@@ -16,7 +16,6 @@ import {
 import { CoverageScope } from "../measures/Types";
 import { CurrentRunStats } from "../Types";
 import { findBugs, FindBugsOptions, FindBugsPhase } from "../../ui/FindBugs";
-import { sessionManager } from "../../ui/FindBugsSessionManager";
 import { getDisplayPath } from "../Util";
 
 // -------------------------------------------------------------------------- //
@@ -161,7 +160,7 @@ export class FuzzFunctionTool implements vscode.LanguageModelTool<FuzzFunctionIn
 
     const isDeepRun =
       (typeof timeoutMs === "number" && timeoutMs >= 60_000) ||
-      sessionManager.hasActiveSession();
+      (maxTests === 0 && (timeoutMs === undefined || timeoutMs >= 60_000));
     if (isDeepRun) {
       if (effectiveMaxFailures !== undefined && effectiveMaxFailures > 0) {
         effectiveMaxFailures = 0;
@@ -226,7 +225,7 @@ export class FuzzFunctionTool implements vscode.LanguageModelTool<FuzzFunctionIn
 
     const isDeepRun =
       (typeof timeoutMs === "number" && timeoutMs >= 60_000) ||
-      sessionManager.hasActiveSession();
+      (maxTests === 0 && (timeoutMs === undefined || timeoutMs >= 60_000));
     if (isDeepRun) {
       if (maxFailures !== undefined && maxFailures > 0) {
         maxFailures = 0;

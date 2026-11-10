@@ -27,6 +27,9 @@ export type FuzzRunStatsSnapshot = {
   statementCoveragePct?: number;
   branchCoveragePct?: number;
   deepSlotWaitMs?: number;
+  generatorName?: string;
+  details?: string;
+  shrinkSteps?: number;
 };
 
 /**
@@ -72,7 +75,6 @@ export type WorkflowSession = {
  */
 class FindBugsSessionManager {
   private _sessions: Map<string, WorkflowSession> = new Map();
-  private _latestSessionId: string | undefined = undefined;
 
   /**
    * Gets an existing session by ID or creates a new one.
@@ -118,12 +120,12 @@ class FindBugsSessionManager {
       session.workerCount = workerCount;
     }
 
-    this._latestSessionId = id;
     return session;
   } // fn: getOrCreateSession
 
   /**
-   * Retrieves a session by ID or returns the latest active session.
+   * Retrieves a session by exact ID or by workspace path match.
+   * Never guesses or falls back to an arbitrary session.
    */
   public getSession(
     sessionId?: string,
@@ -138,9 +140,6 @@ class FindBugsSessionManager {
           return s;
         }
       }
-    }
-    if (this._latestSessionId && this._sessions.has(this._latestSessionId)) {
-      return this._sessions.get(this._latestSessionId);
     }
     return undefined;
   } // fn: getSession
@@ -469,13 +468,9 @@ class FindBugsSessionManager {
   public clear(sessionId?: string): void {
     if (sessionId) {
       this._sessions.delete(sessionId);
-      if (this._latestSessionId === sessionId) {
-        this._latestSessionId = undefined;
-      }
       return;
     }
     this._sessions.clear();
-    this._latestSessionId = undefined;
   } // fn: clear
 } // class: FindBugsSessionManager
 

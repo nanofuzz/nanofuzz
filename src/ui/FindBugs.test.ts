@@ -1068,7 +1068,7 @@ describe("FindBugs", () => {
           sessionId
         );
 
-        // Stage 2 Deep Guidance
+        // Stage 2 Deep Guidance (before deep run satisfies criteria)
         const deepRes = await findBugs({
           phase: "fuzz_entrypoint",
           model,
@@ -1081,7 +1081,7 @@ describe("FindBugs", () => {
           },
         });
         expect(deepRes.phase).toBe("fuzz_entrypoint");
-        expect(deepRes.recommendedNextPhase).toBe("contextualize_bugs");
+        expect(deepRes.recommendedNextPhase).toBe("fuzz_deep");
 
         // Record Stage 2 Deep Run satisfying exit criteria (100% branch coverage)
         sessionManager.recordFuzzRun(
@@ -1103,6 +1103,20 @@ describe("FindBugs", () => {
           },
           sessionId
         );
+
+        // After deep run satisfies criteria, calling fuzz_entrypoint recommends contextualize_bugs
+        const deepRes2 = await findBugs({
+          phase: "fuzz_entrypoint",
+          model,
+          vendor,
+          statePayload: {
+            sessionId,
+            stage: "deep",
+            functionName: epName,
+            harnessFilePath: "src/target.py",
+          },
+        });
+        expect(deepRes2.recommendedNextPhase).toBe("contextualize_bugs");
 
         // Phase: contextualize_bugs
         const bugs = [

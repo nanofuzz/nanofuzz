@@ -240,23 +240,23 @@ export async function findBugs(
         session.sessionId
       );
 
-      // Check if other declared entrypoints still need smoke or deep fuzzing
-      const otherPendingSmoke = session.entrypoints.filter(
+      // Check if any declared entrypoints still need smoke or deep fuzzing
+      const pendingSmoke = session.entrypoints.filter(
         (e) =>
           !session.fuzzRuns.some((r) =>
             functionMatchesEntrypoint(r.functionName, e)
           )
       );
-      if (otherPendingSmoke.length > 0) {
+      if (pendingSmoke.length > 0) {
         nextPhase = "fuzz_smoke";
       } else {
-        const otherPendingDeep = session.entrypoints.filter(
-          (e) =>
-            !functionMatchesEntrypoint(fnName, e) &&
-            !sessionManager.isEntrypointDeepCriteriaMet(session, e)
+        // Enforce Stage 2 Deep Fuzzing: ALL declared entrypoints must satisfy deep criteria
+        // (including the current entrypoint) before advancing out of fuzz_deep!
+        const pendingDeep = session.entrypoints.filter(
+          (e) => !sessionManager.isEntrypointDeepCriteriaMet(session, e)
         );
         nextPhase =
-          otherPendingDeep.length > 0
+          pendingDeep.length > 0
             ? "fuzz_deep"
             : skipContextualization
               ? "complete"
@@ -298,14 +298,13 @@ export async function findBugs(
           session.sessionId
         );
 
-        // Check if other declared entrypoints still need fuzzing
-        const otherPendingDeep = session.entrypoints.filter(
-          (e) =>
-            !functionMatchesEntrypoint(fnName, e) &&
-            !sessionManager.isEntrypointDeepCriteriaMet(session, e)
+        // Enforce Stage 2 Deep Fuzzing: ALL declared entrypoints must satisfy deep criteria
+        // before advancing out of deep fuzzing!
+        const pendingDeep = session.entrypoints.filter(
+          (e) => !sessionManager.isEntrypointDeepCriteriaMet(session, e)
         );
         nextPhase =
-          otherPendingDeep.length > 0
+          pendingDeep.length > 0
             ? "fuzz_deep"
             : skipContextualization
               ? "complete"
