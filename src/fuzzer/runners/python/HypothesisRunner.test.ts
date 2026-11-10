@@ -309,4 +309,38 @@ def test_helper(n):
       }
     }
   });
+
+  it("executes standard pytest unit tests without @given decorator", async () => {
+    Config.override("nanofuzz.experimental.findBugs.tool", "hypothesis");
+    const tmpDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "nanofuzz-pytest-regular-")
+    );
+    const testFile = path.join(tmpDir, "test_regular.py");
+    fs.writeFileSync(
+      testFile,
+      `def test_regular_pass():
+    assert 1 + 1 == 2
+`,
+      "utf8"
+    );
+
+    try {
+      const res = await runFuzz({
+        filePath: testFile,
+        functionName: "test_regular_pass",
+        suiteTimeout: 5000,
+      });
+
+      expect(res).toBeDefined();
+      expect(res.totalTests).toBe(1);
+      expect(res.passedTests).toBe(1);
+      expect(res.failedTests).toBe(0);
+    } finally {
+      try {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      } catch {
+        // ignore cleanup error
+      }
+    }
+  });
 });

@@ -73,7 +73,7 @@ def _bind_inputs(fn, args, kwargs):
     """Binds runtime positional and keyword arguments to the test function's parameter names."""
     sig = inspect.signature(fn)
     bound = sig.bind_partial(*args, **kwargs)
-    return {k: sanitize_output(v) for k, v in bound.arguments.items()}
+    return {k: sanitize_output(v) for k, v in bound.arguments.items() if k != "self"}
 
 
 def _collect_coverage():
@@ -278,10 +278,52 @@ def pytest_collection_modifyitems(session, config, items):
                 example(**ex)(fn)
             _instrument_hypothesis_test(fn, item.name)
             instrumented_count += 1
+        elif fn and callable(fn):
+            _instrument_regular_test(item, fn)
+            instrumented_count += 1
 
     if instrumented_count == 0:
         run_data["stop_reason"] = "no_hypothesis_tests"
         _flush()
+
+
+def _instrument_regular_test(item, fn):
+    """Wraps regular non-Hypothesis pytest test functions to track executions and capture failures."""
+    original = fn
+
+    @functools.wraps(original)
+    def _wrapped(*args, **kwargs):
+        now = time.time()
+        if now - START_TIME >= TIMEOUT_SEC:
+            run_data["stop_reason"] = "timeout"
+            _flush()
+            try:
+                import pytest
+
+                pytest.exit(
+                    f"NaNofuzz suite timeout of {TIMEOUT_SEC}s reached", returncode=0)
+            except Exception:
+                sys.exit(0)
+
+        run_data["total_executions"] += 1
+        try:
+            res = original(*args, **kwargs)
+            run_data["pass_count"] += 1
+            _record_step(is_fail=False)
+            return res
+        except Exception as exc:
+            run_data["fail_count"] += 1
+            if run_data["primary_counterexample"] is None:
+                run_data["primary_counterexample"] = {
+                    "test_name": item.name,
+                    "inputs": _bind_inputs(original, args, kwargs),
+                    "exception_type": type(exc).__name__,
+                    "exception_message": str(exc),
+                }
+            _record_step(is_fail=True)
+            raise
+
+    item.obj = _wrapped
 
 
 def _instrument_hypothesis_test(fn, test_name):

@@ -341,7 +341,7 @@ export class HypothesisRunner {
       const toolLabel = this._tool === "hypofuzz" ? "Hypofuzz" : "Hypothesis";
       const out = (stdoutText + "\n" + stderrText).trim();
       throw new Error(
-        `No @given property tests found by ${toolLabel} in '${filePath}' matching '${functionName}'.\n${out}`
+        `No tests found by ${toolLabel} in '${filePath}' matching '${functionName}'.\n${out}`
       );
     }
 
