@@ -13,13 +13,10 @@ import { clearCachedRawResultsForPath } from "./Agent";
 // ============================================================================
 
 const SEED = "qwertonyuiop";
-const WORKSPACE_ROOT = path.resolve("/Users/mcd2/git/cmumatt/nanofuzz-6");
-const SOURCE_FANDANGO_REPO = path.resolve(
-  "/Users/mcd2/git/cmumatt/nanofuzz/test-repos/fandango"
-);
-export const TARGET_FANDANGO_COMMIT =
-  "d06277caa78a64816e74afc3085be193c64cf434";
-export const TARGET_FANDANGO_VERSION = "v1.3.1-81-gd06277ca";
+const WORKSPACE_ROOT = path.resolve(".");
+const SOURCE_REPO = path.resolve("./benchmark/target");
+export const TARGET_COMMIT = "d06277caa78a64816e74afc3085be193c64cf434";
+export const TARGET_VERSION = "v1.3.1-81-gd06277ca";
 
 const BENCHMARK_DIR = path.join(WORKSPACE_ROOT, "benchmark");
 const WORKTREES_DIR = path.join(BENCHMARK_DIR, "worktrees");
@@ -682,7 +679,7 @@ function writeScoringSheet(
     `- **Task (Entrypoint)**: \`${run.task}\``,
     `- **Testing Engine**: \`${run.engine}\``,
     `- **Invariant Source**: \`${run.source}\``,
-    `- **PUT Version**: Fandango \`${TARGET_FANDANGO_VERSION}\` (\`${TARGET_FANDANGO_COMMIT.slice(0, 8)}\`)`,
+    `- **PUT Version**: Fandango \`${TARGET_VERSION}\` (\`${TARGET_COMMIT.slice(0, 8)}\`)`,
     `- **Replicate**: ${run.replicate} (Sequence Order: ${run.sequence})`,
     `- **Date**: ${new Date().toISOString().split("T")[0]}`,
     `- **Duration**: ${Math.floor(durationSec / 60)}m ${durationSec % 60}s (active: ${splits.totalExtract.activeSec + splits.synthesis.activeSec + splits.smoke.activeSec + splits.deep.activeSec + splits.contextualize.activeSec}s, retry: ${splits.totalExtract.retrySec + splits.synthesis.retrySec + splits.smoke.retrySec + splits.deep.retrySec + splits.contextualize.retrySec}s, deep slot wait: ${splits.deep.slotWaitSec}s)`,
@@ -947,13 +944,13 @@ export function initializeConcurrentWorktrees(
     const wtPath = path.join(WORKTREES_DIR, `w${lane}`);
     if (!fs.existsSync(wtPath)) {
       execSync(
-        `git -C "${SOURCE_FANDANGO_REPO}" worktree add --detach "${wtPath}" ${TARGET_FANDANGO_COMMIT}`,
+        `git -C "${SOURCE_REPO}" worktree add --detach "${wtPath}" ${TARGET_COMMIT}`,
         { stdio: "ignore" }
       );
     }
     const venvLink = path.join(wtPath, ".venv");
     if (!fs.existsSync(venvLink)) {
-      fs.symlinkSync(path.join(SOURCE_FANDANGO_REPO, ".venv"), venvLink);
+      fs.symlinkSync(path.join(SOURCE_REPO, ".venv"), venvLink);
     }
   }
 } // fn: initializeConcurrentWorktrees
@@ -964,7 +961,7 @@ export function cleanLane(laneId: number): void {
   try {
     execSync("git checkout -- .", { cwd: wtPath, stdio: "ignore" });
     execSync("git clean -fd", { cwd: wtPath, stdio: "ignore" });
-    execSync(`git checkout -q ${TARGET_FANDANGO_COMMIT}`, {
+    execSync(`git checkout -q ${TARGET_COMMIT}`, {
       cwd: wtPath,
       stdio: "ignore",
     });
@@ -975,7 +972,7 @@ export function cleanLane(laneId: number): void {
   // Ensure .venv symlink remains intact
   const venvLink = path.join(wtPath, ".venv");
   if (!fs.existsSync(venvLink)) {
-    fs.symlinkSync(path.join(SOURCE_FANDANGO_REPO, ".venv"), venvLink);
+    fs.symlinkSync(path.join(SOURCE_REPO, ".venv"), venvLink);
   }
 
   // Clean lane-specific IPC temp files
@@ -1836,8 +1833,8 @@ export async function runSingleBenchmarkSession(
     engine: run.engine,
     source: run.source,
     targetScope: run.targetScope,
-    targetCommit: TARGET_FANDANGO_COMMIT,
-    targetVersion: TARGET_FANDANGO_VERSION,
+    targetCommit: TARGET_COMMIT,
+    targetVersion: TARGET_VERSION,
     reportFilename: run.reportFilename,
     durationSeconds: durationSec,
     activeExecutionSeconds: activeSec,
@@ -1966,7 +1963,8 @@ export async function runBenchmarkMatrix(
     `Parallel Lanes: ${concurrency} | Max Deep Fuzzing Slots: ${MAX_DEEP_FUZZ_SLOTS}`
   );
   log(
-    `Base Repo: ${SOURCE_FANDANGO_REPO} (${TARGET_FANDANGO_VERSION} @ ${TARGET_FANDANGO_COMMIT.slice(0, 8)})`
+    `Base 
+  } (${TARGET_VERSION} @ ${TARGET_COMMIT.slice(0, 8)})`
   );
   log(`Worktrees: ${WORKTREES_DIR}/w1 ... w${concurrency}`);
   log(`Results Directory: ${RESULTS_DIR}`);
