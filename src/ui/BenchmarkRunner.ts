@@ -141,15 +141,14 @@ export function generateBenchmarkSchedule(
     for (const eng of ENGINES) {
       for (const src of SOURCES) {
         for (const task of BENCHMARK_TASKS) {
-          const reportFilename = `${TARGET_NAME} ${eng}+${src}+${task} rep${rep} v6.md`;
           runs.push({
             replicate: rep,
             task,
             engine: eng,
             source: src,
             targetScope: [task], // Explicit single entrypoint task
-            reportFilename,
-            reportPath: path.join(REPORTS_DIR, reportFilename),
+            reportFilename: "",
+            reportPath: "",
           });
         }
       }
@@ -160,10 +159,13 @@ export function generateBenchmarkSchedule(
   return shuffled.map((r, idx) => {
     const seq = idx + 1;
     const participant = `P${String(seq).padStart(2, "0")}`;
+    const reportFilename = `${participant}.md`;
     return {
       ...r,
       sequence: seq,
       participant,
+      reportFilename,
+      reportPath: path.join(REPORTS_DIR, reportFilename),
     };
   });
 }
@@ -1023,7 +1025,7 @@ export async function runSingleBenchmarkSession(
   while (!sessionCompleted) {
     if (token?.isCancellationRequested) {
       log(`${prefix} Cancellation requested.`);
-      cleanTargetRepo();
+      cleanLane(laneId);
       return {
         success: false,
         durationSec: Math.floor((Date.now() - t0) / 1000),
@@ -1053,7 +1055,7 @@ export async function runSingleBenchmarkSession(
     while (!streamSucceeded) {
       if (token?.isCancellationRequested) {
         log(`${tag()} Cancellation requested.`);
-        cleanTargetRepo();
+        cleanLane(laneId);
         return {
           success: false,
           durationSec: Math.floor((Date.now() - t0) / 1000),
@@ -1093,7 +1095,7 @@ export async function runSingleBenchmarkSession(
       } catch (err: unknown) {
         if (token?.isCancellationRequested) {
           log(`  ${tag()} [CANCEL] Request cancelled by user.`);
-          cleanTargetRepo();
+          cleanLane(laneId);
           return {
             success: false,
             durationSec: Math.floor((Date.now() - t0) / 1000),
@@ -1102,6 +1104,28 @@ export async function runSingleBenchmarkSession(
         }
 
         const errStr = String(err);
+
+        // Check if the input token count exceeded the model's context window limit
+        const isTokenLimitExceeded =
+          errStr.includes("exceeds the maximum number of tokens") ||
+          errStr.includes("maximum number of tokens allowed") ||
+          errStr.includes("input token count") ||
+          errStr.includes("context_length_exceeded") ||
+          errStr.includes("prompt is too long");
+
+        if (isTokenLimitExceeded) {
+          const turnsInHistory = Math.floor((messages.length - 1) / 2);
+          if (turnsInHistory > 1) {
+            const turnsToPrune = Math.max(1, Math.floor(turnsInHistory * 0.2));
+            messages.splice(1, turnsToPrune * 2);
+            log(
+              `  ${tag()} [PRUNE] Context token limit exceeded. Pruned oldest ${turnsToPrune} turns (~20% of history). Resending request...`
+            );
+            attempt = Math.max(0, attempt - 1);
+            continue;
+          }
+        }
+
         const isTransient =
           errStr.includes("503") ||
           errStr.includes("429") ||
@@ -1120,7 +1144,7 @@ export async function runSingleBenchmarkSession(
           log(
             `  ${tag()} [FAILED] LLM request failed (attempt ${attempt}/${maxRetries}): ${errStr}`
           );
-          cleanTargetRepo();
+          cleanLane(laneId);
           return {
             success: false,
             durationSec: Math.floor((Date.now() - t0) / 1000),
@@ -1251,11 +1275,11 @@ export async function runSingleBenchmarkSession(
         log(`  ${tag(`${step} (${p})`)} State: ${p}${stage}${fn}`);
       } else if (toolName === "nanofuzz_fuzzFunction") {
         toolInput.sessionId = sessionId;
-        if (
-          typeof toolInput.filePath === "string" &&
-          !path.isAbsolute(toolInput.filePath)
-        ) {
-          toolInput.filePath = path.resolve(laneRepoPath, toolInput.filePath);
+        if (typeof toolInput.filePath === "string") {
+          const raw = toolInput.filePath.trim();
+          toolInput.filePath = path.isAbsolute(raw)
+            ? path.resolve(raw)
+            : path.resolve(laneRepoPath, raw);
         }
         const fn = toolInput.functionName || "";
         const maxTests =
@@ -1266,20 +1290,20 @@ export async function runSingleBenchmarkSession(
         log(`  ${tag()} Fuzzing: ${fn} (${maxTests}, timeout=${to}s)`);
       } else if (toolName === "nanofuzz_shrinkInputs") {
         toolInput.sessionId = sessionId;
-        if (
-          typeof toolInput.filePath === "string" &&
-          !path.isAbsolute(toolInput.filePath)
-        ) {
-          toolInput.filePath = path.resolve(laneRepoPath, toolInput.filePath);
+        if (typeof toolInput.filePath === "string") {
+          const raw = toolInput.filePath.trim();
+          toolInput.filePath = path.isAbsolute(raw)
+            ? path.resolve(raw)
+            : path.resolve(laneRepoPath, raw);
         }
         const fn = toolInput.functionName || "";
         log(`  ${tag()} Shrinking inputs for: ${fn}`);
       } else if (toolName === "nanofuzz_listTargets") {
-        if (
-          typeof toolInput.filePath === "string" &&
-          !path.isAbsolute(toolInput.filePath)
-        ) {
-          toolInput.filePath = path.resolve(laneRepoPath, toolInput.filePath);
+        if (typeof toolInput.filePath === "string") {
+          const raw = toolInput.filePath.trim();
+          toolInput.filePath = path.isAbsolute(raw)
+            ? path.resolve(raw)
+            : path.resolve(laneRepoPath, raw);
         }
         const rel = String(toolInput.filePath || "")
           .split("/")
@@ -1294,30 +1318,31 @@ export async function runSingleBenchmarkSession(
         toolName === "replace_string_in_file" ||
         toolName === "copilot_replaceString"
       ) {
-        if (
-          typeof toolInput.filePath === "string" &&
-          !path.isAbsolute(toolInput.filePath)
-        ) {
-          toolInput.filePath = path.resolve(laneRepoPath, toolInput.filePath);
+        if (typeof toolInput.filePath === "string") {
+          // Unconditionally canonicalize and resolve path against laneRepoPath to prevent '..' traversals
+          const rawPath = toolInput.filePath.trim();
+          toolInput.filePath = path.isAbsolute(rawPath)
+            ? path.resolve(rawPath)
+            : path.resolve(laneRepoPath, rawPath);
         }
+
+        // Canonical lane directory prefix with trailing separator to prevent w1 matching w10
+        const canonicalLanePrefix = laneRepoPath.endsWith(path.sep)
+          ? laneRepoPath
+          : laneRepoPath + path.sep;
+
         // Intercept and reject any attempts to read/modify files outside the lane worktree
         // (EXCEPTION: reading, writing, or updating ONLY this participant's own assigned bug report file at run.reportPath)
         const isOwnReportFile =
-          (toolName === "create_file" ||
-            toolName === "copilot_createFile" ||
-            toolName === "replace_string_in_file" ||
-            toolName === "copilot_replaceString" ||
-            toolName === "read_file" ||
-            toolName === "copilot_readFile") &&
           typeof toolInput.filePath === "string" &&
           path.resolve(toolInput.filePath) === path.resolve(run.reportPath);
 
-        if (
-          !isOwnReportFile &&
+        const isInsideLane =
           typeof toolInput.filePath === "string" &&
-          path.isAbsolute(toolInput.filePath) &&
-          !toolInput.filePath.startsWith(laneRepoPath)
-        ) {
+          (toolInput.filePath === laneRepoPath ||
+            toolInput.filePath.startsWith(canonicalLanePrefix));
+
+        if (!isOwnReportFile && !isInsideLane) {
           const rejectedPath = toolInput.filePath;
           log(
             `  ${tag()} [BLOCKED] Access to external file rejected: ${rejectedPath}`
@@ -1336,45 +1361,157 @@ export async function runSingleBenchmarkSession(
         toolName === "list_dir" ||
         toolName === "copilot_listDirectory"
       ) {
-        if (
+        const rawDir =
+          typeof toolInput.dirPath === "string"
+            ? toolInput.dirPath.trim()
+            : typeof toolInput.path === "string"
+              ? toolInput.path.trim()
+              : "";
+
+        toolInput.dirPath = rawDir
+          ? path.isAbsolute(rawDir)
+            ? path.resolve(rawDir)
+            : path.resolve(laneRepoPath, rawDir)
+          : laneRepoPath;
+
+        const canonicalLanePrefix = laneRepoPath.endsWith(path.sep)
+          ? laneRepoPath
+          : laneRepoPath + path.sep;
+
+        const isInsideLane =
           typeof toolInput.dirPath === "string" &&
-          !path.isAbsolute(toolInput.dirPath)
-        ) {
-          toolInput.dirPath = path.resolve(laneRepoPath, toolInput.dirPath);
+          (toolInput.dirPath === laneRepoPath ||
+            toolInput.dirPath.startsWith(canonicalLanePrefix));
+
+        if (!isInsideLane) {
+          const rejectedPath = toolInput.dirPath;
+          log(
+            `  ${tag()} [BLOCKED] Directory listing outside lane rejected: ${rejectedPath}`
+          );
+          resultText = `Access denied: '${rejectedPath}' is outside the assigned repository '${laneRepoPath}'.`;
+          eventRecord.result = resultText;
+          toolResults.push(
+            new vscode.LanguageModelToolResultPart(call.callId, [
+              new vscode.LanguageModelTextPart(resultText),
+            ])
+          );
+          continue;
         }
         log(`  ${tag()} Tool: ${toolName}`);
       } else {
         log(`  ${tag()} Tool: ${toolName}`);
       }
 
-      // Invoke tool via vscode.lm.invokeTool
+      // Directly handle file manipulation tools inside the lane worktree (or the assigned report file)
+      // to avoid Copilot UI stream failures ("Invalid stream") in headless benchmark runs
       let toolSucceeded = false;
       const fuzzRunsCountBefore =
         toolName === "nanofuzz_fuzzFunction"
           ? (sessionManager.getSession(sessionId, laneRepoPath)?.fuzzRuns
               .length ?? 0)
           : 0;
-      try {
-        const toolRes = await vscode.lm.invokeTool(
-          toolName,
-          { input: toolInput, toolInvocationToken: undefined },
-          token
-        );
-        for (const part of toolRes.content) {
-          if (part instanceof vscode.LanguageModelTextPart) {
-            resultText += part.value;
-          } else if (typeof part === "string") {
-            resultText += part;
-          } else {
-            resultText += JSON.stringify(part);
-          }
+
+      if (
+        (toolName === "create_file" || toolName === "copilot_createFile") &&
+        typeof toolInput.filePath === "string"
+      ) {
+        try {
+          const targetFile = toolInput.filePath;
+          const content =
+            typeof toolInput.content === "string" ? toolInput.content : "";
+          fs.mkdirSync(path.dirname(targetFile), { recursive: true });
+          fs.writeFileSync(targetFile, content, "utf8");
+          resultText = `File created successfully at ${targetFile}`;
+          toolSucceeded = true;
+        } catch (err: unknown) {
+          dashboardTracker.incrementToolError(laneId);
+          resultText = `File creation error: ${String(err)}`;
+          const step = PHASE_STEPS[currentPhase] || "?/6";
+          log(`  ${tag(step)} [WARN] Tool ${toolName} threw: ${String(err)}`);
         }
-        toolSucceeded = true;
-      } catch (err: unknown) {
-        dashboardTracker.incrementToolError(laneId);
-        resultText = `Tool invocation error: ${String(err)}`;
-        const step = PHASE_STEPS[currentPhase] || "?/6";
-        log(`  ${tag(step)} [WARN] Tool ${toolName} threw: ${String(err)}`);
+      } else if (
+        (toolName === "replace_string_in_file" ||
+          toolName === "copilot_replaceString") &&
+        typeof toolInput.filePath === "string"
+      ) {
+        try {
+          const targetFile = toolInput.filePath;
+          const oldStr =
+            typeof toolInput.oldString === "string"
+              ? toolInput.oldString
+              : typeof toolInput.existingString === "string"
+                ? toolInput.existingString
+                : "";
+          const newStr =
+            typeof toolInput.newString === "string"
+              ? toolInput.newString
+              : typeof toolInput.replacement === "string"
+                ? toolInput.replacement
+                : "";
+
+          if (!fs.existsSync(targetFile)) {
+            resultText = `File not found: ${targetFile}`;
+          } else if (!oldStr) {
+            resultText = "No oldString specified to replace.";
+          } else {
+            const originalContent = fs.readFileSync(targetFile, "utf8");
+            if (!originalContent.includes(oldStr)) {
+              resultText = `Could not find exact oldString in ${targetFile}`;
+            } else {
+              const updatedContent = originalContent.replace(oldStr, newStr);
+              fs.writeFileSync(targetFile, updatedContent, "utf8");
+              resultText = `Successfully replaced string in ${targetFile}`;
+              toolSucceeded = true;
+            }
+          }
+        } catch (err: unknown) {
+          dashboardTracker.incrementToolError(laneId);
+          resultText = `String replacement error: ${String(err)}`;
+          const step = PHASE_STEPS[currentPhase] || "?/6";
+          log(`  ${tag(step)} [WARN] Tool ${toolName} threw: ${String(err)}`);
+        }
+      } else if (
+        (toolName === "read_file" || toolName === "copilot_readFile") &&
+        typeof toolInput.filePath === "string"
+      ) {
+        try {
+          const targetFile = toolInput.filePath;
+          if (!fs.existsSync(targetFile)) {
+            resultText = `File not found: ${targetFile}`;
+          } else {
+            resultText = fs.readFileSync(targetFile, "utf8");
+            toolSucceeded = true;
+          }
+        } catch (err: unknown) {
+          dashboardTracker.incrementToolError(laneId);
+          resultText = `File read error: ${String(err)}`;
+          const step = PHASE_STEPS[currentPhase] || "?/6";
+          log(`  ${tag(step)} [WARN] Tool ${toolName} threw: ${String(err)}`);
+        }
+      } else {
+        // Invoke other tools via vscode.lm.invokeTool
+        try {
+          const toolRes = await vscode.lm.invokeTool(
+            toolName,
+            { input: toolInput, toolInvocationToken: undefined },
+            token
+          );
+          for (const part of toolRes.content) {
+            if (part instanceof vscode.LanguageModelTextPart) {
+              resultText += part.value;
+            } else if (typeof part === "string") {
+              resultText += part;
+            } else {
+              resultText += JSON.stringify(part);
+            }
+          }
+          toolSucceeded = true;
+        } catch (err: unknown) {
+          dashboardTracker.incrementToolError(laneId);
+          resultText = `Tool invocation error: ${String(err)}`;
+          const step = PHASE_STEPS[currentPhase] || "?/6";
+          log(`  ${tag(step)} [WARN] Tool ${toolName} threw: ${String(err)}`);
+        }
       }
 
       // Record tool execution outcome and capture shrink steps
@@ -2044,11 +2181,13 @@ class BenchmarkDashboardTracker {
   private _finished: FinishedSessionStatus[] = [];
   private _statusBarItem: vscode.StatusBarItem | undefined;
   private _lastLogTime: number = 0;
+  private _isDisposed: boolean = false;
 
   public startMatrix(
     totalRuns: number,
     initialFinished: FinishedSessionStatus[] = []
   ): void {
+    this._isDisposed = false;
     this._matrixStartTime = Date.now();
     this._totalRuns = totalRuns;
     this._active.clear();
@@ -2431,6 +2570,9 @@ class BenchmarkDashboardTracker {
   } // fn: renderMarkdownTooltip
 
   public updateStatusBar(): void {
+    if (this._isDisposed) {
+      return;
+    }
     if (!this._statusBarItem) {
       this._statusBarItem = vscode.window.createStatusBarItem(
         vscode.StatusBarAlignment.Left,
@@ -2471,6 +2613,7 @@ class BenchmarkDashboardTracker {
   } // fn: writeDashboardFile
 
   public dispose(): void {
+    this._isDisposed = true;
     if (this._statusBarItem) {
       this._statusBarItem.hide();
       this._statusBarItem.dispose();
