@@ -659,7 +659,12 @@ function buildCliArgs(
   const bridgeModuleName = "HypothesisRunnerHost";
 
   if (tool === "hypofuzz") {
-    const args = ["-m", "hypofuzz", "--no-dashboard"];
+    const args = [
+      "-c",
+      "from hypothesis.extra.cli import main; main()",
+      "fuzz",
+      "--no-dashboard",
+    ];
     if (workerCount > 1) {
       args.push("-n", String(workerCount));
     } else {
