@@ -86,7 +86,7 @@ class FindBugsSessionManager {
     invariantSource: FindBugsInvariantSource,
     workerCount: number,
     initialPhase: FindBugsPhase,
-    targetScope: string[] = [],
+    targetScope?: string[],
     targetRepoPath?: string
   ): WorkflowSession {
     const id =
@@ -101,7 +101,7 @@ class FindBugsSessionManager {
         sessionId: id,
         tool,
         invariantSource,
-        targetScope,
+        targetScope: targetScope ?? [],
         targetRepoPath,
         workerCount,
         startedAt: now,
@@ -114,7 +114,9 @@ class FindBugsSessionManager {
     } else {
       session.tool = tool;
       session.invariantSource = invariantSource;
-      session.targetScope = targetScope;
+      if (targetScope !== undefined) {
+        session.targetScope = targetScope;
+      }
       if (targetRepoPath) {
         session.targetRepoPath = targetRepoPath;
       }

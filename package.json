@@ -862,18 +862,6 @@
               "experimental"
             ]
           },
-          "nanofuzz.experimental.findBugs.targetScope": {
-            "title": "FindBugs pre-selected target scope",
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "default": [],
-            "description": "Experimental: Optional list of pre-selected entrypoint names/symbols (e.g. ['encode', 'decode', 'parse']) that the agent must strictly target. If empty, entrypoints are auto-discovered.",
-            "tags": [
-              "experimental"
-            ]
-          },
           "nanofuzz.experimental.findBugs.skipContextualization": {
             "title": "Skip Bug Contextualization",
             "type": "boolean",

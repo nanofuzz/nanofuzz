@@ -30,8 +30,6 @@ export async function findBugs(
       "tests"
     );
 
-  const defaultTargetScope: string[] = getTargetScope();
-
   const skipContextualization: boolean = Config.get<boolean>(
     "nanofuzz.experimental.findBugs.skipContextualization",
     false
@@ -71,7 +69,7 @@ export async function findBugs(
     payloadSource ?? defaultInvariantSource,
     workerCount,
     phase,
-    payloadScope ?? defaultTargetScope,
+    payloadScope,
     payloadRepoPath
   );
 
@@ -438,35 +436,6 @@ export async function findBugs(
     summaryText,
   };
 } // fn: findBugs
-
-/**
- * Retrieves the pre-selected target scope configured for FindBugs.
- *
- * @returns Array of target symbol names, or empty array if unconstrained.
- */
-export function getTargetScope(): string[] {
-  const scope = Config.get<string[]>(
-    "nanofuzz.experimental.findBugs.targetScope",
-    []
-  );
-  if (Array.isArray(scope) && scope.length > 0) {
-    return scope
-      .map(String)
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0);
-  }
-  const legacy = Config.get<string[]>(
-    "nanofuzz.experimental.findBugs.entrypoints",
-    []
-  );
-  if (Array.isArray(legacy) && legacy.length > 0) {
-    return legacy
-      .map(String)
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0);
-  }
-  return [];
-} // fn: getTargetScope
 
 // -------------------------------------------------------------------------- //
 // Private Phase Guidance Generators

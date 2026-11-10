@@ -733,19 +733,21 @@ describe("FindBugs", () => {
 
   it("handles pre-selected targetScope option: instructs agent and blocks Gate 1 if entrypoints are omitted", async () => {
     Config.override("nanofuzz.experimental.findBugs.tool", "hypothesis");
-    Config.override("nanofuzz.experimental.findBugs.targetScope", [
-      "encode",
-      "decode",
-      "parse",
-      "validate",
-      "serialize",
-    ]);
 
     const initRes = await findBugs({
       phase: "init",
       model,
       vendor,
-      statePayload: { sessionId: "target-scope-session" },
+      statePayload: {
+        sessionId: "target-scope-session",
+        targetScope: [
+          "encode",
+          "decode",
+          "parse",
+          "validate",
+          "serialize",
+        ],
+      },
     });
 
     expect(initRes.instructions).toContain("Prescribed Target Scope");
@@ -797,13 +799,6 @@ describe("FindBugs", () => {
 
   it("allows Gate 1 to pass when all pre-selected entrypoints in targetScope are registered", async () => {
     Config.override("nanofuzz.experimental.findBugs.tool", "hypothesis");
-    Config.override("nanofuzz.experimental.findBugs.targetScope", [
-      "encode",
-      "decode",
-      "parse",
-      "validate",
-      "serialize",
-    ]);
 
     const extractedRes = await findBugs({
       phase: "invariants_extracted",
@@ -811,6 +806,13 @@ describe("FindBugs", () => {
       vendor,
       statePayload: {
         sessionId: "target-scope-pass-session",
+        targetScope: [
+          "encode",
+          "decode",
+          "parse",
+          "validate",
+          "serialize",
+        ],
         entrypoints: [
           {
             name: "encode",
@@ -846,8 +848,6 @@ describe("FindBugs", () => {
   });
 
   it("runs normally through Gate 1 when targetScope is empty", async () => {
-    Config.override("nanofuzz.experimental.findBugs.targetScope", []);
-
     const initRes = await findBugs({
       phase: "init",
       model,
