@@ -30,6 +30,7 @@ export type FuzzRunStatsSnapshot = {
   generatorName?: string;
   details?: string;
   shrinkSteps?: number;
+  isPropertyTest?: boolean;
 };
 
 /**
@@ -344,6 +345,8 @@ class FindBugsSessionManager {
     // Default if no entrypoints formally registered: at least one 300,000ms run
     return s.fuzzRuns.some(
       (r) =>
+        r.isPropertyTest !== false &&
+        r.totalTests > 1 &&
         (r.suiteTimeout ?? 0) >= 300000 &&
         (r.maxTests === 0 || r.maxTests === Number.MAX_SAFE_INTEGER)
     );
@@ -361,6 +364,8 @@ class FindBugsSessionManager {
     const matchingDeepRuns = session.fuzzRuns.filter(
       (r) =>
         functionMatchesEntrypoint(r.functionName, entrypoint) &&
+        r.isPropertyTest !== false &&
+        r.totalTests > 1 &&
         (r.suiteTimeout ?? 0) >= 300000 &&
         (r.maxTests === 0 || r.maxTests === Number.MAX_SAFE_INTEGER)
     );
@@ -393,6 +398,8 @@ class FindBugsSessionManager {
         const deepRuns = s.fuzzRuns.filter(
           (r) =>
             functionMatchesEntrypoint(r.functionName, e) &&
+            r.isPropertyTest !== false &&
+            r.totalTests > 1 &&
             (r.suiteTimeout ?? 0) >= 300000 &&
             (r.maxTests === 0 || r.maxTests === Number.MAX_SAFE_INTEGER)
         );

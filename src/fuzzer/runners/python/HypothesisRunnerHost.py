@@ -66,6 +66,7 @@ run_data = {
     "stop_reason": "completed",
     "duration_ms": 0,
     "coverage": None,
+    "is_property_test": False,
 }
 
 
@@ -278,6 +279,7 @@ def pytest_collection_modifyitems(session, config, items):
                 example(**ex)(fn)
             _instrument_hypothesis_test(fn, item.name)
             instrumented_count += 1
+            run_data["is_property_test"] = True
         elif fn and callable(fn):
             _instrument_regular_test(item, fn)
             instrumented_count += 1

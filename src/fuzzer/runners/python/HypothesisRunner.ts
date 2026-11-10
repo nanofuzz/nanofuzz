@@ -472,6 +472,7 @@ export class HypothesisRunner {
       primaryCounterexample,
       generators,
       coverage: coverageSummary,
+      isPropertyTest: reportData?.is_property_test,
     };
 
     const summaryText = buildSummaryMarkdown(resultBase);
@@ -509,10 +510,15 @@ interface PbtRunReport {
     branch_pct: number;
     uncovered_lines?: Record<string, number[]>;
   };
+  is_property_test?: boolean;
 }
 
 function parsePbtRunReport(val: unknown): PbtRunReport | undefined {
   if (!isRecord(val)) return undefined;
+  const is_property_test =
+    typeof val.is_property_test === "boolean"
+      ? val.is_property_test
+      : undefined;
   const total_executions =
     typeof val.total_executions === "number" ? val.total_executions : 0;
   const pass_count = typeof val.pass_count === "number" ? val.pass_count : 0;
@@ -588,6 +594,7 @@ function parsePbtRunReport(val: unknown): PbtRunReport | undefined {
     stop_reason,
     duration_ms,
     coverage,
+    is_property_test,
   };
 } // fn: parsePbtRunReport
 

@@ -667,6 +667,7 @@ export async function runFuzz(
             (experimentalTool === "hypofuzz" ? "Hypofuzz" : "Hypothesis"),
           details: result.primaryCounterexample?.exceptionDisplay,
           shrinkSteps: result.primaryCounterexample?.shrinkSteps ?? 0,
+          isPropertyTest: result.isPropertyTest,
         },
         options.sessionId
       );
@@ -2230,6 +2231,7 @@ export type AgentFuzzResult = {
   diagnostics?: string[];
   rawResults?: FuzzTestResults;
   summaryText: string;
+  isPropertyTest?: boolean;
 };
 
 /**
