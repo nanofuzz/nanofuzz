@@ -1114,14 +1114,17 @@ export async function runSingleBenchmarkSession(
           errStr.includes("prompt is too long");
 
         if (isTokenLimitExceeded) {
-          const turnsInHistory = Math.floor((messages.length - 1) / 2);
-          if (turnsInHistory > 1) {
-            const turnsToPrune = Math.max(1, Math.floor(turnsInHistory * 0.2));
+          const initialTurns = Math.floor((messages.length - 1) / 2);
+          if (initialTurns > 1) {
+            // Target pruning down to 75% capacity
+            const targetTurns = Math.max(1, Math.floor(initialTurns * 0.75));
+            const turnsToPrune = initialTurns - targetTurns;
             messages.splice(1, turnsToPrune * 2);
             log(
-              `  ${tag()} [PRUNE] Context token limit exceeded. Pruned oldest ${turnsToPrune} turns (~20% of history). Resending request...`
+              `  ${tag()} [PRUNE] Context token limit exceeded. Pruned oldest ${turnsToPrune} turns (targeted 75% capacity). Resending request...`
             );
-            attempt = Math.max(0, attempt - 1);
+            // Do NOT increment attempt; reset fatal attempt counter on successful prune
+            attempt = 0;
             continue;
           }
         }
@@ -1701,6 +1704,7 @@ export async function runSingleBenchmarkSession(
 
   // Conduct Post-Task Survey & SUS Evaluation with the Agent
   let survey: ParticipantSurvey | undefined;
+  const rawSurveyOutputs: string[] = [];
   try {
     const surveyPrompt = [
       "The bug hunting session and fuzz testing run are now complete.",
@@ -1726,70 +1730,101 @@ export async function runSingleBenchmarkSession(
       "- `studyImprovementFeedback`: String with feedback/suggestions to improve this or future studies.",
     ].join("\n");
 
+    let surveyAttempts = 0;
+    const maxSurveyAttempts = 3;
+
     const surveyMessages = [
       ...messages,
       vscode.LanguageModelChatMessage.User(surveyPrompt),
     ];
 
-    const surveyResponse = await model.sendRequest(
-      surveyMessages,
-      { tools: [] },
-      token
-    );
+    while (surveyAttempts < maxSurveyAttempts && !survey) {
+      surveyAttempts++;
+      let surveyRawText = "";
 
-    let surveyRawText = "";
-    for await (const chunk of surveyResponse.stream) {
-      if (chunk instanceof vscode.LanguageModelTextPart) {
-        surveyRawText += chunk.value;
+      const surveyResponse = await model.sendRequest(
+        surveyMessages,
+        { tools: [] },
+        token
+      );
+
+      for await (const chunk of surveyResponse.stream) {
+        if (chunk instanceof vscode.LanguageModelTextPart) {
+          surveyRawText += chunk.value;
+        }
       }
-    }
+      rawSurveyOutputs.push(surveyRawText);
 
-    const jsonMatch =
-      surveyRawText.match(/```(?:json)?\s*([\s\S]*?)\s*```/) ||
-      surveyRawText.match(/(\{[\s\S]*\})/);
+      const jsonMatch =
+        surveyRawText.match(/```(?:json)?\s*([\s\S]*?)\s*```/) ||
+        surveyRawText.match(/(\{[\s\S]*\})/);
 
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[1]);
-      const clampLikert = (v: unknown): number => {
-        const n = Number(v);
-        if (isNaN(n) || n < 1) return 3;
-        if (n > 5) return 5;
-        return Math.round(n);
-      };
+      if (jsonMatch) {
+        try {
+          const parsed = JSON.parse(jsonMatch[1]);
+          const clampLikert = (v: unknown): number => {
+            const n = Number(v);
+            if (isNaN(n) || n < 1) return 3;
+            if (n > 5) return 5;
+            return Math.round(n);
+          };
 
-      const susResponses = {
-        sus1: clampLikert(parsed.sus1),
-        sus2: clampLikert(parsed.sus2),
-        sus3: clampLikert(parsed.sus3),
-        sus4: clampLikert(parsed.sus4),
-        sus5: clampLikert(parsed.sus5),
-        sus6: clampLikert(parsed.sus6),
-        sus7: clampLikert(parsed.sus7),
-        sus8: clampLikert(parsed.sus8),
-        sus9: clampLikert(parsed.sus9),
-        sus10: clampLikert(parsed.sus10),
-      };
+          const susResponses = {
+            sus1: clampLikert(parsed.sus1),
+            sus2: clampLikert(parsed.sus2),
+            sus3: clampLikert(parsed.sus3),
+            sus4: clampLikert(parsed.sus4),
+            sus5: clampLikert(parsed.sus5),
+            sus6: clampLikert(parsed.sus6),
+            sus7: clampLikert(parsed.sus7),
+            sus8: clampLikert(parsed.sus8),
+            sus9: clampLikert(parsed.sus9),
+            sus10: clampLikert(parsed.sus10),
+          };
 
-      const computedSus = computeSusScore(susResponses);
+          const computedSus = computeSusScore(susResponses);
 
-      survey = {
-        realistic: clampLikert(parsed.realistic),
-        ...susResponses,
-        susScore: computedSus,
-        toolHelpfulFeedback: String(parsed.toolHelpfulFeedback || "").trim(),
-        toolUsabilityFeedback: String(
-          parsed.toolUsabilityFeedback || ""
-        ).trim(),
-        workflowFitFeedback: String(parsed.workflowFitFeedback || "").trim(),
-        toolImprovementFeedback: String(
-          parsed.toolImprovementFeedback || ""
-        ).trim(),
-        studyImprovementFeedback: String(
-          parsed.studyImprovementFeedback || ""
-        ).trim(),
-      };
+          survey = {
+            realistic: clampLikert(parsed.realistic),
+            ...susResponses,
+            susScore: computedSus,
+            toolHelpfulFeedback: String(
+              parsed.toolHelpfulFeedback || ""
+            ).trim(),
+            toolUsabilityFeedback: String(
+              parsed.toolUsabilityFeedback || ""
+            ).trim(),
+            workflowFitFeedback: String(
+              parsed.workflowFitFeedback || ""
+            ).trim(),
+            toolImprovementFeedback: String(
+              parsed.toolImprovementFeedback || ""
+            ).trim(),
+            studyImprovementFeedback: String(
+              parsed.studyImprovementFeedback || ""
+            ).trim(),
+          };
 
-      writeSurveyResponsesCsv(run, survey);
+          writeSurveyResponsesCsv(run, survey);
+          break;
+        } catch {
+          // JSON parsing of matched block failed, fall through to reprompt
+        }
+      }
+
+      if (!survey && surveyAttempts < maxSurveyAttempts) {
+        surveyMessages.push(
+          vscode.LanguageModelChatMessage.Assistant(surveyRawText)
+        );
+        surveyMessages.push(
+          vscode.LanguageModelChatMessage.User(
+            "Your survey response was malformed. You MUST return ONLY a JSON object in a ```json codeblock containing the required keys: realistic, sus1..sus10, toolHelpfulFeedback, toolUsabilityFeedback, workflowFitFeedback, toolImprovementFeedback, studyImprovementFeedback."
+          )
+        );
+        log(
+          `  ${prefix} [REPROMPT] Survey response malformed. Reprompting agent (attempt ${surveyAttempts}/${maxSurveyAttempts})...`
+        );
+      }
     }
   } catch (err: unknown) {
     log(
@@ -1861,6 +1896,7 @@ export async function runSingleBenchmarkSession(
     },
     evalResults,
     survey,
+    rawSurveyOutputs,
   };
   fs.writeFileSync(
     telemetryJsonPath,
@@ -2672,20 +2708,24 @@ function estimateEta(
   finished: FinishedSessionStatus[],
   activeLanesCount: number
 ): string {
-  if (completedRuns === 0 || totalRuns === 0) {
-    return "calculating...";
-  }
   const remaining = totalRuns - completedRuns;
   if (remaining <= 0) {
     return "0s";
   }
 
-  const totalFinishedSec = finished.reduce((sum, s) => sum + s.durationSec, 0);
-  const avgSecPerRun = totalFinishedSec / completedRuns;
   const effectiveConcurrency = Math.max(
     1,
     Math.min(activeLanesCount || 1, remaining)
   );
+
+  // Filter to passed runs for empirical mean duration; fallback to baseline 2293s
+  const passedFinished = finished.filter((s) => s.success);
+  const avgSecPerRun =
+    passedFinished.length > 0
+      ? passedFinished.reduce((sum, s) => sum + s.durationSec, 0) /
+        passedFinished.length
+      : 2293; // Empirical mean of passed sessions (~38.2m)
+
   const remainingSec = Math.round(
     (remaining * avgSecPerRun) / effectiveConcurrency
   );

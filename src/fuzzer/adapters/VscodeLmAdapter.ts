@@ -16,6 +16,7 @@ import {
 import { CoverageScope } from "../measures/Types";
 import { CurrentRunStats } from "../Types";
 import { findBugs, FindBugsOptions, FindBugsPhase } from "../../ui/FindBugs";
+import { sessionManager } from "../../ui/FindBugsSessionManager";
 import { getDisplayPath } from "../Util";
 
 // -------------------------------------------------------------------------- //
@@ -153,8 +154,16 @@ export class FuzzFunctionTool implements vscode.LanguageModelTool<FuzzFunctionIn
   public prepareInvocation(
     options: vscode.LanguageModelToolInvocationPrepareOptions<FuzzFunctionInput>
   ): vscode.ProviderResult<vscode.PreparedToolInvocation> {
-    const toolName = getToolName();
-    const { functionName, filePath, timeoutMs, maxFailures } = options.input;
+    const { functionName, filePath, timeoutMs, maxFailures, sessionId } =
+      options.input;
+
+    const session = sessionManager.getSession(sessionId, filePath);
+    const underlyingTool = session?.tool ?? "nanofuzz";
+    const toolName =
+      underlyingTool !== "nanofuzz"
+        ? underlyingTool.charAt(0).toUpperCase() + underlyingTool.slice(1)
+        : getToolName();
+
     let maxTests = options.input.maxTests;
     let effectiveMaxFailures = maxFailures;
 
@@ -233,7 +242,13 @@ export class FuzzFunctionTool implements vscode.LanguageModelTool<FuzzFunctionIn
 
     const resolved = await resolveMatchingModel(vendor, model);
 
-    const toolName = getToolName();
+    const session = sessionManager.getSession(sessionId, filePath);
+    const underlyingTool = session?.tool ?? "nanofuzz";
+    const toolName =
+      underlyingTool !== "nanofuzz"
+        ? underlyingTool.charAt(0).toUpperCase() + underlyingTool.slice(1)
+        : getToolName();
+
     const displayPath = getDisplayPath(filePath);
     const target = `'${displayPath}::${functionName}'`;
 
