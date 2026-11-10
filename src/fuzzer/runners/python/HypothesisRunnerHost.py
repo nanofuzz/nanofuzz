@@ -247,7 +247,7 @@ def pytest_sessionfinish(session, exitstatus):
 
 def pytest_collection_modifyitems(session, config, items):
     """Inspects collected test items, binds injected examples, and instruments Hypothesis @given test functions."""
-    from hypothesis import example
+    from hypothesis import example, settings, HealthCheck
     from PythonIpc import unpack_payload
 
     injected_examples = []
@@ -266,6 +266,14 @@ def pytest_collection_modifyitems(session, config, items):
     for item in items:
         fn = getattr(item, "obj", None)
         if fn and hasattr(fn, "hypothesis") and hasattr(fn.hypothesis, "inner_test"):
+            # Strip HealthCheck.nested_given if present so hypofuzz collection does not reject the target
+            if hasattr(fn, "_hypothesis_internal_use_settings"):
+                fn_settings = fn._hypothesis_internal_use_settings
+                if hasattr(fn_settings, "suppress_health_check") and HealthCheck.nested_given in fn_settings.suppress_health_check:
+                    filtered = tuple(
+                        h for h in fn_settings.suppress_health_check if h != HealthCheck.nested_given)
+                    fn._hypothesis_internal_use_settings = settings(
+                        fn_settings, suppress_health_check=filtered)
             for ex in injected_examples:
                 example(**ex)(fn)
             _instrument_hypothesis_test(fn, item.name)

@@ -460,8 +460,8 @@ interface BugEvaluationResult {
 
 function evaluateBugsForParticipant(
   task: BenchmarkTaskName,
-  reportText: string,
-  fuzzRuns: Array<{
+  _reportText: string,
+  _fuzzRuns: Array<{
     functionName: string;
     failedTests: number;
     exceptions: number;
@@ -470,49 +470,12 @@ function evaluateBugsForParticipant(
   }>
 ): BugEvaluationResult[] {
   const taskBugs = GROUND_TRUTH_BUGS[task] || [];
-  const results: BugEvaluationResult[] = [];
-
-  for (const bug of taskBugs) {
-    let elicited = 0;
-    let generator = "None";
-
-    // Check if recorded fuzz failures match bug patterns
-    for (const run of fuzzRuns) {
-      if (run.failedTests > 0 || run.exceptions > 0) {
-        const textToCheck = `${run.functionName} ${run.details || ""}`;
-        const isMatch = bug.matchPatterns.some((pat) => pat.test(textToCheck));
-        if (isMatch) {
-          elicited = 1;
-          generator = run.generatorName || "Unknown";
-          break;
-        }
-      }
-    }
-
-    // Fallback check if report contains reproducer or error matching patterns
-    if (elicited === 0 && reportText) {
-      const isMatch = bug.matchPatterns.some((pat) => pat.test(reportText));
-      if (isMatch) {
-        elicited = 1;
-        generator = "ReportedInSummary";
-      }
-    }
-
-    // Check if bug was explicitly reported in markdown report
-    let reported = 0;
-    if (reportText) {
-      reported = bug.matchPatterns.some((pat) => pat.test(reportText)) ? 1 : 0;
-    }
-
-    results.push({
-      bug,
-      elicited,
-      reported,
-      generator,
-    });
-  }
-
-  return results;
+  return taskBugs.map((bug) => ({
+    bug,
+    elicited: 0,
+    reported: 0,
+    generator: "PENDING_EVAL",
+  }));
 }
 
 function writeScoringSheet(
@@ -759,7 +722,7 @@ function appendToDataCsv(
     survey ? String(survey.sus9) : "",
     survey ? String(survey.sus10) : "",
     `"${generators || "None"}"`,
-    "COMPLETED",
+    "INCOMPLETE",
     ...bugCols,
   ];
 
@@ -1219,6 +1182,18 @@ export async function runSingleBenchmarkSession(
       ) {
         log(`  ${tag()} Report detected on disk. Marking session complete.`);
         break;
+      }
+      if (
+        sessionCompleted &&
+        (!fs.existsSync(run.reportPath) ||
+          fs.statSync(run.reportPath).size <= 500)
+      ) {
+        messages.push(
+          vscode.LanguageModelChatMessage.User(
+            `Phase complete registered. You must now generate and save your final markdown evaluation report to '${run.reportPath}' using create_file before the session can conclude.`
+          )
+        );
+        continue;
       }
       messages.push(
         vscode.LanguageModelChatMessage.User(

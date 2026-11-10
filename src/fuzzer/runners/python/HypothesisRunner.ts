@@ -127,6 +127,7 @@ export class HypothesisRunner {
     const startTime = Date.now();
     let processExited = false;
     let proc: child_process.ChildProcess | undefined;
+    let stdoutText = "";
     let stderrText = "";
     let exitCode: number | null = null;
 
@@ -185,10 +186,12 @@ export class HypothesisRunner {
         });
       }
 
+      proc.stdout?.on("data", (data: Buffer) => {
+        stdoutText += data.toString("utf8");
+      });
       proc.stderr?.on("data", (data: Buffer) => {
         stderrText += data.toString("utf8");
       });
-      proc.stdout?.resume();
 
       // Cancellation and timeout watchdog + periodic progress updater
       const hardTimeoutMs = suiteTimeoutMs + 45000;
@@ -335,12 +338,21 @@ export class HypothesisRunner {
     }
 
     if (reportData.stop_reason === "no_hypothesis_tests") {
+      const toolLabel = this._tool === "hypofuzz" ? "Hypofuzz" : "Hypothesis";
+      const out = (stdoutText + "\n" + stderrText).trim();
       throw new Error(
-        `No @given property tests found in '${filePath}' matching '${functionName}'. Ensure test functions are decorated with @given(...) and start with 'test_'.`
+        `No @given property tests found by ${toolLabel} in '${filePath}' matching '${functionName}'.\n${out}`
       );
     }
 
     const totalTests = reportData?.total_executions ?? 0;
+    if (totalTests === 0) {
+      const toolLabel = this._tool === "hypofuzz" ? "Hypofuzz" : "Hypothesis";
+      const out = (stdoutText + "\n" + stderrText).trim();
+      throw new Error(
+        `${toolLabel} executed 0 tests in '${filePath}' (exit code: ${exitCode}).\n${out}`
+      );
+    }
     const failedTests = reportData?.fail_count ?? 0;
     const passedTests =
       reportData?.pass_count ?? Math.max(0, totalTests - failedTests);
