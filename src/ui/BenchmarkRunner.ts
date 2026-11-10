@@ -795,18 +795,18 @@ export function initializeConcurrentWorktrees(
   fs.mkdirSync(TELEMETRY_DIR, { recursive: true });
   fs.mkdirSync(SCORING_SHEETS_DIR, { recursive: true });
 
+  execSync(`git -C "${SOURCE_REPO}" worktree prune`, { stdio: "pipe" });
+
   for (let lane = 1; lane <= lanes; lane++) {
     const wtPath = path.join(WORKTREES_DIR, `w${lane}`);
     if (!fs.existsSync(wtPath)) {
       execSync(
-        `git -C "${SOURCE_REPO}" worktree add --detach "${wtPath}" ${TARGET_COMMIT}`,
-        { stdio: "ignore" }
+        `git -C "${SOURCE_REPO}" worktree add --force --detach "${wtPath}" ${TARGET_COMMIT}`,
+        { stdio: "pipe" }
       );
     }
     const venvLink = path.join(wtPath, ".venv");
-    if (!fs.existsSync(venvLink)) {
-      fs.symlinkSync(path.join(SOURCE_REPO, ".venv"), venvLink);
-    }
+    ensureVenvSymlink(path.join(SOURCE_REPO, ".venv"), venvLink);
   }
 } // fn: initializeConcurrentWorktrees
 
@@ -826,9 +826,7 @@ export function cleanLane(laneId: number): void {
 
   // Ensure .venv symlink remains intact
   const venvLink = path.join(wtPath, ".venv");
-  if (!fs.existsSync(venvLink)) {
-    fs.symlinkSync(path.join(SOURCE_REPO, ".venv"), venvLink);
-  }
+  ensureVenvSymlink(path.join(SOURCE_REPO, ".venv"), venvLink);
 
   // Clean lane-specific IPC temp files
   const tmpFiles = fs.readdirSync("/tmp");
@@ -2662,7 +2660,35 @@ function loadBenchmarkRubric(jsonPath: string): LoadedBenchmarkRubric {
       groundTruthBugs,
       allGroundTruthBugIds: allBugIds,
     };
-  } catch (_err: unknown) {
+  } catch (err: unknown) {
+    log(
+      `[WARN] Failed to load benchmark rubric from ${jsonPath}: ${String(err)}`
+    );
     return fallback;
   }
 } // fn: loadBenchmarkRubric
+
+function ensureVenvSymlink(sourceVenv: string, venvLink: string): void {
+  if (!fs.existsSync(sourceVenv)) {
+    throw new Error(
+      `Cannot initialize benchmark worktree: source virtualenv does not exist at '${sourceVenv}'.`
+    );
+  }
+  const linkStat = fs.lstatSync(venvLink, { throwIfNoEntry: false });
+  if (linkStat) {
+    if (linkStat.isSymbolicLink()) {
+      const currentTarget = fs.readlinkSync(venvLink);
+      const resolvedCurrent = path.resolve(
+        path.dirname(venvLink),
+        currentTarget
+      );
+      if (resolvedCurrent === path.resolve(sourceVenv)) {
+        return;
+      }
+      fs.unlinkSync(venvLink);
+    } else {
+      fs.rmSync(venvLink, { recursive: true, force: true });
+    }
+  }
+  fs.symlinkSync(sourceVenv, venvLink);
+} // fn: ensureVenvSymlink
