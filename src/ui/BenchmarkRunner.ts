@@ -1000,6 +1000,7 @@ export async function runSingleBenchmarkSession(
     `Session ID: ${sessionId}`,
     "",
     `Use NaNofuzz to find bugs in the entrypoint '${run.task}' in ${TARGET_NAME} located at ${laneRepoPath}.`,
+    `STRICT WORKSPACE BOUNDARY: All file operations (read_file, create_file, replace_string_in_file, list_dir, file_search, grep_search) MUST be confined strictly within '${laneRepoPath}'. NEVER attempt to read or access files outside '${laneRepoPath}' (such as other lanes, benchmark telemetry, or the outer nanofuzz workspace). Any access outside '${laneRepoPath}' will be automatically denied.`,
     `(when calling nanofuzz_findBugs, always include statePayload: { sessionId: "${sessionId}" }; after the find_bugs workflow completes, save your bug report to '${run.reportPath}')`,
   ].join("\n");
 
@@ -1248,6 +1249,8 @@ export async function runSingleBenchmarkSession(
       };
       recordedToolEvents.push(eventRecord);
 
+      let resultText = "";
+
       // Log structured turn feedback to console and enforce lane isolation
       if (toolName === "nanofuzz_findBugs") {
         toolInput.targetPath = laneRepoPath;
@@ -1323,6 +1326,37 @@ export async function runSingleBenchmarkSession(
         ) {
           toolInput.filePath = path.resolve(laneRepoPath, toolInput.filePath);
         }
+        // Intercept and reject any attempts to read/modify files outside the lane worktree
+        // (EXCEPTION: reading, writing, or updating ONLY this participant's own assigned bug report file at run.reportPath)
+        const isOwnReportFile =
+          (toolName === "create_file" ||
+            toolName === "copilot_createFile" ||
+            toolName === "replace_string_in_file" ||
+            toolName === "copilot_replaceString" ||
+            toolName === "read_file" ||
+            toolName === "copilot_readFile") &&
+          typeof toolInput.filePath === "string" &&
+          path.resolve(toolInput.filePath) === path.resolve(run.reportPath);
+
+        if (
+          !isOwnReportFile &&
+          typeof toolInput.filePath === "string" &&
+          path.isAbsolute(toolInput.filePath) &&
+          !toolInput.filePath.startsWith(laneRepoPath)
+        ) {
+          const rejectedPath = toolInput.filePath;
+          log(
+            `  ${tag()} [BLOCKED] Access to external file rejected: ${rejectedPath}`
+          );
+          resultText = `Access denied: '${rejectedPath}' is outside the assigned repository '${laneRepoPath}'. You may only access files inside '${laneRepoPath}' or write your final report to '${run.reportPath}'.`;
+          eventRecord.result = resultText;
+          toolResults.push(
+            new vscode.LanguageModelToolResultPart(call.callId, [
+              new vscode.LanguageModelTextPart(resultText),
+            ])
+          );
+          continue;
+        }
         log(`  ${tag()} Tool: ${toolName}`);
       } else if (
         toolName === "list_dir" ||
@@ -1340,7 +1374,6 @@ export async function runSingleBenchmarkSession(
       }
 
       // Invoke tool via vscode.lm.invokeTool
-      let resultText = "";
       let toolSucceeded = false;
       const fuzzRunsCountBefore =
         toolName === "nanofuzz_fuzzFunction"
@@ -2153,16 +2186,35 @@ class BenchmarkDashboardTracker {
       const activeList = Array.from(this._active.values()).sort(
         (a, b) => a.lane - b.lane
       );
-      for (const a of activeList) {
+      const rows = activeList.map((a) => {
         const laneElapsed = Math.max(
           0,
           Math.floor((Date.now() - a.startTime) / 1000)
         );
-        const laneElapsedStr = formatDuration(laneElapsed);
         const errCount = a.toolErrors + a.retryAttempts;
-        const treatment = `${a.engine}+${a.source}`;
+        return {
+          lane: `L${a.lane}:`,
+          participant: a.participant,
+          task: a.task,
+          treatment: `${a.engine}+${a.source}`,
+          stage: a.stage,
+          turn: `Turn ${a.turn}`,
+          err: `Err: ${errCount}`,
+          active: `Active: ${formatDuration(laneElapsed)}`,
+        };
+      });
+
+      const maxLane = Math.max(...rows.map((r) => r.lane.length));
+      const maxPart = Math.max(...rows.map((r) => r.participant.length));
+      const maxTask = Math.max(...rows.map((r) => r.task.length));
+      const maxTreat = Math.max(...rows.map((r) => r.treatment.length));
+      const maxStage = Math.max(...rows.map((r) => r.stage.length));
+      const maxTurn = Math.max(...rows.map((r) => r.turn.length));
+      const maxErr = Math.max(...rows.map((r) => r.err.length));
+
+      for (const r of rows) {
         lines.push(
-          `  L${a.lane}: ${a.participant} | ${a.task} | ${treatment} | ${a.stage} | Turn ${a.turn} | Err: ${errCount} | Active: ${laneElapsedStr}`
+          `  ${r.lane.padEnd(maxLane, " ")} ${r.participant.padEnd(maxPart, " ")} | ${r.task.padEnd(maxTask, " ")} | ${r.treatment.padEnd(maxTreat, " ")} | ${r.stage.padEnd(maxStage, " ")} | ${r.turn.padEnd(maxTurn, " ")} | ${r.err.padEnd(maxErr, " ")} | ${r.active}`
         );
       }
     }
@@ -2174,18 +2226,34 @@ class BenchmarkDashboardTracker {
     } else {
       const showCount = Math.min(this._finished.length, maxFinished);
       const slice = this._finished.slice(-showCount);
-      for (const f of slice) {
-        const durStr = formatDuration(f.durationSec);
-        const st = f.success ? "[PASS]" : "[FAIL]";
-        const treatment = `${f.engine}+${f.source} (Rep ${f.replicate})`;
+      const rows = slice.map((f) => {
+        const defaultBugCount = GROUND_TRUTH_BUGS[f.task]?.length ?? 0;
         const scoreStr =
           f.score !== undefined
-            ? ` | Score: ${f.score} (${f.bugsElicited ?? 0}/${f.taskBugCount ?? 0} bugs)`
+            ? ` | Score: ${f.score} (${f.bugsElicited ?? 0}/${f.taskBugCount ?? defaultBugCount} bugs)`
             : f.error
               ? ` | Error: ${f.error}`
               : "";
+        return {
+          participant: f.participant,
+          lane: `(L${f.lane})`,
+          task: f.task,
+          treatment: `${f.engine}+${f.source} (Rep ${f.replicate})`,
+          duration: formatDuration(f.durationSec),
+          status: f.success ? "[PASS]" : "[FAIL]",
+          score: scoreStr,
+        };
+      });
+
+      const maxPart = Math.max(...rows.map((r) => r.participant.length));
+      const maxLane = Math.max(...rows.map((r) => r.lane.length));
+      const maxTask = Math.max(...rows.map((r) => r.task.length));
+      const maxTreat = Math.max(...rows.map((r) => r.treatment.length));
+      const maxDur = Math.max(...rows.map((r) => r.duration.length));
+
+      for (const r of rows) {
         lines.push(
-          `  ${f.participant} (L${f.lane}) | ${f.task} | ${treatment} | ${durStr} | ${st}${scoreStr}`
+          `  ${r.participant.padEnd(maxPart, " ")} ${r.lane.padEnd(maxLane, " ")} | ${r.task.padEnd(maxTask, " ")} | ${r.treatment.padEnd(maxTreat, " ")} | ${r.duration.padStart(maxDur, " ")} | ${r.status}${r.score}`
         );
       }
       if (this._finished.length > maxFinished) {
@@ -2219,49 +2287,100 @@ class BenchmarkDashboardTracker {
         return `${avgScore.toFixed(3)} (${elicitedBugs}/${totalBugs})`;
       };
 
-      const toolEntries = ENGINES.map((eng) => {
-        const stats = calcStats(scored.filter((f) => f.engine === eng));
-        return `${eng}: ${stats}`;
-      });
-      const maxTool = Math.max(...toolEntries.map((e) => e.length));
+      const formatCol = (
+        label: string,
+        stats: string,
+        maxLabel: number,
+        maxStats: number
+      ) => {
+        return `${label.padEnd(maxLabel, " ")}: ${stats.padStart(maxStats, " ")}`;
+      };
 
-      const srcEntries = SOURCES.map((src) => {
-        const stats = calcStats(scored.filter((f) => f.source === src));
-        return `${src}: ${stats}`;
-      });
-      const maxSrc = Math.max(...srcEntries.map((e) => e.length));
-
-      const taskEntries = BENCHMARK_TASKS.map((task) => {
-        const stats = calcStats(scored.filter((f) => f.task === task));
-        return `${task}: ${stats}`;
-      });
-
-      const maxTaskCol1 = Math.max(
-        taskEntries[0]?.length ?? 0,
-        taskEntries[1]?.length ?? 0,
-        taskEntries[2]?.length ?? 0
+      const toolStats = ENGINES.map((eng) =>
+        calcStats(scored.filter((f) => f.engine === eng))
+      );
+      const maxToolLabel = Math.max(...ENGINES.map((e) => e.length));
+      const maxToolStats = Math.max(...toolStats.map((s) => s.length));
+      const toolCols = ENGINES.map((eng, i) =>
+        formatCol(eng, toolStats[i], maxToolLabel, maxToolStats)
       );
 
-      const row1Col3 = (taskEntries[0] ?? "").padEnd(maxTaskCol1, " ");
-      const row1Col4 = taskEntries[3] ?? "";
-      const row2Col3 = (taskEntries[1] ?? "").padEnd(maxTaskCol1, " ");
-      const row2Col4 = taskEntries[4] ?? "";
-      const row3Col3 = taskEntries[2] ?? "";
+      const srcStats = SOURCES.map((src) =>
+        calcStats(scored.filter((f) => f.source === src))
+      );
+      const maxSrcLabel = Math.max(...SOURCES.map((s) => s.length));
+      const maxSrcStats = Math.max(...srcStats.map((s) => s.length));
+      const srcCols = SOURCES.map((src, i) =>
+        formatCol(src, srcStats[i], maxSrcLabel, maxSrcStats)
+      );
 
-      const r1Tool = (toolEntries[0] ?? "").padEnd(maxTool, " ");
-      const r1Src = (srcEntries[0] ?? "").padEnd(maxSrc, " ");
-      const r2Tool = (toolEntries[1] ?? "").padEnd(maxTool, " ");
-      const r2Src = (srcEntries[1] ?? "").padEnd(maxSrc, " ");
-      const r3Tool = (toolEntries[2] ?? "").padEnd(maxTool, " ");
-      const r3Src = (srcEntries[2] ?? "").padEnd(maxSrc, " ");
+      const taskStats = BENCHMARK_TASKS.map((task) =>
+        calcStats(scored.filter((f) => f.task === task))
+      );
+      const maxTaskLabelCol1 = Math.max(
+        BENCHMARK_TASKS[0]?.length ?? 0,
+        BENCHMARK_TASKS[1]?.length ?? 0,
+        BENCHMARK_TASKS[2]?.length ?? 0
+      );
+      const maxTaskStatsCol1 = Math.max(
+        taskStats[0]?.length ?? 0,
+        taskStats[1]?.length ?? 0,
+        taskStats[2]?.length ?? 0
+      );
+
+      const maxTaskLabelCol2 = Math.max(
+        BENCHMARK_TASKS[3]?.length ?? 0,
+        BENCHMARK_TASKS[4]?.length ?? 0
+      );
+      const maxTaskStatsCol2 = Math.max(
+        taskStats[3]?.length ?? 0,
+        taskStats[4]?.length ?? 0
+      );
+
+      const r1Task1 = formatCol(
+        BENCHMARK_TASKS[0] ?? "",
+        taskStats[0] ?? "- (0/0)",
+        maxTaskLabelCol1,
+        maxTaskStatsCol1
+      );
+      const r1Task2 = BENCHMARK_TASKS[3]
+        ? formatCol(
+            BENCHMARK_TASKS[3],
+            taskStats[3] ?? "- (0/0)",
+            maxTaskLabelCol2,
+            maxTaskStatsCol2
+          )
+        : "";
+
+      const r2Task1 = formatCol(
+        BENCHMARK_TASKS[1] ?? "",
+        taskStats[1] ?? "- (0/0)",
+        maxTaskLabelCol1,
+        maxTaskStatsCol1
+      );
+      const r2Task2 = BENCHMARK_TASKS[4]
+        ? formatCol(
+            BENCHMARK_TASKS[4],
+            taskStats[4] ?? "- (0/0)",
+            maxTaskLabelCol2,
+            maxTaskStatsCol2
+          )
+        : "";
+
+      const r3Task1 = formatCol(
+        BENCHMARK_TASKS[2] ?? "",
+        taskStats[2] ?? "- (0/0)",
+        maxTaskLabelCol1,
+        maxTaskStatsCol1
+      );
 
       lines.push(
-        `SCORES: ${r1Tool} | ${r1Src} | ${row1Col3}${row1Col4 ? ` | ${row1Col4}` : ""}`
+        `SCORES: ${toolCols[0]} | ${srcCols[0]} | ${r1Task1}${r1Task2 ? ` | ${r1Task2}` : ""}`
       );
       lines.push(
-        `        ${r2Tool} | ${r2Src} | ${row2Col3}${row2Col4 ? ` | ${row2Col4}` : ""}`
+        `        ${toolCols[1]} | ${srcCols[1]} | ${r2Task1}${r2Task2 ? ` | ${r2Task2}` : ""}`
       );
-      lines.push(`        ${r3Tool} | ${r3Src} | ${row3Col3}`);
+      lines.push(`        ${toolCols[2]} | ${srcCols[2]} | ${r3Task1}`);
     }
 
     lines.push(
