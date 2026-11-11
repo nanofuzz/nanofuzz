@@ -64,9 +64,7 @@ export async function init(): Promise<void> {
         for (const g of grammarsToLoad) {
           const url = `${modulesUrl}${g}${sep}${g}.wasm`;
           const grammar = await TSWeb.Language.load(url);
-          const parser = new TSWeb.Parser();
-          parser.setLanguage(grammar);
-          grammars[g] = { parser, grammar };
+          grammars[g] = { grammar };
         }
         loaded = "yes";
         resolve();
@@ -99,42 +97,17 @@ export function parse(lang: ProgramLanguage, text: string): Tree | null {
         : `init() must complete prior to calling getParser()`
     );
   }
-  const grammarName = _langToGrammarName(lang);
-  const entry = _getGrammarOrThrow(grammarName);
+  const entry = _getGrammarOrThrow(_langToGrammarName(lang));
+  const parser = new TSWeb.Parser();
+  parser.setLanguage(entry.grammar);
   try {
-    return entry.parser.parse(text);
-  } catch (err: unknown) {
-    const isWasmFault =
-      err instanceof Error &&
-      (err.name === "RuntimeError" ||
-        err.message.includes("memory access out of bounds") ||
-        err.message.includes("table index out of bounds"));
-
+    return parser.parse(text);
+  } finally {
     try {
-      entry.parser.delete();
+      parser.delete();
     } catch {
-      // Ignore deletion failure on faulted parser instance
+      // Ignore deletion failure if parser was unallocated
     }
-
-    if (isWasmFault) {
-      // The WebAssembly memory pool is corrupted. Calling new TSWeb.Parser()
-      // against the corrupted WASM instance causes $malloc to enter an infinite loop.
-      // Remove the corrupted grammar entry and fail cleanly.
-      delete grammars[grammarName];
-      throw new Error(
-        `Tree-sitter WASM memory corruption on ${lang}: ${String(err)}`,
-        { cause: err }
-      );
-    }
-
-    try {
-      const freshParser = new TSWeb.Parser();
-      freshParser.setLanguage(entry.grammar);
-      entry.parser = freshParser;
-    } catch {
-      delete grammars[grammarName];
-    }
-    throw err;
   }
 } // fn: parse()
 
@@ -259,10 +232,8 @@ function _langToGrammarName(lang: ProgramLanguage): string {
   }
 } // fn: _langToGrammarName()
 
-type Parser = TSWeb.Parser;
 type Language = TSWeb.Language;
 type GrammarData = {
-  parser: Parser;
   grammar: Language;
 };
 

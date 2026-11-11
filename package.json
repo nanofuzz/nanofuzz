@@ -1112,11 +1112,11 @@
     "tree-sitter-java": "^0.23.5",
     "tree-sitter-ocaml": "^0.24.2",
     "tree-sitter-python": "^0.25.0",
-    "tree-sitter-rust": "^0.23.2",
+    "tree-sitter-rust": "^0.24.0",
     "tree-sitter-typescript": "^0.23.2",
     "typescript": "5.9.2",
     "undici": "^7.30.0",
-    "web-tree-sitter": "^0.26.11"
+    "web-tree-sitter": "^0.27.2"
   },
   "devDependencies": {
     "@babel/core": "^7.27.1",
