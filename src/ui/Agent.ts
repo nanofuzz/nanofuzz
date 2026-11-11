@@ -1306,9 +1306,14 @@ export function selectCoveringResults(
   const selected: FuzzTestResult[] = [];
   const seenInputs = new Set<string>();
 
-  // All failing counterexamples
-  const failures = results.filter((r) => r.category !== "ok");
-  for (const f of failures) {
+  // Failing counterexamples that were marked as interesting (e.g. branch coverage expansion)
+  const interestingFailures = results.filter(
+    (r) =>
+      r.category !== "ok" &&
+      r.interestingReasons &&
+      r.interestingReasons.length > 0
+  );
+  for (const f of interestingFailures) {
     const key = getIoKey(f.input);
     if (!seenInputs.has(key)) {
       seenInputs.add(key);
@@ -1331,11 +1336,16 @@ export function selectCoveringResults(
     }
   }
 
-  // Fallback: if no interesting or failing inputs, take the first non-skipped passing result
+  // Fallback: if no interesting inputs found, take the first failure or first non-skipped passing result
   if (selected.length === 0) {
-    const firstOk = results.find((r) => r.category === "ok" && !r.skipped);
-    if (firstOk) {
-      selected.push(firstOk);
+    const firstFail = results.find((r) => r.category !== "ok");
+    if (firstFail) {
+      selected.push(firstFail);
+    } else {
+      const firstOk = results.find((r) => r.category === "ok" && !r.skipped);
+      if (firstOk) {
+        selected.push(firstOk);
+      }
     }
   }
 

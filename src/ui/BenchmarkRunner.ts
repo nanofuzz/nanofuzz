@@ -1573,9 +1573,14 @@ export async function runSingleBenchmarkSession(
         }
       }
 
+      const cappedResultText =
+        resultText.length > 50000
+          ? resultText.slice(0, 50000) + "\n\n... [Output truncated to 50,000 characters]"
+          : resultText;
+
       toolResults.push(
         new vscode.LanguageModelToolResultPart(call.callId, [
-          new vscode.LanguageModelTextPart(resultText),
+          new vscode.LanguageModelTextPart(cappedResultText),
         ])
       );
     }
@@ -1813,17 +1818,21 @@ export async function runSingleBenchmarkSession(
       }
 
       if (!survey && surveyAttempts < maxSurveyAttempts) {
-        surveyMessages.push(
-          vscode.LanguageModelChatMessage.Assistant(surveyRawText)
-        );
+        if (surveyRawText.trim().length > 0) {
+          surveyMessages.push(
+            vscode.LanguageModelChatMessage.Assistant(surveyRawText)
+          );
+        }
         surveyMessages.push(
           vscode.LanguageModelChatMessage.User(
-            "Your survey response was malformed. You MUST return ONLY a JSON object in a ```json codeblock containing the required keys: realistic, sus1..sus10, toolHelpfulFeedback, toolUsabilityFeedback, workflowFitFeedback, toolImprovementFeedback, studyImprovementFeedback."
+            "Your survey response was malformed or empty. You MUST return ONLY a JSON object in a ```json codeblock containing the required keys: realistic, sus1..sus10, toolHelpfulFeedback, toolUsabilityFeedback, workflowFitFeedback, toolImprovementFeedback, studyImprovementFeedback."
           )
         );
         log(
           `  ${prefix} [REPROMPT] Survey response malformed. Reprompting agent (attempt ${surveyAttempts}/${maxSurveyAttempts})...`
         );
+        // Backoff delay before retry
+        await new Promise((res) => setTimeout(res, 3000));
       }
     }
   } catch (err: unknown) {

@@ -44,7 +44,10 @@ import { synthesizeValidator } from "../fuzzer/synthesis/ValidatorSynthesizer";
 import { synthesizeTransformer } from "../fuzzer/synthesis/TransformerSynthesizer";
 import { synthesizeUserGenerator } from "../fuzzer/synthesis/UserGeneratorSynthesizer";
 import { FuzzConfigStore, CURR_FILE_FMT_VER } from "../fuzzer/FuzzConfigStore";
-import { cancelBenchmarkMatrix, runBenchmarkMatrix } from "./BenchmarkRunner";
+import {
+  cancelBenchmarkMatrix,
+  runBenchmarkMatrix,
+} from "./BenchmarkRunner";
 
 /**
  * FuzzPanel displays fuzzer options, actions, and the last results for a
