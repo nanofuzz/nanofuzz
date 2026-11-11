@@ -462,8 +462,8 @@ interface BugEvaluationResult {
 
 function evaluateBugsForParticipant(
   task: BenchmarkTaskName,
-  _reportText: string,
-  _fuzzRuns: Array<{
+  reportText: string,
+  fuzzRuns: Array<{
     functionName: string;
     failedTests: number;
     exceptions: number;
@@ -472,12 +472,37 @@ function evaluateBugsForParticipant(
   }>
 ): BugEvaluationResult[] {
   const taskBugs = GROUND_TRUTH_BUGS[task] || [];
-  return taskBugs.map((bug) => ({
-    bug,
-    elicited: 0,
-    reported: 0,
-    generator: "PENDING_EVAL",
-  }));
+  const failingRuns = fuzzRuns.filter(
+    (r) => (r.failedTests ?? 0) > 0 || (r.exceptions ?? 0) > 0
+  );
+
+  return taskBugs.map((bug) => {
+    let elicited = 0;
+    let reported = 0;
+    let generator = "None";
+
+    // Check if elicited in any failing fuzz run via rubric matchPatterns
+    for (const r of failingRuns) {
+      const details = r.details || "";
+      if (bug.matchPatterns.some((pattern) => pattern.test(details))) {
+        elicited = 1;
+        generator = r.generatorName || "NaNofuzz";
+        break;
+      }
+    }
+
+    // Check if documented in the participant report via rubric matchPatterns
+    if (reportText && bug.matchPatterns.some((pattern) => pattern.test(reportText))) {
+      reported = 1;
+    }
+
+    return {
+      bug,
+      elicited,
+      reported,
+      generator,
+    };
+  });
 }
 
 function writeScoringSheet(
@@ -1051,6 +1076,7 @@ export async function runSingleBenchmarkSession(
     let streamSucceeded = false;
     let attempt = 0;
     const maxRetries = 20;
+    let incidentStart: number | null = null;
 
     while (!streamSucceeded) {
       if (token?.isCancellationRequested) {
@@ -1067,6 +1093,7 @@ export async function runSingleBenchmarkSession(
       assistantText = "";
       toolCalls = [];
       allParts = [];
+      const reqStart = Date.now();
 
       try {
         const response = await model.sendRequest(
@@ -1092,6 +1119,15 @@ export async function runSingleBenchmarkSession(
         }
 
         streamSucceeded = true;
+        if (incidentStart !== null) {
+          const incidentWaitMs = Math.max(0, reqStart - incidentStart);
+          totalRetryWaitMs += incidentWaitMs;
+          phaseRetryWaitMs += incidentWaitMs;
+          log(
+            `  ${tag()} [RETRY RESOLVED] Recovered after ${Math.round(incidentWaitMs / 1000)}s total retry incident wait (discounted from active time).`
+          );
+          incidentStart = null;
+        }
       } catch (err: unknown) {
         if (token?.isCancellationRequested) {
           log(`  ${tag()} [CANCEL] Request cancelled by user.`);
@@ -1155,13 +1191,15 @@ export async function runSingleBenchmarkSession(
           };
         }
 
+        if (incidentStart === null) {
+          incidentStart = reqStart;
+        }
+
         totalRetryAttempts++;
         dashboardTracker.updateRetries(laneId, totalRetryAttempts);
         // Exponential backoff with jitter for 503 / 429 / busy spikes
         const baseDelay = Math.min(60000, 3000 * Math.pow(1.6, attempt - 1));
         const delayMs = baseDelay + Math.floor(Math.random() * 3000);
-        totalRetryWaitMs += delayMs;
-        phaseRetryWaitMs += delayMs;
         log(
           `  ${tag()} [RETRY] Model busy (attempt ${attempt}/${maxRetries}): ${errStr}. Waiting ${Math.round(delayMs / 1000)}s before retry...`
         );
@@ -2858,6 +2896,12 @@ interface BenchmarkRubricJson {
           id?: string;
           name?: string;
           description?: string;
+          exception_class?: string;
+          exact_failure_domain?: string;
+          partial_failure_domain?: string;
+          safe_valid_domain?: string;
+          overgeneralization_triggers?: string;
+          match_patterns?: string[];
           matchPatterns?: string[];
         }
       >;
@@ -2869,6 +2913,11 @@ export interface GroundTruthBug {
   id: string;
   name: string;
   description: string;
+  exceptionClass?: string;
+  exactFailureDomain?: string;
+  partialFailureDomain?: string;
+  safeValidDomain?: string;
+  overgeneralizationTriggers?: string;
   matchPatterns: RegExp[];
 }
 
@@ -2923,13 +2972,26 @@ function loadBenchmarkRubric(jsonPath: string): LoadedBenchmarkRubric {
         const id = bugSpec.id || bugKey;
         const name = bugSpec.name || bugKey;
         const description = bugSpec.description || name;
-        const patterns: RegExp[] = Array.isArray(bugSpec.matchPatterns)
-          ? bugSpec.matchPatterns.map((p) => new RegExp(p, "i"))
-          : [new RegExp(id, "i"), new RegExp(name, "i")];
+        const rawPatterns = bugSpec.match_patterns || bugSpec.matchPatterns;
+        const patterns: RegExp[] =
+          Array.isArray(rawPatterns) && rawPatterns.length > 0
+            ? rawPatterns.map((p) => new RegExp(p, "i"))
+            : [
+                new RegExp(`\\b${id}\\b`, "i"),
+                new RegExp(name, "i"),
+                ...(bugSpec.exception_class
+                  ? [new RegExp(`\\b${bugSpec.exception_class}\\b`, "i")]
+                  : []),
+              ];
         bugList.push({
           id,
           name,
           description,
+          exceptionClass: bugSpec.exception_class,
+          exactFailureDomain: bugSpec.exact_failure_domain,
+          partialFailureDomain: bugSpec.partial_failure_domain,
+          safeValidDomain: bugSpec.safe_valid_domain,
+          overgeneralizationTriggers: bugSpec.overgeneralization_triggers,
           matchPatterns: patterns,
         });
         if (!allBugIds.includes(id)) {
