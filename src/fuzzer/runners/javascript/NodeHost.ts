@@ -17,16 +17,18 @@ export class NodeHost extends AbstractHost {
     onExit?: HostExitHandler | undefined
   ) {
     const nodeCmd = process.execPath || "node";
-    super(env, cwd, nodeCmd, args, onExit);
+    const hostEnv: { [k: string]: string | undefined } = {
+      ...env,
+      ELECTRON_RUN_AS_NODE: "1",
+    };
+    super(hostEnv, cwd, nodeCmd, args, onExit);
   } // fn: constructor
 
   protected _spawn(): ChildProcess.ChildProcessWithoutNullStreams {
-    const proc = ChildProcess.spawn(this._cmd, this._args, {
+    return ChildProcess.spawn(this._cmd, this._args, {
       cwd: this._cwd,
       env: this._env,
       windowsHide: true,
     });
-    proc.stderr.pipe(process.stderr);
-    return proc;
   } // fn: _spawn
 } // class: NodeHost

@@ -41,6 +41,7 @@ const rubricData = loadBenchmarkRubric(RUBRIC_JSON_PATH);
 export const TARGET_NAME = rubricData.targetMetadata.name;
 export const TARGET_COMMIT = rubricData.targetMetadata.commit;
 export const TARGET_VERSION = rubricData.targetMetadata.version;
+export const TARGET_LANGUAGE = rubricData.targetMetadata.language || "python";
 export const BENCHMARK_TASKS = rubricData.tasks;
 export type BenchmarkTaskName = string;
 export const GROUND_TRUTH_BUGS = rubricData.groundTruthBugs;
@@ -983,12 +984,14 @@ export async function runSingleBenchmarkSession(
   // Clean, focused task prompt
   const initialPrompt = [
     `Target Repository: ${laneRepoPath}`,
+    `Target Language: ${TARGET_LANGUAGE}`,
     `Target Task Entrypoint: ${run.task}`,
     `Testing Engine: ${run.engine}`,
     `Invariant Source: ${run.source}`,
     `Session ID: ${sessionId}`,
     "",
-    `Use NaNofuzz to find bugs in the entrypoint '${run.task}' in ${TARGET_NAME} located at ${laneRepoPath}.`,
+    `Use NaNofuzz to find bugs in the entrypoint '${run.task}' in ${TARGET_NAME} (${TARGET_LANGUAGE}) located at ${laneRepoPath}.`,
+    `LANGUAGE REQUIREMENT: Because ${TARGET_NAME} is a Python codebase, all test harnesses and test files you create MUST be Python files (.py). Do NOT create TypeScript, JavaScript, or other wrapper files.`,
     `STRICT WORKSPACE BOUNDARY: All file operations (read_file, create_file, replace_string_in_file, list_dir, file_search, grep_search) MUST be confined strictly within '${laneRepoPath}'. NEVER attempt to read or access files outside '${laneRepoPath}' (such as other lanes, benchmark telemetry, or the outer nanofuzz workspace). Any access outside '${laneRepoPath}' will be automatically denied.`,
     `(when calling nanofuzz_findBugs, always include statePayload: { sessionId: "${sessionId}" }; after the find_bugs workflow completes, save your bug report to '${run.reportPath}')`,
   ].join("\n");
@@ -1321,6 +1324,23 @@ export async function runSingleBenchmarkSession(
             ? path.resolve(raw)
             : path.resolve(laneRepoPath, raw);
         }
+
+        if (
+          TARGET_LANGUAGE === "python" &&
+          typeof toolInput.filePath === "string" &&
+          (toolInput.filePath.endsWith(".ts") ||
+            toolInput.filePath.endsWith(".js"))
+        ) {
+          resultText = `Invalid test file '${toolInput.filePath}'. The target project is Python. You MUST write your test harness and run tests using a Python (.py) file, not TypeScript or JavaScript.`;
+          eventRecord.result = resultText;
+          toolResults.push(
+            new vscode.LanguageModelToolResultPart(call.callId, [
+              new vscode.LanguageModelTextPart(resultText),
+            ])
+          );
+          continue;
+        }
+
         const fn = toolInput.functionName || "";
         const maxTests =
           toolInput.maxTests === 0
@@ -2238,10 +2258,13 @@ export function runAnalysisPipeline(): void {
 
   log("[ANALYSIS] Running QuartoN dissertation analysis pipeline...");
   try {
-    const stdout = execSync(`"${pythonBin}" "${scriptPath}"`, {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    const stdout = execSync(
+      `"${pythonBin}" "${scriptPath}" --data "${DATA_CSV_PATH}" --survey "${SURVEY_RESPONSES_CSV_PATH}"`,
+      {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      }
+    );
     for (const line of stdout.split("\n")) {
       if (line.trim()) {
         log(`  ${line}`);
