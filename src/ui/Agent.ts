@@ -847,11 +847,12 @@ export async function runFuzz(
       const outPath = options.exportFilePath
         ? resolveFilePath(options.exportFilePath)
         : undefined;
+      const shouldShrinkSuite = !options.sessionId?.startsWith("bench-");
       testSuiteCode = await synthesizeTestSuite(
         resolvedPath,
         options.functionName,
         rawResults,
-        { shrink: true, outputFilename: outPath }
+        { shrink: shouldShrinkSuite, outputFilename: outPath }
       );
 
       if (outPath && testSuiteCode) {

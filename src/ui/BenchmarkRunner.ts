@@ -957,7 +957,6 @@ export async function runSingleBenchmarkSession(
     "nanofuzz_listTargets",
     "nanofuzz_fuzzFunction",
     "nanofuzz_findBugs",
-    "nanofuzz_shrinkInputs",
     "manage_todo_list",
     "read_file",
     "copilot_readFile",

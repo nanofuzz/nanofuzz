@@ -936,6 +936,21 @@ def py_double(x: int) -> int:
     );
   });
 
+  it("runFuzz: exportSuite disables shrinking for benchmark sessions", async () => {
+    const result = await runFuzz({
+      filePath: tsFixture,
+      functionName: "testCoverageOneFile",
+      maxTests: 20,
+      suiteTimeout: 3000,
+      exportSuite: true,
+      sessionId: "bench-w1-P01-testCoverageOneFile",
+    });
+
+    expect(result.status).toBe("success");
+    expect(result.testSuiteCode).toBeDefined();
+    expect(result.testSuiteCode).toContain("describe(");
+  });
+
   it("runFuzz: exportFilePath writes synthesized test suite directly to file", async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-export-test-"));
     try {
