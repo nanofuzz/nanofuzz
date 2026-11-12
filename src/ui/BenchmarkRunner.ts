@@ -68,9 +68,27 @@ export interface BenchmarkRunSpec {
 let outputChannel: vscode.OutputChannel | undefined;
 let activeCts: vscode.CancellationTokenSource | undefined;
 
+function cast<T>(val: unknown): T;
+function cast(val: unknown): unknown {
+  return val;
+} // fn: cast
+
 function getOutput(): vscode.OutputChannel {
   if (!outputChannel) {
-    outputChannel = vscode.window.createOutputChannel("NaNofuzz Benchmark");
+    if (typeof vscode.window?.createOutputChannel === "function") {
+      outputChannel = vscode.window.createOutputChannel("NaNofuzz Benchmark");
+    } else {
+      outputChannel = cast<vscode.OutputChannel>({
+        name: "NaNofuzz Benchmark",
+        append: () => {},
+        appendLine: () => {},
+        clear: () => {},
+        show: () => {},
+        hide: () => {},
+        dispose: () => {},
+        replace: () => {},
+      });
+    }
   }
   return outputChannel;
 }
@@ -235,6 +253,7 @@ export function loadCompletedParticipants(): Map<
         !t.error &&
         t.success !== false &&
         hasDeep &&
+        Boolean(t.survey) &&
         !completed.has(t.participant)
       ) {
         const taskName = t.task;
@@ -449,6 +468,252 @@ function writeSurveyResponsesCsv(
     );
   });
 } // fn: writeSurveyResponsesCsv
+
+export interface CollectSurveyOptions {
+  model: vscode.LanguageModelChat;
+  messages: vscode.LanguageModelChatMessage[];
+  run: BenchmarkRunSpec;
+  prefix?: string;
+  laneId?: number;
+  token?: vscode.CancellationToken;
+  maxSurveyRetries?: number;
+  baseDelayMs?: number;
+  writeCsv?: boolean;
+  onRetry?: (attempt: number, error: string) => void;
+}
+
+export async function collectPostTaskSurvey(
+  options: CollectSurveyOptions
+): Promise<{
+  survey: ParticipantSurvey | undefined;
+  rawSurveyOutputs: string[];
+}> {
+  const {
+    model,
+    messages,
+    run,
+    token,
+    prefix = `[${run.participant}]`,
+    maxSurveyRetries = 15,
+    baseDelayMs = 3000,
+    writeCsv = true,
+    onRetry,
+  } = options;
+
+  let survey: ParticipantSurvey | undefined;
+  const rawSurveyOutputs: string[] = [];
+
+  const surveyPrompt = [
+    "The bug hunting session and fuzz testing run are now complete.",
+    "",
+    "Please complete this standardized post-task evaluation survey regarding your experience performing this testing task with this tool.",
+    "Respond strictly with a JSON object in a ```json codeblock containing the following fields:",
+    "",
+    "- `realistic`: Integer rating from 1 (Strongly Disagree) to 5 (Strongly Agree) for statement: 'I thought the testing tasks in this study resemble tasks I might encounter outside the study.'",
+    "- `sus1`: Integer 1-5 ('I think that I would like to use this system frequently.')",
+    "- `sus2`: Integer 1-5 ('I found the system unnecessarily complex.')",
+    "- `sus3`: Integer 1-5 ('I thought the system was easy to use.')",
+    "- `sus4`: Integer 1-5 ('I think that I would need technical support to use this system.')",
+    "- `sus5`: Integer 1-5 ('I found the various functions in this system were well integrated.')",
+    "- `sus6`: Integer 1-5 ('I thought there was too much inconsistency in this system.')",
+    "- `sus7`: Integer 1-5 ('I would imagine that most people would learn to use this system very quickly.')",
+    "- `sus8`: Integer 1-5 ('I found the system very cumbersome to use.')",
+    "- `sus9`: Integer 1-5 ('I felt very confident using the system.')",
+    "- `sus10`: Integer 1-5 ('I needed to learn a lot of things before I could get going with this system.')",
+    "- `toolHelpfulFeedback`: String describing whether and why the tool was helpful or effective in testing.",
+    "- `toolUsabilityFeedback`: String describing whether and why the tool was easy or hard to use.",
+    "- `workflowFitFeedback`: String describing how well the tool fit into your test and debug workflow.",
+    "- `toolImprovementFeedback`: String with feedback/suggestions to improve the testing tool.",
+    "- `studyImprovementFeedback`: String with feedback/suggestions to improve this or future studies.",
+  ].join("\n");
+
+  let surveyAttempts = 0;
+
+  const surveyMessages = [
+    ...messages,
+    vscode.LanguageModelChatMessage.User(surveyPrompt),
+  ];
+
+  while (surveyAttempts < maxSurveyRetries && !survey) {
+    if (token?.isCancellationRequested) {
+      log(`  ${prefix} [CANCEL] Survey cancelled by user.`);
+      break;
+    }
+
+    surveyAttempts++;
+    let surveyRawText = "";
+
+    try {
+      const surveyResponse = await model.sendRequest(
+        surveyMessages,
+        { tools: [] },
+        token
+      );
+
+      for await (const chunk of surveyResponse.stream) {
+        if (chunk instanceof vscode.LanguageModelTextPart) {
+          surveyRawText += chunk.value;
+        }
+      }
+      rawSurveyOutputs.push(surveyRawText);
+
+      // Verify we got non-empty content from the stream
+      if (!surveyRawText.trim()) {
+        throw new Error("Empty response received from language model stream.");
+      }
+
+      // Primary: JSON block extraction
+      const jsonMatch =
+        surveyRawText.match(/```(?:json)?\s*([\s\S]*?)\s*```/) ||
+        surveyRawText.match(/(\{[\s\S]*\})/);
+
+      if (jsonMatch) {
+        try {
+          const parsed = JSON.parse(jsonMatch[1]);
+          const clampLikert = (v: unknown): number => {
+            const n = Number(v);
+            if (isNaN(n) || n < 1) return 3;
+            if (n > 5) return 5;
+            return Math.round(n);
+          };
+
+          const susResponses = {
+            sus1: clampLikert(parsed.sus1),
+            sus2: clampLikert(parsed.sus2),
+            sus3: clampLikert(parsed.sus3),
+            sus4: clampLikert(parsed.sus4),
+            sus5: clampLikert(parsed.sus5),
+            sus6: clampLikert(parsed.sus6),
+            sus7: clampLikert(parsed.sus7),
+            sus8: clampLikert(parsed.sus8),
+            sus9: clampLikert(parsed.sus9),
+            sus10: clampLikert(parsed.sus10),
+          };
+
+          const computedSus = computeSusScore(susResponses);
+
+          survey = {
+            realistic: clampLikert(parsed.realistic),
+            ...susResponses,
+            susScore: computedSus,
+            toolHelpfulFeedback: String(
+              parsed.toolHelpfulFeedback || ""
+            ).trim(),
+            toolUsabilityFeedback: String(
+              parsed.toolUsabilityFeedback || ""
+            ).trim(),
+            workflowFitFeedback: String(
+              parsed.workflowFitFeedback || ""
+            ).trim(),
+            toolImprovementFeedback: String(
+              parsed.toolImprovementFeedback || ""
+            ).trim(),
+            studyImprovementFeedback: String(
+              parsed.studyImprovementFeedback || ""
+            ).trim(),
+          };
+
+          if (writeCsv) {
+            writeSurveyResponsesCsv(run, survey);
+          }
+          break;
+        } catch {
+          // JSON parsing of matched block failed, fall through to reprompt
+        }
+      }
+
+      // If response was non-empty text but could not be parsed as JSON, reprompt with assistant turn
+      if (!survey && surveyAttempts < maxSurveyRetries) {
+        surveyMessages.push(
+          vscode.LanguageModelChatMessage.Assistant(surveyRawText)
+        );
+        surveyMessages.push(
+          vscode.LanguageModelChatMessage.User(
+            "Your survey response was malformed. You MUST return ONLY a JSON object in a ```json codeblock containing the required keys: realistic, sus1..sus10, toolHelpfulFeedback, toolUsabilityFeedback, workflowFitFeedback, toolImprovementFeedback, studyImprovementFeedback."
+          )
+        );
+        log(
+          `  ${prefix} [REPROMPT] Survey response malformed. Reprompting agent (attempt ${surveyAttempts}/${maxSurveyRetries})...`
+        );
+        if (baseDelayMs > 0) {
+          const delay = Math.min(
+            60000,
+            baseDelayMs * Math.pow(1.6, surveyAttempts - 1)
+          );
+          const delayMs = delay + Math.floor(Math.random() * 3000);
+          await new Promise((res) => setTimeout(res, delayMs));
+        }
+      }
+    } catch (err: unknown) {
+      if (token?.isCancellationRequested) {
+        log(`  ${prefix} [CANCEL] Survey request cancelled by user.`);
+        break;
+      }
+
+      const errStr = String(err);
+
+      // Check if context length was exceeded
+      const isTokenLimitExceeded =
+        errStr.includes("exceeds the maximum number of tokens") ||
+        errStr.includes("maximum number of tokens allowed") ||
+        errStr.includes("input token count") ||
+        errStr.includes("context_length_exceeded") ||
+        errStr.includes("prompt is too long");
+
+      if (isTokenLimitExceeded) {
+        const initialTurns = Math.floor((surveyMessages.length - 1) / 2);
+        if (initialTurns > 1) {
+          const targetTurns = Math.max(1, Math.floor(initialTurns * 0.75));
+          const turnsToPrune = initialTurns - targetTurns;
+          surveyMessages.splice(1, turnsToPrune * 2);
+          log(
+            `  ${prefix} [PRUNE] Context token limit exceeded in survey. Pruned oldest ${turnsToPrune} turns. Resending survey request...`
+          );
+          surveyAttempts = Math.max(0, surveyAttempts - 1);
+          continue;
+        }
+      }
+
+      const isTransient =
+        errStr.includes("503") ||
+        errStr.includes("429") ||
+        errStr.includes("UNAVAILABLE") ||
+        errStr.includes("RESOURCE_EXHAUSTED") ||
+        errStr.includes("high demand") ||
+        errStr.includes("Empty response") ||
+        errStr.includes("ECONNRESET") ||
+        errStr.includes("ETIMEDOUT") ||
+        errStr.includes("terminated") ||
+        errStr.includes("fetch failed") ||
+        errStr.includes("network") ||
+        errStr.includes("socket hang up");
+
+      if (!isTransient || surveyAttempts >= maxSurveyRetries) {
+        log(
+          `  ${prefix} [FAILED SURVEY] Post-task survey failed (attempt ${surveyAttempts}/${maxSurveyRetries}): ${errStr}`
+        );
+        break;
+      }
+
+      if (onRetry) {
+        onRetry(surveyAttempts, errStr);
+      }
+      if (baseDelayMs > 0) {
+        const delay = Math.min(
+          60000,
+          baseDelayMs * Math.pow(1.6, surveyAttempts - 1)
+        );
+        const delayMs = delay + Math.floor(Math.random() * 3000);
+        log(
+          `  ${prefix} [RETRY SURVEY] Model busy/empty stream (attempt ${surveyAttempts}/${maxSurveyRetries}): ${errStr}. Waiting ${Math.round(delayMs / 1000)}s before retry...`
+        );
+        await new Promise((res) => setTimeout(res, delayMs));
+      }
+    }
+  }
+
+  return { survey, rawSurveyOutputs };
+} // fn: collectPostTaskSurvey
 
 // ============================================================================
 // Bug Scoring & data.csv Exporter
@@ -1887,138 +2152,19 @@ export async function runSingleBenchmarkSession(
       : 0;
 
   // Conduct Post-Task Survey & SUS Evaluation with the Agent
-  let survey: ParticipantSurvey | undefined;
-  const rawSurveyOutputs: string[] = [];
-  try {
-    const surveyPrompt = [
-      "The bug hunting session and fuzz testing run are now complete.",
-      "",
-      "Please complete this standardized post-task evaluation survey regarding your experience performing this testing task with this tool.",
-      "Respond strictly with a JSON object in a ```json codeblock containing the following fields:",
-      "",
-      "- `realistic`: Integer rating from 1 (Strongly Disagree) to 5 (Strongly Agree) for statement: 'I thought the testing tasks in this study resemble tasks I might encounter outside the study.'",
-      "- `sus1`: Integer 1-5 ('I think that I would like to use this system frequently.')",
-      "- `sus2`: Integer 1-5 ('I found the system unnecessarily complex.')",
-      "- `sus3`: Integer 1-5 ('I thought the system was easy to use.')",
-      "- `sus4`: Integer 1-5 ('I think that I would need technical support to use this system.')",
-      "- `sus5`: Integer 1-5 ('I found the various functions in this system were well integrated.')",
-      "- `sus6`: Integer 1-5 ('I thought there was too much inconsistency in this system.')",
-      "- `sus7`: Integer 1-5 ('I would imagine that most people would learn to use this system very quickly.')",
-      "- `sus8`: Integer 1-5 ('I found the system very cumbersome to use.')",
-      "- `sus9`: Integer 1-5 ('I felt very confident using the system.')",
-      "- `sus10`: Integer 1-5 ('I needed to learn a lot of things before I could get going with this system.')",
-      "- `toolHelpfulFeedback`: String describing whether and why the tool was helpful or effective in testing.",
-      "- `toolUsabilityFeedback`: String describing whether and why the tool was easy or hard to use.",
-      "- `workflowFitFeedback`: String describing how well the tool fit into your test and debug workflow.",
-      "- `toolImprovementFeedback`: String with feedback/suggestions to improve the testing tool.",
-      "- `studyImprovementFeedback`: String with feedback/suggestions to improve this or future studies.",
-    ].join("\n");
-
-    let surveyAttempts = 0;
-    const maxSurveyAttempts = 3;
-
-    const surveyMessages = [
-      ...messages,
-      vscode.LanguageModelChatMessage.User(surveyPrompt),
-    ];
-
-    while (surveyAttempts < maxSurveyAttempts && !survey) {
-      surveyAttempts++;
-      let surveyRawText = "";
-
-      const surveyResponse = await model.sendRequest(
-        surveyMessages,
-        { tools: [] },
-        token
-      );
-
-      for await (const chunk of surveyResponse.stream) {
-        if (chunk instanceof vscode.LanguageModelTextPart) {
-          surveyRawText += chunk.value;
-        }
-      }
-      rawSurveyOutputs.push(surveyRawText);
-
-      const jsonMatch =
-        surveyRawText.match(/```(?:json)?\s*([\s\S]*?)\s*```/) ||
-        surveyRawText.match(/(\{[\s\S]*\})/);
-
-      if (jsonMatch) {
-        try {
-          const parsed = JSON.parse(jsonMatch[1]);
-          const clampLikert = (v: unknown): number => {
-            const n = Number(v);
-            if (isNaN(n) || n < 1) return 3;
-            if (n > 5) return 5;
-            return Math.round(n);
-          };
-
-          const susResponses = {
-            sus1: clampLikert(parsed.sus1),
-            sus2: clampLikert(parsed.sus2),
-            sus3: clampLikert(parsed.sus3),
-            sus4: clampLikert(parsed.sus4),
-            sus5: clampLikert(parsed.sus5),
-            sus6: clampLikert(parsed.sus6),
-            sus7: clampLikert(parsed.sus7),
-            sus8: clampLikert(parsed.sus8),
-            sus9: clampLikert(parsed.sus9),
-            sus10: clampLikert(parsed.sus10),
-          };
-
-          const computedSus = computeSusScore(susResponses);
-
-          survey = {
-            realistic: clampLikert(parsed.realistic),
-            ...susResponses,
-            susScore: computedSus,
-            toolHelpfulFeedback: String(
-              parsed.toolHelpfulFeedback || ""
-            ).trim(),
-            toolUsabilityFeedback: String(
-              parsed.toolUsabilityFeedback || ""
-            ).trim(),
-            workflowFitFeedback: String(
-              parsed.workflowFitFeedback || ""
-            ).trim(),
-            toolImprovementFeedback: String(
-              parsed.toolImprovementFeedback || ""
-            ).trim(),
-            studyImprovementFeedback: String(
-              parsed.studyImprovementFeedback || ""
-            ).trim(),
-          };
-
-          writeSurveyResponsesCsv(run, survey);
-          break;
-        } catch {
-          // JSON parsing of matched block failed, fall through to reprompt
-        }
-      }
-
-      if (!survey && surveyAttempts < maxSurveyAttempts) {
-        if (surveyRawText.trim().length > 0) {
-          surveyMessages.push(
-            vscode.LanguageModelChatMessage.Assistant(surveyRawText)
-          );
-        }
-        surveyMessages.push(
-          vscode.LanguageModelChatMessage.User(
-            "Your survey response was malformed or empty. You MUST return ONLY a JSON object in a ```json codeblock containing the required keys: realistic, sus1..sus10, toolHelpfulFeedback, toolUsabilityFeedback, workflowFitFeedback, toolImprovementFeedback, studyImprovementFeedback."
-          )
-        );
-        log(
-          `  ${prefix} [REPROMPT] Survey response malformed. Reprompting agent (attempt ${surveyAttempts}/${maxSurveyAttempts})...`
-        );
-        // Backoff delay before retry
-        await new Promise((res) => setTimeout(res, 3000));
-      }
-    }
-  } catch (err: unknown) {
-    log(
-      `  ${prefix} [WARN] Failed to collect post-task survey: ${String(err)}`
-    );
-  }
+  const { survey, rawSurveyOutputs } = await collectPostTaskSurvey({
+    model,
+    messages,
+    run,
+    prefix,
+    laneId,
+    token,
+    maxSurveyRetries: 15,
+    onRetry: () => {
+      totalRetryAttempts++;
+      dashboardTracker.updateRetries(laneId, totalRetryAttempts);
+    },
+  });
 
   // Append row to data.csv and generate scoring sheet
   appendToDataCsv(
@@ -3018,11 +3164,6 @@ type AssistantStreamPart =
   | vscode.LanguageModelTextPart
   | vscode.LanguageModelToolCallPart
   | vscode.LanguageModelDataPart;
-
-function cast<T>(val: unknown): T;
-function cast(val: unknown): unknown {
-  return val;
-} // fn: cast
 
 function resolveWorkspaceRoot(): string {
   const folders = vscode.workspace?.workspaceFolders;
