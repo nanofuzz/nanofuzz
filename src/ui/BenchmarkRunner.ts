@@ -19,17 +19,176 @@ const SOURCE_REPO = resolveSourceRepo();
 
 const BENCHMARK_DIR = path.join(WORKSPACE_ROOT, "benchmark");
 const WORKTREES_DIR = path.join(BENCHMARK_DIR, "worktrees");
-const RESULTS_DIR = path.join(BENCHMARK_DIR, "results");
-const REPORTS_DIR = RESULTS_DIR;
-const TELEMETRY_DIR = path.join(RESULTS_DIR, "telemetry");
+export const BASE_RESULTS_DIR = path.join(BENCHMARK_DIR, "results");
 
-const SCORING_SHEETS_DIR = path.join(RESULTS_DIR, "scoring_sheets");
-const DATA_CSV_PATH = path.join(RESULTS_DIR, "data.csv");
-const SURVEY_RESPONSES_CSV_PATH = path.join(
-  RESULTS_DIR,
-  "survey_responses.csv"
-);
-const STATE_JSON_PATH = path.join(RESULTS_DIR, "benchmark_state.json");
+export interface BenchmarkRunContext {
+  resultsDir: string;
+  reportsDir: string;
+  telemetryDir: string;
+  scoringSheetsDir: string;
+  dataCsvPath: string;
+  surveyResponsesCsvPath: string;
+  stateJsonPath: string;
+  dashboardPath: string;
+}
+
+export function formatDatestamp(date: Date = new Date()): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const yyyy = date.getFullYear();
+  const mm = pad(date.getMonth() + 1);
+  const dd = pad(date.getDate());
+  const hh = pad(date.getHours());
+  const min = pad(date.getMinutes());
+  const ss = pad(date.getSeconds());
+  return `${yyyy}${mm}${dd}_${hh}${min}${ss}`;
+}
+
+export function createRunContext(targetDir?: string): BenchmarkRunContext {
+  const resultsDir =
+    targetDir ?? path.join(BASE_RESULTS_DIR, formatDatestamp());
+  return {
+    resultsDir,
+    reportsDir: resultsDir,
+    telemetryDir: path.join(resultsDir, "telemetry"),
+    scoringSheetsDir: path.join(resultsDir, "scoring_sheets"),
+    dataCsvPath: path.join(resultsDir, "data.csv"),
+    surveyResponsesCsvPath: path.join(resultsDir, "survey_responses.csv"),
+    stateJsonPath: path.join(resultsDir, "benchmark_state.json"),
+    dashboardPath: path.join(resultsDir, "DASHBOARD.md"),
+  };
+}
+
+let activeRunContext: BenchmarkRunContext = createRunContext(BASE_RESULTS_DIR);
+
+export function getActiveRunContext(): BenchmarkRunContext {
+  return activeRunContext;
+}
+
+export function setActiveRunContext(ctx: BenchmarkRunContext): void {
+  activeRunContext = ctx;
+}
+
+export function getResultsDir(): string {
+  return activeRunContext.resultsDir;
+}
+
+export function getReportsDir(): string {
+  return activeRunContext.reportsDir;
+}
+
+export function getTelemetryDir(): string {
+  return activeRunContext.telemetryDir;
+}
+
+export function getScoringSheetsDir(): string {
+  return activeRunContext.scoringSheetsDir;
+}
+
+export function getDataCsvPath(): string {
+  return activeRunContext.dataCsvPath;
+}
+
+export function getSurveyResponsesCsvPath(): string {
+  return activeRunContext.surveyResponsesCsvPath;
+}
+
+export function getStateJsonPath(): string {
+  return activeRunContext.stateJsonPath;
+}
+
+export function getDashboardPath(): string {
+  return activeRunContext.dashboardPath;
+}
+
+export function updateLatestSymlink(
+  targetDir: string,
+  baseDir: string = BASE_RESULTS_DIR
+): void {
+  try {
+    const symlinkPath = path.join(baseDir, "latest");
+    try {
+      const stat = fs.lstatSync(symlinkPath);
+      if (stat) {
+        fs.unlinkSync(symlinkPath);
+      }
+    } catch {
+      // Path did not exist, nothing to unlink
+    }
+    const relTarget = path.basename(targetDir);
+    fs.symlinkSync(relTarget, symlinkPath, "dir");
+  } catch (err: unknown) {
+    log(`[WARN] Could not update latest symlink: ${String(err)}`);
+  }
+}
+
+export function mirrorLatestResultsToRoot(
+  ctx: BenchmarkRunContext,
+  baseDir: string = BASE_RESULTS_DIR
+): void {
+  try {
+    updateLatestSymlink(ctx.resultsDir, baseDir);
+    if (!fs.existsSync(baseDir)) {
+      fs.mkdirSync(baseDir, { recursive: true });
+    }
+    for (const fname of [
+      "data.csv",
+      "survey_responses.csv",
+      "DASHBOARD.md",
+      "benchmark_state.json",
+    ]) {
+      const srcFile = path.join(ctx.resultsDir, fname);
+      const dstFile = path.join(baseDir, fname);
+      if (
+        fs.existsSync(srcFile) &&
+        path.resolve(srcFile) !== path.resolve(dstFile)
+      ) {
+        fs.copyFileSync(srcFile, dstFile);
+      }
+    }
+  } catch {
+    // Non-fatal
+  }
+}
+
+export function findLatestUnfinishedRun(
+  baseDir: string = BASE_RESULTS_DIR
+): string | undefined {
+  if (!fs.existsSync(baseDir)) {
+    return undefined;
+  }
+  const entries = fs.readdirSync(baseDir, { withFileTypes: true });
+  // Filter for datestamp directory names (e.g. 20261110_045329)
+  const datestampDirs = entries
+    .filter((e) => e.isDirectory() && /^\d{8}_\d{6}$/.test(e.name))
+    .map((e) => e.name)
+    .sort((a, b) => b.localeCompare(a)); // Sort descending by folder name (datestamp)
+
+  for (const dirName of datestampDirs) {
+    const fullPath = path.join(baseDir, dirName);
+    const stateFile = path.join(fullPath, "benchmark_state.json");
+    if (!fs.existsSync(stateFile)) {
+      return fullPath;
+    }
+    try {
+      const state = JSON.parse(fs.readFileSync(stateFile, "utf8"));
+      if (Array.isArray(state) && state.length > 0) {
+        const hasUnfinished = state.some(
+          (item: BenchmarkScheduleItemState) =>
+            !item || item.status !== "completed"
+        );
+        if (hasUnfinished) {
+          return fullPath;
+        }
+      } else {
+        return fullPath;
+      }
+    } catch {
+      return fullPath;
+    }
+  }
+
+  return undefined;
+}
 const RUBRIC_JSON_PATH = path.join(
   WORKSPACE_ROOT,
   "benchmark",
@@ -184,7 +343,7 @@ export function generateBenchmarkSchedule(
       sequence: seq,
       participant,
       reportFilename,
-      reportPath: path.join(REPORTS_DIR, reportFilename),
+      reportPath: path.join(getReportsDir(), reportFilename),
     };
   });
 }
@@ -222,13 +381,13 @@ export function loadCompletedParticipants(): Map<
   const completed = new Map<string, BenchmarkScheduleItemState>();
 
   // Recover from benchmark_state.json if present
-  if (fs.existsSync(STATE_JSON_PATH)) {
-    const parsed = JSON.parse(fs.readFileSync(STATE_JSON_PATH, "utf8"));
+  if (fs.existsSync(getStateJsonPath())) {
+    const parsed = JSON.parse(fs.readFileSync(getStateJsonPath(), "utf8"));
     if (Array.isArray(parsed)) {
       for (const item of parsed) {
         if (item && item.participant && item.status === "completed") {
           const reportPath = path.join(
-            RESULTS_DIR,
+            getResultsDir(),
             item.reportFilename || `${item.participant}.md`
           );
           const hasReport =
@@ -242,11 +401,11 @@ export function loadCompletedParticipants(): Map<
   }
 
   // Discover from telemetry JSON files on disk (ground truth completed runs)
-  if (fs.existsSync(TELEMETRY_DIR)) {
-    const files = fs.readdirSync(TELEMETRY_DIR);
+  if (fs.existsSync(getTelemetryDir())) {
+    const files = fs.readdirSync(getTelemetryDir());
     for (const file of files) {
       if (!file.endsWith(".telemetry.json")) continue;
-      const filePath = path.join(TELEMETRY_DIR, file);
+      const filePath = path.join(getTelemetryDir(), file);
       const t = JSON.parse(fs.readFileSync(filePath, "utf8"));
       const hasDeep =
         Array.isArray(t.fuzzRuns) &&
@@ -256,7 +415,7 @@ export function loadCompletedParticipants(): Map<
             (r.maxTests === 0 || r.maxTests === Number.MAX_SAFE_INTEGER)
         );
       const reportPath = path.join(
-        RESULTS_DIR,
+        getResultsDir(),
         t.reportFilename || `${t.participant}.md`
       );
       const hasReport =
@@ -319,8 +478,8 @@ export function saveBenchmarkState(
   schedule: BenchmarkRunSpec[],
   completedMap: Map<string, BenchmarkScheduleItemState>
 ): void {
-  if (!fs.existsSync(RESULTS_DIR)) {
-    fs.mkdirSync(RESULTS_DIR, { recursive: true });
+  if (!fs.existsSync(getResultsDir())) {
+    fs.mkdirSync(getResultsDir(), { recursive: true });
   }
   const stateList: BenchmarkScheduleItemState[] = schedule.map((s) => {
     const done = completedMap.get(s.participant);
@@ -338,7 +497,11 @@ export function saveBenchmarkState(
       status: "pending",
     };
   });
-  fs.writeFileSync(STATE_JSON_PATH, JSON.stringify(stateList, null, 2), "utf8");
+  fs.writeFileSync(
+    getStateJsonPath(),
+    JSON.stringify(stateList, null, 2),
+    "utf8"
+  );
 } // fn: saveBenchmarkState
 
 // ============================================================================
@@ -462,21 +625,21 @@ function writeSurveyResponsesCsv(
   ];
 
   fileWriteChain = fileWriteChain.then(async () => {
-    if (!fs.existsSync(REPORTS_DIR)) {
-      fs.mkdirSync(REPORTS_DIR, { recursive: true });
+    if (!fs.existsSync(getReportsDir())) {
+      fs.mkdirSync(getReportsDir(), { recursive: true });
     }
 
-    const fileExists = fs.existsSync(SURVEY_RESPONSES_CSV_PATH);
+    const fileExists = fs.existsSync(getSurveyResponsesCsvPath());
     if (!fileExists) {
       fs.writeFileSync(
-        SURVEY_RESPONSES_CSV_PATH,
+        getSurveyResponsesCsvPath(),
         headerCols.join(",") + "\n",
         "utf8"
       );
     }
 
     fs.appendFileSync(
-      SURVEY_RESPONSES_CSV_PATH,
+      getSurveyResponsesCsvPath(),
       rowCols.join(",") + "\n",
       "utf8"
     );
@@ -1117,8 +1280,8 @@ function writeScoringSheet(
   splits: ParticipantPhaseSplits,
   survey?: ParticipantSurvey
 ): void {
-  if (!fs.existsSync(SCORING_SHEETS_DIR)) {
-    fs.mkdirSync(SCORING_SHEETS_DIR, { recursive: true });
+  if (!fs.existsSync(getScoringSheetsDir())) {
+    fs.mkdirSync(getScoringSheetsDir(), { recursive: true });
   }
 
   const lines = [
@@ -1237,7 +1400,7 @@ function writeScoringSheet(
 
   lines.push("");
   const sheetPath = path.join(
-    SCORING_SHEETS_DIR,
+    getScoringSheetsDir(),
     `scoring_sheet_${run.participant}.md`
   );
   fs.writeFileSync(sheetPath, lines.join("\n"), "utf8");
@@ -1342,6 +1505,12 @@ function appendToDataCsv(
     return "#N/A";
   });
 
+  const reportPath = path.join(getResultsDir(), run.reportFilename);
+  const hasBugReport =
+    fs.existsSync(reportPath) && fs.statSync(reportPath).size > 0;
+  const isIncomplete = !hasBugReport || !survey;
+  const statusStr = isIncomplete ? "INCOMPLETE" : "COMPLETED";
+
   const rowCols = [
     run.participant,
     run.task,
@@ -1396,21 +1565,21 @@ function appendToDataCsv(
     survey ? String(survey.sus9) : "",
     survey ? String(survey.sus10) : "",
     `"${generators || "None"}"`,
-    "INCOMPLETE",
+    statusStr,
     ...bugCols,
   ];
 
   fileWriteChain = fileWriteChain.then(async () => {
-    if (!fs.existsSync(REPORTS_DIR)) {
-      fs.mkdirSync(REPORTS_DIR, { recursive: true });
+    if (!fs.existsSync(getReportsDir())) {
+      fs.mkdirSync(getReportsDir(), { recursive: true });
     }
 
-    const fileExists = fs.existsSync(DATA_CSV_PATH);
+    const fileExists = fs.existsSync(getDataCsvPath());
     if (!fileExists) {
-      fs.writeFileSync(DATA_CSV_PATH, headerCols.join(",") + "\n", "utf8");
+      fs.writeFileSync(getDataCsvPath(), headerCols.join(",") + "\n", "utf8");
     }
 
-    fs.appendFileSync(DATA_CSV_PATH, rowCols.join(",") + "\n", "utf8");
+    fs.appendFileSync(getDataCsvPath(), rowCols.join(",") + "\n", "utf8");
     log(
       `[DATA] Recorded ${run.participant} row in data.csv (Score: ${score}, SUS: ${survey ? survey.susScore.toFixed(1) : "N/A"})`
     );
@@ -1428,9 +1597,9 @@ export function initializeConcurrentWorktrees(
   lanes: number = CONCURRENCY_LANES
 ): void {
   fs.mkdirSync(WORKTREES_DIR, { recursive: true });
-  fs.mkdirSync(RESULTS_DIR, { recursive: true });
-  fs.mkdirSync(TELEMETRY_DIR, { recursive: true });
-  fs.mkdirSync(SCORING_SHEETS_DIR, { recursive: true });
+  fs.mkdirSync(getResultsDir(), { recursive: true });
+  fs.mkdirSync(getTelemetryDir(), { recursive: true });
+  fs.mkdirSync(getScoringSheetsDir(), { recursive: true });
 
   execSync(`git -C "${SOURCE_REPO}" worktree prune`, { stdio: "pipe" });
 
@@ -2445,12 +2614,12 @@ export async function runSingleBenchmarkSession(
   );
 
   // Save structured telemetry file
-  if (!fs.existsSync(TELEMETRY_DIR)) {
-    fs.mkdirSync(TELEMETRY_DIR, { recursive: true });
+  if (!fs.existsSync(getTelemetryDir())) {
+    fs.mkdirSync(getTelemetryDir(), { recursive: true });
   }
   const baseName = run.reportFilename.replace(/\.md$/, "");
   const telemetryJsonPath = path.join(
-    TELEMETRY_DIR,
+    getTelemetryDir(),
     `${baseName}.telemetry.json`
   );
   const telemetryData = {
@@ -2540,9 +2709,18 @@ export async function runSingleBenchmarkSession(
 
 export async function runBenchmarkMatrix(
   replicates: 1 | 3 = 1,
-  concurrency: number = CONCURRENCY_LANES
+  concurrency: number = CONCURRENCY_LANES,
+  recoverDir?: string
 ): Promise<void> {
+  if (recoverDir) {
+    activeRunContext = createRunContext(recoverDir);
+  } else {
+    activeRunContext = createRunContext();
+  }
   initializeConcurrentWorktrees(concurrency);
+  updateLatestSymlink(activeRunContext.resultsDir);
+  mirrorLatestResultsToRoot(activeRunContext);
+
   const schedule = generateBenchmarkSchedule(replicates);
   const totalRuns = schedule.length;
 
@@ -2596,7 +2774,7 @@ export async function runBenchmarkMatrix(
     `Base Repo: ${SOURCE_REPO} (${TARGET_VERSION} @ ${TARGET_COMMIT.slice(0, 8)})`
   );
   log(`Worktrees: ${WORKTREES_DIR}/w1 ... w${concurrency}`);
-  log(`Results Directory: ${RESULTS_DIR}`);
+  log(`Results Directory: ${getResultsDir()}`);
   log(`Factorial Tasks: ${BENCHMARK_TASKS.join(", ")}`);
   log(`Engines: ${ENGINES.join(", ")} | Sources: ${SOURCES.join(", ")}`);
   log(
@@ -2757,10 +2935,48 @@ export async function runBenchmarkMatrix(
   );
 
   // Run statistical analysis and regenerate dissertation tables/figures
-  runAnalysisPipeline();
+  runAnalysisPipeline(activeRunContext);
 } // fn: runBenchmarkMatrix
 
-export function runAnalysisPipeline(): void {
+export async function recoverBenchmarkMatrix(
+  concurrency: number = CONCURRENCY_LANES
+): Promise<void> {
+  const unfinishedDir = findLatestUnfinishedRun();
+  if (!unfinishedDir) {
+    const msg =
+      "No unfinished benchmark run found in benchmark/results/. All runs are complete.";
+    if (
+      vscode.window &&
+      typeof vscode.window.showInformationMessage === "function"
+    ) {
+      vscode.window.showInformationMessage(msg);
+    }
+    log(`[RECOVER] ${msg}`);
+    return;
+  }
+
+  const dirName = path.basename(unfinishedDir);
+  log(`[RECOVER] Resuming unfinished benchmark run: ${dirName}`);
+
+  const statePath = path.join(unfinishedDir, "benchmark_state.json");
+  let replicates: 1 | 3 = 1;
+  if (fs.existsSync(statePath)) {
+    try {
+      const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
+      if (Array.isArray(state) && state.length > 45) {
+        replicates = 3;
+      }
+    } catch {
+      replicates = 1;
+    }
+  }
+
+  await runBenchmarkMatrix(replicates, concurrency, unfinishedDir);
+} // fn: recoverBenchmarkMatrix
+
+export function runAnalysisPipeline(
+  runContext: BenchmarkRunContext = activeRunContext
+): void {
   const targetVenvPython = path.join(
     WORKSPACE_ROOT,
     "benchmark",
@@ -2822,7 +3038,7 @@ export function runAnalysisPipeline(): void {
     );
     try {
       const stdout = execSync(
-        `"${pythonBin}" "${scoreAccuracyScript}" --reports-dir "${REPORTS_DIR}" --data-csv "${DATA_CSV_PATH}"`,
+        `"${pythonBin}" "${scoreAccuracyScript}" --reports-dir "${runContext.reportsDir}" --data-csv "${runContext.dataCsvPath}"`,
         {
           encoding: "utf8",
           stdio: ["ignore", "pipe", "pipe"],
@@ -2846,7 +3062,7 @@ export function runAnalysisPipeline(): void {
     );
     try {
       const stdout = execSync(
-        `"${pythonBin}" "${analyzeQuartonScript}" --data "${DATA_CSV_PATH}" --survey "${SURVEY_RESPONSES_CSV_PATH}"`,
+        `"${pythonBin}" "${analyzeQuartonScript}" --data "${runContext.dataCsvPath}" --survey "${runContext.surveyResponsesCsvPath}"`,
         {
           encoding: "utf8",
           stdio: ["ignore", "pipe", "pipe"],
@@ -2862,6 +3078,8 @@ export function runAnalysisPipeline(): void {
       log(`  [ANALYSIS] [WARN] Analysis pipeline error: ${String(err)}`);
     }
   }
+
+  mirrorLatestResultsToRoot(runContext);
 } // fn: runAnalysisPipeline
 
 // -------------------------------------------------------------------------- //
@@ -3291,10 +3509,10 @@ class BenchmarkDashboardTracker {
   } // fn: updateStatusBar
 
   public writeDashboardFile(): void {
-    if (!fs.existsSync(RESULTS_DIR)) {
-      fs.mkdirSync(RESULTS_DIR, { recursive: true });
+    if (!fs.existsSync(getResultsDir())) {
+      fs.mkdirSync(getResultsDir(), { recursive: true });
     }
-    const dashboardPath = path.join(RESULTS_DIR, "DASHBOARD.md");
+    const dashboardPath = getDashboardPath();
     const content = [
       `# NaNofuzz Benchmark Execution Dashboard`,
       ``,
@@ -3304,6 +3522,7 @@ class BenchmarkDashboardTracker {
       ``,
     ].join("\n");
     fs.writeFileSync(dashboardPath, content, "utf8");
+    mirrorLatestResultsToRoot(activeRunContext);
   } // fn: writeDashboardFile
 
   public dispose(): void {

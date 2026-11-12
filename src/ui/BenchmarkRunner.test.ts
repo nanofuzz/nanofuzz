@@ -1,8 +1,15 @@
 import * as vscode from "vscode";
+import * as fs from "fs";
+import * as path from "path";
+import * as os from "os";
 import {
   collectPostTaskSurvey,
   computeProtocolBMedian,
   evaluateBugsWithLlmJudge,
+  findLatestUnfinishedRun,
+  createRunContext,
+  formatDatestamp,
+  updateLatestSymlink,
   BenchmarkRunSpec,
   JurorRating,
 } from "./BenchmarkRunner";
@@ -10,13 +17,14 @@ import {
 describe("BenchmarkRunner - collectPostTaskSurvey", () => {
   const dummyRun: BenchmarkRunSpec = {
     participant: "P99",
-    lane: 1,
     sequence: 99,
     replicate: 1,
     task: "TreeValue",
     engine: "nanofuzz",
     source: "docs",
+    targetScope: ["TreeValue"],
     reportFilename: "P99.md",
+    reportPath: "/tmp/P99.md",
   };
 
   const sampleSurveyJson = JSON.stringify({
@@ -399,5 +407,97 @@ describe("BenchmarkRunner - Protocol B PoLL Jury (Verga et al., 2024)", () => {
     expect(tvBug?.jurorScores?.gemini?.netScore).toBe(1.0);
     expect(tvBug?.jurorScores?.claude?.netScore).toBe(0.5);
     expect(tvBug?.jurorScores?.gpt4o?.netScore).toBe(0.5);
+  });
+});
+
+describe("BenchmarkRunner - Timestamped Directories & Recovery", () => {
+  let tempBaseDir: string;
+
+  beforeEach(() => {
+    tempBaseDir = fs.mkdtempSync(path.join(os.tmpdir(), "nanofuzz-bench-test-"));
+  });
+
+  afterEach(() => {
+    try {
+      fs.rmSync(tempBaseDir, { recursive: true, force: true });
+    } catch {
+      // Cleanup best effort
+    }
+  });
+
+  it("formatDatestamp generates string in YYYYMMDD_HHMMSS format", () => {
+    const ds = formatDatestamp(new Date(2026, 10, 12, 5, 2, 1));
+    expect(ds).toBe("20261112_050201");
+    expect(/^\d{8}_\d{6}$/.test(ds)).toBe(true);
+  });
+
+  it("createRunContext sets up all output subpaths inside the target directory", () => {
+    const targetDir = path.join(tempBaseDir, "20261112_050201");
+    const ctx = createRunContext(targetDir);
+
+    expect(ctx.resultsDir).toBe(targetDir);
+    expect(ctx.telemetryDir).toBe(path.join(targetDir, "telemetry"));
+    expect(ctx.scoringSheetsDir).toBe(path.join(targetDir, "scoring_sheets"));
+    expect(ctx.dataCsvPath).toBe(path.join(targetDir, "data.csv"));
+    expect(ctx.surveyResponsesCsvPath).toBe(path.join(targetDir, "survey_responses.csv"));
+    expect(ctx.stateJsonPath).toBe(path.join(targetDir, "benchmark_state.json"));
+    expect(ctx.dashboardPath).toBe(path.join(targetDir, "DASHBOARD.md"));
+  });
+
+  it("findLatestUnfinishedRun finds the newest unfinished folder sorted by folder name", () => {
+    // 1. Oldest unfinished folder
+    const dir1 = path.join(tempBaseDir, "20261110_120000");
+    fs.mkdirSync(dir1);
+    fs.writeFileSync(
+      path.join(dir1, "benchmark_state.json"),
+      JSON.stringify([{ participant: "P01", status: "pending" }])
+    );
+
+    // 2. Newer unfinished folder
+    const dir2 = path.join(tempBaseDir, "20261111_120000");
+    fs.mkdirSync(dir2);
+    fs.writeFileSync(
+      path.join(dir2, "benchmark_state.json"),
+      JSON.stringify([{ participant: "P01", status: "incomplete" }])
+    );
+
+    // 3. Newest completed folder
+    const dir3 = path.join(tempBaseDir, "20261112_120000");
+    fs.mkdirSync(dir3);
+    fs.writeFileSync(
+      path.join(dir3, "benchmark_state.json"),
+      JSON.stringify([{ participant: "P01", status: "completed" }])
+    );
+
+    // Should pick dir2 (20261111_120000) because dir3 is completed, and dir2 > dir1 alphabetically
+    const latestUnfinished = findLatestUnfinishedRun(tempBaseDir);
+    expect(latestUnfinished).toBe(dir2);
+  });
+
+  it("findLatestUnfinishedRun returns undefined when all runs are completed", () => {
+    const dir = path.join(tempBaseDir, "20261112_150000");
+    fs.mkdirSync(dir);
+    fs.writeFileSync(
+      path.join(dir, "benchmark_state.json"),
+      JSON.stringify([
+        { participant: "P01", status: "completed" },
+        { participant: "P02", status: "completed" },
+      ])
+    );
+
+    const latest = findLatestUnfinishedRun(tempBaseDir);
+    expect(latest).toBeUndefined();
+  });
+
+  it("updateLatestSymlink creates and updates a relative symlink to the latest run directory", () => {
+    const targetDir = path.join(tempBaseDir, "20261112_050201");
+    fs.mkdirSync(targetDir);
+
+    updateLatestSymlink(targetDir, tempBaseDir);
+
+    const symlinkPath = path.join(tempBaseDir, "latest");
+    expect(fs.existsSync(symlinkPath)).toBe(true);
+    expect(fs.lstatSync(symlinkPath).isSymbolicLink()).toBe(true);
+    expect(fs.readlinkSync(symlinkPath)).toBe("20261112_050201");
   });
 });

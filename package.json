@@ -60,12 +60,17 @@
       },
       {
         "command": "nanofuzz.RunBenchmark",
-        "title": "Run Benchmark Matrix (45 tasks: 3x3x5)",
+        "title": "Run Benchmark Matrix",
         "category": "NaNofuzz"
       },
       {
         "command": "nanofuzz.RunBenchmarkFull",
-        "title": "Run Full Benchmark Matrix (135 tasks: 3x3x5x3)",
+        "title": "Run Full Benchmark Matrix",
+        "category": "NaNofuzz"
+      },
+      {
+        "command": "nanofuzz.RecoverBenchmark",
+        "title": "Recover Benchmark Matrix",
         "category": "NaNofuzz"
       },
       {
