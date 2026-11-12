@@ -308,42 +308,49 @@ def call_with_timeout(fn: Any, args: List[Any], timeout_ms: int) -> Any:
         timer.cancel()
 
 
-def loadPythonFn(filename: str, modulename: str, fn: str) -> Tuple[Union[RunnerErrorResult, None], Any]:
-    rootDir = os.path.dirname(filename)
-    curr = os.path.abspath(rootDir)
-    while curr:
-        if curr not in sys.path:
-            sys.path.insert(0, curr)
-        parent = os.path.dirname(curr)
-        if parent == curr:
-            break
-        curr = parent
+def is_module_of_package(filename: str, modulename: str) -> bool:
+    """
+    Returns True if `filename`'s module name, `modulename`, has a package in it
+    (e.g., `mypkg.target`), rather than being the file's name alone (e.g.,
+    `target` for `target.py`). See PythonModule.ts.
+    """
+    return modulename != os.path.splitext(os.path.basename(filename))[0]
 
+
+class PutLoadHostError(Exception):
+    """The host cannot load the PUT's module (as opposed to the PUT failing)"""
+
+
+def load_module_from_file(filename: str, modulename: str) -> Any:
+    """Loads `filename` directly from the file, as module `modulename`"""
     spec = importlib.util.spec_from_file_location(modulename, filename)
     if spec is None:
+        raise PutLoadHostError(f"Could not import python module: {filename}")
+    if spec.loader is None:
+        raise PutLoadHostError(f"Could not load python module: {filename}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[modulename] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def loadPythonFn(filename: str, modulename: str, fn: str) -> Tuple[Union[RunnerErrorResult, None], Any]:
+    try:
+        with redirect_stdout(io.StringIO()):
+            with isolate_put_environment():
+                if is_module_of_package(filename, modulename):
+                    module = importlib.import_module(modulename)
+                else:
+                    module = load_module_from_file(filename, modulename)
+        return (None, getattr(module, fn))
+    except PutLoadHostError as e:
         return (RunnerErrorResult(
             tag="error",
             name="PythonRunnerHostError",
-            message=f"Could not import python module: {filename}",
+            message=str(e),
             source="host",
             seq=-1
         ), None)
-    module = importlib.util.module_from_spec(spec)
-
-    try:
-        sys.modules[modulename] = module
-        with redirect_stdout(io.StringIO()) as f:
-            if spec.loader is None:
-                return (RunnerErrorResult(
-                    tag="error",
-                    name="PythonRunnerHostError",
-                    message=f"Could not load python module: {filename}",
-                    source="host",
-                    seq=-1
-                ), None)
-            with isolate_put_environment():
-                spec.loader.exec_module(module)
-        return (None, getattr(module, fn))
     except Exception as e:
         return (RunnerErrorResult(
             tag="error",
@@ -1093,7 +1100,7 @@ def send_msg(data: Union[RunnerResult, str, dict[str, Any]]) -> None:
 if __name__ == "__main__":
     if len(sys.argv) < 4:
         print(
-            "Usage: python PythonRunnerHost.py <filename.py> <module_name> <function_name> [coverage_scope] [direct_packages]")
+            "Usage: python PythonRunnerHost.py <filename.py> <module_name> <function_name> [coverage_scope] [direct_packages] [collect_static] [source_root]")
         sys.exit(2)
 
     # Arguments for loading the function
@@ -1121,6 +1128,14 @@ if __name__ == "__main__":
             direct_packages = []
 
         collect_static_arg = sys.argv[6] if len(sys.argv) > 6 else ""
+        if len(sys.argv) > 7:
+            source_root = sys.argv[7]
+        elif not is_module_of_package(filename, modulename):
+            source_root = os.path.dirname(filename)
+        else:
+            raise ValueError(
+                f"Missing source_root for '{modulename}', a module of a package"
+            )
         is_respawn = collect_static_arg.lower() == "respawn"
         collect_static = (
             collect_static_arg.lower() == "true"
@@ -1132,6 +1147,11 @@ if __name__ == "__main__":
 
         # One in-memory coverage instance for the whole run.
         cov = coverage.Coverage(include=pgm_files, branch=True, data_file=None)
+
+        # The PUT's (Program Under Test) source root goes first on sys.path
+        # (see PythonModule.ts)
+        if sys.path[0] != source_root:
+            sys.path.insert(0, source_root)
 
         if is_respawn:
             # Respawn: do NOT run init_cov tracer, and skip static_coverage_all AST analysis
