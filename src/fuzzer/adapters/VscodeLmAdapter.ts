@@ -202,6 +202,10 @@ export class FuzzFunctionTool implements vscode.LanguageModelTool<FuzzFunctionIn
 
     return {
       invocationMessage: `Running ${toolName} on ${target}${constraintSuffix}`,
+      confirmationMessages: {
+        title: `${toolName} ${target}`,
+        message: `Run ${toolName} on ${target}${constraintSuffix}?`,
+      },
     };
   }
 

@@ -11,16 +11,6 @@ const path = require("path");
 const os = require("os");
 const { spawn } = require("child_process");
 
-// Clean up any stale compiler output once before running tests
-try {
-  const tmpTsc = path.join(fs.realpathSync(os.tmpdir()), "nanofuzz", "tsc");
-  if (fs.existsSync(tmpTsc)) {
-    fs.rmSync(tmpTsc, { recursive: true, force: true });
-  }
-} catch {
-  // Ignore cleanup errors
-}
-
 const isVerbose = process.argv.includes("--verbose");
 
 // Determine test files to run
@@ -340,6 +330,29 @@ async function main() {
   const queue = [...testFiles];
   const runningFiles = new Set();
   let waiters = [];
+
+  // Phase 0: If CommandLineClearCache test is present, run it first in isolation
+  // before all other tests to both test --clear-compile-cache and ensure a clean compiler cache.
+  const clearCacheIdx = queue.findIndex((f) =>
+    f.includes("CommandLineClearCache.test.ts")
+  );
+  if (clearCacheIdx !== -1) {
+    const clearCacheFile = queue.splice(clearCacheIdx, 1)[0];
+    const res = await runTestFile(clearCacheFile);
+    results.push(res);
+    completedCount++;
+    totalSpecsRun += res.specs;
+    totalFailures += res.failures;
+    const statusTag = res.code === 0 ? "✓ PASS" : "❌ FAIL";
+    console.log(
+      `[${completedCount}/${totalFiles}] ${statusTag} ${clearCacheFile} (${(res.duration / 1000).toFixed(2)}s)`
+    );
+    if (res.code !== 0) {
+      console.log(
+        `\n--- FAILURE OUTPUT: ${clearCacheFile} ---\n${res.stdout}\n${res.stderr}\n--- END FAILURE OUTPUT ---\n`
+      );
+    }
+  }
 
   function notifyWaiters() {
     const list = waiters;

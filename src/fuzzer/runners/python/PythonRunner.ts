@@ -320,14 +320,6 @@ export class PythonRunner extends AbstractRunner {
       }
     }
 
-    // Append own own modules to PYTHONPATH if needed
-    if (pythonEnv.libs && !pythonEnv.env.PYTHONPATH?.includes(pythonEnv.libs)) {
-      pythonEnv.env.PYTHONPATH =
-        (pythonEnv.env.PYTHONPATH ?? "") +
-        (process.platform === "win32" ? ";" : ":") +
-        pythonEnv.libs;
-    }
-
     // Build PYTHONPATH entries for resolving user project packages and nanofuzz_runtime
     const pyPaths: string[] = [];
 
@@ -354,10 +346,6 @@ export class PythonRunner extends AbstractRunner {
       }
     } catch {
       // ignore
-    }
-
-    if (pythonEnv.libs) {
-      pyPaths.push(pythonEnv.libs);
     }
 
     const currModuleDir = path.dirname(path.resolve(module.filename));
@@ -669,12 +657,8 @@ export class PythonRunner extends AbstractRunner {
       scopeConfig.target.includes("directimports") &&
       fs.existsSync(this._filename)
     ) {
-      try {
-        const program = ProgramFactory.fromFile(this._filename);
-        directPkgs = extractDirectPackages(program.imports);
-      } catch {
-        // Fall back gracefully if file resolution or parsing fails
-      }
+      const program = ProgramFactory.fromFile(this._filename);
+      directPkgs = extractDirectPackages(program.imports);
     }
 
     const args = [

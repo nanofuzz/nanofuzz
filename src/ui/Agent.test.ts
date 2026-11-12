@@ -445,7 +445,7 @@ describe("Agent", () => {
         harnessErrors: [],
         timers: { gen: 0, transform: 0, run: 1 },
         category: "exception",
-        interestingReasons: [],
+        interestingReasons: ["FailedTestMeasure"],
       },
       {
         pinned: false,
