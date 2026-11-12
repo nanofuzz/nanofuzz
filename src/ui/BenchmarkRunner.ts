@@ -736,7 +736,23 @@ export async function collectPostTaskSurvey(
 // Bug Scoring & data.csv Exporter
 // ============================================================================
 
-interface BugEvaluationResult {
+export interface JurorRating {
+  juror: string; // "gemini" | "claude" | "gpt4o"
+  elicitedInReport: boolean;
+  creditEarned: number;
+  deduction: number;
+  netScore: number;
+  evidenceQuote: string;
+  rationale: string;
+}
+
+export interface JuryPanel {
+  gemini?: vscode.LanguageModelChat;
+  claude?: vscode.LanguageModelChat;
+  gpt4o?: vscode.LanguageModelChat;
+}
+
+export interface BugEvaluationResult {
   bug: GroundTruthBug;
   elicited: number; // 1 or 0
   reported: number; // 1 or 0
@@ -746,6 +762,216 @@ interface BugEvaluationResult {
   netScore?: number;
   evidenceQuote?: string;
   rationale?: string;
+  jurorScores?: Record<
+    string,
+    { netScore: number; credit: number; deduction: number; rationale?: string }
+  >;
+  consensusMethod?: "poll_protocol_b_median" | "single_model";
+}
+
+export async function selectJuryModels(
+  primaryModel?: vscode.LanguageModelChat
+): Promise<JuryPanel> {
+  const panel: JuryPanel = {};
+
+  if (!vscode.lm || typeof vscode.lm.selectChatModels !== "function") {
+    if (primaryModel) {
+      panel.gemini = primaryModel;
+    }
+    return panel;
+  }
+
+  const all = await vscode.lm.selectChatModels();
+
+  // Juror 1: Gemini 3.8 Flash (or primary model if it's Gemini)
+  if (
+    primaryModel &&
+    (primaryModel.id.includes("gemini") ||
+      primaryModel.family?.includes("gemini") ||
+      primaryModel.name?.includes("gemini"))
+  ) {
+    panel.gemini = primaryModel;
+  } else {
+    panel.gemini =
+      all.find(
+        (m) =>
+          (m.id === "gemini-3.8-flash" ||
+            m.family === "gemini-3.8-flash" ||
+            m.id.includes("gemini")) &&
+          (m.vendor?.toLowerCase().includes("google") ||
+            m.vendor?.toLowerCase().includes("gemini") ||
+            m.name?.includes("paid"))
+      ) ||
+      all.find((m) => m.id.includes("gemini") || m.family?.includes("gemini"));
+  }
+
+  // Juror 2: Claude 3.5 Sonnet
+  panel.claude = all.find(
+    (m) =>
+      m.id.includes("claude-3.5-sonnet") ||
+      m.family?.includes("claude-3.5-sonnet") ||
+      m.id.includes("claude-3-5-sonnet") ||
+      (m.family?.includes("claude") && m.name?.includes("3.5")) ||
+      m.id.includes("claude")
+  );
+
+  // Juror 3: GPT-4o
+  panel.gpt4o = all.find(
+    (m) =>
+      m.id === "gpt-4o" ||
+      m.family === "gpt-4o" ||
+      m.id.includes("gpt-4o") ||
+      m.name?.includes("gpt-4o") ||
+      m.name?.includes("GPT-4o")
+  );
+
+  if (!panel.gemini && primaryModel) {
+    panel.gemini = primaryModel;
+  }
+
+  return panel;
+}
+
+export function computeProtocolBMedian(ratings: JurorRating[]): {
+  creditEarned: number;
+  deduction: number;
+  netScore: number;
+  elicitedInReport: boolean;
+  evidenceQuote: string;
+  rationale: string;
+  jurorScores: Record<
+    string,
+    { netScore: number; credit: number; deduction: number; rationale?: string }
+  >;
+  consensusMethod: "poll_protocol_b_median" | "single_model";
+} {
+  if (ratings.length === 0) {
+    return {
+      creditEarned: 0,
+      deduction: 0,
+      netScore: 0,
+      elicitedInReport: false,
+      evidenceQuote: "",
+      rationale: "No jurors available.",
+      jurorScores: {},
+      consensusMethod: "single_model",
+    };
+  }
+
+  const jurorScores: Record<
+    string,
+    { netScore: number; credit: number; deduction: number; rationale?: string }
+  > = {};
+  for (const r of ratings) {
+    jurorScores[r.juror] = {
+      netScore: r.netScore,
+      credit: r.creditEarned,
+      deduction: r.deduction,
+      rationale: r.rationale,
+    };
+  }
+
+  if (ratings.length === 1) {
+    const single = ratings[0];
+    return {
+      creditEarned: single.creditEarned,
+      deduction: single.deduction,
+      netScore: single.netScore,
+      elicitedInReport: single.elicitedInReport,
+      evidenceQuote: single.evidenceQuote,
+      rationale: single.rationale,
+      jurorScores,
+      consensusMethod: "single_model",
+    };
+  }
+
+  // Median voting across the 3-model jury (Verga et al., 2024)
+  const sortedByNet = [...ratings].sort((a, b) => a.netScore - b.netScore);
+  const midIdx = Math.floor(sortedByNet.length / 2);
+  const medianRating = sortedByNet[midIdx];
+
+  const sortedCredits = [...ratings]
+    .map((r) => r.creditEarned)
+    .sort((a, b) => a - b);
+  const sortedDeductions = [...ratings]
+    .map((r) => r.deduction)
+    .sort((a, b) => a - b);
+  const medianCredit = sortedCredits[Math.floor(sortedCredits.length / 2)];
+  const medianDeduction =
+    sortedDeductions[Math.floor(sortedDeductions.length / 2)];
+
+  // Plurality: defect reported by at least half of the jury
+  const elicitedCount = ratings.filter((r) => r.elicitedInReport).length;
+  const elicitedInReport = elicitedCount >= Math.ceil(ratings.length / 2);
+
+  const jurorBreakdown = ratings
+    .map((r) => `${r.juror}:${r.netScore > 0 ? `+${r.netScore}` : r.netScore}`)
+    .join(", ");
+
+  return {
+    creditEarned: medianCredit,
+    deduction: medianDeduction,
+    netScore: medianRating.netScore,
+    elicitedInReport,
+    evidenceQuote: medianRating.evidenceQuote,
+    rationale: `[PoLL Protocol B Median: ${medianRating.netScore} (${jurorBreakdown})] ${medianRating.rationale}`,
+    jurorScores,
+    consensusMethod: "poll_protocol_b_median",
+  };
+}
+
+async function querySingleJuror(
+  model: vscode.LanguageModelChat,
+  jurorName: string,
+  prompt: string,
+  token?: vscode.CancellationToken
+): Promise<JurorRating> {
+  let creditEarned = 0;
+  let deduction = 0;
+  let netScore = 0;
+  let elicitedInReport = false;
+  let evidenceQuote = "";
+  let rationale = "";
+
+  try {
+    const response = await model.sendRequest(
+      [vscode.LanguageModelChatMessage.User(prompt)],
+      { tools: [] },
+      token
+    );
+    let rawText = "";
+    for await (const chunk of response.stream) {
+      if (chunk instanceof vscode.LanguageModelTextPart) {
+        rawText += chunk.value;
+      }
+    }
+
+    const jsonMatch =
+      rawText.match(/```(?:json)?\s*([\s\S]*?)\s*```/) ||
+      rawText.match(/(\{[\s\S]*\})/);
+
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[1]);
+      elicitedInReport = Boolean(parsed.elicited_in_report);
+      creditEarned = Number(parsed.credit_earned) || 0;
+      deduction = Number(parsed.deduction) || 0;
+      netScore = Number(parsed.net_score) || creditEarned - deduction;
+      evidenceQuote = String(parsed.evidence_quote || "");
+      rationale = String(parsed.rationale || "");
+    }
+  } catch (err: unknown) {
+    log(`[JUDGE] [WARN] Juror ${jurorName} evaluation error: ${String(err)}`);
+  }
+
+  return {
+    juror: jurorName,
+    elicitedInReport,
+    creditEarned,
+    deduction,
+    netScore,
+    evidenceQuote,
+    rationale,
+  };
 }
 
 function buildJudgePrompt(
@@ -802,8 +1028,8 @@ function buildJudgePrompt(
   ].join("\n");
 }
 
-async function evaluateBugsWithLlmJudge(
-  model: vscode.LanguageModelChat,
+export async function evaluateBugsWithLlmJudge(
+  modelOrJury: vscode.LanguageModelChat | JuryPanel,
   task: BenchmarkTaskName,
   reportText: string,
   fuzzRuns: Array<{
@@ -833,54 +1059,35 @@ async function evaluateBugsWithLlmJudge(
       netScore: 0,
       evidenceQuote: "",
       rationale: "No report generated.",
+      jurorScores: {},
+      consensusMethod: "poll_protocol_b_median",
     }));
   }
+
+  const jury: JuryPanel =
+    "sendRequest" in modelOrJury ? { gemini: modelOrJury } : modelOrJury;
 
   const results: BugEvaluationResult[] = [];
 
   for (const bug of taskBugs) {
     const prompt = buildJudgePrompt(task, bug, reportText);
-    let creditEarned = 0;
-    let deduction = 0;
-    let netScore = 0;
-    let elicitedInReport = false;
-    let evidenceQuote = "";
-    let rationale = "";
 
-    try {
-      const response = await model.sendRequest(
-        [vscode.LanguageModelChatMessage.User(prompt)],
-        { tools: [] },
-        token
-      );
-      let rawText = "";
-      for await (const chunk of response.stream) {
-        if (chunk instanceof vscode.LanguageModelTextPart) {
-          rawText += chunk.value;
-        }
-      }
-
-      const jsonMatch =
-        rawText.match(/```(?:json)?\s*([\s\S]*?)\s*```/) ||
-        rawText.match(/(\{[\s\S]*\})/);
-
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[1]);
-        elicitedInReport = Boolean(parsed.elicited_in_report);
-        creditEarned = Number(parsed.credit_earned) || 0;
-        deduction = Number(parsed.deduction) || 0;
-        netScore =
-          Number(parsed.net_score) || creditEarned - deduction;
-        evidenceQuote = String(parsed.evidence_quote || "");
-        rationale = String(parsed.rationale || "");
-      }
-    } catch (err: unknown) {
-      log(
-        `[JUDGE] [WARN] LLM judge evaluation error on ${bug.id}: ${String(err)}`
-      );
+    const jurorQueries: Promise<JurorRating>[] = [];
+    if (jury.gemini) {
+      jurorQueries.push(querySingleJuror(jury.gemini, "gemini", prompt, token));
+    }
+    if (jury.claude) {
+      jurorQueries.push(querySingleJuror(jury.claude, "claude", prompt, token));
+    }
+    if (jury.gpt4o) {
+      jurorQueries.push(querySingleJuror(jury.gpt4o, "gpt4o", prompt, token));
     }
 
-    const reported = elicitedInReport && creditEarned > 0 ? 1 : 0;
+    const ratings = await Promise.all(jurorQueries);
+    const consensus = computeProtocolBMedian(ratings);
+
+    const reported =
+      consensus.elicitedInReport && consensus.creditEarned > 0 ? 1 : 0;
     const elicited = failingRuns.length > 0 && reported === 1 ? 1 : 0;
     const generator = elicited === 1 ? generatorName : "None";
 
@@ -889,11 +1096,13 @@ async function evaluateBugsWithLlmJudge(
       elicited,
       reported,
       generator,
-      creditEarned,
-      deduction,
-      netScore,
-      evidenceQuote,
-      rationale,
+      creditEarned: consensus.creditEarned,
+      deduction: consensus.deduction,
+      netScore: consensus.netScore,
+      evidenceQuote: consensus.evidenceQuote,
+      rationale: consensus.rationale,
+      jurorScores: consensus.jurorScores,
+      consensusMethod: consensus.consensusMethod,
     });
   }
 
@@ -943,23 +1152,58 @@ function writeScoringSheet(
     );
   }
 
-  lines.push(
-    "",
-    `## Ground-Truth Defect Scoring Breakdown (LLM Judge Panel)`,
-    "",
-    `| Bug ID | Defect Name | Elicited? | Reported? | Credit | Penalty | Net Score | Eliciting Generator |`,
-    `| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :--- |`
+  const hasJuryBreakdown = evalResults.some(
+    (r) => r.jurorScores && Object.keys(r.jurorScores).length > 1
   );
 
-  for (const r of evalResults) {
-    const elIcon = r.elicited === 1 ? "1" : "0";
-    const repIcon = r.reported === 1 ? "1" : "0";
-    const credit = (r.creditEarned ?? (r.reported === 1 ? 1.0 : 0.0)).toFixed(1);
-    const deduction = (r.deduction ?? 0.0).toFixed(1);
-    const net = (r.netScore ?? (r.reported === 1 ? 1.0 : 0.0)).toFixed(1);
+  if (hasJuryBreakdown) {
     lines.push(
-      `| \`${r.bug.id}\` | ${r.bug.name} | ${elIcon} | ${repIcon} | ${credit} | ${deduction} | ${net} | \`${r.generator}\` |`
+      "",
+      `## Ground-Truth Defect Scoring Breakdown (PoLL Protocol B Jury: Gemini, Claude, GPT-4o)`,
+      "",
+      `| Bug ID | Defect Name | Elicited? | Reported? | Gemini | Claude | GPT-4o | Median Net | Generator |`,
+      `| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :--- |`
     );
+
+    for (const r of evalResults) {
+      const elIcon = r.elicited === 1 ? "1" : "0";
+      const repIcon = r.reported === 1 ? "1" : "0";
+      const scores = r.jurorScores || {};
+      const fmt = (val: number | undefined) =>
+        val !== undefined
+          ? val > 0
+            ? `+${val.toFixed(1)}`
+            : val.toFixed(1)
+          : "-";
+      const gScore = fmt(scores.gemini?.netScore);
+      const cScore = fmt(scores.claude?.netScore);
+      const oScore = fmt(scores.gpt4o?.netScore);
+      const net = (r.netScore ?? (r.reported === 1 ? 1.0 : 0.0)).toFixed(1);
+      lines.push(
+        `| \`${r.bug.id}\` | ${r.bug.name} | ${elIcon} | ${repIcon} | ${gScore} | ${cScore} | ${oScore} | ${net} | \`${r.generator}\` |`
+      );
+    }
+  } else {
+    lines.push(
+      "",
+      `## Ground-Truth Defect Scoring Breakdown (LLM Judge Panel)`,
+      "",
+      `| Bug ID | Defect Name | Elicited? | Reported? | Credit | Penalty | Net Score | Eliciting Generator |`,
+      `| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :--- |`
+    );
+
+    for (const r of evalResults) {
+      const elIcon = r.elicited === 1 ? "1" : "0";
+      const repIcon = r.reported === 1 ? "1" : "0";
+      const credit = (r.creditEarned ?? (r.reported === 1 ? 1.0 : 0.0)).toFixed(
+        1
+      );
+      const deduction = (r.deduction ?? 0.0).toFixed(1);
+      const net = (r.netScore ?? (r.reported === 1 ? 1.0 : 0.0)).toFixed(1);
+      lines.push(
+        `| \`${r.bug.id}\` | ${r.bug.name} | ${elIcon} | ${repIcon} | ${credit} | ${deduction} | ${net} | \`${r.generator}\` |`
+      );
+    }
   }
 
   if (survey) {
@@ -2034,7 +2278,8 @@ export async function runSingleBenchmarkSession(
 
       const cappedResultText =
         resultText.length > 50000
-          ? resultText.slice(0, 50000) + "\n\n... [Output truncated to 50,000 characters]"
+          ? resultText.slice(0, 50000) +
+            "\n\n... [Output truncated to 50,000 characters]"
           : resultText;
 
       toolResults.push(
@@ -2147,15 +2392,16 @@ export async function runSingleBenchmarkSession(
     contextualize,
   };
 
-  // Evaluate ground-truth bugs elicited & reported for this participant via LLM Judge Panel
+  // Evaluate ground-truth bugs elicited & reported for this participant via Protocol B PoLL Jury
   const reportContent = fs.existsSync(run.reportPath)
     ? fs.readFileSync(run.reportPath, "utf8")
     : "";
 
   const activeSession = sessionManager.getSession(sessionId, laneRepoPath);
   const fuzzRuns = activeSession?.fuzzRuns || [];
+  const jury = await selectJuryModels(model);
   const evalResults = await evaluateBugsWithLlmJudge(
-    model,
+    jury,
     run.task,
     reportContent,
     fuzzRuns,
@@ -2571,7 +2817,9 @@ export function runAnalysisPipeline(): void {
 
   // 1. Run dual-rater accuracy scoring engine
   if (fs.existsSync(scoreAccuracyScript)) {
-    log("[ANALYSIS] Running dual-rater accuracy scoring engine (score_accuracy.py)...");
+    log(
+      "[ANALYSIS] Running dual-rater accuracy scoring engine (score_accuracy.py)..."
+    );
     try {
       const stdout = execSync(
         `"${pythonBin}" "${scoreAccuracyScript}" --reports-dir "${REPORTS_DIR}" --data-csv "${DATA_CSV_PATH}"`,
@@ -2593,7 +2841,9 @@ export function runAnalysisPipeline(): void {
 
   // 2. Run QuartoN dissertation analysis pipeline (Table 5.3, 5.4, 5.5, Figure 5.4)
   if (fs.existsSync(analyzeQuartonScript)) {
-    log("[ANALYSIS] Running QuartoN dissertation analysis pipeline (analyze_quarton.py)...");
+    log(
+      "[ANALYSIS] Running QuartoN dissertation analysis pipeline (analyze_quarton.py)..."
+    );
     try {
       const stdout = execSync(
         `"${pythonBin}" "${analyzeQuartonScript}" --data "${DATA_CSV_PATH}" --survey "${SURVEY_RESPONSES_CSV_PATH}"`,

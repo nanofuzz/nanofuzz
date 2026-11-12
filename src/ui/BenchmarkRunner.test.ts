@@ -1,7 +1,10 @@
 import * as vscode from "vscode";
 import {
   collectPostTaskSurvey,
+  computeProtocolBMedian,
+  evaluateBugsWithLlmJudge,
   BenchmarkRunSpec,
+  JurorRating,
 } from "./BenchmarkRunner";
 
 describe("BenchmarkRunner - collectPostTaskSurvey", () => {
@@ -214,5 +217,187 @@ describe("BenchmarkRunner - collectPostTaskSurvey", () => {
     expect(result.survey).toBeUndefined();
     expect(result.rawSurveyOutputs.length).toBe(15);
     expect(retryCount).toBe(14); // Retries triggered between attempt 1 and 15
+  });
+});
+
+describe("BenchmarkRunner - Protocol B PoLL Jury (Verga et al., 2024)", () => {
+  it("computes median net score and plurality elicitation across 3 divergent jurors", () => {
+    const ratings: JurorRating[] = [
+      {
+        juror: "gemini",
+        elicitedInReport: true,
+        creditEarned: 1.0,
+        deduction: 0.0,
+        netScore: 1.0,
+        evidenceQuote: "Quote G",
+        rationale: "Full domain described",
+      },
+      {
+        juror: "claude",
+        elicitedInReport: true,
+        creditEarned: 0.5,
+        deduction: 0.0,
+        netScore: 0.5,
+        evidenceQuote: "Quote C",
+        rationale: "Partial domain described",
+      },
+      {
+        juror: "gpt4o",
+        elicitedInReport: false,
+        creditEarned: 0.0,
+        deduction: 0.0,
+        netScore: 0.0,
+        evidenceQuote: "",
+        rationale: "Not mentioned",
+      },
+    ];
+
+    const consensus = computeProtocolBMedian(ratings);
+
+    // Median of [1.0, 0.5, 0.0] is 0.5
+    expect(consensus.netScore).toBe(0.5);
+    expect(consensus.creditEarned).toBe(0.5);
+    expect(consensus.deduction).toBe(0.0);
+    // 2 out of 3 said elicited -> majority says elicited
+    expect(consensus.elicitedInReport).toBe(true);
+    expect(consensus.consensusMethod).toBe("poll_protocol_b_median");
+    expect(consensus.jurorScores.gemini.netScore).toBe(1.0);
+    expect(consensus.jurorScores.claude.netScore).toBe(0.5);
+    expect(consensus.jurorScores.gpt4o.netScore).toBe(0.0);
+    expect(consensus.rationale).toContain("gemini:+1");
+    expect(consensus.rationale).toContain("claude:+0.5");
+    expect(consensus.rationale).toContain("gpt4o:0");
+  });
+
+  it("handles unanimous and ties correctly", () => {
+    // Case 1: [1.0, 1.0, 0.0] -> median is 1.0
+    const ratings1: JurorRating[] = [
+      {
+        juror: "gemini",
+        elicitedInReport: true,
+        creditEarned: 1.0,
+        deduction: 0.0,
+        netScore: 1.0,
+        evidenceQuote: "",
+        rationale: "",
+      },
+      {
+        juror: "claude",
+        elicitedInReport: true,
+        creditEarned: 1.0,
+        deduction: 0.0,
+        netScore: 1.0,
+        evidenceQuote: "",
+        rationale: "",
+      },
+      {
+        juror: "gpt4o",
+        elicitedInReport: false,
+        creditEarned: 0.0,
+        deduction: 0.0,
+        netScore: 0.0,
+        evidenceQuote: "",
+        rationale: "",
+      },
+    ];
+    expect(computeProtocolBMedian(ratings1).netScore).toBe(1.0);
+
+    // Case 2: [-0.5, 0.0, 0.0] -> median is 0.0
+    const ratings2: JurorRating[] = [
+      {
+        juror: "gemini",
+        elicitedInReport: true,
+        creditEarned: 0.0,
+        deduction: 0.5,
+        netScore: -0.5,
+        evidenceQuote: "",
+        rationale: "",
+      },
+      {
+        juror: "claude",
+        elicitedInReport: false,
+        creditEarned: 0.0,
+        deduction: 0.0,
+        netScore: 0.0,
+        evidenceQuote: "",
+        rationale: "",
+      },
+      {
+        juror: "gpt4o",
+        elicitedInReport: false,
+        creditEarned: 0.0,
+        deduction: 0.0,
+        netScore: 0.0,
+        evidenceQuote: "",
+        rationale: "",
+      },
+    ];
+    expect(computeProtocolBMedian(ratings2).netScore).toBe(0.0);
+  });
+
+  it("evaluates bugs with mock 3-model jury panel in evaluateBugsWithLlmJudge", async () => {
+    function createJudgeModel(netScore: number): vscode.LanguageModelChat {
+      const jsonResponse = JSON.stringify({
+        bug_id: "TV_EQ_NONE",
+        elicited_in_report: netScore > 0,
+        credit_earned: Math.max(0, netScore),
+        deduction: netScore < 0 ? 0.5 : 0.0,
+        net_score: netScore,
+        evidenceQuote: `Quote for score ${netScore}`,
+        rationale: `Rationale for score ${netScore}`,
+      });
+
+      return {
+        id: "mock-judge",
+        name: "Mock Judge",
+        vendor: "test",
+        family: "test",
+        version: "1.0",
+        maxInputTokens: 100000,
+        countTokens: async () => 10,
+        sendRequest: async () => ({
+          text: (async function* () {
+            yield jsonResponse;
+          })(),
+          stream: (async function* () {
+            yield new vscode.LanguageModelTextPart(`\`\`\`json\n${jsonResponse}\n\`\`\``);
+          })(),
+        }),
+      };
+    }
+
+    // Gemini gives 1.0, Claude gives 0.5, GPT-4o gives 0.5 -> Median should be 0.5
+    const jury = {
+      gemini: createJudgeModel(1.0),
+      claude: createJudgeModel(0.5),
+      gpt4o: createJudgeModel(0.5),
+    };
+
+    const fuzzRuns = [
+      {
+        functionName: "fuzz_TreeValue",
+        failedTests: 1,
+        exceptions: 1,
+        generatorName: "NaNofuzz",
+      },
+    ];
+
+    const results = await evaluateBugsWithLlmJudge(
+      jury,
+      "TreeValue",
+      "Bug report describing TreeValue == None defect",
+      fuzzRuns
+    );
+
+    expect(results.length).toBeGreaterThan(0);
+    const tvBug = results.find((r) => r.bug.id === "TV_EQ_NONE");
+    expect(tvBug).toBeDefined();
+    // Protocol B median of [1.0, 0.5, 0.5] is 0.5
+    expect(tvBug?.netScore).toBe(0.5);
+    expect(tvBug?.elicited).toBe(1);
+    expect(tvBug?.consensusMethod).toBe("poll_protocol_b_median");
+    expect(tvBug?.jurorScores?.gemini?.netScore).toBe(1.0);
+    expect(tvBug?.jurorScores?.claude?.netScore).toBe(0.5);
+    expect(tvBug?.jurorScores?.gpt4o?.netScore).toBe(0.5);
   });
 });
