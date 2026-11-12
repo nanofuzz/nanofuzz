@@ -1,3 +1,4 @@
+import * as fs from "fs";
 import { resolveFilePath, getToolName } from "./Agent";
 import * as Config from "../Config";
 import { determineWorkerCount } from "../fuzzer/Util";
@@ -62,6 +63,12 @@ export async function findBugs(
     typeof payload.targetRepoPath === "string"
       ? payload.targetRepoPath
       : undefined;
+  const payloadBenchmarkMode =
+    typeof payload.benchmarkMode === "boolean"
+      ? payload.benchmarkMode
+      : undefined;
+  const payloadReportPath =
+    typeof payload.reportPath === "string" ? payload.reportPath : undefined;
 
   const session = sessionManager.getOrCreateSession(
     passedSessionId,
@@ -70,7 +77,9 @@ export async function findBugs(
     workerCount,
     phase,
     payloadScope,
-    payloadRepoPath
+    payloadRepoPath,
+    payloadBenchmarkMode,
+    payloadReportPath
   );
 
   const tool: FindBugsTool = session.tool;
@@ -249,10 +258,12 @@ export async function findBugs(
         const pendingDeep = session.entrypoints.filter(
           (e) => !sessionManager.isEntrypointDeepCriteriaMet(session, e)
         );
+        const shouldSkipContextualize =
+          !session.benchmarkMode && skipContextualization;
         nextPhase =
           pendingDeep.length > 0
             ? "fuzz_deep"
-            : skipContextualization
+            : shouldSkipContextualize
               ? "complete"
               : "contextualize_bugs";
       }
@@ -297,10 +308,12 @@ export async function findBugs(
         const pendingDeep = session.entrypoints.filter(
           (e) => !sessionManager.isEntrypointDeepCriteriaMet(session, e)
         );
+        const shouldSkipContextualize =
+          !session.benchmarkMode && skipContextualization;
         nextPhase =
           pendingDeep.length > 0
             ? "fuzz_deep"
-            : skipContextualization
+            : shouldSkipContextualize
               ? "complete"
               : "contextualize_bugs";
       }
@@ -336,17 +349,42 @@ export async function findBugs(
         );
       }
 
-      instructions = buildContextualizeBugsGuidance(
-        options,
-        toolName,
-        tool,
-        invariantSource,
-        session.sessionId
-      );
+      if (session.benchmarkMode) {
+        instructions = buildBenchmarkContextualizeBugsGuidance(
+          options,
+          toolName,
+          tool,
+          invariantSource,
+          session.sessionId,
+          session.reportPath
+        );
+      } else {
+        instructions = buildContextualizeBugsGuidance(
+          options,
+          toolName,
+          tool,
+          invariantSource,
+          session.sessionId
+        );
+      }
       nextPhase = "complete";
       break;
     }
     case "complete": {
+      // In benchmark mode: verify that the report file exists and is non-empty (>500 bytes)
+      if (session.benchmarkMode) {
+        const reportPath = session.reportPath;
+        const hasReport =
+          reportPath &&
+          fs.existsSync(reportPath) &&
+          fs.statSync(reportPath).size > 500;
+        if (!hasReport) {
+          throw new Error(
+            `Execution Gate Blocked (Bug Report File Required): You cannot complete the benchmark workflow without saving your evaluation report. You MUST write and save your comprehensive evaluation report to '${reportPath || "<assigned_report_path>"}' using create_file before completing this workflow.`
+          );
+        }
+      }
+
       // Gate 3 Check: All declared entrypoints must have completed Stage 2 Deep Fuzzing
       const hasCompletedFuzzing =
         session.fuzzRuns.length > 0 &&
@@ -376,10 +414,12 @@ export async function findBugs(
           t.phaseTo === "contextualize_bugs" ||
           t.phaseFrom === "contextualize_bugs"
       );
+      const shouldSkipContextualize =
+        !session.benchmarkMode && skipContextualization;
       if (
         totalFailuresInSession > 0 &&
         !hasContextualized &&
-        !skipContextualization
+        !shouldSkipContextualize
       ) {
         throw new Error(
           "Execution Gate Blocked (Phase 6 Contextualization Required): Defect failures were recorded during fuzzing, but Phase 6 (Bug Contextualization & Maintainer Intent Verification) was skipped. You must call nanofuzz_findBugs with phase: 'contextualize_bugs' to verify findings against public issues/PRs before completing the workflow."
@@ -889,6 +929,68 @@ function buildFuzzEntrypointGuidance(
     `     - If no bugs were found across all entrypoints, call \`${toolName.toLowerCase()}_findBugs\` with \`phase: "complete"\`.`,
   ].join("\n");
 } // fn: buildFuzzEntrypointGuidance
+
+/**
+ * Builds benchmark-specific guidance for Phase 6: Bug contextualization without external searches,
+ * requiring mandatory report file generation to the assigned benchmark report path.
+ */
+function buildBenchmarkContextualizeBugsGuidance(
+  options: FindBugsOptions,
+  toolName: string,
+  tool: FindBugsTool,
+  invariantSource: FindBugsInvariantSource,
+  sessionId: string,
+  reportPath?: string
+): string {
+  const targetReportPath = reportPath || `<assigned_report_path>`;
+  return [
+    `### Instructions for Phase 6: Bug Contextualization & Report Generation [Engine: ${tool} | Source: ${invariantSource}]`,
+    "",
+    `The fuzz testing execution phases are now complete. For each confirmed defect or failing invariant discovered:`,
+    "",
+    `1. **Failure Domain Characterization (Evaluation Rubric Preparation)**:`,
+    `   Precisely characterize the failure domain for each defect:`,
+    `   - **Root Cause & Trigger**: Identify the triggering module, line number, exception type, and unhandled condition.`,
+    `   - **Exact Failure Domain (D*)**: State the exact input boundaries or conditions that cause the failure.`,
+    `   - **Safe / Allowed Domain**: Contrast with inputs where the function behaves correctly.`,
+    `   - **Minimal Counterexample**: Provide the simplest concrete failing inputs identified during testing and shrinking.`,
+    "",
+    `2. **Strict Evidentiary Standards (Anti-Rationalization Gate)**:`,
+    `   - ⚠️ **CRITICAL ANTI-RATIONALIZATION RULE**: You must NOT classify a bug as "Intentional" or "WontFix" without direct, unambiguous maintainer evidence in the local docstrings, comments, or specifications.`,
+    `   - In the absence of an explicit specification stating an exception is intended, the failure MUST be documented as an unintended defect.`,
+    "",
+    `3. **Taxonomy & Evidence Mapping**:`,
+    `   Assign each finding to exactly one structured status:`,
+    `   - **Crash / Unhandled Exception**: Unexpected runtime exception on valid or edge-case inputs.`,
+    `   - **Contract / Range Violation**: Function returns invalid output, NaN, or violates type/semantic bounds.`,
+    `   - **Behavior Discrepancy**: Function violates documented behavior or unit test expectations.`,
+    "",
+    `4. **Mandatory Bug Report File Generation**:`,
+    `   You MUST write and save your comprehensive evaluation report to:`,
+    `   \`${targetReportPath}\``,
+    `   using \`create_file\`.`,
+    `   `,
+    `   Structure the report with the following sections:`,
+    `   # Benchmark Evaluation Report: <entrypoint>`,
+    `   ## Executive Summary (tested entrypoint, tool engine, duration, bugs found)`,
+    `   ## Discovered Defects (for each defect: Bug Name, Exception, Exact Failure Domain D*, Minimal Reproducer, and Root Cause Analysis)`,
+    `   ## Coverage & Fuzzing Metrics (test counts, branch coverage achieved)`,
+    "",
+    `5. **Next Step (Gated)**:`,
+    `   You CANNOT complete the workflow until \`${targetReportPath}\` has been written to disk using \`create_file\`.`,
+    `   Once the file is saved, call \`${toolName.toLowerCase()}_findBugs\` with:`,
+    "   ```json",
+    "   {",
+    '     "phase": "complete",',
+    `     "model": "${options.model}",`,
+    `     "vendor": "${options.vendor}",`,
+    '     "statePayload": {',
+    `       "sessionId": "${sessionId}"`,
+    "     }",
+    "   }",
+    "   ```",
+  ].join("\n");
+} // fn: buildBenchmarkContextualizeBugsGuidance
 
 /**
  * Builds guidance for Phase 6: Bug contextualization and maintainer intent verification against public issues/PRs/docs.

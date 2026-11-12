@@ -69,6 +69,8 @@ export type WorkflowSession = {
   }[];
   fuzzRuns: FuzzRunStatsSnapshot[];
   transitions: PhaseTransitionRecord[];
+  benchmarkMode?: boolean;
+  reportPath?: string;
 };
 
 /**
@@ -87,7 +89,9 @@ class FindBugsSessionManager {
     workerCount: number,
     initialPhase: FindBugsPhase,
     targetScope?: string[],
-    targetRepoPath?: string
+    targetRepoPath?: string,
+    benchmarkMode?: boolean,
+    reportPath?: string
   ): WorkflowSession {
     const id =
       sessionId && this._sessions.has(sessionId)
@@ -103,6 +107,8 @@ class FindBugsSessionManager {
         invariantSource,
         targetScope: targetScope ?? [],
         targetRepoPath,
+        benchmarkMode,
+        reportPath,
         workerCount,
         startedAt: now,
         lastPhaseStartedAt: now,
@@ -119,6 +125,12 @@ class FindBugsSessionManager {
       }
       if (targetRepoPath) {
         session.targetRepoPath = targetRepoPath;
+      }
+      if (benchmarkMode !== undefined) {
+        session.benchmarkMode = benchmarkMode;
+      }
+      if (reportPath !== undefined) {
+        session.reportPath = reportPath;
       }
       session.workerCount = workerCount;
     }

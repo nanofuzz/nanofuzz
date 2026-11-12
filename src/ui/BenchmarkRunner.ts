@@ -1701,7 +1701,9 @@ export async function runSingleBenchmarkSession(
     1,
     "init",
     run.targetScope,
-    laneRepoPath
+    laneRepoPath,
+    true,
+    run.reportPath
   );
   configureRunSettings();
 
@@ -2117,6 +2119,8 @@ export async function runSingleBenchmarkSession(
         // UNCONDITIONALLY bind sessionId to the runner session so findBugs and fuzzFunction never desync
         sp.sessionId = sessionId;
         sp.targetRepoPath = laneRepoPath;
+        sp.benchmarkMode = true;
+        sp.reportPath = run.reportPath;
         if (!sp.tool) sp.tool = run.engine;
         if (!sp.invariantSource) sp.invariantSource = run.source;
         if (!sp.targetScope) sp.targetScope = run.targetScope;

@@ -1,3 +1,6 @@
+import * as fs from "fs";
+import * as path from "path";
+import * as os from "os";
 import { findBugs } from "./FindBugs";
 import * as Config from "../Config";
 import { sessionManager } from "./FindBugsSessionManager";
@@ -274,6 +277,175 @@ describe("FindBugs", () => {
     );
     expect(result.instructions).toContain(`"model": "${model}"`);
     expect(result.instructions).toContain(`"vendor": "${vendor}"`);
+  });
+
+  it("handles benchmark mode contextualization: omits external search, requires report file before complete", async () => {
+    const benchSessionId = "bench-test-session";
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "nanofuzz-bench-test-"));
+    const reportPath = path.join(tempDir, "P01.md");
+
+    // Initialize session with benchmarkMode: true and reportPath
+    sessionManager.getOrCreateSession(
+      benchSessionId,
+      "nanofuzz",
+      "docs",
+      1,
+      "fuzz_entrypoint",
+      ["fuzz_encode"],
+      undefined,
+      true,
+      reportPath
+    );
+
+    // Record smoke and deep fuzz runs
+    sessionManager.recordFuzzRun(
+      {
+        functionName: "fuzz_encode",
+        filePath: "src/encode.ts",
+        timestamp: Date.now(),
+        totalTests: 10,
+        passedTests: 10,
+        failedTests: 0,
+        erroredTests: 0,
+        skippedTests: 0,
+        timeouts: 0,
+        exceptions: 0,
+        durationMs: 500,
+        suiteTimeout: 1000,
+        maxTests: 10,
+      },
+      benchSessionId
+    );
+    sessionManager.recordFuzzRun(
+      {
+        functionName: "fuzz_encode",
+        filePath: "src/encode.ts",
+        timestamp: Date.now(),
+        totalTests: 5000,
+        passedTests: 4999,
+        failedTests: 1,
+        erroredTests: 0,
+        skippedTests: 0,
+        timeouts: 0,
+        exceptions: 0,
+        durationMs: 300000,
+        suiteTimeout: 300000,
+        maxTests: 0,
+      },
+      benchSessionId
+    );
+
+    // Call contextualize_bugs in benchmarkMode
+    const ctxResult = await findBugs({
+      phase: "contextualize_bugs",
+      model,
+      vendor,
+      statePayload: {
+        sessionId: benchSessionId,
+        benchmarkMode: true,
+        reportPath,
+      },
+    });
+
+    expect(ctxResult.phase).toBe("contextualize_bugs");
+    expect(ctxResult.recommendedNextPhase).toBe("complete");
+    // Verify benchmark prompt elements:
+    expect(ctxResult.instructions).toContain("Bug Contextualization & Report Generation");
+    expect(ctxResult.instructions).toContain("Exact Failure Domain (D*)");
+    expect(ctxResult.instructions).toContain("State the exact input boundaries or conditions");
+    expect(ctxResult.instructions).toContain("Taxonomy & Evidence Mapping");
+    expect(ctxResult.instructions).toContain("Assign each finding to exactly one structured status");
+    expect(ctxResult.instructions).toContain("Mandatory Bug Report File Generation");
+    expect(ctxResult.instructions).toContain(reportPath);
+    // Verify external search elements are OMITTED:
+    expect(ctxResult.instructions).not.toContain("Scope & Access Assessment");
+    expect(ctxResult.instructions).not.toContain("GitHub/GitLab CLI");
+    expect(ctxResult.instructions).not.toContain("Multi-Faceted Search Strategy");
+
+    // Attempting to complete BEFORE report file exists throws error
+    await expectAsync(
+      findBugs({
+        phase: "complete",
+        model,
+        vendor,
+        statePayload: {
+          sessionId: benchSessionId,
+          benchmarkMode: true,
+          reportPath,
+        },
+      })
+    ).toBeRejectedWithError(/Execution Gate Blocked \(Bug Report File Required\)/);
+
+    // Write report file (>500 bytes)
+    fs.writeFileSync(reportPath, "# Benchmark Evaluation Report: fuzz_encode\n" + "A".repeat(600), "utf8");
+
+    // Now complete succeeds!
+    const completeResult = await findBugs({
+      phase: "complete",
+      model,
+      vendor,
+      statePayload: {
+        sessionId: benchSessionId,
+        benchmarkMode: true,
+        reportPath,
+      },
+    });
+
+    expect(completeResult.phase).toBe("complete");
+
+    // Cleanup
+    try {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    } catch {
+      // ignore
+    }
+  });
+
+  it("allows non-benchmark mode to complete without writing any report file", async () => {
+    const nonBenchSessionId = "non-bench-session";
+
+    sessionManager.getOrCreateSession(
+      nonBenchSessionId,
+      "nanofuzz",
+      "docs",
+      1,
+      "init",
+      ["fuzz_decode"],
+      undefined,
+      false
+    );
+
+    sessionManager.recordFuzzRun(
+      {
+        functionName: "fuzz_decode",
+        filePath: "src/decode.ts",
+        timestamp: Date.now(),
+        totalTests: 1000,
+        passedTests: 1000,
+        failedTests: 0,
+        erroredTests: 0,
+        skippedTests: 0,
+        timeouts: 0,
+        exceptions: 0,
+        durationMs: 300000,
+        suiteTimeout: 300000,
+        maxTests: 0,
+      },
+      nonBenchSessionId
+    );
+
+    // Non-benchmark mode complete without report file must succeed
+    const completeResult = await findBugs({
+      phase: "complete",
+      model,
+      vendor,
+      statePayload: {
+        sessionId: nonBenchSessionId,
+      },
+    });
+
+    expect(completeResult.phase).toBe("complete");
+    expect(completeResult.instructions).toContain("Structured Summary Report");
   });
 
   it("handles phase 'complete' with report guidelines and user disposition options", async () => {
