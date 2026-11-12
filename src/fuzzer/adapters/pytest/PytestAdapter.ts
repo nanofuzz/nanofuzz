@@ -5,6 +5,7 @@ import * as fs from "node:fs";
 import * as os from "os";
 import * as path from "path";
 import { AbstractTestAdapter } from "../AbstractTestAdapter";
+import { pythonModuleFor } from "../../runners/python/PythonModule";
 
 export class PytestAdapter extends AbstractTestAdapter {
   protected _testSet;
@@ -34,11 +35,7 @@ export class PytestAdapter extends AbstractTestAdapter {
    */
   public toString(): string {
     const pytestData: string[] = [];
-    const moduleName = path
-      .basename(this._module)
-      .split(".")
-      .slice(0, -1)
-      .join("."); // remove .py
+    const moduleName = pythonModuleFor(this._module).name;
 
     // Auto-generated warning comment
     pytestData.push(

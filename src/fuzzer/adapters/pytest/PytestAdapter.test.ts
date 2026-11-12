@@ -341,6 +341,71 @@ describe("fuzzer/adapters/pytest/PytestAdapter:", () => {
     );
   });
 
+  it("executes generated Pytest tests of a module in a package with pytest", () => {
+    const tmpDir = fs.realpathSync(
+      fs.mkdtempSync(path.join(os.tmpdir(), "pytest-adapter-pkg-"))
+    );
+    const files: Record<string, string> = {
+      "mypkg/__init__.py": "",
+      "mypkg/helper.py": "def inc(x: int) -> int:\n    return x + 1\n",
+      "mypkg/target.py":
+        "from .helper import inc\n\ndef add(x: int) -> int:\n    return inc(x)\n",
+    };
+    for (const [file, code] of Object.entries(files)) {
+      fs.mkdirSync(path.dirname(path.join(tmpDir, file)), { recursive: true });
+      fs.writeFileSync(path.join(tmpDir, file), code);
+    }
+    const modPath = path.join(tmpDir, "mypkg", "target.py");
+
+    const tests: FuzzTests = {
+      version: "0.0.0",
+      functions: {
+        add: {
+          options: makeOptions({ useHuman: true }),
+          validators: [],
+          tests: {
+            "0": {
+              input: [
+                { name: "x", offset: 0, value: 1, origin: { type: "user" } },
+              ],
+              output: [],
+              pinned: true,
+              expectedOutput: [
+                { name: "0", offset: 0, value: 2, origin: { type: "user" } },
+              ],
+            },
+          },
+          isVoid: false,
+        },
+      },
+    };
+
+    const adapter = new PytestAdapter(tests, modPath);
+    fs.writeFileSync(adapter.filename, adapter.toString());
+    const pyEnv = PythonRunner.envFor(modPath);
+
+    try {
+      // As run from the project's root (e.g., by VS Code's test explorer)
+      const res = spawnSync(
+        pyEnv.interpreter,
+        [
+          "-m",
+          "pytest",
+          path.relative(tmpDir, adapter.filename),
+          "-o",
+          "cache_dir=" + path.join(tmpDir, ".pytest_cache"),
+        ],
+        { cwd: tmpDir, env: pyEnv.env, encoding: "utf8" }
+      );
+      expect(res.status)
+        .withContext(`stdout: ${res.stdout}\nstderr: ${res.stderr}`)
+        .toBe(0);
+      expect(res.stdout).toContain("1 passed");
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
   it("executes generated async Pytest test suite with pytest binary", () => {
     const tmpDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "pytest-adapter-async-")
