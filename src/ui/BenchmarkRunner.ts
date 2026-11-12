@@ -227,7 +227,15 @@ export function loadCompletedParticipants(): Map<
     if (Array.isArray(parsed)) {
       for (const item of parsed) {
         if (item && item.participant && item.status === "completed") {
-          completed.set(item.participant, item);
+          const reportPath = path.join(
+            RESULTS_DIR,
+            item.reportFilename || `${item.participant}.md`
+          );
+          const hasReport =
+            fs.existsSync(reportPath) && fs.statSync(reportPath).size > 0;
+          if (hasReport) {
+            completed.set(item.participant, item);
+          }
         }
       }
     }
@@ -247,13 +255,22 @@ export function loadCompletedParticipants(): Map<
             (r.suiteTimeout ?? 0) >= 300000 &&
             (r.maxTests === 0 || r.maxTests === Number.MAX_SAFE_INTEGER)
         );
+      const reportPath = path.join(
+        RESULTS_DIR,
+        t.reportFilename || `${t.participant}.md`
+      );
+      const hasReport =
+        fs.existsSync(reportPath) && fs.statSync(reportPath).size > 0;
+      const hasSurvey = Boolean(t.survey);
+
       if (
         t &&
         t.participant &&
         !t.error &&
         t.success !== false &&
         hasDeep &&
-        Boolean(t.survey) &&
+        hasReport &&
+        hasSurvey &&
         !completed.has(t.participant)
       ) {
         const taskName = t.task;
