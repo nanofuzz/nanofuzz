@@ -194,8 +194,11 @@ export class HypothesisRunner {
       });
 
       // Cancellation and timeout watchdog + periodic progress updater
-      const hardTimeoutMs = suiteTimeoutMs + 45000;
+      const maxTestsTarget = this._options.maxTests ?? 0;
+      const maxFailuresTarget = this._options.maxFailures ?? 0;
+      const hardTimeoutMs = suiteTimeoutMs + 3000;
       let lastReportCheck = 0;
+      let terminating = false;
       const watchdogInterval = setInterval(() => {
         if (processExited) {
           clearInterval(watchdogInterval);
@@ -206,27 +209,21 @@ export class HypothesisRunner {
         if (this._cancelFn?.()) {
           clearInterval(watchdogInterval);
           sendSignal(proc, "SIGINT");
-        } else if (elapsed >= hardTimeoutMs) {
-          clearInterval(watchdogInterval);
-          sendSignal(proc, "SIGINT");
-          setTimeout(() => {
-            if (!processExited && proc) {
-              proc.kill("SIGKILL");
-            }
-          }, 5000).unref();
+          return;
         }
 
-        // Periodically sample progress from the report file and fire _updateFn
-        if (this._updateFn && elapsed - lastReportCheck >= 1000) {
-          lastReportCheck = elapsed;
-          try {
-            if (fs.existsSync(reportFile)) {
-              const raw = fs.readFileSync(reportFile);
-              const interim = parsePbtRunReport(JSONN.unpack(raw));
-              if (interim) {
-                const total = interim.total_executions;
-                const passed = interim.pass_count;
-                const failed = interim.fail_count;
+        // Sample progress from report file and detect target completion
+        try {
+          if (fs.existsSync(reportFile)) {
+            const raw = fs.readFileSync(reportFile);
+            const interim = parsePbtRunReport(JSONN.unpack(raw));
+            if (interim) {
+              const total = interim.total_executions;
+              const passed = interim.pass_count;
+              const failed = interim.fail_count;
+
+              if (this._updateFn && elapsed - lastReportCheck >= 500) {
+                lastReportCheck = elapsed;
                 const pct =
                   suiteTimeoutMs > 0
                     ? Math.min(
@@ -280,12 +277,43 @@ export class HypothesisRunner {
                   isCancelled: false,
                 });
               }
+
+              // Check if targets are met or runner signaled completion
+              const targetReached =
+                (maxTestsTarget > 0 && total >= maxTestsTarget) ||
+                (maxFailuresTarget > 0 && failed >= maxFailuresTarget) ||
+                interim.stop_reason === "max_tests" ||
+                interim.stop_reason === "max_failures" ||
+                interim.stop_reason === "timeout";
+
+              if (targetReached && !terminating) {
+                terminating = true;
+                clearInterval(watchdogInterval);
+                sendSignal(proc, "SIGINT");
+                setTimeout(() => {
+                  if (!processExited && proc) {
+                    proc.kill("SIGKILL");
+                  }
+                }, 3000).unref();
+                return;
+              }
             }
-          } catch {
-            // Ignore interim read/parse race conditions
           }
+        } catch {
+          // Ignore interim read/parse race conditions
         }
-      }, 500);
+
+        if (elapsed >= hardTimeoutMs && !terminating) {
+          terminating = true;
+          clearInterval(watchdogInterval);
+          sendSignal(proc, "SIGINT");
+          setTimeout(() => {
+            if (!processExited && proc) {
+              proc.kill("SIGKILL");
+            }
+          }, 3000).unref();
+        }
+      }, 200);
 
       await new Promise<void>((resolve) => {
         proc?.on("close", (code) => {
@@ -433,7 +461,8 @@ export class HypothesisRunner {
 
     const stopReason = isCancelled
       ? FuzzStopReason.PAUSE
-      : reportData?.stop_reason === "timeout"
+      : reportData?.stop_reason === "timeout" ||
+          Date.now() - startTime >= suiteTimeoutMs
         ? FuzzStopReason.MAXTIME
         : FuzzStopReason.NOMOREINPUTS;
 

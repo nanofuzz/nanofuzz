@@ -170,6 +170,8 @@ def _flush():
                             run_data["primary_counterexample"] = existing_data.get(
                                 "primary_counterexample"
                             )
+                        if existing_data.get("stop_reason") not in (None, "completed"):
+                            run_data["stop_reason"] = existing_data["stop_reason"]
                         if not run_data.get("coverage") and existing_data.get(
                             "coverage"
                         ):
