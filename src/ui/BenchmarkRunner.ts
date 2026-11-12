@@ -459,9 +459,69 @@ interface BugEvaluationResult {
   elicited: number; // 1 or 0
   reported: number; // 1 or 0
   generator: string;
+  creditEarned?: number;
+  deduction?: number;
+  netScore?: number;
+  evidenceQuote?: string;
+  rationale?: string;
 }
 
-function evaluateBugsForParticipant(
+function buildJudgePrompt(
+  taskName: string,
+  bug: GroundTruthBug,
+  reportText: string
+): string {
+  return [
+    "You are an expert empirical software testing researcher scoring an autonomous agent's bug report according to the formal TerzoN study rubric.",
+    "",
+    `### Task Program:`,
+    `${taskName}`,
+    "",
+    `### Ground Truth Defect Under Evaluation:`,
+    `- Bug ID: ${bug.id}`,
+    `- Summary: ${bug.name}`,
+    `- Primary Exception / Symptom: ${bug.exceptionClass || "Exception / Failure"}`,
+    `- Expected Exact Failure Domain (D*): ${bug.exactFailureDomain || ""}`,
+    `- Partial Failure Domain (Strict Subset): ${bug.partialFailureDomain || ""}`,
+    `- Safe / Allowed Domain (Valid Inputs): ${bug.safeValidDomain || ""}`,
+    `- Overgeneralization Triggers: ${bug.overgeneralizationTriggers || ""}`,
+    "",
+    `### Agent's Submitted Bug Report:`,
+    '"""',
+    reportText,
+    '"""',
+    "",
+    `### Scoring Rules (TerzoN Rubric: Net Score range -0.5 to +1.0):`,
+    `1. Credit Earned:`,
+    `   - +1.0: The report explicitly identifies this defect AND characterizes the full failure domain D* accurately.`,
+    `   - +0.5: The report identifies this defect, but only describes a strict subset of D* (under-generalization), or describes the crash symptom with only a single concrete example without identifying the general boundary.`,
+    `   -  0.0: The report does not mention this defect, or attributes the crash to an unrelated cause.`,
+    "",
+    `2. Deduction (Overgeneralization Penalty):`,
+    `   - -0.5 deduction: The agent's described domain includes allowed/safe inputs where the program behaves correctly (falsely claiming non-bugs fail).`,
+    `   -  0.0 deduction: No over-generalization into safe input territory.`,
+    "",
+    `3. Net Score:`,
+    `   net_score = credit_earned - deduction`,
+    `   Allowable net scores per bug: +1.0, +0.5, 0.0, -0.5.`,
+    "",
+    "Return STRICTLY a JSON object in a ```json codeblock:",
+    "```json",
+    "{",
+    `  "bug_id": "${bug.id}",`,
+    '  "elicited_in_report": true,',
+    '  "credit_earned": 1.0,',
+    '  "deduction": 0.0,',
+    '  "net_score": 1.0,',
+    '  "evidence_quote": "Exact quote from agent report",',
+    '  "rationale": "Concise justification for score category."',
+    "}",
+    "```",
+  ].join("\n");
+}
+
+async function evaluateBugsWithLlmJudge(
+  model: vscode.LanguageModelChat,
   task: BenchmarkTaskName,
   reportText: string,
   fuzzRuns: Array<{
@@ -470,40 +530,92 @@ function evaluateBugsForParticipant(
     exceptions: number;
     generatorName?: string;
     details?: string;
-  }>
-): BugEvaluationResult[] {
+  }>,
+  token?: vscode.CancellationToken
+): Promise<BugEvaluationResult[]> {
   const taskBugs = GROUND_TRUTH_BUGS[task] || [];
   const failingRuns = fuzzRuns.filter(
     (r) => (r.failedTests ?? 0) > 0 || (r.exceptions ?? 0) > 0
   );
+  const generatorName =
+    failingRuns.find((r) => r.generatorName)?.generatorName || "NaNofuzz";
 
-  return taskBugs.map((bug) => {
-    let elicited = 0;
-    let reported = 0;
-    let generator = "None";
+  if (!reportText.trim()) {
+    return taskBugs.map((bug) => ({
+      bug,
+      elicited: 0,
+      reported: 0,
+      generator: "None",
+      creditEarned: 0,
+      deduction: 0,
+      netScore: 0,
+      evidenceQuote: "",
+      rationale: "No report generated.",
+    }));
+  }
 
-    // Check if elicited in any failing fuzz run via rubric matchPatterns
-    for (const r of failingRuns) {
-      const details = r.details || "";
-      if (bug.matchPatterns.some((pattern) => pattern.test(details))) {
-        elicited = 1;
-        generator = r.generatorName || "NaNofuzz";
-        break;
+  const results: BugEvaluationResult[] = [];
+
+  for (const bug of taskBugs) {
+    const prompt = buildJudgePrompt(task, bug, reportText);
+    let creditEarned = 0;
+    let deduction = 0;
+    let netScore = 0;
+    let elicitedInReport = false;
+    let evidenceQuote = "";
+    let rationale = "";
+
+    try {
+      const response = await model.sendRequest(
+        [vscode.LanguageModelChatMessage.User(prompt)],
+        { tools: [] },
+        token
+      );
+      let rawText = "";
+      for await (const chunk of response.stream) {
+        if (chunk instanceof vscode.LanguageModelTextPart) {
+          rawText += chunk.value;
+        }
       }
+
+      const jsonMatch =
+        rawText.match(/```(?:json)?\s*([\s\S]*?)\s*```/) ||
+        rawText.match(/(\{[\s\S]*\})/);
+
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[1]);
+        elicitedInReport = Boolean(parsed.elicited_in_report);
+        creditEarned = Number(parsed.credit_earned) || 0;
+        deduction = Number(parsed.deduction) || 0;
+        netScore =
+          Number(parsed.net_score) || creditEarned - deduction;
+        evidenceQuote = String(parsed.evidence_quote || "");
+        rationale = String(parsed.rationale || "");
+      }
+    } catch (err: unknown) {
+      log(
+        `[JUDGE] [WARN] LLM judge evaluation error on ${bug.id}: ${String(err)}`
+      );
     }
 
-    // Check if documented in the participant report via rubric matchPatterns
-    if (reportText && bug.matchPatterns.some((pattern) => pattern.test(reportText))) {
-      reported = 1;
-    }
+    const reported = elicitedInReport && creditEarned > 0 ? 1 : 0;
+    const elicited = failingRuns.length > 0 && reported === 1 ? 1 : 0;
+    const generator = elicited === 1 ? generatorName : "None";
 
-    return {
+    results.push({
       bug,
       elicited,
       reported,
       generator,
-    };
-  });
+      creditEarned,
+      deduction,
+      netScore,
+      evidenceQuote,
+      rationale,
+    });
+  }
+
+  return results;
 }
 
 function writeScoringSheet(
@@ -551,17 +663,20 @@ function writeScoringSheet(
 
   lines.push(
     "",
-    `## Ground-Truth Defect Scoring Breakdown`,
+    `## Ground-Truth Defect Scoring Breakdown (LLM Judge Panel)`,
     "",
-    `| Bug ID | Defect Name | Elicited? | Reported? | Eliciting Generator |`,
-    `| :--- | :--- | :---: | :---: | :--- |`
+    `| Bug ID | Defect Name | Elicited? | Reported? | Credit | Penalty | Net Score | Eliciting Generator |`,
+    `| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :--- |`
   );
 
   for (const r of evalResults) {
     const elIcon = r.elicited === 1 ? "1" : "0";
-    const repIcon = r.reported === 1 ? "0" : "0";
+    const repIcon = r.reported === 1 ? "1" : "0";
+    const credit = (r.creditEarned ?? (r.reported === 1 ? 1.0 : 0.0)).toFixed(1);
+    const deduction = (r.deduction ?? 0.0).toFixed(1);
+    const net = (r.netScore ?? (r.reported === 1 ? 1.0 : 0.0)).toFixed(1);
     lines.push(
-      `| \`${r.bug.id}\` | ${r.bug.name} | ${elIcon} | ${repIcon} | \`${r.generator}\` |`
+      `| \`${r.bug.id}\` | ${r.bug.name} | ${elIcon} | ${repIcon} | ${credit} | ${deduction} | ${net} | \`${r.generator}\` |`
     );
   }
 
@@ -678,9 +793,14 @@ function appendToDataCsv(
   const score =
     taskBugCount > 0 ? (bugsElicited / taskBugCount).toFixed(3) : "0.000";
 
-  const bugsReported = evalResults.filter((r) => r.reported === 1).length;
+  const totalNetScore = evalResults.reduce(
+    (sum, r) => sum + (r.netScore ?? (r.reported === 1 ? 1.0 : 0.0)),
+    0
+  );
   const accuracy =
-    taskBugCount > 0 ? (bugsReported / taskBugCount).toFixed(3) : "0.000";
+    taskBugCount > 0
+      ? Math.max(-0.5, Math.min(1.0, totalNetScore / taskBugCount)).toFixed(3)
+      : "0.000";
 
   const generators = evalResults
     .filter((r) => r.elicited === 1)
@@ -1745,17 +1865,19 @@ export async function runSingleBenchmarkSession(
     contextualize,
   };
 
-  // Evaluate ground-truth bugs elicited & reported for this participant
+  // Evaluate ground-truth bugs elicited & reported for this participant via LLM Judge Panel
   const reportContent = fs.existsSync(run.reportPath)
     ? fs.readFileSync(run.reportPath, "utf8")
     : "";
 
   const activeSession = sessionManager.getSession(sessionId, laneRepoPath);
   const fuzzRuns = activeSession?.fuzzRuns || [];
-  const evalResults = evaluateBugsForParticipant(
+  const evalResults = await evaluateBugsWithLlmJudge(
+    model,
     run.task,
     reportContent,
-    fuzzRuns
+    fuzzRuns,
+    token
   );
 
   const totalTests = fuzzRuns.reduce((sum, r) => sum + r.totalTests, 0);
@@ -2230,6 +2352,14 @@ export async function runBenchmarkMatrix(
 } // fn: runBenchmarkMatrix
 
 export function runAnalysisPipeline(): void {
+  const targetVenvPython = path.join(
+    WORKSPACE_ROOT,
+    "benchmark",
+    "target",
+    ".venv",
+    "bin",
+    "python"
+  );
   const localVenvPython = path.join(WORKSPACE_ROOT, ".venv", "bin", "python");
   const analysisVenvPython = path.resolve(
     WORKSPACE_ROOT,
@@ -2239,39 +2369,85 @@ export function runAnalysisPipeline(): void {
     "bin",
     "python"
   );
-  const pythonBin = fs.existsSync(localVenvPython)
-    ? localVenvPython
-    : fs.existsSync(analysisVenvPython)
-      ? analysisVenvPython
-      : "python3";
+  const pythonBin = fs.existsSync(targetVenvPython)
+    ? targetVenvPython
+    : fs.existsSync(localVenvPython)
+      ? localVenvPython
+      : fs.existsSync(analysisVenvPython)
+        ? analysisVenvPython
+        : "python3";
 
-  const scriptCandidates = [
-    path.join(WORKSPACE_ROOT, "benchmark", "scripts", "analyze_quarton.py"),
-    path.join(WORKSPACE_ROOT, "scripts", "analyze_quarton.py"),
-  ];
-  const scriptPath =
-    scriptCandidates.find((cand) => fs.existsSync(cand)) ?? scriptCandidates[0];
-  if (!fs.existsSync(scriptPath)) {
-    log(`[ANALYSIS] [WARN] Analysis script not found at ${scriptPath}`);
-    return;
+  const scoreAccuracyScript = path.join(
+    WORKSPACE_ROOT,
+    "benchmark",
+    "scripts",
+    "score_accuracy.py"
+  );
+  const analyzeQuartonScript = path.join(
+    WORKSPACE_ROOT,
+    "benchmark",
+    "scripts",
+    "analyze_quarton.py"
+  );
+
+  const venvSitePackages = path.join(
+    WORKSPACE_ROOT,
+    "benchmark",
+    "target",
+    ".venv",
+    "lib",
+    "python3.13",
+    "site-packages"
+  );
+  const execEnv = {
+    ...process.env,
+    PYTHONPATH: fs.existsSync(venvSitePackages)
+      ? `${venvSitePackages}${path.delimiter}${process.env.PYTHONPATH || ""}`
+      : process.env.PYTHONPATH,
+  };
+
+  // 1. Run dual-rater accuracy scoring engine
+  if (fs.existsSync(scoreAccuracyScript)) {
+    log("[ANALYSIS] Running dual-rater accuracy scoring engine (score_accuracy.py)...");
+    try {
+      const stdout = execSync(
+        `"${pythonBin}" "${scoreAccuracyScript}" --reports-dir "${REPORTS_DIR}" --data-csv "${DATA_CSV_PATH}"`,
+        {
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "pipe"],
+          env: execEnv,
+        }
+      );
+      for (const line of stdout.split("\n")) {
+        if (line.trim()) {
+          log(`  ${line}`);
+        }
+      }
+    } catch (err: unknown) {
+      log(`  [ANALYSIS] [WARN] Accuracy scoring engine error: ${String(err)}`);
+    }
   }
 
-  log("[ANALYSIS] Running QuartoN dissertation analysis pipeline...");
-  try {
-    const stdout = execSync(
-      `"${pythonBin}" "${scriptPath}" --data "${DATA_CSV_PATH}" --survey "${SURVEY_RESPONSES_CSV_PATH}"`,
-      {
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "pipe"],
+  // 2. Run QuartoN dissertation analysis pipeline (Table 5.3, 5.4, 5.5, Figure 5.4)
+  if (fs.existsSync(analyzeQuartonScript)) {
+    log("[ANALYSIS] Running QuartoN dissertation analysis pipeline (analyze_quarton.py)...");
+    try {
+      const stdout = execSync(
+        `"${pythonBin}" "${analyzeQuartonScript}" --data "${DATA_CSV_PATH}" --survey "${SURVEY_RESPONSES_CSV_PATH}"`,
+        {
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "pipe"],
+          env: execEnv,
+        }
+      );
+      for (const line of stdout.split("\n")) {
+        if (line.trim()) {
+          log(`  ${line}`);
+        }
       }
-    );
-    for (const line of stdout.split("\n")) {
-      if (line.trim()) {
-        log(`  ${line}`);
-      }
+    } catch (err: unknown) {
+      log(`  [ANALYSIS] [WARN] Analysis pipeline error: ${String(err)}`);
     }
-  } catch (err: unknown) {
-    log(`  [ANALYSIS] [WARN] Analysis pipeline error: ${String(err)}`);
   }
 } // fn: runAnalysisPipeline
 
@@ -2923,8 +3099,6 @@ interface BenchmarkRubricJson {
           partial_failure_domain?: string;
           safe_valid_domain?: string;
           overgeneralization_triggers?: string;
-          match_patterns?: string[];
-          matchPatterns?: string[];
         }
       >;
     }
@@ -2940,7 +3114,6 @@ export interface GroundTruthBug {
   partialFailureDomain?: string;
   safeValidDomain?: string;
   overgeneralizationTriggers?: string;
-  matchPatterns: RegExp[];
 }
 
 interface LoadedBenchmarkRubric {
@@ -2994,17 +3167,6 @@ function loadBenchmarkRubric(jsonPath: string): LoadedBenchmarkRubric {
         const id = bugSpec.id || bugKey;
         const name = bugSpec.name || bugKey;
         const description = bugSpec.description || name;
-        const rawPatterns = bugSpec.match_patterns || bugSpec.matchPatterns;
-        const patterns: RegExp[] =
-          Array.isArray(rawPatterns) && rawPatterns.length > 0
-            ? rawPatterns.map((p) => new RegExp(p, "i"))
-            : [
-                new RegExp(`\\b${id}\\b`, "i"),
-                new RegExp(name, "i"),
-                ...(bugSpec.exception_class
-                  ? [new RegExp(`\\b${bugSpec.exception_class}\\b`, "i")]
-                  : []),
-              ];
         bugList.push({
           id,
           name,
@@ -3014,7 +3176,6 @@ function loadBenchmarkRubric(jsonPath: string): LoadedBenchmarkRubric {
           partialFailureDomain: bugSpec.partial_failure_domain,
           safeValidDomain: bugSpec.safe_valid_domain,
           overgeneralizationTriggers: bugSpec.overgeneralization_triggers,
-          matchPatterns: patterns,
         });
         if (!allBugIds.includes(id)) {
           allBugIds.push(id);
