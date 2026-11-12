@@ -399,8 +399,8 @@ export class CpuSampler {
     let idle = 0;
     let total = 0;
     for (const cpu of cpus) {
-      for (const type in cpu.times) {
-        total += cpu.times[type as keyof typeof cpu.times];
+      for (const time of Object.values(cpu.times)) {
+        total += time;
       }
       idle += cpu.times.idle;
     }
