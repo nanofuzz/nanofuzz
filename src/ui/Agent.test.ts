@@ -71,12 +71,20 @@ describe("Agent", () => {
     expect(result.language).toBe("typescript");
     expect(result.functions.length).toBeGreaterThan(0);
 
+    // Verify functions are sorted in descending order of priority
+    for (let i = 1; i < result.functions.length; i++) {
+      expect(result.functions[i - 1].priority ?? 0).toBeGreaterThanOrEqual(
+        result.functions[i].priority ?? 0
+      );
+    }
+
     const fnMap = new Map(result.functions.map((f) => [f.name, f]));
     expect(fnMap.has("testStandardVoidReturnUndefined")).toBe(true);
 
     const voidFn = fnMap.get("testStandardVoidReturnUndefined")!;
     expect(voidFn.isVoid).toBe(true);
     expect(voidFn.isExported).toBe(true);
+    expect(voidFn.priority).toBeGreaterThanOrEqual(50);
     expect(voidFn.args.length).toBe(1);
     expect(voidFn.args[0].name).toBe("_x");
     expect(voidFn.args[0].type).toBe("number");
@@ -437,7 +445,7 @@ describe("Agent", () => {
         harnessErrors: [],
         timers: { gen: 0, transform: 0, run: 1 },
         category: "exception",
-        interestingReasons: [],
+        interestingReasons: ["FailedTestMeasure"],
       },
       {
         pinned: false,
@@ -928,6 +936,21 @@ def py_double(x: int) -> int:
     );
   });
 
+  it("runFuzz: exportSuite disables shrinking for benchmark sessions", async () => {
+    const result = await runFuzz({
+      filePath: tsFixture,
+      functionName: "testCoverageOneFile",
+      maxTests: 20,
+      suiteTimeout: 3000,
+      exportSuite: true,
+      sessionId: "bench-w1-P01-testCoverageOneFile",
+    });
+
+    expect(result.status).toBe("success");
+    expect(result.testSuiteCode).toBeDefined();
+    expect(result.testSuiteCode).toContain("describe(");
+  });
+
   it("runFuzz: exportFilePath writes synthesized test suite directly to file", async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-export-test-"));
     try {
@@ -1118,6 +1141,8 @@ def py_double(x: int) -> int:
         aiQueriesSent: 1,
         mutationInputs: 30,
         randomInputs: 50,
+        userInputs: 0,
+        injectedInputs: 0,
       },
     });
 

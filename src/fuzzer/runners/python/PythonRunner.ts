@@ -320,14 +320,6 @@ export class PythonRunner extends AbstractRunner {
       }
     }
 
-    // Append own own modules to PYTHONPATH if needed
-    if (pythonEnv.libs && !pythonEnv.env.PYTHONPATH?.includes(pythonEnv.libs)) {
-      pythonEnv.env.PYTHONPATH =
-        (pythonEnv.env.PYTHONPATH ?? "") +
-        (process.platform === "win32" ? ";" : ":") +
-        pythonEnv.libs;
-    }
-
     // Build PYTHONPATH entries for resolving user project packages and nanofuzz_runtime
     const pyPaths: string[] = [];
 
@@ -354,10 +346,6 @@ export class PythonRunner extends AbstractRunner {
       }
     } catch {
       // ignore
-    }
-
-    if (pythonEnv.libs) {
-      pyPaths.push(pythonEnv.libs);
     }
 
     const currModuleDir = path.dirname(path.resolve(module.filename));
@@ -631,18 +619,25 @@ export class PythonRunner extends AbstractRunner {
     //  2. Executing within Node as /build/cli/cli.cjs
     //  3. Executing within Jasmine as /src/fuzzer/runners/PythonRunner.ts
     const currModuleDir = path.dirname(path.resolve(module.filename));
-    const projectRoot = findInAncestor(currModuleDir, "package.json");
-    if (projectRoot === undefined) {
-      throw new Error(`Unable to find project root from: ${currModuleDir}`);
+    let runnerHost = path.join(currModuleDir, "PythonRunnerHost.py");
+    if (!fs.existsSync(runnerHost)) {
+      const projectRoot = findInAncestor(currModuleDir, "package.json");
+      if (projectRoot !== undefined) {
+        runnerHost = path.resolve(
+          path.join(
+            path.dirname(projectRoot),
+            "build",
+            "extension",
+            "PythonRunnerHost.py"
+          )
+        );
+      }
     }
-    const runnerHost = path.resolve(
-      path.join(
-        path.dirname(projectRoot),
-        "build",
-        "extension",
-        "PythonRunnerHost.py"
-      )
-    );
+    if (!fs.existsSync(runnerHost)) {
+      throw new Error(
+        `Unable to find PythonRunnerHost.py from: ${currModuleDir}`
+      );
+    }
 
     const filenameBase = path.basename(this._filename);
     const coverageScopeRaw = Config.get<unknown>(
@@ -662,12 +657,8 @@ export class PythonRunner extends AbstractRunner {
       scopeConfig.target.includes("directimports") &&
       fs.existsSync(this._filename)
     ) {
-      try {
-        const program = ProgramFactory.fromFile(this._filename);
-        directPkgs = extractDirectPackages(program.imports);
-      } catch {
-        // Fall back gracefully if file resolution or parsing fails
-      }
+      const program = ProgramFactory.fromFile(this._filename);
+      directPkgs = extractDirectPackages(program.imports);
     }
 
     const args = [

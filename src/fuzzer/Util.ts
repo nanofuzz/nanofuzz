@@ -276,6 +276,89 @@ export function getIoKey(io: FuzzIoElement[]): string {
 } // fn: getIoKey
 
 /**
+ * Normalizes a file path for user-facing display across CLI, Extension, and Tool adapters.
+ * Returns a clean relative path (with forward slashes) rooted at the workspace or CWD,
+ * falling back to the original path if the relative path is not shorter or traverses out.
+ *
+ * @param filePath Path to format for display
+ * @returns Clean normalized display path (e.g. "src/math.ts")
+ */
+export function getDisplayPath(filePath: string): string {
+  // Normalize backslashes and repair POSIX paths missing leading slash (e.g. "Users/..." or "home/...")
+  let normalizedInput = filePath.replace(/\\/g, "/");
+  if (
+    !normalizedInput.startsWith("/") &&
+    (normalizedInput.startsWith("Users/") ||
+      normalizedInput.startsWith("home/") ||
+      normalizedInput.startsWith("var/") ||
+      normalizedInput.startsWith("tmp/") ||
+      normalizedInput.startsWith("private/"))
+  ) {
+    normalizedInput = "/" + normalizedInput;
+  }
+
+  let displayPath = normalizedInput;
+
+  // Query workspace relative path when running in VS Code host
+  const vs = Reflect.get(globalThis, "vscode");
+  if (isVscodeLike(vs)) {
+    displayPath = vs.workspace.asRelativePath(normalizedInput, false);
+  } else if (
+    typeof process !== "undefined" &&
+    typeof process.cwd === "function"
+  ) {
+    // Check direct prefix match after normalizing path separators
+    const cwd = process.cwd().replace(/\\/g, "/");
+    if (normalizedInput.startsWith(cwd + "/")) {
+      displayPath = normalizedInput.slice(cwd.length + 1);
+    } else {
+      // Fall back to path.relative if shorter and not traversing out
+      const rel = path.relative(process.cwd(), normalizedInput);
+      if (
+        rel &&
+        !rel.startsWith("..") &&
+        !path.isAbsolute(rel) &&
+        rel.length < normalizedInput.length
+      ) {
+        displayPath = rel;
+      }
+    }
+  }
+
+  // Normalize backslashes to forward slashes for cross-platform display
+  return displayPath.replace(/\\/g, "/");
+} // fn: getDisplayPath
+
+/**
+ * Shape of a VS Code global object providing workspace path resolution.
+ */
+interface VscodeLike {
+  workspace: {
+    asRelativePath: (
+      filePath: string,
+      includeWorkspaceFolder?: boolean
+    ) => string;
+  };
+}
+
+/**
+ * Type guard checking if an unknown object provides VS Code workspace path methods.
+ */
+function isVscodeLike(val: unknown): val is VscodeLike {
+  if (val === null || typeof val !== "object" || Array.isArray(val)) {
+    return false;
+  }
+  if (!("workspace" in val)) {
+    return false;
+  }
+  const ws = Reflect.get(val, "workspace");
+  if (ws === null || typeof ws !== "object" || Array.isArray(ws)) {
+    return false;
+  }
+  return typeof Reflect.get(ws, "asRelativePath") === "function";
+} // fn: isVscodeLike
+
+/**
  * Samples and calculates aggregate system CPU utilization across all platforms.
  */
 export class CpuSampler {
@@ -316,8 +399,8 @@ export class CpuSampler {
     let idle = 0;
     let total = 0;
     for (const cpu of cpus) {
-      for (const type in cpu.times) {
-        total += cpu.times[type as keyof typeof cpu.times];
+      for (const time of Object.values(cpu.times)) {
+        total += time;
       }
       idle += cpu.times.idle;
     }

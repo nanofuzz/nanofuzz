@@ -39,7 +39,12 @@
     "onLanguage:java",
     "onLanguage:go",
     "onLanguage:typescriptreact",
-    "onWebviewPanel:FuzzPanel"
+    "onWebviewPanel:FuzzPanel",
+    "onLanguageModelTool:nanofuzz_listTargets",
+    "onLanguageModelTool:nanofuzz_fuzzFunction",
+    "onLanguageModelTool:nanofuzz_findBugs",
+    "onLanguageModelTool:nanofuzz_showResults",
+    "onLanguageModelTool:nanofuzz_shrinkInputs"
   ],
   "contributes": {
     "commands": [
@@ -51,6 +56,36 @@
       {
         "command": "nanofuzz.ClearCompileCache",
         "title": "Clear compile cache",
+        "category": "NaNofuzz"
+      },
+      {
+        "command": "nanofuzz.RunBenchmark",
+        "title": "Run Benchmark Matrix",
+        "category": "NaNofuzz"
+      },
+      {
+        "command": "nanofuzz.RunBenchmark90",
+        "title": "Run 90-Participant Benchmark Matrix",
+        "category": "NaNofuzz"
+      },
+      {
+        "command": "nanofuzz.RunBenchmarkSmoketest",
+        "title": "Run Benchmark Smoketest",
+        "category": "NaNofuzz"
+      },
+      {
+        "command": "nanofuzz.RunBenchmarkFull",
+        "title": "Run Full Benchmark Matrix",
+        "category": "NaNofuzz"
+      },
+      {
+        "command": "nanofuzz.RecoverBenchmark",
+        "title": "Recover Benchmark Matrix",
+        "category": "NaNofuzz"
+      },
+      {
+        "command": "nanofuzz.CancelBenchmark",
+        "title": "Cancel Active Benchmark Matrix",
         "category": "NaNofuzz"
       },
       {
@@ -119,7 +154,7 @@
             "maxTests": {
               "type": "integer",
               "minimum": 0,
-              "description": "Maximum number of test cases to generate and execute (default: 1000, 0 for no limit / run until timeoutMs)."
+              "description": "Maximum number of test cases to generate and execute. Set to 0 for unlimited / continuous fuzzing until timeoutMs (REQUIRED for deep fuzzing). Avoid setting a low cap like 1000."
             },
             "timeoutMs": {
               "type": "integer",
@@ -129,7 +164,7 @@
             "maxFailures": {
               "type": "integer",
               "minimum": 0,
-              "description": "Maximum number of failures to find before stopping (default: 0 for no limit)."
+              "description": "Maximum number of failures to find before stopping. Default: 0 (no limit). For autonomous bug hunting, leave at 0 so early bugs do not prevent discovering deeper secondary defects."
             },
             "seed": {
               "type": "string",
@@ -218,12 +253,16 @@
               "type": "string",
               "enum": [
                 "init",
+                "invariants_from_docs",
+                "invariants_from_tests",
                 "invariants_extracted",
+                "fuzz_smoke",
+                "fuzz_deep",
                 "fuzz_entrypoint",
                 "contextualize_bugs",
                 "complete"
               ],
-              "description": "Workflow phase: 'init' to start discovery and black-box invariant extraction; 'invariants_extracted' to submit invariants and receive harness/validator instructions; 'fuzz_entrypoint' to get execution and triage guidance for a specific entrypoint; 'contextualize_bugs' to verify discovered bugs against issues, PRs, and docs; 'complete' to finalize findings and choose artifact disposition."
+              "description": "Workflow phase: 'init' to start discovery and black-box invariant extraction; 'invariants_from_docs' for documented extraction; 'invariants_from_tests' for empirical test extraction; 'invariants_extracted' for harness synthesis; 'fuzz_smoke' for fast smoke testing; 'fuzz_deep' for deep exploration; 'contextualize_bugs' to verify findings; 'complete' to finalize."
             },
             "model": {
               "type": "string",
@@ -810,6 +849,60 @@
               "experimental"
             ]
           },
+          "nanofuzz.experimental.findBugs.tool": {
+            "title": "FindBugs testing engine",
+            "type": "string",
+            "enum": [
+              "nanofuzz",
+              "hypothesis",
+              "hypofuzz"
+            ],
+            "default": "nanofuzz",
+            "description": "Experimental: Test engine/harness paradigm for findBugs workflows.",
+            "tags": [
+              "experimental"
+            ]
+          },
+          "nanofuzz.experimental.findBugs.invariantSource": {
+            "title": "FindBugs invariant source",
+            "type": "string",
+            "enum": [
+              "tests",
+              "docs",
+              "all"
+            ],
+            "default": "tests",
+            "description": "Experimental: Source of specification invariants (tests=unit test suites, docs=documentation, all=both docs and tests).",
+            "tags": [
+              "experimental"
+            ]
+          },
+          "nanofuzz.experimental.findBugs.skipContextualization": {
+            "title": "Skip Bug Contextualization",
+            "type": "boolean",
+            "default": false,
+            "description": "Experimental: When true, skips Phase 4/5 bug contextualization against external issue trackers and completes as soon as deep fuzzing stopping criteria are met.",
+            "tags": [
+              "experimental"
+            ]
+          },
+          "nanofuzz.benchmark.juryModels": {
+            "title": "Benchmark PoLL jury models",
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": [
+              "gemini-3.8-flash",
+              "claude-sonnet-5.5",
+              "gpt-4o-mini"
+            ],
+            "description": "Exact Language Model IDs to query for the 3-model evaluation jury panel slots.",
+            "tags": [
+              "experimental",
+              "benchmark"
+            ]
+          },
           "nanofuzz.generators.scheduler.impl": {
             "title": "Composite generator scheduler algorithm",
             "type": "string",
@@ -1051,11 +1144,11 @@
     "tree-sitter-java": "^0.23.5",
     "tree-sitter-ocaml": "^0.24.2",
     "tree-sitter-python": "^0.25.0",
-    "tree-sitter-rust": "^0.23.2",
+    "tree-sitter-rust": "^0.24.0",
     "tree-sitter-typescript": "^0.23.2",
     "typescript": "5.9.2",
     "undici": "^7.30.0",
-    "web-tree-sitter": "^0.26.11"
+    "web-tree-sitter": "^0.27.2"
   },
   "devDependencies": {
     "@babel/core": "^7.27.1",

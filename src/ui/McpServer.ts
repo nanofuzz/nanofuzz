@@ -100,7 +100,7 @@ export async function createMcpServer(
         .nonnegative()
         .optional()
         .describe(
-          "Maximum number of test cases to generate and execute (default: 1000, 0 for no limit / run until timeoutMs)."
+          "Maximum number of test cases to generate and execute. Set to 0 for unlimited / continuous fuzzing until timeoutMs (REQUIRED for deep fuzzing). Avoid setting a low cap like 1000."
         ),
       timeoutMs: z
         .number()
@@ -116,7 +116,7 @@ export async function createMcpServer(
         .nonnegative()
         .optional()
         .describe(
-          "Maximum number of failures to find before stopping (default: 0 for no limit)."
+          "Maximum number of failures to find before stopping. Default: 0 (no limit). For autonomous bug hunting, leave at 0 so early bugs do not prevent discovering deeper secondary defects."
         ),
       seed: z
         .string()
@@ -247,14 +247,18 @@ export async function createMcpServer(
       phase: z
         .enum([
           "init",
+          "invariants_from_docs",
+          "invariants_from_tests",
           "invariants_extracted",
+          "fuzz_smoke",
+          "fuzz_deep",
           "fuzz_entrypoint",
           "contextualize_bugs",
           "complete",
         ])
         .optional()
         .describe(
-          "Workflow phase: 'init' to start discovery and black-box invariant extraction; 'invariants_extracted' to submit invariants and receive harness/validator instructions; 'fuzz_entrypoint' to get execution and triage guidance for a specific entrypoint; 'contextualize_bugs' to verify discovered bugs against issues, PRs, and docs; 'complete' to finalize findings and choose artifact disposition."
+          "Workflow phase: 'init' to start discovery and black-box invariant extraction; 'invariants_from_docs' for documented extraction; 'invariants_from_tests' for empirical extraction; 'invariants_extracted' to submit invariants and receive harness/validator instructions; 'fuzz_smoke' for fast smoke testing; 'fuzz_deep' for deep exploration; 'contextualize_bugs' to verify discovered bugs against issues, PRs, and docs; 'complete' to finalize findings and choose artifact disposition."
         ),
       model: z
         .string()

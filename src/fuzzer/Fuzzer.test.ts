@@ -2,7 +2,11 @@ import { FuzzerEngineVersion, FuzzerFactory } from "./FuzzerFactory";
 import { FuzzerV3, WorkerContext } from "./FuzzerV3";
 import { AbstractRunner } from "./runners/AbstractRunner";
 import { CompositeInputGenerator } from "./generators/CompositeInputGenerator";
-import { FuzzBusyStatusMessage, FuzzStopReason } from "./Types";
+import {
+  FuzzBusyStatusMessage,
+  FuzzStopReason,
+  FuzzTestingMessage,
+} from "./Types";
 import { intOptions, initParser } from "./FuzzerTestHelper";
 import { getToolVersion } from "../ToolVersion";
 import { determineWorkerCount } from "./Util";
@@ -494,8 +498,8 @@ describe("fuzzer: general & parameterized engine tests", () => {
         expect(results.stopReason).toBe(FuzzStopReason.NOMOREINPUTS);
         expect(results.stats.counters.inputsInjected).toBe(10);
         const testingPcts = updates
-          .filter((u) => u.type === "testing")
-          .map((u) => (u as any).pct);
+          .filter((u): u is FuzzTestingMessage => u.type === "testing")
+          .map((u) => u.pct);
         expect(testingPcts.some((pct) => pct >= 10)).toBe(true);
       });
 

@@ -223,7 +223,6 @@ describe("cli:", () => {
     const res = await runCli([
       targetFile,
       "sampleFn",
-      "--clear-compile-cache",
       "--max-tests",
       "1",
       "--seed",
@@ -232,15 +231,13 @@ describe("cli:", () => {
 
     expect(res.status).toBe(0);
     const targetIdx = res.stdout.indexOf("Target:");
-    const cacheClearedIdx = res.stdout.indexOf(" - Compile cache cleared");
     const compileIdx = res.stdout.indexOf(" - Compile...:");
     const instrumentIdx = res.stdout.indexOf(" - Instrument:");
     const inputsIdx = res.stdout.indexOf("Inputs:");
     const onlineIdx = res.stdout.indexOf("Online:");
 
     expect(targetIdx).toBeGreaterThanOrEqual(0);
-    expect(cacheClearedIdx).toBeGreaterThan(targetIdx);
-    expect(compileIdx).toBeGreaterThan(cacheClearedIdx);
+    expect(compileIdx).toBeGreaterThan(targetIdx);
     expect(instrumentIdx).toBeGreaterThan(compileIdx);
     expect(inputsIdx).toBeGreaterThan(instrumentIdx);
     expect(onlineIdx).toBeGreaterThan(inputsIdx);
@@ -2907,39 +2904,6 @@ export function myPutValidator(r: FuzzTestResult): "pass" | "fail" | "unknown" {
     ]);
     expect(resAi.status).toBe(0);
   });
-
-  /*
-   * Commented out so the cache clear does not step on other running tests
-   *
-  it("--clear-compile-cache", async () => {
-    const outputFile = path.join(tmpDir, "clear_cache_output.json5");
-    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
-    const targetFn = "testCoverageOneFile";
-
-    // First run to populate cache
-    const res1 = await runCli([targetFile, targetFn, "--max-tests", "5"]);
-    expect(res1.status).toBe(0);
-
-    // Second run with --clear-compile-cache flag
-    const res2 = await runCli([
-      targetFile,
-      targetFn,
-      "--output-file",
-      outputFile,
-      "--clear-compile-cache",
-      "--max-tests",
-      "5",
-    ]);
-
-    expect(res2.status).toBe(0);
-    expect(fs.existsSync(outputFile)).toBeTrue();
-
-    const outputData = JSON5.parse<FuzzTestResults>(
-      fs.readFileSync(outputFile, "utf8")
-    );
-    expect(outputData.results.length).toBeGreaterThan(0);
-  });
-  */
 });
 
 function getFnNameAndModule(fnObj: unknown): {

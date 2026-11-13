@@ -1,5 +1,7 @@
 import * as vscode from "vscode";
+import * as Config from "../../Config";
 import * as JSONN from "../../Jsonn";
+import { Logger, LoggerEntry } from "../../telemetry/Logger";
 import {
   getToolName,
   listTargets,
@@ -10,9 +12,13 @@ import {
   ShowResultsResult,
   AgentShrinkOptions,
   AgentTestCase,
+  AgentFuzzResult,
 } from "../../ui/Agent";
 import { CoverageScope } from "../measures/Types";
+import { CurrentRunStats } from "../Types";
 import { findBugs, FindBugsOptions, FindBugsPhase } from "../../ui/FindBugs";
+import { sessionManager } from "../../ui/FindBugsSessionManager";
+import { getDisplayPath } from "../Util";
 
 // -------------------------------------------------------------------------- //
 // Tool Implementations & Helpers
@@ -41,7 +47,7 @@ export async function resolveMatchingModel(
 
   let candidates = allModels;
 
-  // 1. If vendor is specified, attempt vendor filtering
+  // If vendor is specified, attempt vendor filtering
   if (vendor) {
     const vNorm = vendor.toLowerCase().replace(/[^a-z0-9]/g, "");
     const vendorMatches = allModels.filter((m) => {
@@ -54,7 +60,7 @@ export async function resolveMatchingModel(
     }
   }
 
-  // 2. If model is specified, attempt model name/family/id matching
+  // If model is specified, attempt model name/family/id matching
   let selected = candidates[0];
   if (model) {
     const mNorm = model.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -118,13 +124,29 @@ export class ListTargetsTool implements vscode.LanguageModelTool<ListTargetsInpu
     options: vscode.LanguageModelToolInvocationOptions<ListTargetsInput>,
     _token: vscode.CancellationToken
   ): Promise<vscode.LanguageModelToolResult> {
+    const start = performance.now();
     const targets = await listTargets(options.input.filePath);
+    const durationMs = Math.round(performance.now() - start);
+
+    Logger.getLogger().push(
+      new LoggerEntry(
+        "VscodeLmAdapter.listTargets",
+        JSONN.stringify({
+          filePath: options.input.filePath,
+          language: targets.language,
+          targetsFound: targets.functions.length,
+          unsupportedCount: targets.unsupportedFunctions.length,
+          durationMs,
+        })
+      )
+    );
+
     const text = JSONN.stringify(targets, null, 2);
     return new vscode.LanguageModelToolResult([
       new vscode.LanguageModelTextPart(text),
     ]);
   }
-}
+} // class: ListTargetsTool
 
 /**
  * Language model tool for running fuzzing sessions on target functions.
@@ -133,14 +155,67 @@ export class FuzzFunctionTool implements vscode.LanguageModelTool<FuzzFunctionIn
   public prepareInvocation(
     options: vscode.LanguageModelToolInvocationPrepareOptions<FuzzFunctionInput>
   ): vscode.ProviderResult<vscode.PreparedToolInvocation> {
-    const toolName = getToolName();
-    const { functionName, filePath } = options.input;
+    const { functionName, filePath, timeoutMs, maxFailures, sessionId } =
+      options.input;
+
+    const session = sessionManager.getSession(sessionId, filePath);
+    const underlyingTool = session?.tool ?? "nanofuzz";
+    const toolName =
+      underlyingTool !== "nanofuzz"
+        ? underlyingTool.charAt(0).toUpperCase() + underlyingTool.slice(1)
+        : getToolName();
+
+    let maxTests = options.input.maxTests;
+    let effectiveMaxFailures = maxFailures;
+
+    const isDeepRun =
+      (typeof timeoutMs === "number" && timeoutMs >= 60_000) ||
+      (maxTests === 0 && (timeoutMs === undefined || timeoutMs >= 60_000));
+    if (isDeepRun) {
+      if (effectiveMaxFailures !== undefined && effectiveMaxFailures > 0) {
+        effectiveMaxFailures = 0;
+      }
+      if (maxTests === 1000) {
+        maxTests = 0;
+      }
+    }
+
+    const displayPath = getDisplayPath(filePath);
+    const target = `'${displayPath}::${functionName}'`;
+
+    const constraints: string[] = [];
+    if (typeof timeoutMs === "number" && timeoutMs > 0) {
+      constraints.push(formatDuration(timeoutMs));
+    }
+    if (typeof maxTests === "number" && maxTests > 0) {
+      constraints.push(`${formatCount(maxTests)} tests`);
+    }
+    if (typeof effectiveMaxFailures === "number" && effectiveMaxFailures > 0) {
+      constraints.push(
+        effectiveMaxFailures === 1
+          ? "1 failure"
+          : `${effectiveMaxFailures} failures`
+      );
+    }
+
+    const constraintSuffix =
+      constraints.length > 0 ? ` up to ${constraints.join(" or ")}` : "";
+
+    const isBenchmark =
+      Boolean(session?.benchmarkMode) ||
+      (typeof sessionId === "string" && sessionId.startsWith("bench-")) ||
+      Config.get<boolean>("nanofuzz.benchmarkMode", false);
+
     return {
-      invocationMessage: `Running ${toolName} on \`${functionName}\` in \`${filePath}\``,
-      confirmationMessages: {
-        title: `Run ${toolName}`,
-        message: `Run ${toolName} fuzz testing on \`${functionName}\` in \`${filePath}\`?`,
-      },
+      invocationMessage: `Running ${toolName} on ${target}${constraintSuffix}`,
+      ...(isBenchmark
+        ? {}
+        : {
+            confirmationMessages: {
+              title: `${toolName} ${target}`,
+              message: `Run ${toolName} on ${target}${constraintSuffix}?`,
+            },
+          }),
     };
   }
 
@@ -151,9 +226,7 @@ export class FuzzFunctionTool implements vscode.LanguageModelTool<FuzzFunctionIn
     const {
       filePath,
       functionName,
-      maxTests,
       timeoutMs,
-      maxFailures,
       seed,
       model,
       vendor,
@@ -164,37 +237,136 @@ export class FuzzFunctionTool implements vscode.LanguageModelTool<FuzzFunctionIn
       coverageScope,
       fnTimeout,
       useTransformer,
+      sessionId,
     } = options.input;
+    let maxTests = options.input.maxTests;
+    let maxFailures = options.input.maxFailures;
+
+    const isDeepRun =
+      (typeof timeoutMs === "number" && timeoutMs >= 60_000) ||
+      (maxTests === 0 && (timeoutMs === undefined || timeoutMs >= 60_000));
+    if (isDeepRun) {
+      if (maxFailures !== undefined && maxFailures > 0) {
+        maxFailures = 0;
+      }
+      if (maxTests === 1000) {
+        maxTests = 0;
+      }
+    }
 
     const resolved = await resolveMatchingModel(vendor, model);
 
-    const result = await runFuzz(
-      {
-        filePath,
-        functionName,
-        maxTests,
-        fnTimeout,
-        suiteTimeout: timeoutMs,
-        maxFailures,
-        seed,
-        model: resolved.model,
-        vendor: resolved.vendor,
-        inputs,
-        tests,
-        exportSuite,
-        exportFilePath,
-        coverageScope,
-        useTransformer,
-        enableCopilotAi: true,
-      },
-      () => token.isCancellationRequested
+    const session = sessionManager.getSession(sessionId, filePath);
+    const underlyingTool = session?.tool ?? "nanofuzz";
+    const toolName =
+      underlyingTool !== "nanofuzz"
+        ? underlyingTool.charAt(0).toUpperCase() + underlyingTool.slice(1)
+        : getToolName();
+
+    const displayPath = getDisplayPath(filePath);
+    const target = `'${displayPath}::${functionName}'`;
+
+    // Create a live status bar item on the bottom toolbar
+    const statusBarItem =
+      typeof vscode.window?.createStatusBarItem === "function"
+        ? vscode.window.createStatusBarItem(
+            vscode.StatusBarAlignment?.Left,
+            10000
+          )
+        : undefined;
+    if (statusBarItem) {
+      statusBarItem.name = `${toolName} Progress`;
+      statusBarItem.text = `$(beaker) ${toolName}: ${functionName}`;
+      statusBarItem.tooltip = `${target}\nRunning with ${toolName}`;
+      statusBarItem.show();
+    }
+
+    let lastStats: CurrentRunStats | undefined;
+    const updateStatusBar = (detail: string) => {
+      if (!statusBarItem) return;
+      statusBarItem.text = `$(beaker) ${toolName}: ${functionName} ${detail}`;
+      statusBarItem.tooltip = `${target}\n${detail}`;
+    };
+
+    let result: AgentFuzzResult;
+    try {
+      result = await runFuzz(
+        {
+          filePath,
+          functionName,
+          sessionId,
+          maxTests,
+          fnTimeout,
+          suiteTimeout: timeoutMs,
+          maxFailures,
+          seed,
+          model: resolved.model,
+          vendor: resolved.vendor,
+          inputs,
+          tests,
+          exportSuite,
+          exportFilePath,
+          coverageScope,
+          useTransformer,
+          enableCopilotAi: true,
+        },
+        () => token.isCancellationRequested,
+        (status) => {
+          if (status.type === "compiling") {
+            updateStatusBar("(compiling...)");
+          } else if (status.type === "instrumenting") {
+            updateStatusBar("(instrumenting...)");
+          } else if (status.type === "waiting-for-generator") {
+            updateStatusBar("(waiting for AI...)");
+          } else if (status.type === "testing-complete") {
+            updateStatusBar("(done)");
+          } else if (
+            status.type === "testing" ||
+            status.type === "progress-tick"
+          ) {
+            if ("stats" in status && status.stats) {
+              lastStats = status.stats;
+            }
+            const testsCount = lastStats?.outcomes?.total ?? 0;
+            const formattedTests =
+              testsCount >= 1000 ? formatCount(testsCount) : `${testsCount}`;
+            const rawPct =
+              status.pct <= 1 && status.pct > 0 ? status.pct * 100 : status.pct;
+            const pct = Math.min(100, Math.max(0, Math.round(rawPct)));
+            updateStatusBar(`(${formattedTests} tests, ${pct}%)`);
+          }
+        }
+      );
+    } finally {
+      statusBarItem?.dispose();
+    }
+
+    Logger.getLogger().push(
+      new LoggerEntry(
+        "VscodeLmAdapter.fuzzFunction",
+        JSONN.stringify({
+          filePath,
+          functionName,
+          status: result.status,
+          totalTests: result.totalTests,
+          passedTests: result.passedTests,
+          failedTests: result.failedTests,
+          erroredTests: result.erroredTests,
+          stopReason: result.stopReason,
+          durationMs: timeoutMs,
+        })
+      )
     );
+
+    if (result.status === "error") {
+      throw new Error(result.summaryText);
+    }
 
     return new vscode.LanguageModelToolResult([
       new vscode.LanguageModelTextPart(result.summaryText),
     ]);
   }
-}
+} // class: FuzzFunctionTool
 
 /**
  * Language model tool for multi-turn bug discovery workflows.
@@ -215,11 +387,22 @@ export class FindBugsTool implements vscode.LanguageModelTool<FindBugsInput> {
     _token: vscode.CancellationToken
   ): Promise<vscode.LanguageModelToolResult> {
     const result = await findBugs(options.input);
+
+    Logger.getLogger().push(
+      new LoggerEntry(
+        "VscodeLmAdapter.findBugs",
+        JSONN.stringify({
+          phase: options.input.phase ?? "init",
+          recommendedNextPhase: result.recommendedNextPhase,
+        })
+      )
+    );
+
     return new vscode.LanguageModelToolResult([
       new vscode.LanguageModelTextPart(result.summaryText),
     ]);
   }
-}
+} // class: FindBugsTool
 
 /**
  * Language model tool for displaying fuzz test results in FuzzPanel.
@@ -240,11 +423,23 @@ export class ShowResultsTool implements vscode.LanguageModelTool<ShowResultsInpu
     _token: vscode.CancellationToken
   ): Promise<vscode.LanguageModelToolResult> {
     const res: ShowResultsResult = await showResults(options.input);
+
+    Logger.getLogger().push(
+      new LoggerEntry(
+        "VscodeLmAdapter.showResults",
+        JSONN.stringify({
+          filePath: options.input.filePath,
+          functionName: options.input.functionName,
+          success: res.success,
+        })
+      )
+    );
+
     return new vscode.LanguageModelToolResult([
       new vscode.LanguageModelTextPart(res.message),
     ]);
   }
-}
+} // class: ShowResultsTool
 
 /**
  * Language model tool for standalone input shrinking.
@@ -265,11 +460,26 @@ export class ShrinkInputsTool implements vscode.LanguageModelTool<ShrinkInputsIn
     _token: vscode.CancellationToken
   ): Promise<vscode.LanguageModelToolResult> {
     const res = await shrinkInputs(options.input);
+
+    const shrunkenCount =
+      res.shrunkInputs?.filter((s) => s.status === "shrunk").length ?? 0;
+    Logger.getLogger().push(
+      new LoggerEntry(
+        "VscodeLmAdapter.shrinkInputs",
+        JSONN.stringify({
+          filePath: options.input.filePath,
+          functionName: options.input.functionName,
+          inputCount: options.input.inputs.length,
+          shrunkenCount,
+        })
+      )
+    );
+
     return new vscode.LanguageModelToolResult([
       new vscode.LanguageModelTextPart(res.summaryText),
     ]);
   }
-}
+} // class: ShrinkInputsTool
 
 /**
  * Registers all Language Model Tools with VS Code.
@@ -333,6 +543,7 @@ export type ListTargetsInput = {
 export type FuzzFunctionInput = {
   filePath: string;
   functionName: string;
+  sessionId?: string;
   maxTests?: number;
   timeoutMs?: number;
   maxFailures?: number;
@@ -363,3 +574,37 @@ export type ShowResultsInput = ShowResultsOptions;
  * Input arguments for the nanofuzz_shrinkInputs tool
  */
 export type ShrinkInputsInput = AgentShrinkOptions;
+
+/**
+ * Formats duration in milliseconds into a concise string (e.g. 500ms, 3s, 5m, 1h).
+ */
+function formatDuration(ms: number): string {
+  if (ms < 1000) {
+    return `${ms}ms`;
+  }
+  const seconds = ms / 1000;
+  if (seconds < 60) {
+    return Number.isInteger(seconds) ? `${seconds}s` : `${seconds.toFixed(1)}s`;
+  }
+  const minutes = seconds / 60;
+  if (minutes < 60) {
+    return Number.isInteger(minutes) ? `${minutes}m` : `${minutes.toFixed(1)}m`;
+  }
+  const hours = minutes / 60;
+  return Number.isInteger(hours) ? `${hours}h` : `${hours.toFixed(1)}h`;
+} // fn: formatDuration
+
+/**
+ * Formats a count into a concise metric format (e.g. 100, 5k, 100k, 1M).
+ */
+function formatCount(count: number): string {
+  if (count < 1000) {
+    return `${count}`;
+  }
+  if (count < 1_000_000) {
+    const k = count / 1000;
+    return Number.isInteger(k) ? `${k}k` : `${k.toFixed(1)}k`;
+  }
+  const m = count / 1_000_000;
+  return Number.isInteger(m) ? `${m}M` : `${m.toFixed(1)}M`;
+} // fn: formatCount
