@@ -202,9 +202,6 @@ function runTestFile(file) {
       FORCE_COLOR: "1",
       [pathEnvKey]: envPath,
     };
-    if (hasVenv) {
-      testEnv.VIRTUAL_ENV = venvDir;
-    }
 
     const child = spawn(cmd, args, {
       cwd: process.cwd(),
