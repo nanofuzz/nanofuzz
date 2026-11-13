@@ -316,6 +316,11 @@ def _instrument_regular_test(item, fn):
             _record_step(is_fail=False)
             return res
         except Exception as exc:
+            # Exclude assumption failures (skips) from execution count and failure count
+            if type(exc).__name__ == "UnsatisfiedAssumption" or getattr(exc, "__class__", None).__name__ == "UnsatisfiedAssumption":
+                run_data["total_executions"] = max(0, run_data["total_executions"] - 1)
+                raise
+
             run_data["fail_count"] += 1
             if run_data["primary_counterexample"] is None:
                 run_data["primary_counterexample"] = {
@@ -374,6 +379,11 @@ def _instrument_hypothesis_test(fn, test_name):
             _record_step(is_fail=False)
             return res
         except Exception as exc:
+            # Exclude assumption failures (skips) from execution count and failure count
+            if type(exc).__name__ == "UnsatisfiedAssumption" or getattr(exc, "__class__", None).__name__ == "UnsatisfiedAssumption":
+                run_data["total_executions"] = max(0, run_data["total_executions"] - 1)
+                raise
+
             run_data["fail_count"] += 1
             if run_data["primary_counterexample"] is None:
                 run_data["primary_counterexample"] = {
