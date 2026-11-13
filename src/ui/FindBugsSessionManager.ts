@@ -356,19 +356,34 @@ class FindBugsSessionManager {
       return s.entrypoints.every((e) => this.isEntrypointDeepCriteriaMet(s, e));
     }
 
-    // Default if no entrypoints formally registered: at least one 300,000ms run
-    return s.fuzzRuns.some(
-      (r) =>
-        r.isPropertyTest !== false &&
-        r.totalTests > 1 &&
-        (r.suiteTimeout ?? 0) >= 300000 &&
-        (r.maxTests === 0 || r.maxTests === Number.MAX_SAFE_INTEGER)
-    );
+    // Default if no entrypoints formally registered: at least one qualifying deep run
+    return s.fuzzRuns.some((r) => this.isQualifyingDeepRun(r));
   } // fn: hasCompletedDeepRun
 
   /**
+   * Helper to determine if a fuzz run qualifies as a Stage 2 deep fuzzing run:
+   * - Must be a property test.
+   * - Configured for deep continuous fuzzing: suiteTimeout >= 300,000 ms (5m) and maxTests === 0.
+   * - Must either achieve 100% branch coverage OR actually execute for the deep duration (>= 270,000 ms / 4.5m).
+   * Note: The number of tests executed is NOT checked.
+   */
+  public isQualifyingDeepRun(r: FuzzRunStatsSnapshot): boolean {
+    if (r.isPropertyTest === false) return false;
+    if ((r.suiteTimeout ?? 0) < 300000) return false;
+    if (r.maxTests !== 0 && r.maxTests !== Number.MAX_SAFE_INTEGER) return false;
+
+    // 100% branch coverage allows early completion
+    if (r.branchCoveragePct !== undefined && r.branchCoveragePct >= 100) {
+      return true;
+    }
+
+    // Must have actually executed for the deep fuzzing duration (>= 270,000 ms / 4.5 minutes)
+    return (r.durationMs ?? 0) >= 270000;
+  } // fn: isQualifyingDeepRun
+
+  /**
    * Evaluates whether an entrypoint has satisfied stopping criteria:
-   * - Must have at least one deep run (suiteTimeout >= 300000, maxTests === 0).
+   * - Must have at least one deep run (suiteTimeout >= 300000, maxTests === 0, duration >= 270s or 100% cov).
    * - Must achieve 100% branch coverage OR execute at least 5 exploration retries.
    */
   public isEntrypointDeepCriteriaMet(
@@ -378,10 +393,7 @@ class FindBugsSessionManager {
     const matchingDeepRuns = session.fuzzRuns.filter(
       (r) =>
         functionMatchesEntrypoint(r.functionName, entrypoint) &&
-        r.isPropertyTest !== false &&
-        r.totalTests > 1 &&
-        (r.suiteTimeout ?? 0) >= 300000 &&
-        (r.maxTests === 0 || r.maxTests === Number.MAX_SAFE_INTEGER)
+        this.isQualifyingDeepRun(r)
     );
 
     if (matchingDeepRuns.length === 0) return false;
@@ -412,10 +424,7 @@ class FindBugsSessionManager {
         const deepRuns = s.fuzzRuns.filter(
           (r) =>
             functionMatchesEntrypoint(r.functionName, e) &&
-            r.isPropertyTest !== false &&
-            r.totalTests > 1 &&
-            (r.suiteTimeout ?? 0) >= 300000 &&
-            (r.maxTests === 0 || r.maxTests === Number.MAX_SAFE_INTEGER)
+            this.isQualifyingDeepRun(r)
         );
         const lastCov =
           deepRuns.length > 0

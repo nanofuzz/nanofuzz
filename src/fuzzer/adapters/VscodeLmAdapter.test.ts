@@ -141,6 +141,25 @@ describe("VscodeLmAdapter", () => {
     }
   });
 
+  it("fuzz: prepare omits confirmationMessages in benchmark mode", () => {
+    const tool = new FuzzFunctionTool();
+    const prepared = tool.prepareInvocation({
+      input: {
+        filePath: tsFixture,
+        functionName: "testStandardVoidReturnUndefined",
+        sessionId: "bench-w1-P01-testStandardVoidReturnUndefined",
+        timeoutMs: 300_000,
+        maxTests: 0,
+      },
+    });
+
+    expect(prepared).toBeDefined();
+    if (prepared && !("then" in prepared)) {
+      expect(prepared.invocationMessage).toBeDefined();
+      expect(prepared.confirmationMessages).toBeUndefined();
+    }
+  });
+
   it("fuzz: invoke pass", async () => {
     const tool = new FuzzFunctionTool();
     const token = new vscode.CancellationTokenSource().token;

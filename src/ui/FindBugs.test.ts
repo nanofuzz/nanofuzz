@@ -1328,4 +1328,69 @@ describe("FindBugs", () => {
       });
     }
   }
+
+  describe("isQualifyingDeepRun duration enforcement", () => {
+    it("rejects runs with suiteTimeout >= 300000 that terminated early (< 270s) without 100% coverage", () => {
+      const prematureRun = {
+        functionName: "test_parse",
+        filePath: "src/parse.py",
+        timestamp: Date.now(),
+        totalTests: 101,
+        passedTests: 101,
+        failedTests: 0,
+        erroredTests: 0,
+        skippedTests: 0,
+        timeouts: 0,
+        exceptions: 0,
+        durationMs: 30000, // only ran 30 seconds
+        suiteTimeout: 300000,
+        maxTests: 0,
+        branchCoveragePct: 60,
+      };
+
+      expect(sessionManager.isQualifyingDeepRun(prematureRun)).toBe(false);
+    });
+
+    it("accepts runs that actually ran for deep duration (>= 270s) regardless of test count", () => {
+      const fullDurationRun = {
+        functionName: "test_parse",
+        filePath: "src/parse.py",
+        timestamp: Date.now(),
+        totalTests: 101, // low test count does not disqualify
+        passedTests: 101,
+        failedTests: 0,
+        erroredTests: 0,
+        skippedTests: 0,
+        timeouts: 0,
+        exceptions: 0,
+        durationMs: 285000, // 4.75 minutes
+        suiteTimeout: 300000,
+        maxTests: 0,
+        branchCoveragePct: 60,
+      };
+
+      expect(sessionManager.isQualifyingDeepRun(fullDurationRun)).toBe(true);
+    });
+
+    it("accepts runs that achieved 100% branch coverage even with shorter duration", () => {
+      const fullCoverageRun = {
+        functionName: "test_parse",
+        filePath: "src/parse.py",
+        timestamp: Date.now(),
+        totalTests: 50,
+        passedTests: 50,
+        failedTests: 0,
+        erroredTests: 0,
+        skippedTests: 0,
+        timeouts: 0,
+        exceptions: 0,
+        durationMs: 15000, // 15 seconds
+        suiteTimeout: 300000,
+        maxTests: 0,
+        branchCoveragePct: 100,
+      };
+
+      expect(sessionManager.isQualifyingDeepRun(fullCoverageRun)).toBe(true);
+    });
+  });
 });

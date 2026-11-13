@@ -552,7 +552,7 @@ function buildInitGuidance(
           `     - *Round-Trip & Inverses*: inverse transformations promised in docs (like decode(encode(x)) == x).`,
           `     - *Documented Boundaries & Thresholds*: min/max sizes, zeros, empty collections, documented numerical limits.`,
           `     - *Error Contracts*: documented exceptions or errors when invalid arguments are provided.`,
-          `   - ⚠️ **Do not spend budget hunting for a specific known bug**. Cover the specification broadly for each prioritized entrypoint; ${tool === "nanofuzz" ? "NaNofuzz" : tool === "hypofuzz" ? "Hypofuzz" : "Hypothesis"} will find deviations.`,
+          `   - ⚠️ **Do not spend budget hunting for a specific known bug**. Cover the specification broadly for each prioritized entrypoint; property fuzzing will find deviations.`,
         ].join("\n")
       : [
           `   - Formulate generalized invariants across diverse property classes:`,
@@ -580,9 +580,9 @@ function buildInitGuidance(
   const todoItems = [
     "Codebase Discovery & Entrypoint Ranking",
     ...extractionItems,
-    `Harness / Test Suite Synthesis (${tool})`,
+    "Test Suite Synthesis",
     "Smoke Test & Oracle Validation",
-    `Deep Fuzzing & Exploration Loop (${tool})`,
+    "Deep Fuzzing & Exploration Loop",
     "Bug Contextualization & Disposition",
   ]
     .map((item, idx) => `     ${idx + 1}. ${item}`)
@@ -736,6 +736,7 @@ function buildInvariantsGuidance(
       `4. **Seed Properties with Harvested Inputs**:`,
       `   - Collect your concrete seed inputs extracted in Phase 1 and format them as an array of parameter objects (e.g. \`[{"<param1>": <val1>, "<param2>": <val2>}]\`).`,
       `   - Pass these seeds in \`"inputs": [...]\` when invoking \`nanofuzz_fuzzFunction\`.`,
+      `   - Constrain all integer seed inputs to safe numeric bounds between \`-2**53 + 1\` and \`2**53 - 1\` (approximately \`-9e15\` to \`9e15\`).`,
       `   - The engine executes these concrete seeds first to verify baseline contracts before randomized exploration begins.`,
       "",
       `5. **Next Step**:`,
@@ -785,6 +786,7 @@ function buildInvariantsGuidance(
     `6. **Seed Properties with Harvested Inputs**:`,
     `   - Collect your concrete seed inputs extracted in Phase 1 and format them as an array of parameter objects (e.g. \`[{"<param1>": <val1>, "<param2>": <val2>}]\`).`,
     `   - Pass these seeds in \`"inputs": [...]\` when invoking \`nanofuzz_fuzzFunction\`.`,
+    `   - Constrain all integer seed inputs to safe numeric bounds between \`-2**53 + 1\` and \`2**53 - 1\` (approximately \`-9e15\` to \`9e15\`).`,
     `   - The engine executes these concrete seeds first to verify baseline contracts before randomized exploration begins.`,
     "",
     `7. **Next Step**:`,
@@ -909,7 +911,9 @@ function buildFuzzEntrypointGuidance(
     "",
     `1. **Stage 2: Deep Fuzzing Run (Mandatory - 300,000ms / 5 minutes per attempt)**:`,
     `   Call \`nanofuzz_fuzzFunction\` with \`maxTests: 0\` (no test count limit, running for the full 300,000ms / 5 minutes timeoutMs per attempt to discover all reachable defects rather than aborting prematurely):`,
-    `   - **Seed Input Injection (All Engines)**: Always pass your harvested seed inputs from Phase 1 in \`"inputs": [...]\`. The engine executes these concrete seeds first to verify known edge cases and baseline contracts before randomized exploration begins.`,
+    `   - Always pass your harvested seed inputs from Phase 1 in \`"inputs": [...]\`.`,
+    `   - Constrain all integer seed inputs to safe numeric bounds between \`-2**53 + 1\` and \`2**53 - 1\` (approximately \`-9e15\` to \`9e15\`).`,
+    `   - The engine executes these concrete seeds first to verify known edge cases and baseline contracts before randomized exploration begins.`,
     "   ```json",
     "   {",
     `     "filePath": "${harnessPath}",`,

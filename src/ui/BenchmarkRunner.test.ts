@@ -2,17 +2,40 @@ import * as vscode from "vscode";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
+import * as Config from "../Config";
 import {
   collectPostTaskSurvey,
   computeProtocolBMedian,
   evaluateBugsWithLlmJudge,
+  selectJuryModels,
   findLatestUnfinishedRun,
   createRunContext,
   formatDatestamp,
   updateLatestSymlink,
+  runSingleBenchmarkSession,
+  setActiveRunContext,
   BenchmarkRunSpec,
   JurorRating,
 } from "./BenchmarkRunner";
+
+const sampleSurveyJson = JSON.stringify({
+  realistic: 5,
+  sus1: 4,
+  sus2: 2,
+  sus3: 5,
+  sus4: 1,
+  sus5: 4,
+  sus6: 2,
+  sus7: 5,
+  sus8: 1,
+  sus9: 4,
+  sus10: 2,
+  toolHelpfulFeedback: "Great tool",
+  toolUsabilityFeedback: "Easy to use",
+  workflowFitFeedback: "Fits well",
+  toolImprovementFeedback: "None",
+  studyImprovementFeedback: "None",
+});
 
 describe("BenchmarkRunner - collectPostTaskSurvey", () => {
   const dummyRun: BenchmarkRunSpec = {
@@ -26,25 +49,6 @@ describe("BenchmarkRunner - collectPostTaskSurvey", () => {
     reportFilename: "P99.md",
     reportPath: "/tmp/P99.md",
   };
-
-  const sampleSurveyJson = JSON.stringify({
-    realistic: 5,
-    sus1: 4,
-    sus2: 2,
-    sus3: 5,
-    sus4: 1,
-    sus5: 4,
-    sus6: 2,
-    sus7: 5,
-    sus8: 1,
-    sus9: 4,
-    sus10: 2,
-    toolHelpfulFeedback: "Great tool",
-    toolUsabilityFeedback: "Easy to use",
-    workflowFitFeedback: "Fits well",
-    toolImprovementFeedback: "None",
-    studyImprovementFeedback: "None",
-  });
 
   function createMockModel(responses: Array<string | Error>): vscode.LanguageModelChat {
     let callIndex = 0;
@@ -405,8 +409,88 @@ describe("BenchmarkRunner - Protocol B PoLL Jury (Verga et al., 2024)", () => {
     expect(tvBug?.elicited).toBe(1);
     expect(tvBug?.consensusMethod).toBe("poll_protocol_b_median");
     expect(tvBug?.jurorScores?.gemini?.netScore).toBe(1.0);
+    expect(tvBug?.jurorScores?.gemini?.modelInfo?.id).toBe("mock-judge");
     expect(tvBug?.jurorScores?.claude?.netScore).toBe(0.5);
+    expect(tvBug?.jurorScores?.claude?.modelInfo?.vendor).toBe("test");
     expect(tvBug?.jurorScores?.gpt4o?.netScore).toBe(0.5);
+    expect(tvBug?.jurorScores?.gpt4o?.modelInfo?.name).toBe("Mock Judge");
+  });
+
+  it("selectJuryModels reads from nanofuzz.benchmark.juryModels config and avoids haiku when targeting sonnet", async () => {
+    // Save original selectChatModels if present
+    const origSelectChatModels = vscode.lm.selectChatModels;
+
+    const mockModels: vscode.LanguageModelChat[] = [
+      {
+        id: "claude-haiku-5.5",
+        name: "Claude Haiku 5.5",
+        vendor: "copilot",
+        family: "claude",
+        version: "1.0",
+        maxInputTokens: 100000,
+        countTokens: async () => 10,
+        sendRequest: async () => ({ text: (async function* () {})(), stream: (async function* () {})() }),
+      },
+      {
+        id: "claude-sonnet-5.5",
+        name: "Claude Sonnet 5.5",
+        vendor: "copilot",
+        family: "claude",
+        version: "1.0",
+        maxInputTokens: 100000,
+        countTokens: async () => 10,
+        sendRequest: async () => ({ text: (async function* () {})(), stream: (async function* () {})() }),
+      },
+      {
+        id: "gemini-3.8-flash",
+        name: "Gemini 3.8 Flash",
+        vendor: "google",
+        family: "gemini",
+        version: "1.0",
+        maxInputTokens: 100000,
+        countTokens: async () => 10,
+        sendRequest: async () => ({ text: (async function* () {})(), stream: (async function* () {})() }),
+      },
+      {
+        id: "gpt-4o",
+        name: "GPT-4o",
+        vendor: "openai",
+        family: "gpt-4o",
+        version: "1.0",
+        maxInputTokens: 100000,
+        countTokens: async () => 10,
+        sendRequest: async () => ({ text: (async function* () {})(), stream: (async function* () {})() }),
+      },
+    ];
+
+    Object.defineProperty(vscode.lm, "selectChatModels", {
+      value: async () => mockModels,
+      configurable: true,
+      writable: true,
+    });
+
+    try {
+      // 1. Default config: ["gemini-3.8-flash", "claude-sonnet-5.5", "gpt-4o"]
+      const panel = await selectJuryModels();
+      expect(panel.slots?.length).toBe(3);
+      expect(panel.slots?.[0].actualModel?.id).toBe("gemini-3.8-flash");
+      expect(panel.slots?.[1].actualModel?.id).toBe("claude-sonnet-5.5");
+      expect(panel.slots?.[1].actualModel?.id).not.toBe("claude-haiku-5.5");
+      expect(panel.slots?.[2].actualModel?.id).toBe("gpt-4o");
+
+      // 2. Custom override via Config
+      Config.override("nanofuzz.benchmark.juryModels", ["gpt-4o", "gemini-3.8-flash"]);
+      const customPanel = await selectJuryModels();
+      expect(customPanel.slots?.[0].requested).toBe("gpt-4o");
+      expect(customPanel.slots?.[0].actualModel?.id).toBe("gpt-4o");
+    } finally {
+      Object.defineProperty(vscode.lm, "selectChatModels", {
+        value: origSelectChatModels,
+        configurable: true,
+        writable: true,
+      });
+      Config.clearOverrides();
+    }
   });
 });
 
@@ -499,5 +583,210 @@ describe("BenchmarkRunner - Timestamped Directories & Recovery", () => {
     expect(fs.existsSync(symlinkPath)).toBe(true);
     expect(fs.lstatSync(symlinkPath).isSymbolicLink()).toBe(true);
     expect(fs.readlinkSync(symlinkPath)).toBe("20261112_050201");
+  });
+
+  it("Option 1: executes runSingleBenchmarkSession end-to-end integration smoketest", async () => {
+    const runDir = path.join(tempBaseDir, "20261112_050505");
+    const testContext = createRunContext(runDir);
+    setActiveRunContext(testContext);
+
+    fs.mkdirSync(testContext.resultsDir, { recursive: true });
+    fs.mkdirSync(testContext.telemetryDir, { recursive: true });
+    fs.mkdirSync(testContext.scoringSheetsDir, { recursive: true });
+
+    const reportPath = path.join(testContext.resultsDir, "P99.md");
+    const testRunSpec: BenchmarkRunSpec = {
+      participant: "P99",
+      sequence: 99,
+      replicate: 1,
+      task: "TreeValue",
+      engine: "nanofuzz",
+      source: "docs",
+      targetScope: ["TreeValue"],
+      reportFilename: "P99.md",
+      reportPath,
+    };
+
+    let turnCount = 0;
+    const scriptedModel: vscode.LanguageModelChat = {
+      id: "mock-gemini-3.8-flash",
+      name: "Gemini 3.8 Flash (paid)",
+      vendor: "google",
+      family: "gemini-3.8-flash",
+      version: "1.0",
+      maxInputTokens: 100000,
+      countTokens: async () => 10,
+      sendRequest: async (msgs) => {
+        const lastMsg = msgs[msgs.length - 1];
+        const lastContent = typeof lastMsg.content === "string" ? lastMsg.content : "";
+
+        // 1. Post-task survey request
+        if (lastContent.includes("standardized post-task evaluation survey")) {
+          return {
+            text: (async function* () {
+              yield `\`\`\`json\n${sampleSurveyJson}\n\`\`\``;
+            })(),
+            stream: (async function* () {
+              yield new vscode.LanguageModelTextPart(`\`\`\`json\n${sampleSurveyJson}\n\`\`\``);
+            })(),
+          };
+        }
+
+        // 2. LLM Judge prompt
+        if (lastContent.includes("Ground Truth Defect Under Evaluation")) {
+          const judgeJson = JSON.stringify({
+            bug_id: "TV_EQ_NONE",
+            elicited_in_report: true,
+            credit_earned: 1.0,
+            deduction: 0.0,
+            net_score: 1.0,
+            evidence_quote: "Found TV_EQ_NONE",
+            rationale: "Accurately described",
+          });
+          return {
+            text: (async function* () {
+              yield `\`\`\`json\n${judgeJson}\n\`\`\``;
+            })(),
+            stream: (async function* () {
+              yield new vscode.LanguageModelTextPart(`\`\`\`json\n${judgeJson}\n\`\`\``);
+            })(),
+          };
+        }
+
+        // 3. Main multi-turn workflow turns
+        turnCount++;
+        if (turnCount === 1) {
+          // Turn 1: call init
+          return {
+            text: (async function* () {})(),
+            stream: (async function* () {
+              yield new vscode.LanguageModelToolCallPart("call-1", "nanofuzz_findBugs", {
+                phase: "init",
+              });
+            })(),
+          };
+        } else if (turnCount === 2) {
+          // Turn 2: submit invariants
+          return {
+            text: (async function* () {})(),
+            stream: (async function* () {
+              yield new vscode.LanguageModelToolCallPart("call-2", "nanofuzz_findBugs", {
+                phase: "invariants_extracted",
+                statePayload: {
+                  entrypoints: [
+                    {
+                      name: "fuzz_TreeValue",
+                      filePath: "harness.py",
+                      invariants: ["TreeValue == None raises TypeError"],
+                    },
+                  ],
+                },
+              });
+            })(),
+          };
+        } else if (turnCount === 3) {
+          // Turn 3: call smoke
+          return {
+            text: (async function* () {})(),
+            stream: (async function* () {
+              yield new vscode.LanguageModelToolCallPart("call-3", "nanofuzz_findBugs", {
+                phase: "fuzz_smoke",
+                statePayload: {
+                  stage: "smoke",
+                  functionName: "fuzz_TreeValue",
+                },
+              });
+            })(),
+          };
+        } else if (turnCount === 4) {
+          // Turn 4: call deep
+          return {
+            text: (async function* () {})(),
+            stream: (async function* () {
+              yield new vscode.LanguageModelToolCallPart("call-4", "nanofuzz_findBugs", {
+                phase: "fuzz_deep",
+                statePayload: {
+                  stage: "deep",
+                  functionName: "fuzz_TreeValue",
+                },
+              });
+            })(),
+          };
+        } else if (turnCount === 5) {
+          // Turn 5: call contextualize_bugs
+          return {
+            text: (async function* () {})(),
+            stream: (async function* () {
+              yield new vscode.LanguageModelToolCallPart("call-5", "nanofuzz_findBugs", {
+                phase: "contextualize_bugs",
+              });
+            })(),
+          };
+        } else {
+          // Turn 6: write report file and complete
+          return {
+            text: (async function* () {})(),
+            stream: (async function* () {
+              yield new vscode.LanguageModelToolCallPart("call-6", "create_file", {
+                filePath: reportPath,
+                content:
+                  "# Benchmark Evaluation Report: TreeValue\n\n" +
+                  "Discovered defect TV_EQ_NONE with exact failure domain x == None.\n" +
+                  "A".repeat(600),
+              });
+              yield new vscode.LanguageModelToolCallPart("call-7", "nanofuzz_findBugs", {
+                phase: "complete",
+              });
+            })(),
+          };
+        }
+      },
+    };
+
+    // Run the single benchmark session with laneId: 99
+    const sessionRes = await runSingleBenchmarkSession(
+      testRunSpec,
+      1,
+      99,
+      undefined,
+      scriptedModel
+    );
+
+    expect(sessionRes.error).toBeUndefined();
+    expect(sessionRes.success).toBe(true);
+
+    // Verify report was created on disk
+    expect(fs.existsSync(reportPath)).toBe(true);
+    expect(fs.statSync(reportPath).size).toBeGreaterThan(500);
+
+    // Verify scoring sheet was written
+    const scoringSheet = path.join(testContext.scoringSheetsDir, "scoring_sheet_P99.md");
+    expect(fs.existsSync(scoringSheet)).toBe(true);
+    const sheetContent = fs.readFileSync(scoringSheet, "utf8");
+    expect(sheetContent).not.toContain("Gemini slot");
+    expect(sheetContent).not.toContain("Claude slot");
+    expect(sheetContent).not.toContain("GPT-4o slot");
+
+    // Verify telemetry JSON was written
+    const telemetryFile = path.join(testContext.telemetryDir, "P99.telemetry.json");
+    expect(fs.existsSync(telemetryFile)).toBe(true);
+    const telData = JSON.parse(fs.readFileSync(telemetryFile, "utf8"));
+    expect(telData.survey).toBeDefined();
+    expect(telData.survey.realistic).toBe(5);
+    expect(telData.agentModel).toBeDefined();
+    expect(telData.agentModel.id).toBe("mock-gemini-3.8-flash");
+    expect(telData.juryPanel).toBeDefined();
+    expect(telData.juryPanel.slots).toBeDefined();
+
+    // Verify data.csv was written with Status = COMPLETED
+    expect(fs.existsSync(testContext.dataCsvPath)).toBe(true);
+    const dataContent = fs.readFileSync(testContext.dataCsvPath, "utf8");
+    expect(dataContent).toContain("P99");
+    expect(dataContent).toContain("COMPLETED");
+
+    // Verify survey_responses.csv was written
+    expect(fs.existsSync(testContext.surveyResponsesCsvPath)).toBe(true);
+    const surveyContent = fs.readFileSync(testContext.surveyResponsesCsvPath, "utf8");
+    expect(surveyContent).toContain("P99");
   });
 });

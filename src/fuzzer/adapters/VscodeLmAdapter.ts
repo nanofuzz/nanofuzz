@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import * as Config from "../../Config";
 import * as JSONN from "../../Jsonn";
 import { Logger, LoggerEntry } from "../../telemetry/Logger";
 import {
@@ -200,12 +201,21 @@ export class FuzzFunctionTool implements vscode.LanguageModelTool<FuzzFunctionIn
     const constraintSuffix =
       constraints.length > 0 ? ` up to ${constraints.join(" or ")}` : "";
 
+    const isBenchmark =
+      Boolean(session?.benchmarkMode) ||
+      (typeof sessionId === "string" && sessionId.startsWith("bench-")) ||
+      Config.get<boolean>("nanofuzz.benchmarkMode", false);
+
     return {
       invocationMessage: `Running ${toolName} on ${target}${constraintSuffix}`,
-      confirmationMessages: {
-        title: `${toolName} ${target}`,
-        message: `Run ${toolName} on ${target}${constraintSuffix}?`,
-      },
+      ...(isBenchmark
+        ? {}
+        : {
+            confirmationMessages: {
+              title: `${toolName} ${target}`,
+              message: `Run ${toolName} on ${target}${constraintSuffix}?`,
+            },
+          }),
     };
   }
 

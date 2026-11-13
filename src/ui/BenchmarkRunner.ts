@@ -689,22 +689,30 @@ export async function collectPostTaskSurvey(
     "Please complete this standardized post-task evaluation survey regarding your experience performing this testing task with this tool.",
     "Respond strictly with a JSON object in a ```json codeblock containing the following fields:",
     "",
-    "- `realistic`: Integer rating from 1 (Strongly Disagree) to 5 (Strongly Agree) for statement: 'I thought the testing tasks in this study resemble tasks I might encounter outside the study.'",
-    "- `sus1`: Integer 1-5 ('I think that I would like to use this system frequently.')",
-    "- `sus2`: Integer 1-5 ('I found the system unnecessarily complex.')",
-    "- `sus3`: Integer 1-5 ('I thought the system was easy to use.')",
-    "- `sus4`: Integer 1-5 ('I think that I would need technical support to use this system.')",
-    "- `sus5`: Integer 1-5 ('I found the various functions in this system were well integrated.')",
-    "- `sus6`: Integer 1-5 ('I thought there was too much inconsistency in this system.')",
-    "- `sus7`: Integer 1-5 ('I would imagine that most people would learn to use this system very quickly.')",
-    "- `sus8`: Integer 1-5 ('I found the system very cumbersome to use.')",
-    "- `sus9`: Integer 1-5 ('I felt very confident using the system.')",
-    "- `sus10`: Integer 1-5 ('I needed to learn a lot of things before I could get going with this system.')",
+    "### Part 1: Qualitative Experience & Reflection",
     "- `toolHelpfulFeedback`: String describing whether and why the tool was helpful or effective in testing.",
-    "- `toolUsabilityFeedback`: String describing whether and why the tool was easy or hard to use.",
+    "- `toolUsabilityFeedback`: String describing whether and why the tool was easy or hard to use, taking into account any crashes, errors, or friction you experienced.",
     "- `workflowFitFeedback`: String describing how well the tool fit into your test and debug workflow.",
     "- `toolImprovementFeedback`: String with feedback/suggestions to improve the testing tool.",
     "- `studyImprovementFeedback`: String with feedback/suggestions to improve this or future studies.",
+    "- `realistic`: Integer rating from 1 (Strongly Disagree) to 5 (Strongly Agree) for statement: 'I thought the testing tasks in this study resemble tasks I might encounter outside the study.'",
+    "",
+    "### Part 2: System Usability Scale (SUS)",
+    "Reflecting on your experience above, provide an integer rating from 1 (Strongly Disagree) to 5 (Strongly Agree) for each statement:",
+    "",
+    "Positive Statements (1 = Strongly Disagree to 5 = Strongly Agree):",
+    "- `sus1`: Integer 1-5 ('I think that I would like to use this system frequently.')",
+    "- `sus3`: Integer 1-5 ('I thought the system was easy to use.')",
+    "- `sus5`: Integer 1-5 ('I found the various functions in this system were well integrated.')",
+    "- `sus7`: Integer 1-5 ('I would imagine that most people would learn to use this system very quickly.')",
+    "- `sus9`: Integer 1-5 ('I felt very confident using the system.')",
+    "",
+    "Negative Statements (1 = Strongly Disagree to 5 = Strongly Agree):",
+    "- `sus2`: Integer 1-5 ('I found the system unnecessarily complex.')",
+    "- `sus4`: Integer 1-5 ('I think that I would need technical support to use this system.')",
+    "- `sus6`: Integer 1-5 ('I thought there was too much inconsistency in this system.')",
+    "- `sus8`: Integer 1-5 ('I found the system very cumbersome to use.')",
+    "- `sus10`: Integer 1-5 ('I needed to learn a lot of things before I could get going with this system.')",
   ].join("\n");
 
   let surveyAttempts = 0;
@@ -899,8 +907,46 @@ export async function collectPostTaskSurvey(
 // Bug Scoring & data.csv Exporter
 // ============================================================================
 
+export interface ModelIdentity {
+  id: string;
+  name: string;
+  vendor: string;
+  family?: string;
+  version?: string;
+}
+
+export function getModelIdentity(
+  m?: vscode.LanguageModelChat
+): ModelIdentity | undefined {
+  if (!m) return undefined;
+  return {
+    id: m.id,
+    name: m.name,
+    vendor: m.vendor,
+    family: m.family,
+    version: m.version,
+  };
+}
+
+export interface JurySlot {
+  slot: number; // 1, 2, 3
+  requested: string;
+  model?: vscode.LanguageModelChat;
+  actualModel?: ModelIdentity;
+}
+
+export interface JuryPanel {
+  slots?: JurySlot[];
+  gemini?: vscode.LanguageModelChat;
+  claude?: vscode.LanguageModelChat;
+  gpt4o?: vscode.LanguageModelChat;
+}
+
 export interface JurorRating {
-  juror: string; // "gemini" | "claude" | "gpt4o"
+  slot?: number;
+  juror: string; // actual model identifier or slot name
+  requested?: string;
+  modelInfo?: ModelIdentity;
   elicitedInReport: boolean;
   creditEarned: number;
   deduction: number;
@@ -909,10 +955,15 @@ export interface JurorRating {
   rationale: string;
 }
 
-export interface JuryPanel {
-  gemini?: vscode.LanguageModelChat;
-  claude?: vscode.LanguageModelChat;
-  gpt4o?: vscode.LanguageModelChat;
+export interface JurorScoreEntry {
+  slot?: number;
+  requestedModel?: string;
+  actualModel?: ModelIdentity;
+  netScore: number;
+  credit: number;
+  deduction: number;
+  rationale?: string;
+  modelInfo?: ModelIdentity;
 }
 
 export interface BugEvaluationResult {
@@ -925,74 +976,103 @@ export interface BugEvaluationResult {
   netScore?: number;
   evidenceQuote?: string;
   rationale?: string;
-  jurorScores?: Record<
-    string,
-    { netScore: number; credit: number; deduction: number; rationale?: string }
-  >;
+  jurorScores?: Record<string, JurorScoreEntry>;
   consensusMethod?: "poll_protocol_b_median" | "single_model";
 }
 
 export async function selectJuryModels(
   primaryModel?: vscode.LanguageModelChat
 ): Promise<JuryPanel> {
-  const panel: JuryPanel = {};
+  const configuredModels = Config.get<string[]>(
+    "nanofuzz.benchmark.juryModels",
+    ["gemini-3.8-flash", "claude-sonnet-5.5", "gpt-4o"]
+  );
+
+  const slots: JurySlot[] = configuredModels.map((target, idx) => ({
+    slot: idx + 1,
+    requested: target,
+  }));
 
   if (!vscode.lm || typeof vscode.lm.selectChatModels !== "function") {
-    if (primaryModel) {
-      panel.gemini = primaryModel;
+    if (primaryModel && slots.length > 0) {
+      slots[0].model = primaryModel;
+      slots[0].actualModel = getModelIdentity(primaryModel);
     }
-    return panel;
+    return {
+      slots,
+      gemini: slots[0]?.model,
+    };
   }
 
   const all = await vscode.lm.selectChatModels();
 
-  // Juror 1: Gemini 3.8 Flash (or primary model if it's Gemini)
-  if (
-    primaryModel &&
-    (primaryModel.id.includes("gemini") ||
-      primaryModel.family?.includes("gemini") ||
-      primaryModel.name?.includes("gemini"))
-  ) {
-    panel.gemini = primaryModel;
-  } else {
-    panel.gemini =
-      all.find(
-        (m) =>
-          (m.id === "gemini-3.8-flash" ||
-            m.family === "gemini-3.8-flash" ||
-            m.id.includes("gemini")) &&
-          (m.vendor?.toLowerCase().includes("google") ||
-            m.vendor?.toLowerCase().includes("gemini") ||
-            m.name?.includes("paid"))
-      ) ||
-      all.find((m) => m.id.includes("gemini") || m.family?.includes("gemini"));
+  for (const s of slots) {
+    const target = s.requested.trim();
+    if (!target) continue;
+
+    // Slot 1: prefer primaryModel if it's already the primary agent model and matches
+    if (s.slot === 1 && primaryModel) {
+      const pid = primaryModel.id.toLowerCase();
+      const t = target.toLowerCase();
+      if (pid === t || pid.includes(t) || (t.includes("gemini") && pid.includes("gemini"))) {
+        s.model = primaryModel;
+        s.actualModel = getModelIdentity(primaryModel);
+        continue;
+      }
+    }
+
+    // 1. Exact match by id or name
+    let matched = all.find(
+      (m) =>
+        m.id.toLowerCase() === target.toLowerCase() ||
+        m.name?.toLowerCase() === target.toLowerCase()
+    );
+
+    // 2. Substring match by id with strict guardrails (e.g. if target wants sonnet, NEVER match haiku)
+    if (!matched) {
+      matched = all.find((m) => {
+        const idLower = m.id.toLowerCase();
+        const targetLower = target.toLowerCase();
+        if (targetLower.includes("sonnet") && idLower.includes("haiku")) {
+          return false;
+        }
+        return idLower.includes(targetLower);
+      });
+    }
+
+    if (matched) {
+      s.model = matched;
+      s.actualModel = getModelIdentity(matched);
+    } else {
+      log(
+        `[JURY] [WARN] Configured model '${target}' for Slot ${s.slot} was not found among available models: ` +
+          all.map((m) => m.id).join(", ")
+      );
+    }
   }
 
-  // Juror 2: Claude 3.5 Sonnet
-  panel.claude = all.find(
-    (m) =>
-      m.id.includes("claude-3.5-sonnet") ||
-      m.family?.includes("claude-3.5-sonnet") ||
-      m.id.includes("claude-3-5-sonnet") ||
-      (m.family?.includes("claude") && m.name?.includes("3.5")) ||
-      m.id.includes("claude")
-  );
-
-  // Juror 3: GPT-4o
-  panel.gpt4o = all.find(
-    (m) =>
-      m.id === "gpt-4o" ||
-      m.family === "gpt-4o" ||
-      m.id.includes("gpt-4o") ||
-      m.name?.includes("gpt-4o") ||
-      m.name?.includes("GPT-4o")
-  );
-
-  if (!panel.gemini && primaryModel) {
-    panel.gemini = primaryModel;
+  if (slots.length > 0 && !slots[0].model && primaryModel) {
+    slots[0].model = primaryModel;
+    slots[0].actualModel = getModelIdentity(primaryModel);
   }
 
-  return panel;
+  const fmtSlot = (s: JurySlot) =>
+    `Slot ${s.slot} (requested: '${s.requested}'): ` +
+    (s.actualModel
+      ? `actual='${s.actualModel.id}' (name: '${s.actualModel.name}', vendor: '${s.actualModel.vendor}')`
+      : `actual='none'`);
+
+  log(
+    `[JURY] Initialized ${slots.length}-slot evaluation jury from config:\n` +
+      slots.map((s) => `  - ${fmtSlot(s)}`).join("\n")
+  );
+
+  return {
+    slots,
+    gemini: slots[0]?.model,
+    claude: slots[1]?.model,
+    gpt4o: slots[2]?.model,
+  };
 }
 
 export function computeProtocolBMedian(ratings: JurorRating[]): {
@@ -1002,10 +1082,7 @@ export function computeProtocolBMedian(ratings: JurorRating[]): {
   elicitedInReport: boolean;
   evidenceQuote: string;
   rationale: string;
-  jurorScores: Record<
-    string,
-    { netScore: number; credit: number; deduction: number; rationale?: string }
-  >;
+  jurorScores: Record<string, JurorScoreEntry>;
   consensusMethod: "poll_protocol_b_median" | "single_model";
 } {
   if (ratings.length === 0) {
@@ -1021,17 +1098,27 @@ export function computeProtocolBMedian(ratings: JurorRating[]): {
     };
   }
 
-  const jurorScores: Record<
-    string,
-    { netScore: number; credit: number; deduction: number; rationale?: string }
-  > = {};
+  const jurorScores: Record<string, JurorScoreEntry> = {};
   for (const r of ratings) {
-    jurorScores[r.juror] = {
+    const entry: JurorScoreEntry = {
+      slot: r.slot,
+      requestedModel: r.requested,
+      actualModel: r.modelInfo,
       netScore: r.netScore,
       credit: r.creditEarned,
       deduction: r.deduction,
       rationale: r.rationale,
+      modelInfo: r.modelInfo,
     };
+    if (r.slot) {
+      jurorScores[`slot${r.slot}`] = entry;
+      if (r.slot === 1 && !jurorScores.gemini) jurorScores.gemini = entry;
+      else if (r.slot === 2 && !jurorScores.claude) jurorScores.claude = entry;
+      else if (r.slot === 3 && !jurorScores.gpt4o) jurorScores.gpt4o = entry;
+    }
+    if (r.juror && !jurorScores[r.juror]) {
+      jurorScores[r.juror] = entry;
+    }
   }
 
   if (ratings.length === 1) {
@@ -1068,7 +1155,10 @@ export function computeProtocolBMedian(ratings: JurorRating[]): {
   const elicitedInReport = elicitedCount >= Math.ceil(ratings.length / 2);
 
   const jurorBreakdown = ratings
-    .map((r) => `${r.juror}:${r.netScore > 0 ? `+${r.netScore}` : r.netScore}`)
+    .map((r) => {
+      const label = r.modelInfo?.id || (r.slot ? `Slot ${r.slot}` : r.juror);
+      return `${label}:${r.netScore > 0 ? `+${r.netScore}` : r.netScore}`;
+    })
     .join(", ");
 
   return {
@@ -1085,10 +1175,13 @@ export function computeProtocolBMedian(ratings: JurorRating[]): {
 
 async function querySingleJuror(
   model: vscode.LanguageModelChat,
-  jurorName: string,
+  slot: number,
+  requested: string,
   prompt: string,
   token?: vscode.CancellationToken
 ): Promise<JurorRating> {
+  const modelInfo = getModelIdentity(model);
+  const actualId = modelInfo?.id || `slot-${slot}`;
   let creditEarned = 0;
   let deduction = 0;
   let netScore = 0;
@@ -1123,11 +1216,14 @@ async function querySingleJuror(
       rationale = String(parsed.rationale || "");
     }
   } catch (err: unknown) {
-    log(`[JUDGE] [WARN] Juror ${jurorName} evaluation error: ${String(err)}`);
+    log(`[JUDGE] [WARN] Juror Slot ${slot} (${actualId}) evaluation error: ${String(err)}`);
   }
 
   return {
-    juror: jurorName,
+    slot,
+    juror: actualId,
+    requested,
+    modelInfo,
     elicitedInReport,
     creditEarned,
     deduction,
@@ -1228,7 +1324,19 @@ export async function evaluateBugsWithLlmJudge(
   }
 
   const jury: JuryPanel =
-    "sendRequest" in modelOrJury ? { gemini: modelOrJury } : modelOrJury;
+    "sendRequest" in modelOrJury
+      ? {
+          slots: [
+            {
+              slot: 1,
+              requested: "primary",
+              model: modelOrJury,
+              actualModel: getModelIdentity(modelOrJury),
+            },
+          ],
+          gemini: modelOrJury,
+        }
+      : modelOrJury;
 
   const results: BugEvaluationResult[] = [];
 
@@ -1236,14 +1344,30 @@ export async function evaluateBugsWithLlmJudge(
     const prompt = buildJudgePrompt(task, bug, reportText);
 
     const jurorQueries: Promise<JurorRating>[] = [];
-    if (jury.gemini) {
-      jurorQueries.push(querySingleJuror(jury.gemini, "gemini", prompt, token));
-    }
-    if (jury.claude) {
-      jurorQueries.push(querySingleJuror(jury.claude, "claude", prompt, token));
-    }
-    if (jury.gpt4o) {
-      jurorQueries.push(querySingleJuror(jury.gpt4o, "gpt4o", prompt, token));
+    if (jury.slots && Array.isArray(jury.slots) && jury.slots.length > 0) {
+      for (const s of jury.slots) {
+        if (s.model) {
+          jurorQueries.push(
+            querySingleJuror(s.model, s.slot, s.requested, prompt, token)
+          );
+        }
+      }
+    } else {
+      if (jury.gemini) {
+        jurorQueries.push(
+          querySingleJuror(jury.gemini, 1, "gemini-3.8-flash", prompt, token)
+        );
+      }
+      if (jury.claude) {
+        jurorQueries.push(
+          querySingleJuror(jury.claude, 2, "claude-3.5-sonnet", prompt, token)
+        );
+      }
+      if (jury.gpt4o) {
+        jurorQueries.push(
+          querySingleJuror(jury.gpt4o, 3, "gpt-4o", prompt, token)
+        );
+      }
     }
 
     const ratings = await Promise.all(jurorQueries);
@@ -1320,11 +1444,36 @@ function writeScoringSheet(
   );
 
   if (hasJuryBreakdown) {
+    const jurorScores = evalResults.find((r) => r.jurorScores)?.jurorScores || {};
+    const s1 = jurorScores.slot1 || jurorScores.gemini;
+    const s2 = jurorScores.slot2 || jurorScores.claude;
+    const s3 = jurorScores.slot3 || jurorScores.gpt4o;
+
+    const s1Info = s1?.actualModel || s1?.modelInfo;
+    const s2Info = s2?.actualModel || s2?.modelInfo;
+    const s3Info = s3?.actualModel || s3?.modelInfo;
+
+    const s1Id = s1Info?.id || "slot-1";
+    const s2Id = s2Info?.id || "slot-2";
+    const s3Id = s3Info?.id || "slot-3";
+
+    const s1Vendor = s1Info?.vendor ? ` (${s1Info.vendor})` : "";
+    const s2Vendor = s2Info?.vendor ? ` (${s2Info.vendor})` : "";
+    const s3Vendor = s3Info?.vendor ? ` (${s3Info.vendor})` : "";
+
+    const s1Req = s1?.requestedModel ? ` [Requested: \`${s1.requestedModel}\`]` : "";
+    const s2Req = s2?.requestedModel ? ` [Requested: \`${s2.requestedModel}\`]` : "";
+    const s3Req = s3?.requestedModel ? ` [Requested: \`${s3.requestedModel}\`]` : "";
+
     lines.push(
       "",
-      `## Ground-Truth Defect Scoring Breakdown (PoLL Protocol B Jury: Gemini, Claude, GPT-4o)`,
+      `## Ground-Truth Defect Scoring Breakdown (PoLL Protocol B Jury)`,
       "",
-      `| Bug ID | Defect Name | Elicited? | Reported? | Gemini | Claude | GPT-4o | Median Net | Generator |`,
+      `- **Slot 1**: \`${s1Id}\`${s1Vendor}${s1Req}`,
+      `- **Slot 2**: \`${s2Id}\`${s2Vendor}${s2Req}`,
+      `- **Slot 3**: \`${s3Id}\`${s3Vendor}${s3Req}`,
+      "",
+      `| Bug ID | Defect Name | Elicited? | Reported? | ${s1Id} | ${s2Id} | ${s3Id} | Median Net | Generator |`,
       `| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :--- |`
     );
 
@@ -1338,12 +1487,12 @@ function writeScoringSheet(
             ? `+${val.toFixed(1)}`
             : val.toFixed(1)
           : "-";
-      const gScore = fmt(scores.gemini?.netScore);
-      const cScore = fmt(scores.claude?.netScore);
-      const oScore = fmt(scores.gpt4o?.netScore);
+      const v1 = fmt((scores.slot1 || scores.gemini)?.netScore);
+      const v2 = fmt((scores.slot2 || scores.claude)?.netScore);
+      const v3 = fmt((scores.slot3 || scores.gpt4o)?.netScore);
       const net = (r.netScore ?? (r.reported === 1 ? 1.0 : 0.0)).toFixed(1);
       lines.push(
-        `| \`${r.bug.id}\` | ${r.bug.name} | ${elIcon} | ${repIcon} | ${gScore} | ${cScore} | ${oScore} | ${net} | \`${r.generator}\` |`
+        `| \`${r.bug.id}\` | ${r.bug.name} | ${elIcon} | ${repIcon} | ${v1} | ${v2} | ${v3} | ${net} | \`${r.generator}\` |`
       );
     }
   } else {
@@ -1658,10 +1807,11 @@ export function cleanTargetRepo(): void {
 } // fn: cleanTargetRepo
 
 export function configureRunSettings(): void {
-  // Pre-approve workspace edits so no modal dialogs appear
+  // Pre-approve workspace edits and suppress tool confirmation dialogs in benchmark mode
   Config.override("chat.tools.edits.autoApprove", {
     "**/*": true,
   });
+  Config.override("nanofuzz.benchmarkMode", true);
 }
 
 // ============================================================================
@@ -1672,8 +1822,14 @@ export async function runSingleBenchmarkSession(
   run: BenchmarkRunSpec,
   totalRuns: number,
   laneId: number = 1,
-  token?: vscode.CancellationToken
-): Promise<{ success: boolean; durationSec: number; error?: string }> {
+  token?: vscode.CancellationToken,
+  customModel?: vscode.LanguageModelChat
+): Promise<{
+  success: boolean;
+  incomplete?: boolean;
+  durationSec: number;
+  error?: string;
+}> {
   const t0 = Date.now();
   const prefix = `[${run.participant} (L${laneId})]`;
   const laneRepoPath = path.join(WORKTREES_DIR, `w${laneId}`);
@@ -1728,44 +1884,49 @@ export async function runSingleBenchmarkSession(
   };
 
   // Select Chat Model: Strictly require Gemini 3.8 Flash under "Google (paid)" / vendor "gemini"
-  if (!vscode.lm || typeof vscode.lm.selectChatModels !== "function") {
-    throw new Error(
-      "vscode.lm API is not available. Please ensure VS Code with Copilot is active."
-    );
-  }
+  let model: vscode.LanguageModelChat;
+  if (customModel) {
+    model = customModel;
+  } else {
+    if (!vscode.lm || typeof vscode.lm.selectChatModels !== "function") {
+      throw new Error(
+        "vscode.lm API is not available. Please ensure VS Code with Copilot is active."
+      );
+    }
 
-  const all = await vscode.lm.selectChatModels();
-  let models = all.filter(
-    (m) =>
-      (m.id === "gemini-3.8-flash" ||
-        m.family === "gemini-3.8-flash" ||
-        m.name?.includes("3.8") ||
-        m.id.includes("gemini-3.8-flash")) &&
-      (m.vendor.toLowerCase() === "gemini" ||
-        m.vendor.toLowerCase() === "google" ||
-        m.name?.includes("paid") ||
-        (isKeyedObject(m) &&
-          typeof m.vendorDisplayName === "string" &&
-          m.vendorDisplayName.includes("paid")))
-  );
-
-  if (!models || models.length === 0) {
-    models = all.filter(
+    const all = await vscode.lm.selectChatModels();
+    let models = all.filter(
       (m) =>
-        m.id === "gemini-3.8-flash" ||
-        m.family === "gemini-3.8-flash" ||
-        m.id.includes("gemini-3.8-flash")
+        (m.id === "gemini-3.8-flash" ||
+          m.family === "gemini-3.8-flash" ||
+          m.name?.includes("3.8") ||
+          m.id.includes("gemini-3.8-flash")) &&
+        (m.vendor.toLowerCase() === "gemini" ||
+          m.vendor.toLowerCase() === "google" ||
+          m.name?.includes("paid") ||
+          (isKeyedObject(m) &&
+            typeof m.vendorDisplayName === "string" &&
+            m.vendorDisplayName.includes("paid")))
     );
-  }
 
-  if (!models || models.length === 0) {
-    throw new Error(
-      "CRITICAL: Required model 'Gemini 3.8 Flash' under Google (paid) / gemini not found. Available models: " +
-        all.map((m) => `${m.vendor}:${m.id || m.name}`).join(", ")
-    );
-  }
+    if (!models || models.length === 0) {
+      models = all.filter(
+        (m) =>
+          m.id === "gemini-3.8-flash" ||
+          m.family === "gemini-3.8-flash" ||
+          m.id.includes("gemini-3.8-flash")
+      );
+    }
 
-  const model = models[0];
+    if (!models || models.length === 0) {
+      throw new Error(
+        "CRITICAL: Required model 'Gemini 3.8 Flash' under Google (paid) / gemini not found. Available models: " +
+          all.map((m) => `${m.vendor}:${m.id || m.name}`).join(", ")
+      );
+    }
+
+    model = models[0];
+  }
   log(
     `${prefix} Using Chat Model: ${model.vendor} / ${model.name || model.family || model.id}`
   );
@@ -2028,7 +2189,10 @@ export async function runSingleBenchmarkSession(
 
     // Filter out internal usage data parts before passing to Assistant history
     const assistantParts = allParts.filter((p) => {
-      if (p instanceof vscode.LanguageModelDataPart) {
+      if (
+        vscode.LanguageModelDataPart &&
+        p instanceof vscode.LanguageModelDataPart
+      ) {
         const mime = p.mimeType.toLowerCase();
         if (
           mime === "usage" ||
@@ -2043,14 +2207,16 @@ export async function runSingleBenchmarkSession(
     });
 
     // Append Assistant response to history preserving all raw stream parts (including LanguageModelThinkingPart)
-    if (assistantParts.length > 0) {
-      messages.push(
-        new vscode.LanguageModelChatMessage(
-          vscode.LanguageModelChatMessageRole.Assistant,
-          assistantParts
-        )
-      );
-    } else if (assistantText) {
+    try {
+      if (assistantParts.length > 0) {
+        const role = vscode.LanguageModelChatMessageRole?.Assistant ?? 2;
+        messages.push(
+          new vscode.LanguageModelChatMessage(role, assistantParts)
+        );
+      } else if (assistantText) {
+        messages.push(vscode.LanguageModelChatMessage.Assistant(assistantText));
+      }
+    } catch {
       messages.push(vscode.LanguageModelChatMessage.Assistant(assistantText));
     }
 
@@ -2093,6 +2259,7 @@ export async function runSingleBenchmarkSession(
         ? call.input
         : {};
       const toolName = call.name;
+      let isOwnReportFile = false;
 
       const eventRecord: {
         tool: string;
@@ -2212,9 +2379,10 @@ export async function runSingleBenchmarkSession(
 
         // Intercept and reject any attempts to read/modify files outside the lane worktree
         // (EXCEPTION: reading, writing, or updating ONLY this participant's own assigned bug report file at run.reportPath)
-        const isOwnReportFile =
+        isOwnReportFile =
           typeof toolInput.filePath === "string" &&
-          path.resolve(toolInput.filePath) === path.resolve(run.reportPath);
+          (path.resolve(toolInput.filePath) === path.resolve(run.reportPath) ||
+            path.basename(toolInput.filePath) === run.reportFilename);
 
         const isInsideLane =
           typeof toolInput.filePath === "string" &&
@@ -2295,7 +2463,9 @@ export async function runSingleBenchmarkSession(
         typeof toolInput.filePath === "string"
       ) {
         try {
-          const targetFile = toolInput.filePath;
+          const targetFile = isOwnReportFile
+            ? run.reportPath
+            : toolInput.filePath;
           const content =
             typeof toolInput.content === "string" ? toolInput.content : "";
           fs.mkdirSync(path.dirname(targetFile), { recursive: true });
@@ -2637,6 +2807,20 @@ export async function runSingleBenchmarkSession(
     targetScope: run.targetScope,
     targetCommit: TARGET_COMMIT,
     targetVersion: TARGET_VERSION,
+    agentModel: getModelIdentity(model),
+    juryPanel: {
+      slots: (jury.slots || []).map((s) => ({
+        slot: s.slot,
+        requested: s.requested,
+        actual: s.actualModel ?? getModelIdentity(s.model),
+      })),
+      slot1: getModelIdentity(jury.slots?.[0]?.model ?? jury.gemini),
+      slot2: getModelIdentity(jury.slots?.[1]?.model ?? jury.claude),
+      slot3: getModelIdentity(jury.slots?.[2]?.model ?? jury.gpt4o),
+      gemini: getModelIdentity(jury.slots?.[0]?.model ?? jury.gemini),
+      claude: getModelIdentity(jury.slots?.[1]?.model ?? jury.claude),
+      gpt4o: getModelIdentity(jury.slots?.[2]?.model ?? jury.gpt4o),
+    },
     reportFilename: run.reportFilename,
     durationSeconds: durationSec,
     activeExecutionSeconds: activeSec,
@@ -2704,6 +2888,7 @@ export async function runSingleBenchmarkSession(
   log(
     `[SUCCESS] ${prefix} Completed in ${mm}m ${ss}s! Score: ${score} (${run.reportFilename})\n`
   );
+  await fileWriteChain;
   return { success: true, durationSec };
 }
 
@@ -2977,6 +3162,80 @@ export async function recoverBenchmarkMatrix(
 
   await runBenchmarkMatrix(replicates, concurrency, unfinishedDir);
 } // fn: recoverBenchmarkMatrix
+
+export async function runBenchmarkSmoketest(): Promise<void> {
+  activeRunContext = createRunContext();
+  initializeConcurrentWorktrees(1);
+  updateLatestSymlink(activeRunContext.resultsDir);
+  mirrorLatestResultsToRoot(activeRunContext);
+
+  const schedule = generateBenchmarkSchedule(1);
+  const smoketestRun = schedule[0];
+
+  if (activeCts) {
+    activeCts.cancel();
+    activeCts.dispose();
+  }
+  activeCts = new vscode.CancellationTokenSource();
+  const token = activeCts.token;
+
+  dashboardTracker.startMatrix(1, []);
+  getOutput().show(true);
+
+  log(
+    "================================================================================"
+  );
+  log(
+    `[SMOKETEST] Starting Live 1-Task Benchmark Smoketest: ${smoketestRun.participant} (${smoketestRun.task})`
+  );
+  log(`Results Directory: ${getResultsDir()}`);
+  log(
+    "================================================================================\n"
+  );
+
+  try {
+    const res = await runSingleBenchmarkSession(smoketestRun, 1, 1, token);
+    const statusStr = res.incomplete
+      ? "INCOMPLETE"
+      : res.success
+        ? "PASS"
+        : "FAIL";
+    log(
+      `[SMOKETEST] Finished with status: ${statusStr} (Duration: ${res.durationSec}s)`
+    );
+    if (res.success) {
+      if (
+        vscode.window &&
+        typeof vscode.window.showInformationMessage === "function"
+      ) {
+        vscode.window.showInformationMessage(
+          `Benchmark smoketest completed successfully for ${smoketestRun.participant} (${smoketestRun.task})!`
+        );
+      }
+    } else {
+      if (
+        vscode.window &&
+        typeof vscode.window.showWarningMessage === "function"
+      ) {
+        vscode.window.showWarningMessage(
+          `Benchmark smoketest ended with status: ${statusStr}. Check output channel.`
+        );
+      }
+    }
+  } catch (err: unknown) {
+    log(`[SMOKETEST] [ERROR] Smoketest failed with error: ${String(err)}`);
+    if (
+      vscode.window &&
+      typeof vscode.window.showErrorMessage === "function"
+    ) {
+      vscode.window.showErrorMessage(
+        `Benchmark smoketest failed: ${String(err)}`
+      );
+    }
+  } finally {
+    dashboardTracker.dispose();
+  }
+} // fn: runBenchmarkSmoketest
 
 export function runAnalysisPipeline(
   runContext: BenchmarkRunContext = activeRunContext
@@ -3490,10 +3749,23 @@ class BenchmarkDashboardTracker {
       return;
     }
     if (!this._statusBarItem) {
-      this._statusBarItem = vscode.window.createStatusBarItem(
-        vscode.StatusBarAlignment.Left,
-        100
-      );
+      if (
+        typeof vscode.window?.createStatusBarItem === "function" &&
+        vscode.StatusBarAlignment?.Left !== undefined
+      ) {
+        this._statusBarItem = vscode.window.createStatusBarItem(
+          vscode.StatusBarAlignment.Left,
+          100
+        );
+      } else {
+        this._statusBarItem = cast<vscode.StatusBarItem>({
+          text: "",
+          tooltip: "",
+          show: () => {},
+          hide: () => {},
+          dispose: () => {},
+        });
+      }
     }
     const completed = this._finished.length;
     const total = this._totalRuns;
@@ -3506,9 +3778,13 @@ class BenchmarkDashboardTracker {
     );
 
     this._statusBarItem.text = `$(beaker) NaNofuzz: ${completed}/${total} (${pct}%) ${etaStr}`;
-    const md = new vscode.MarkdownString(this.renderMarkdownTooltip());
-    md.isTrusted = true;
-    this._statusBarItem.tooltip = md;
+    if (typeof vscode.MarkdownString === "function") {
+      const md = new vscode.MarkdownString(this.renderMarkdownTooltip());
+      md.isTrusted = true;
+      this._statusBarItem.tooltip = md;
+    } else {
+      this._statusBarItem.tooltip = this.renderMarkdownTooltip();
+    }
     this._statusBarItem.show();
   } // fn: updateStatusBar
 
