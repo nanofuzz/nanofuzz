@@ -14,7 +14,7 @@ module.exports = {
     getWorkspaceFolder: function () {
       return {
         uri: {
-          fsPath: () => process.cwd(),
+          fsPath: process.cwd(),
         },
       };
     },
@@ -59,6 +59,9 @@ module.exports = {
   },
   commands: {
     executeCommand: () => null,
+  },
+  extensions: {
+    getExtension: () => undefined,
   },
   TextEditorSelectionChangeEvent: {},
   TextEditorVisibleRangesChangeEvent: {},

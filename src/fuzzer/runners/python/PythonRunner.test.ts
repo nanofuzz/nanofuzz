@@ -1,4 +1,5 @@
 import { PythonRunner } from "./PythonRunner";
+import { RunnerResult } from "../AbstractRunner";
 import {
   FuzzEnv,
   FuzzGeneratorStatsBase,
@@ -8,7 +9,7 @@ import {
 } from "../../Types";
 import { FunctionDef } from "../../analysis/FunctionDef";
 import { CoverageMeasure } from "../../measures/CoverageMeasure";
-import { normalizePathForKey } from "../../Util";
+import { findInAncestor, normalizePathForKey } from "../../Util";
 import { ArgDef } from "../../analysis/ArgDef";
 import { ArgTag } from "../../analysis/Types";
 import * as ProgramFactory from "../../analysis/ProgramFactory";
@@ -17,6 +18,8 @@ import * as Config from "../../../Config";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
+import { spawnSync } from "node:child_process";
+import vscode from "vscode";
 import { getDefaultFuzzExecutionOptions } from "../../FuzzerFactory";
 
 describe("fuzzer/runners/PythonRunner", () => {
@@ -50,6 +53,32 @@ describe("fuzzer/runners/PythonRunner", () => {
     // Case 4: neither works, returns candidate
     spy.and.callFake(() => false);
     expect(PythonRunner.resolveInterpreter("python3")).toBe("python3");
+  });
+
+  it("runs programs with the interpreter selected in VS Code", () => {
+    // A made-up interpreter, which `canExecute` accepts
+    const selected = path.resolve("venv", "bin", "python");
+    spyOn(PythonRunner, "canExecute").and.callFake((bin) => bin === selected);
+    spyOn(vscode.extensions, "getExtension")
+      .withArgs("ms-python.python")
+      .and.returnValue(
+        jasmine.createSpyObj<vscode.Extension<unknown>>("python", [], {
+          isActive: true,
+          exports: {
+            environments: {
+              getActiveEnvironmentPath: () => ({ path: selected }),
+            },
+          },
+        })
+      );
+    PythonRunner.clearCache();
+    try {
+      expect(PythonRunner.envFor(path.resolve("target.py")).interpreter).toBe(
+        selected
+      );
+    } finally {
+      PythonRunner.clearCache();
+    }
   });
 
   it("handles binary bytes inputs and outputs", async () => {
@@ -99,6 +128,310 @@ def process_bytes(data: bytes) -> bytes:
         // Ignore residual file lock cleanup errors on Windows
       }
     }
+  });
+
+  describe("imports", () => {
+    type ProjectOptions = {
+      pythonPath?: string[]; // relative directories for PYTHONPATH
+    };
+
+    /**
+     * Writes `files` (path relative to a new temporary directory -> source),
+     * sets up `options`, and calls `fn` with the temporary directory
+     */
+    async function withProject<T>(
+      files: Record<string, string>,
+      options: ProjectOptions,
+      fn: (dir: string) => T | Promise<T>
+    ): Promise<T> {
+      const dir = getTmpDir("nanofuzz-imports-");
+      const savedPythonPath = process.env.PYTHONPATH;
+      try {
+        for (const [file, code] of Object.entries(files)) {
+          const filePath = path.join(dir, file);
+          fs.mkdirSync(path.dirname(filePath), { recursive: true });
+          fs.writeFileSync(filePath, code);
+        }
+        if (options.pythonPath) {
+          process.env.PYTHONPATH = options.pythonPath
+            .map((p) => path.join(dir, p))
+            .join(path.delimiter);
+        }
+        PythonRunner.clearCache();
+        return await fn(dir);
+      } finally {
+        if (savedPythonPath === undefined) {
+          delete process.env.PYTHONPATH;
+        } else {
+          process.env.PYTHONPATH = savedPythonPath;
+        }
+        PythonRunner.clearCache();
+        try {
+          fs.rmSync(dir, {
+            recursive: true,
+            force: true,
+            maxRetries: 10,
+            retryDelay: 100,
+          });
+        } catch {
+          // Ignore residual file lock cleanup errors on Windows
+        }
+      }
+    }
+
+    /**
+     * Runs a function once in a new project made of `files` (see
+     * `withProject`), and returns its result: e.g., with
+     * `{ file: "mypkg/target.py", fn: "fn", args: [1] }`, runs `fn(1)` from
+     * `mypkg/target.py`
+     */
+    async function runInProject(
+      files: Record<string, string>,
+      run: ProjectOptions & {
+        file: string; // the file to import the function from
+        fn: string; // the function's name
+        args: unknown[]; // the function's arguments
+        validators?: string[]; // property validators to run on its result
+      }
+    ): Promise<RunnerResult["result"]> {
+      return withProject(files, run, async (dir) => {
+        const pyPath = path.join(dir, run.file);
+        const program = ProgramFactory.fromSource(
+          () => files[run.file],
+          "python",
+          pyPath
+        );
+        const env = createFuzzEnv(program.functionsExported[run.fn]);
+        const runner = new PythonRunner(pyPath, run.fn, env);
+        await runner.onRunStart();
+        try {
+          return (await runner.run(run.args, 10000, run.validators)).result;
+        } finally {
+          await runner.onRunEnd();
+        }
+      });
+    }
+
+    function expectValue(result: RunnerResult["result"], value: unknown) {
+      expect(result.tag).withContext(JSON.stringify(result)).toBe("value");
+      if (result.tag === "value") {
+        expect(result.value).toEqual(value);
+      }
+    }
+
+    /**
+     * Source of a module that raises if imported as `name`: e.g., saved as
+     * `mypkg/logging.py`, it fails the test if Python imports it in place of
+     * the standard library's `logging`
+     */
+    const shadow = (name: string) =>
+      `if __name__ == "${name}":
+    raise ImportError(f"{__file__} shadowed the standard library's '{__name__}'")
+`;
+
+    it("runs programs whose package has a logging.py", async () => {
+      // The runner host itself imports the standard library's `logging`, so it
+      // would fail to start if it imported `mypkg/logging.py` instead
+      const result = await runInProject(
+        {
+          "mypkg/__init__.py": "",
+          "mypkg/logging.py": shadow("logging"),
+          "mypkg/target.py": "def fn(x: int) -> int:\n    return x\n",
+        },
+        { file: "mypkg/target.py", fn: "fn", args: [1] }
+      );
+      expectValue(result, 1);
+    });
+
+    it("finds the interpreter's search path when the user's PYTHONPATH has a json.py", async () => {
+      // NaNofuzz gets the search path by running Python. If that command
+      // imported `json`, it would get the `json.py` below instead, fail, and
+      // leave the search path empty, so `userlib` would be missing from it.
+      await withProject(
+        {
+          "userlib/json.py": shadow("json"),
+          "proj/target.py": "def fn() -> None:\n    pass\n",
+        },
+        { pythonPath: ["userlib"] },
+        (dir) => {
+          const paths = PythonRunner.envFor(
+            path.join(dir, "proj", "target.py")
+          ).paths.map((p) => normalizePathForKey(p));
+          expect(paths).toContain(
+            normalizePathForKey(path.join(dir, "userlib"))
+          );
+        }
+      );
+    });
+
+    it("puts the source root first in the search path used to analyze imports", async () => {
+      await withProject(
+        {
+          "mypkg/__init__.py": "",
+          "mypkg/target.py": "def fn() -> None:\n    pass\n",
+        },
+        {},
+        (dir) => {
+          const paths = PythonRunner.envFor(
+            path.join(dir, "mypkg", "target.py")
+          ).paths.map((p) => normalizePathForKey(p));
+          // The source root first, as the program is imported from it
+          expect(paths[0]).toBe(normalizePathForKey(dir));
+        }
+      );
+    });
+
+    it("starts Python when the program's package has an encodings.py", async () => {
+      // An `encodings` found before the standard library's stops Python from
+      // starting
+      const result = await runInProject(
+        {
+          "mypkg/__init__.py": "",
+          "mypkg/encodings.py": shadow("encodings"),
+          "mypkg/target.py": "def fn(x: int) -> int:\n    return x\n",
+        },
+        { file: "mypkg/target.py", fn: "fn", args: [1] }
+      );
+      expectValue(result, 1);
+    });
+
+    it("does not let modules of the program's package shadow the standard library", async () => {
+      const result = await runInProject(
+        {
+          "mypkg/__init__.py": "",
+          "mypkg/csv.py": shadow("csv"),
+          "mypkg/target.py":
+            "import csv\n\ndef fn(x: int) -> int:\n    return x\n",
+        },
+        { file: "mypkg/target.py", fn: "fn", args: [1] }
+      );
+      expectValue(result, 1);
+    });
+
+    it("supports relative imports in the program", async () => {
+      const result = await runInProject(
+        {
+          "mypkg/__init__.py": "",
+          "mypkg/helper.py": "def inc(x: int) -> int:\n    return x + 1\n",
+          "mypkg/target.py": `from .helper import inc
+
+def add_one(x: int) -> int:
+    return inc(x)
+`,
+        },
+        { file: "mypkg/target.py", fn: "add_one", args: [1] }
+      );
+      expectValue(result, 2);
+    });
+
+    it("loads the program once, even when imported by its package name", async () => {
+      const result = await runInProject(
+        {
+          "mypkg/__init__.py": "",
+          "mypkg/target.py": `import sys
+
+def same_module(x: int) -> bool:
+    import mypkg.target
+    return mypkg.target is sys.modules[__name__]
+`,
+        },
+        { file: "mypkg/target.py", fn: "same_module", args: [1] }
+      );
+      expectValue(result, true);
+    });
+
+    it("imports a package's __init__.py as the package", async () => {
+      const result = await runInProject(
+        {
+          "mypkg/__init__.py": `def describe(x: int) -> str:
+    return f"{__name__}:{x}"
+`,
+        },
+        { file: "mypkg/__init__.py", fn: "describe", args: [1] }
+      );
+      expectValue(result, "mypkg:1");
+    });
+
+    it("imports the program's package first, before other copies on PYTHONPATH", async () => {
+      const result = await runInProject(
+        {
+          "other/mypkg/__init__.py": "",
+          "other/mypkg/target.py": `def describe(x: int) -> str:
+    return "other copy"
+`,
+          "proj/mypkg/__init__.py": "",
+          "proj/mypkg/target.py": `def describe(x: int) -> str:
+    return "this copy"
+`,
+        },
+        {
+          file: "proj/mypkg/target.py",
+          fn: "describe",
+          args: [1],
+          pythonPath: ["other", "proj"],
+        }
+      );
+      expectValue(result, "this copy");
+    });
+
+    it("runs property validators of programs in packages", async () => {
+      const result = await runInProject(
+        {
+          "mypkg/__init__.py": "",
+          "mypkg/target.py": `def double(x: int) -> int:
+    return x * 2
+
+def doubleValidator(r) -> str:
+    return "pass" if r["out"] == r["in"][0] * 2 else "fail"
+`,
+        },
+        {
+          file: "mypkg/target.py",
+          fn: "double",
+          args: [1],
+          validators: ["doubleValidator"],
+        }
+      );
+      expectValue(result, 2);
+      expect(result.validators?.["doubleValidator"]).toEqual(
+        jasmine.objectContaining({ tag: "value", value: "pass" })
+      );
+    });
+
+    it("reports a missing source root of a module of a package", async () => {
+      // NaNofuzz works out the source root (see `PythonModule`) and passes it
+      // to the runner host. Without it (e.g., when started by hand), the
+      // runner host cannot import a module of a package, so it says so right
+      // away, rather than failing later with "No module named ...".
+      await withProject(
+        {
+          "mypkg/__init__.py": "",
+          "mypkg/target.py": "def fn() -> None:\n    pass\n",
+        },
+        {},
+        (dir) => {
+          const pyPath = path.join(dir, "mypkg", "target.py");
+          const pythonEnv = PythonRunner.envFor(pyPath);
+          const runnerHost = path.join(
+            path.dirname(findInAncestor(__dirname, "package.json")!),
+            "build",
+            "extension",
+            "PythonRunnerHost.py"
+          );
+          // The runner host's arguments, but no source root: the file, its
+          // module name, the function, the coverage scope and direct imports
+          const res = spawnSync(
+            pythonEnv.interpreter,
+            [runnerHost, pyPath, "mypkg.target", "fn", "project", "[]"],
+            { env: pythonEnv.env, encoding: "utf8", timeout: 20000 }
+          );
+          expect(res.status).not.toBe(0);
+          expect(res.stderr).toContain(
+            "Missing source_root for 'mypkg.target', a module of a package"
+          );
+        }
+      );
+    });
   });
 
   // TODO: also add oxcaml runner and parity tests once OCaml/OxCaml support is added

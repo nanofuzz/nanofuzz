@@ -21,6 +21,7 @@ import * as fs from "node:fs";
 import { findInAncestor, isError } from "../../Util";
 import { PutTimeoutName } from "../AbstractHost";
 import { PythonHost, PythonEnv } from "./PythonHost";
+import { pythonModuleFor } from "./PythonModule";
 import * as ChildProcess from "node:child_process";
 
 /**
@@ -306,7 +307,11 @@ export class PythonRunner extends AbstractRunner {
       env: { ...process.env },
       libs: findPythonLibDir(path.dirname(module.filename)),
       paths: [],
-      interpreter: Config.get("python.defaultInterpreterPath", "python3"),
+      module: pythonModuleFor(filename),
+      // The interpreter that VS Code's Python extension uses for the file, or
+      // else python3 on PATH (e.g., in the CLI, from an activated virtual
+      // environment)
+      interpreter: selectedInterpreterFor(filename) ?? "python3",
     };
 
     // Load .env file if configured
@@ -328,33 +333,13 @@ export class PythonRunner extends AbstractRunner {
         pythonEnv.libs;
     }
 
-    // Build PYTHONPATH entries for resolving user project packages and nanofuzz_runtime
+    // Build PYTHONPATH entries for resolving nanofuzz_runtime. The program's
+    // own directories do not go on PYTHONPATH: Python searches it before the
+    // standard library, even while it starts up, so a module named like a
+    // standard library module (e.g., a `logging.py` or an `encodings.py`)
+    // would shadow it. Instead, the runner host puts the program's source root
+    // on sys.path once it has started (see `PythonModule`).
     const pyPaths: string[] = [];
-
-    // Target file's ancestor directories
-    let currPyDir = path.resolve(path.dirname(filename));
-    while (currPyDir) {
-      pyPaths.push(currPyDir);
-      const parent = path.dirname(currPyDir);
-      if (parent === currPyDir) break;
-      currPyDir = parent;
-    }
-
-    // Open workspace folders
-    try {
-      const workspaceFolders = vscode.workspace?.workspaceFolders ?? [];
-      for (const folder of workspaceFolders) {
-        let wsDir = path.resolve(folder.uri.fsPath);
-        while (wsDir) {
-          pyPaths.push(wsDir);
-          const parent = path.dirname(wsDir);
-          if (parent === wsDir) break;
-          wsDir = parent;
-        }
-      }
-    } catch {
-      // ignore
-    }
 
     if (pythonEnv.libs) {
       pyPaths.push(pythonEnv.libs);
@@ -383,83 +368,16 @@ export class PythonRunner extends AbstractRunner {
       process.platform === "win32" ? ";" : ":"
     );
 
-    // Use a virtual environment if specified & found
-    const searchGlobs = Config.get<string[]>(
-      "python-envs.workspaceSearchPaths",
-      []
-    );
-    const workspace = vscode.workspace.getWorkspaceFolder(
-      vscode.Uri.file(filename)
-    )?.uri.fsPath;
-    if (
-      searchGlobs.length &&
-      workspace &&
-      Config.get<boolean>("python.terminal.activateEnvironment", false) &&
-      Config.get<string>(
-        "python-envs.terminal.autoActivationType",
-        "command"
-      ) === "command" /* TODO shellStartup */
-    ) {
-      const matches = fs.globSync(searchGlobs, { cwd: workspace });
-      if (matches.length) {
-        const venvPath = path.resolve(path.join(workspace, matches[0]));
-        const venvBins =
-          process.platform === "win32"
-            ? path.resolve(path.join(venvPath, "Scripts"))
-            : path.resolve(path.join(venvPath, "bin"));
-        const venvActivateCmd =
-          process.platform === "win32"
-            ? path.resolve(path.join(venvBins, "activate"))
-            : `source ${path.resolve(path.join(venvBins, "activate"))}`;
-
-        pythonEnv.venv = {
-          path: venvPath,
-          activateCmd: venvActivateCmd,
-          interpreter: path.resolve(
-            path.join(
-              venvBins,
-              process.platform === "win32" ? "python" : "python3"
-            )
-          ),
-        };
-        pythonEnv.interpreter = pythonEnv.venv.interpreter;
-      }
-    }
-
-    if (!pythonEnv.venv && process.env.VIRTUAL_ENV) {
-      const venvPath = path.resolve(process.env.VIRTUAL_ENV);
-      const venvBins =
-        process.platform === "win32"
-          ? path.resolve(path.join(venvPath, "Scripts"))
-          : path.resolve(path.join(venvPath, "bin"));
-      const venvInterpreter = path.resolve(
-        path.join(venvBins, process.platform === "win32" ? "python" : "python3")
-      );
-      if (
-        fs.existsSync(venvInterpreter) ||
-        fs.existsSync(venvInterpreter + ".exe")
-      ) {
-        pythonEnv.venv = {
-          path: venvPath,
-          activateCmd: "",
-          interpreter: venvInterpreter,
-        };
-        pythonEnv.interpreter = pythonEnv.venv.interpreter;
-      }
-    }
-
     pythonEnv.interpreter = PythonRunner.resolveInterpreter(
       pythonEnv.interpreter,
       pythonEnv.env
     );
-    if (pythonEnv.venv) {
-      pythonEnv.venv.interpreter = PythonRunner.resolveInterpreter(
-        pythonEnv.venv.interpreter,
-        pythonEnv.env
-      );
-    }
 
-    pythonEnv.paths = PythonRunner._pathsFor(pythonEnv);
+    // The program's sys.path, as the runner host sets it up
+    pythonEnv.paths = Object.freeze([
+      pythonEnv.module.sourceRoot,
+      ...PythonRunner._pathsFor(pythonEnv),
+    ]);
 
     const frozenEnv = Object.freeze(pythonEnv);
     PythonRunner._envs.set(filename, {
@@ -484,17 +402,19 @@ export class PythonRunner extends AbstractRunner {
     }
 
     try {
+      // Prints sys.path separated by null characters (`\0`), using nothing but
+      // `sys`, which is built into the interpreter: any other module (e.g.,
+      // `json`) could be shadowed by one on the search path, such as a
+      // `json.py` on the user's PYTHONPATH
       const output = ChildProcess.execFileSync(
         interpreter,
-        ["-c", "import sys, json; print(json.dumps(sys.path))"],
+        [
+          "-c",
+          "import sys; sys.stdout.buffer.write('\\0'.join(sys.path).encode('utf-8', 'surrogateescape'))",
+        ],
         { encoding: "utf8", env: pythonEnv.env }
       );
-      const entries: unknown = JSON.parse(output);
-      const paths = Array.isArray(entries)
-        ? Object.freeze(
-            entries.filter((e) => typeof e === "string" && e !== "")
-          )
-        : [];
+      const paths = Object.freeze(output.split("\0").filter((e) => e !== ""));
       PythonRunner._paths.set(interpreter, {
         paths,
         expiresAt: Date.now() + 10000,
@@ -644,7 +564,6 @@ export class PythonRunner extends AbstractRunner {
       )
     );
 
-    const filenameBase = path.basename(this._filename);
     const coverageScopeRaw = Config.get<unknown>(
       "nanofuzz.fuzzer.coverageScope",
       "project static"
@@ -673,14 +592,12 @@ export class PythonRunner extends AbstractRunner {
     const args = [
       runnerHost,
       this._filename,
-      filenameBase.substring(
-        0,
-        filenameBase.length - path.extname(filenameBase).length
-      ),
+      this._pythonEnv.module.name,
       this._fn,
       scopeConfig.target,
       JSON.stringify(directPkgs),
       isRespawn ? "respawn" : String(collectStaticCoverage),
+      this._pythonEnv.module.sourceRoot,
     ];
 
     const host = new PythonHost(
@@ -777,6 +694,35 @@ function findPythonLibDir(dir: string): string | null {
 
   return null;
 } // fn: findPythonLibDir
+
+/**
+ * The part of the API of VS Code's Python extension (ms-python.python) that
+ * NaNofuzz uses
+ */
+type PythonExtensionApi = {
+  environments: {
+    getActiveEnvironmentPath(resource?: vscode.Uri): { path: string };
+  };
+};
+
+/**
+ * Returns the interpreter that VS Code's Python extension uses for a file
+ * (Python: Select Interpreter), if the extension is active
+ *
+ * @param `filename` Python source file
+ * @returns the interpreter's path; or a command (e.g., `python`), if the
+ * extension has not found an interpreter
+ */
+function selectedInterpreterFor(filename: string): string | undefined {
+  const python =
+    vscode.extensions.getExtension<PythonExtensionApi>("ms-python.python");
+  if (!python?.isActive) {
+    return undefined;
+  }
+  return python.exports.environments.getActiveEnvironmentPath(
+    vscode.Uri.file(filename)
+  ).path;
+} // fn: selectedInterpreterFor
 
 const TEST_FRAMEWORK_PACKAGES = new Set([
   "hypothesis",
