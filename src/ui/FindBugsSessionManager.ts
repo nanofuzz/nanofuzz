@@ -346,7 +346,7 @@ class FindBugsSessionManager {
   /**
    * Returns true if all declared entrypoints have met the required stopping criteria:
    * 1. At least one Stage 2 deep fuzzing run (suiteTimeout >= 300000 ms, maxTests === 0).
-   * 2. Either 100% branch coverage was attained OR at least 5 deep exploration attempts were executed.
+   * 2. Either 100% branch coverage was attained OR at least 4 deep exploration attempts were executed.
    */
   public hasCompletedDeepRun(sessionId?: string, filePath?: string): boolean {
     const s = this.getSession(sessionId, filePath);
@@ -384,7 +384,7 @@ class FindBugsSessionManager {
   /**
    * Evaluates whether an entrypoint has satisfied stopping criteria:
    * - Must have at least one deep run (suiteTimeout >= 300000, maxTests === 0, duration >= 270s or 100% cov).
-   * - Must achieve 100% branch coverage OR execute at least 5 exploration retries.
+   * - Must achieve 100% branch coverage OR execute at least 4 exploration retries.
    */
   public isEntrypointDeepCriteriaMet(
     session: WorkflowSession,
@@ -404,8 +404,8 @@ class FindBugsSessionManager {
     );
     if (reachedFullCoverage) return true;
 
-    // Otherwise must have executed at least 5 exploration attempts
-    return matchingDeepRuns.length >= 5;
+    // Otherwise must have executed at least 4 exploration attempts
+    return matchingDeepRuns.length >= 4;
   } // fn: isEntrypointDeepCriteriaMet
 
   /**
@@ -434,7 +434,7 @@ class FindBugsSessionManager {
           lastCov !== undefined
             ? `${lastCov}% branch coverage`
             : "no coverage reported";
-        return `${e.name} (${deepRuns.length}/5 retries, ${covStr})`;
+        return `${e.name} (${deepRuns.length}/4 retries, ${covStr})`;
       });
   } // fn: getPendingDeepEntrypoints
 

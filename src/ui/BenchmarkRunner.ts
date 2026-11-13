@@ -310,7 +310,7 @@ function seededShuffle<T>(arr: T[], seedStr: string): T[] {
 }
 
 export function generateBenchmarkSchedule(
-  replicates: 1 | 3 = 1
+  replicates: 1 | 2 | 3 = 1
 ): BenchmarkRunSpec[] {
   const reps = Array.from({ length: replicates }, (_, i) => i + 1);
   const runs: Omit<BenchmarkRunSpec, "sequence" | "participant">[] = [];
@@ -985,7 +985,7 @@ export async function selectJuryModels(
 ): Promise<JuryPanel> {
   const configuredModels = Config.get<string[]>(
     "nanofuzz.benchmark.juryModels",
-    ["gemini-3.8-flash", "claude-sonnet-5.5", "gpt-4o"]
+    ["gemini-3.8-flash", "claude-sonnet-5.5", "gpt-4o-mini"]
   );
 
   const slots: JurySlot[] = configuredModels.map((target, idx) => ({
@@ -1014,36 +1014,41 @@ export async function selectJuryModels(
     if (s.slot === 1 && primaryModel) {
       const pid = primaryModel.id.toLowerCase();
       const t = target.toLowerCase();
-      if (pid === t || pid.includes(t) || (t.includes("gemini") && pid.includes("gemini"))) {
+      if (
+        pid === t ||
+        pid.includes(t) ||
+        (t.includes("gemini") && pid.includes("gemini"))
+      ) {
         s.model = primaryModel;
         s.actualModel = getModelIdentity(primaryModel);
         continue;
       }
     }
 
-    // Match by exact id first, then name, then family directly from config
-    const matched =
-      all.find(
-        (m) =>
-          m.id === target || m.id.toLowerCase() === target.toLowerCase()
-      ) ||
-      all.find(
-        (m) =>
-          m.name === target || m.name?.toLowerCase() === target.toLowerCase()
-      ) ||
-      all.find(
-        (m) =>
-          m.family === target ||
-          m.family?.toLowerCase() === target.toLowerCase()
-      );
+    const t = target.toLowerCase();
+    // Exact match on id, name, or family
+    let matched =
+      all.find((m) => m.id === target || m.id.toLowerCase() === t) ||
+      all.find((m) => m.name === target || m.name?.toLowerCase() === t) ||
+      all.find((m) => m.family === target || m.family?.toLowerCase() === t);
+
+    // Structured vendor/path match (e.g. "gemini/Gemini-Paid/models/gemini-3.8-flash")
+    if (!matched) {
+      matched = all.find((m) => {
+        const matchesId =
+          target.endsWith(m.id) || t.endsWith(m.id.toLowerCase());
+        const matchesVendor = !m.vendor || t.includes(m.vendor.toLowerCase());
+        return matchesId && matchesVendor;
+      });
+    }
 
     if (matched) {
       s.model = matched;
       s.actualModel = getModelIdentity(matched);
     } else {
       log(
-        `[JURY] [WARN] Configured model '${target}' for Slot ${s.slot} was not found among available models: ` +
-          all.map((m) => m.id).join(", ")
+        `[JURY] [ERROR] Configured model '${target}' for Slot ${s.slot} was not found among available models: ` +
+          all.map((m) => `${m.vendor}:${m.id}`).join(", ")
       );
     }
   }
@@ -1070,6 +1075,34 @@ export async function selectJuryModels(
     claude: slots[1]?.model,
     gpt4o: slots[2]?.model,
   };
+}
+
+/**
+ * Validates that all configured jury slots in 'nanofuzz.benchmark.juryModels'
+ * successfully resolved to real models in VS Code. Fails with a critical error if any model is missing.
+ */
+export async function validateJuryModels(
+  primaryModel?: vscode.LanguageModelChat
+): Promise<JuryPanel> {
+  const jury = await selectJuryModels(primaryModel);
+  const unempaneled = (jury.slots || []).filter((s) => !s.model);
+  if (unempaneled.length > 0) {
+    let availableStr = "none";
+    if (vscode.lm && typeof vscode.lm.selectChatModels === "function") {
+      const all = await vscode.lm.selectChatModels();
+      availableStr = all.map((m) => `${m.vendor}:${m.id}`).join(", ");
+    }
+    const err =
+      `CRITICAL: Jury configuration error. The following juror model(s) from 'nanofuzz.benchmark.juryModels' could not be resolved: ` +
+      unempaneled.map((s) => `Slot ${s.slot} ('${s.requested}')`).join(", ") +
+      `. Available models in VS Code: [${availableStr}]. Check your settings before running.`;
+    log(`[JURY] [FATAL] ${err}`);
+    if (vscode.window && typeof vscode.window.showErrorMessage === "function") {
+      vscode.window.showErrorMessage(err);
+    }
+    throw new Error(err);
+  }
+  return jury;
 }
 
 export function computeProtocolBMedian(ratings: JurorRating[]): {
@@ -1213,7 +1246,9 @@ async function querySingleJuror(
       rationale = String(parsed.rationale || "");
     }
   } catch (err: unknown) {
-    log(`[JUDGE] [WARN] Juror Slot ${slot} (${actualId}) evaluation error: ${String(err)}`);
+    log(
+      `[JUDGE] [WARN] Juror Slot ${slot} (${actualId}) evaluation error: ${String(err)}`
+    );
   }
 
   return {
@@ -1441,7 +1476,8 @@ function writeScoringSheet(
   );
 
   if (hasJuryBreakdown) {
-    const jurorScores = evalResults.find((r) => r.jurorScores)?.jurorScores || {};
+    const jurorScores =
+      evalResults.find((r) => r.jurorScores)?.jurorScores || {};
     const s1 = jurorScores.slot1 || jurorScores.gemini;
     const s2 = jurorScores.slot2 || jurorScores.claude;
     const s3 = jurorScores.slot3 || jurorScores.gpt4o;
@@ -1458,9 +1494,15 @@ function writeScoringSheet(
     const s2Vendor = s2Info?.vendor ? ` (${s2Info.vendor})` : "";
     const s3Vendor = s3Info?.vendor ? ` (${s3Info.vendor})` : "";
 
-    const s1Req = s1?.requestedModel ? ` [Requested: \`${s1.requestedModel}\`]` : "";
-    const s2Req = s2?.requestedModel ? ` [Requested: \`${s2.requestedModel}\`]` : "";
-    const s3Req = s3?.requestedModel ? ` [Requested: \`${s3.requestedModel}\`]` : "";
+    const s1Req = s1?.requestedModel
+      ? ` [Requested: \`${s1.requestedModel}\`]`
+      : "";
+    const s2Req = s2?.requestedModel
+      ? ` [Requested: \`${s2.requestedModel}\`]`
+      : "";
+    const s3Req = s3?.requestedModel
+      ? ` [Requested: \`${s3.requestedModel}\`]`
+      : "";
 
     lines.push(
       "",
@@ -2890,14 +2932,17 @@ export async function runSingleBenchmarkSession(
 }
 
 // ============================================================================
-// Master Orchestrator (45 or 135 Runs)
+// Master Orchestrator (45, 90, or 135 Runs)
 // ============================================================================
 
 export async function runBenchmarkMatrix(
-  replicates: 1 | 3 = 1,
+  replicates: 1 | 2 | 3 = 1,
   concurrency: number = CONCURRENCY_LANES,
   recoverDir?: string
 ): Promise<void> {
+  // Validate that jury models are fully resolvable before starting benchmark runs
+  await validateJuryModels();
+
   if (recoverDir) {
     activeRunContext = createRunContext(recoverDir);
   } else {
@@ -3166,6 +3211,9 @@ export async function runBenchmarkSmoketest(): Promise<void> {
   updateLatestSymlink(activeRunContext.resultsDir);
   mirrorLatestResultsToRoot(activeRunContext);
 
+  // Validate that jury models are fully resolvable before starting the smoketest
+  await validateJuryModels();
+
   const schedule = generateBenchmarkSchedule(1);
   const smoketestRun = schedule[0];
 
@@ -3221,10 +3269,7 @@ export async function runBenchmarkSmoketest(): Promise<void> {
     }
   } catch (err: unknown) {
     log(`[SMOKETEST] [ERROR] Smoketest failed with error: ${String(err)}`);
-    if (
-      vscode.window &&
-      typeof vscode.window.showErrorMessage === "function"
-    ) {
+    if (vscode.window && typeof vscode.window.showErrorMessage === "function") {
       vscode.window.showErrorMessage(
         `Benchmark smoketest failed: ${String(err)}`
       );

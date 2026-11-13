@@ -8,6 +8,7 @@ import {
   computeProtocolBMedian,
   evaluateBugsWithLlmJudge,
   selectJuryModels,
+  validateJuryModels,
   findLatestUnfinishedRun,
   createRunContext,
   formatDatestamp,
@@ -442,20 +443,30 @@ describe("BenchmarkRunner - Protocol B PoLL Jury (Verga et al., 2024)", () => {
         sendRequest: async () => ({ text: (async function* () {})(), stream: (async function* () {})() }),
       },
       {
-        id: "gemini/Gemini-Paid/models/gemini-3.8-flash",
-        name: "Gemini 3.8 Flash (paid)",
-        vendor: "gemini",
-        family: "gemini-3.8-flash",
+        id: "gemini-3.8-flash",
+        name: "Gemini 3.8 Flash",
+        vendor: "google",
+        family: "gemini",
         version: "1.0",
         maxInputTokens: 100000,
         countTokens: async () => 10,
         sendRequest: async () => ({ text: (async function* () {})(), stream: (async function* () {})() }),
       },
       {
-        id: "gemini-3.8-flash",
-        name: "Gemini 3.8 Flash",
-        vendor: "google",
-        family: "gemini",
+        id: "models/gemini-3.8-flash",
+        name: "Gemini 3.8 Flash (paid)",
+        vendor: "gemini",
+        family: "models/gemini-3.8-flash",
+        version: "1.0",
+        maxInputTokens: 100000,
+        countTokens: async () => 10,
+        sendRequest: async () => ({ text: (async function* () {})(), stream: (async function* () {})() }),
+      },
+      {
+        id: "claude-sonnet-5.5",
+        name: "Claude Sonnet 5.5",
+        vendor: "copilot",
+        family: "claude-sonnet-5.5",
         version: "1.0",
         maxInputTokens: 100000,
         countTokens: async () => 10,
@@ -471,6 +482,16 @@ describe("BenchmarkRunner - Protocol B PoLL Jury (Verga et al., 2024)", () => {
         countTokens: async () => 10,
         sendRequest: async () => ({ text: (async function* () {})(), stream: (async function* () {})() }),
       },
+      {
+        id: "gpt-4o-mini",
+        name: "GPT-4o mini",
+        vendor: "copilot",
+        family: "gpt-4o-mini",
+        version: "1.0",
+        maxInputTokens: 100000,
+        countTokens: async () => 10,
+        sendRequest: async () => ({ text: (async function* () {})(), stream: (async function* () {})() }),
+      },
     ];
 
     Object.defineProperty(vscode.lm, "selectChatModels", {
@@ -480,31 +501,38 @@ describe("BenchmarkRunner - Protocol B PoLL Jury (Verga et al., 2024)", () => {
     });
 
     try {
-      // Default config: ["gemini-3.8-flash", "claude-sonnet-5.5", "gpt-4o"]
+      // Default config: ["gemini-3.8-flash", "claude-sonnet-5.5", "gpt-4o-mini"]
       const panel = await selectJuryModels();
       expect(panel.slots?.length).toBe(3);
       expect(panel.slots?.[0].actualModel?.id).toBe("gemini-3.8-flash");
       expect(panel.slots?.[1].actualModel?.id).toBe("claude-sonnet-5.5");
-      expect(panel.slots?.[2].actualModel?.id).toBe("gpt-4o");
+      expect(panel.slots?.[2].actualModel?.id).toBe("gpt-4o-mini");
+
+      // Validating jury models succeeds when all match
+      const validated = await validateJuryModels();
+      expect(validated.slots?.length).toBe(3);
 
       // Custom override via Config matching exact user settings
       Config.override("nanofuzz.benchmark.juryModels", [
         "gemini/Gemini-Paid/models/gemini-3.8-flash",
         "claude-sonnet-5.5",
-        "gpt-4o",
+        "gpt-4o-mini",
       ]);
       const byokPanel = await selectJuryModels();
       expect(byokPanel.slots?.[0].requested).toBe("gemini/Gemini-Paid/models/gemini-3.8-flash");
-      expect(byokPanel.slots?.[0].actualModel?.id).toBe("gemini/Gemini-Paid/models/gemini-3.8-flash");
+      expect(byokPanel.slots?.[0].actualModel?.id).toBe("models/gemini-3.8-flash");
       expect(byokPanel.slots?.[0].actualModel?.vendor).toBe("gemini");
       expect(byokPanel.slots?.[1].actualModel?.id).toBe("claude-sonnet-5.5");
-      expect(byokPanel.slots?.[2].actualModel?.id).toBe("gpt-4o");
+      expect(byokPanel.slots?.[2].actualModel?.id).toBe("gpt-4o-mini");
 
-      // Custom override via Config to explicitly select Haiku if desired
-      Config.override("nanofuzz.benchmark.juryModels", ["claude-haiku-5.5", "gpt-4o"]);
-      const customPanel = await selectJuryModels();
-      expect(customPanel.slots?.[0].requested).toBe("claude-haiku-5.5");
-      expect(customPanel.slots?.[0].actualModel?.id).toBe("claude-haiku-5.5");
+      // Custom override with a missing model causes validateJuryModels to throw
+      Config.override("nanofuzz.benchmark.juryModels", [
+        "gemini/Gemini-Paid/models/gemini-3.8-flash",
+        "non-existent-model",
+      ]);
+      await expectAsync(validateJuryModels()).toBeRejectedWithError(
+        /CRITICAL: Jury configuration error/
+      );
     } finally {
       Object.defineProperty(vscode.lm, "selectChatModels", {
         value: origSelectChatModels,

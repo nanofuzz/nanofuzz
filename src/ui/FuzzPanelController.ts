@@ -4051,6 +4051,12 @@ export const commands = {
       void runBenchmarkMatrix(1);
     },
   },
+  runBenchmark90: {
+    name: "nanofuzz.RunBenchmark90",
+    fn: () => {
+      void runBenchmarkMatrix(2);
+    },
+  },
   runBenchmarkSmoketest: {
     name: "nanofuzz.RunBenchmarkSmoketest",
     fn: () => {

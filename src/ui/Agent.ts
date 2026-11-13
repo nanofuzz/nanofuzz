@@ -633,8 +633,10 @@ export async function runFuzz(
     if (experimentalTool === "hypothesis" || experimentalTool === "hypofuzz") {
       const runnerOptions: AgentFuzzOptions = {
         ...options,
-        // Limit smoke tests (non-deep runs) to 1 worker process
-        workers: !isDeepFuzzingRun ? 1 : options.workers,
+        // Limit smoke tests (non-deep runs) to 1 worker process; budget deep runs across slots
+        workers: !isDeepFuzzingRun
+          ? 1
+          : (options.workers ?? getWorkersPerDeepSlot()),
       };
       const runner = new HypothesisRunner(
         runnerOptions,
@@ -789,11 +791,10 @@ export async function runFuzz(
 
     const executionOptions: FuzzExecutionOptions = {
       engine: "auto",
-      // Limit smoke tests (non-deep runs) to 1 worker process
+      // Limit smoke tests (non-deep runs) to 1 worker process; budget deep runs across slots
       workers: !isDeepFuzzingRun
         ? 1
-        : (options.workers ??
-          Config.get<number | "auto">("nanofuzz.fuzzer.workers", "auto")),
+        : (options.workers ?? getWorkersPerDeepSlot()),
       outputResults: options.outputResults ?? "all",
       precompile: false,
     };
@@ -2587,7 +2588,7 @@ export class AsyncSemaphore {
   } // fn: _release
 } // class: AsyncSemaphore
 
-function getAutoDeepSlots(): number {
+export function getAutoDeepSlots(): number {
   if (process.env.BENCHMARK_DEEP_SLOTS) {
     const val = parseInt(process.env.BENCHMARK_DEEP_SLOTS, 10);
     if (!isNaN(val) && val >= 1) return val;
@@ -2598,5 +2599,38 @@ function getAutoDeepSlots(): number {
       : os.cpus().length;
   return Math.max(1, Math.floor(cpus / 4));
 } // fn: getAutoDeepSlots
+
+/**
+ * Calculates the budgeted worker process concurrency per active deep fuzzing slot.
+ *
+ * Prevents CPU over-saturation during multi-lane concurrent benchmark or exploration runs:
+ * - If the user explicitly configured 'nanofuzz.fuzzer.workers' to a numeric value >= 1, that value is respected.
+ * - Otherwise ('auto'), partitions available system CPU cores evenly across concurrent deep fuzzing slots,
+ *   holding back a reserve of 1-2 cores (1 core for <= 4 CPUs, 2 cores for > 4 CPUs) for OS operations,
+ *   editor tasks, and concurrent Phase 4 smoke test executions:
+ *
+ *     workersPerSlot = max(1, floor((cpus - reserve) / slots))
+ *
+ * For example:
+ * - On 18 cores with 4 slots: reserve = 2 -> floor((18 - 2) / 4) = 4 workers/slot (16 total deep workers, 2 cores free).
+ * - On 8 cores with 2 slots: reserve = 2 -> floor((8 - 2) / 2) = 3 workers/slot (6 total deep workers, 2 cores free).
+ * - On 4 cores with 1 slot: reserve = 1 -> floor((4 - 1) / 1) = 3 workers/slot (3 total deep workers, 1 core free).
+ * - On 2 cores with 1 slot: reserve = 1 -> floor((2 - 1) / 1) = 1 worker/slot (1 worker, 1 core free).
+ *
+ * @returns number of worker processes to allocate per deep fuzzing runner instance
+ */
+export function getWorkersPerDeepSlot(): number {
+  if (Config.get<string>("nanofuzz.fuzzer.workers", "auto") !== "auto") {
+    const custom = Config.get<number>("nanofuzz.fuzzer.workers", 1);
+    if (typeof custom === "number" && custom >= 1) return custom;
+  }
+  const cpus =
+    typeof os.availableParallelism === "function"
+      ? os.availableParallelism()
+      : os.cpus().length;
+  const slots = getAutoDeepSlots();
+  const reserve = cpus <= 4 ? 1 : 2;
+  return Math.max(1, Math.floor(Math.max(1, cpus - reserve) / slots));
+} // fn: getWorkersPerDeepSlot
 
 export const deepFuzzSemaphore = new AsyncSemaphore(getAutoDeepSlots());

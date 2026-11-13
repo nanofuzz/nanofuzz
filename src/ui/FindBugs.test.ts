@@ -71,7 +71,7 @@ describe("FindBugs", () => {
     );
   });
 
-  it("handles phase 'fuzz_entrypoint' with 5-retry coverage loop and anti-suppression rule", async () => {
+  it("handles phase 'fuzz_entrypoint' with 4-retry coverage loop and anti-suppression rule", async () => {
     // Register entrypoints in session first
     await findBugs({
       phase: "invariants_extracted",
@@ -149,7 +149,7 @@ describe("FindBugs", () => {
     expect(result.instructions).toContain("Multi-Defect Rule");
     expect(result.instructions).toContain("Filter Known Failure Domain");
     expect(result.instructions).toContain("Coverage Expansion");
-    expect(result.instructions).toContain("5 deep fuzzing retry cycles");
+    expect(result.instructions).toContain("4 deep fuzzing retry cycles");
     expect(result.instructions).toContain("contextualize_bugs");
   });
 
