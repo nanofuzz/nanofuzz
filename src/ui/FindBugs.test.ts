@@ -147,9 +147,9 @@ describe("FindBugs", () => {
     );
     expect(result.instructions).toContain("Anti-Suppression Rule");
     expect(result.instructions).toContain("Multi-Defect Rule");
-    expect(result.instructions).toContain("Defect Shadowing Mitigation");
-    expect(result.instructions).toContain("Validator Immobility Rule");
-    expect(result.instructions).toContain("Max 5 Retries");
+    expect(result.instructions).toContain("Filter Known Failure Domain");
+    expect(result.instructions).toContain("Coverage Expansion");
+    expect(result.instructions).toContain("5 deep fuzzing retry cycles");
     expect(result.instructions).toContain("contextualize_bugs");
   });
 
@@ -588,7 +588,7 @@ describe("FindBugs", () => {
 
     expect(fuzzRes.instructions).toContain("nanofuzz_fuzzFunction");
     expect(fuzzRes.instructions).toContain("tests/test_pbt_encode.py");
-    expect(fuzzRes.instructions).toContain("Stage 2: Deep Fuzzing Run");
+    expect(fuzzRes.instructions).toContain("Deep Fuzzing Execution");
 
     // Record deep fuzz runs satisfying stopping criteria (100% branch coverage) so gate passes
     sessionManager.recordFuzzRun(
@@ -721,7 +721,7 @@ describe("FindBugs", () => {
     });
 
     expect(fuzzRes.instructions).toContain("nanofuzz_fuzzFunction");
-    expect(fuzzRes.instructions).toContain("Stage 2: Deep Fuzzing Run");
+    expect(fuzzRes.instructions).toContain("Deep Fuzzing Execution");
   });
 
   it("handles experimental option: invariantSource='all'", async () => {

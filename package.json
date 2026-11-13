@@ -64,6 +64,11 @@
         "category": "NaNofuzz"
       },
       {
+        "command": "nanofuzz.RunBenchmarkSmoketest",
+        "title": "Run Benchmark Smoketest",
+        "category": "NaNofuzz"
+      },
+      {
         "command": "nanofuzz.RunBenchmarkFull",
         "title": "Run Full Benchmark Matrix",
         "category": "NaNofuzz"
@@ -874,6 +879,23 @@
             "description": "Experimental: When true, skips Phase 4/5 bug contextualization against external issue trackers and completes as soon as deep fuzzing stopping criteria are met.",
             "tags": [
               "experimental"
+            ]
+          },
+          "nanofuzz.benchmark.juryModels": {
+            "title": "Benchmark PoLL jury models",
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": [
+              "gemini-3.8-flash",
+              "claude-sonnet-5.5",
+              "gpt-4o"
+            ],
+            "description": "Exact Language Model IDs to query for the 3-model evaluation jury panel slots.",
+            "tags": [
+              "experimental",
+              "benchmark"
             ]
           },
           "nanofuzz.generators.scheduler.impl": {

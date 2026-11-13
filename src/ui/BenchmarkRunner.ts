@@ -1021,24 +1021,21 @@ export async function selectJuryModels(
       }
     }
 
-    // 1. Exact match by id or name
-    let matched = all.find(
-      (m) =>
-        m.id.toLowerCase() === target.toLowerCase() ||
-        m.name?.toLowerCase() === target.toLowerCase()
-    );
-
-    // 2. Substring match by id with strict guardrails (e.g. if target wants sonnet, NEVER match haiku)
-    if (!matched) {
-      matched = all.find((m) => {
-        const idLower = m.id.toLowerCase();
-        const targetLower = target.toLowerCase();
-        if (targetLower.includes("sonnet") && idLower.includes("haiku")) {
-          return false;
-        }
-        return idLower.includes(targetLower);
-      });
-    }
+    // Match by exact id first, then name, then family directly from config
+    const matched =
+      all.find(
+        (m) =>
+          m.id === target || m.id.toLowerCase() === target.toLowerCase()
+      ) ||
+      all.find(
+        (m) =>
+          m.name === target || m.name?.toLowerCase() === target.toLowerCase()
+      ) ||
+      all.find(
+        (m) =>
+          m.family === target ||
+          m.family?.toLowerCase() === target.toLowerCase()
+      );
 
     if (matched) {
       s.model = matched;
@@ -3294,7 +3291,7 @@ export function runAnalysisPipeline(
       : process.env.PYTHONPATH,
   };
 
-  // 1. Run dual-rater accuracy scoring engine
+  // Run dual-rater accuracy scoring engine
   if (fs.existsSync(scoreAccuracyScript)) {
     log(
       "[ANALYSIS] Running dual-rater accuracy scoring engine (score_accuracy.py)..."
@@ -3318,7 +3315,7 @@ export function runAnalysisPipeline(
     }
   }
 
-  // 2. Run QuartoN dissertation analysis pipeline (Table 5.3, 5.4, 5.5, Figure 5.4)
+  // Run QuartoN dissertation analysis pipeline (Table 5.3, 5.4, 5.5, Figure 5.4)
   if (fs.existsSync(analyzeQuartonScript)) {
     log(
       "[ANALYSIS] Running QuartoN dissertation analysis pipeline (analyze_quarton.py)..."

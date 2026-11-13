@@ -416,7 +416,7 @@ describe("BenchmarkRunner - Protocol B PoLL Jury (Verga et al., 2024)", () => {
     expect(tvBug?.jurorScores?.gpt4o?.modelInfo?.name).toBe("Mock Judge");
   });
 
-  it("selectJuryModels reads from nanofuzz.benchmark.juryModels config and avoids haiku when targeting sonnet", async () => {
+  it("selectJuryModels reads from nanofuzz.benchmark.juryModels config and matches exact configured models", async () => {
     // Save original selectChatModels if present
     const origSelectChatModels = vscode.lm.selectChatModels;
 
@@ -436,6 +436,16 @@ describe("BenchmarkRunner - Protocol B PoLL Jury (Verga et al., 2024)", () => {
         name: "Claude Sonnet 5.5",
         vendor: "copilot",
         family: "claude",
+        version: "1.0",
+        maxInputTokens: 100000,
+        countTokens: async () => 10,
+        sendRequest: async () => ({ text: (async function* () {})(), stream: (async function* () {})() }),
+      },
+      {
+        id: "gemini/Gemini-Paid/models/gemini-3.8-flash",
+        name: "Gemini 3.8 Flash (paid)",
+        vendor: "gemini",
+        family: "gemini-3.8-flash",
         version: "1.0",
         maxInputTokens: 100000,
         countTokens: async () => 10,
@@ -470,19 +480,31 @@ describe("BenchmarkRunner - Protocol B PoLL Jury (Verga et al., 2024)", () => {
     });
 
     try {
-      // 1. Default config: ["gemini-3.8-flash", "claude-sonnet-5.5", "gpt-4o"]
+      // Default config: ["gemini-3.8-flash", "claude-sonnet-5.5", "gpt-4o"]
       const panel = await selectJuryModels();
       expect(panel.slots?.length).toBe(3);
       expect(panel.slots?.[0].actualModel?.id).toBe("gemini-3.8-flash");
       expect(panel.slots?.[1].actualModel?.id).toBe("claude-sonnet-5.5");
-      expect(panel.slots?.[1].actualModel?.id).not.toBe("claude-haiku-5.5");
       expect(panel.slots?.[2].actualModel?.id).toBe("gpt-4o");
 
-      // 2. Custom override via Config
-      Config.override("nanofuzz.benchmark.juryModels", ["gpt-4o", "gemini-3.8-flash"]);
+      // Custom override via Config matching exact user settings
+      Config.override("nanofuzz.benchmark.juryModels", [
+        "gemini/Gemini-Paid/models/gemini-3.8-flash",
+        "claude-sonnet-5.5",
+        "gpt-4o",
+      ]);
+      const byokPanel = await selectJuryModels();
+      expect(byokPanel.slots?.[0].requested).toBe("gemini/Gemini-Paid/models/gemini-3.8-flash");
+      expect(byokPanel.slots?.[0].actualModel?.id).toBe("gemini/Gemini-Paid/models/gemini-3.8-flash");
+      expect(byokPanel.slots?.[0].actualModel?.vendor).toBe("gemini");
+      expect(byokPanel.slots?.[1].actualModel?.id).toBe("claude-sonnet-5.5");
+      expect(byokPanel.slots?.[2].actualModel?.id).toBe("gpt-4o");
+
+      // Custom override via Config to explicitly select Haiku if desired
+      Config.override("nanofuzz.benchmark.juryModels", ["claude-haiku-5.5", "gpt-4o"]);
       const customPanel = await selectJuryModels();
-      expect(customPanel.slots?.[0].requested).toBe("gpt-4o");
-      expect(customPanel.slots?.[0].actualModel?.id).toBe("gpt-4o");
+      expect(customPanel.slots?.[0].requested).toBe("claude-haiku-5.5");
+      expect(customPanel.slots?.[0].actualModel?.id).toBe("claude-haiku-5.5");
     } finally {
       Object.defineProperty(vscode.lm, "selectChatModels", {
         value: origSelectChatModels,
