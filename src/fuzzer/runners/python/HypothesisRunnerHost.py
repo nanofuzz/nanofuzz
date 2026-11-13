@@ -84,19 +84,22 @@ def _collect_coverage():
     try:
         data = _cov.get_data()
         measured = data.measured_files()
-        cwd = os.getcwd()
+        project_root = os.environ.get("NANOFUZZ_PROJECT_ROOT", os.getcwd())
         tot_stmts = 0
         cov_stmts = 0
         tot_br = 0
         cov_br = 0
         uncovered = {}
         for f in measured:
-            if not f.startswith(cwd):
+            if not f.startswith(project_root):
                 continue
-            rel = os.path.relpath(f, cwd)
-            # Exclude tests, virtualenvs, site-packages, build artifacts
+            rel = os.path.relpath(f, project_root)
+            # Exclude tests, virtualenvs, site-packages, build artifacts, and conftest.py
             parts = rel.split(os.sep)
-            if any(part in parts for part in (".venv", "venv", "tests", "test", "__pycache__", "build", "dist")):
+            parts_lower = [p.lower() for p in parts]
+            if any(part in parts_lower for part in (".venv", "venv", "env", "tests", "test", "__pycache__", "build", "dist")):
+                continue
+            if "conftest.py" in parts_lower:
                 continue
             if not f.endswith(".py"):
                 continue

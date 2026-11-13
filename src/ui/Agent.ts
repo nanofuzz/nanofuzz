@@ -1583,20 +1583,47 @@ export async function getCoverageSummary(
 
   try {
     const covStats: CodeCoverageMeasureStats = await coverageFn();
-    const counters = covStats.counters;
 
-    const stmtTotal = counters.statementsTotal;
-    const stmtCovered = counters.statementsCovered;
+    // Option B: Exclude test harnesses and test fixtures from evaluated branch metrics
+    // if other project source files are present.
+    const nonHarnessFiles = (covStats.files || []).filter((f) => {
+      const p = f.path.toLowerCase();
+      return (
+        !p.includes("nanofuzz_harness_") &&
+        !p.includes("test_pbt_") &&
+        !p.endsWith("conftest.py") &&
+        !p.includes("/tests/") &&
+        !p.includes("\\tests\\")
+      );
+    });
+
+    // If project files exist alongside the harness, compute metrics strictly on the project files.
+    // If only the harness was tested (e.g. standalone test), fall back to global counters.
+    const useFiltered = nonHarnessFiles.length > 0;
+    const stmtTotal = useFiltered
+      ? nonHarnessFiles.reduce((s, f) => s + f.counters.statementsTotal, 0)
+      : covStats.counters.statementsTotal;
+    const stmtCovered = useFiltered
+      ? nonHarnessFiles.reduce((s, f) => s + f.counters.statementsCovered, 0)
+      : covStats.counters.statementsCovered;
     const stmtPct =
       stmtTotal > 0 ? Math.round((stmtCovered / stmtTotal) * 10000) / 100 : 100;
 
-    const brTotal = counters.branchesTotal;
-    const brCovered = counters.branchesCovered;
+    const brTotal = useFiltered
+      ? nonHarnessFiles.reduce((s, f) => s + f.counters.branchesTotal, 0)
+      : covStats.counters.branchesTotal;
+    const brCovered = useFiltered
+      ? nonHarnessFiles.reduce((s, f) => s + f.counters.branchesCovered, 0)
+      : covStats.counters.branchesCovered;
     const brPct =
       brTotal > 0 ? Math.round((brCovered / brTotal) * 10000) / 100 : 100;
 
-    const fnTotal = counters.functionsTotal;
-    const fnCovered = counters.functionsCovered;
+    const fnTotal = useFiltered
+      ? nonHarnessFiles.reduce((s, f) => s + f.counters.functionsTotal, 0)
+      : covStats.counters.functionsTotal;
+    const fnCovered = useFiltered
+      ? nonHarnessFiles.reduce((s, f) => s + f.counters.functionsCovered, 0)
+      : covStats.counters.functionsCovered;
     const fnPct =
       fnTotal > 0 ? Math.round((fnCovered / fnTotal) * 10000) / 100 : 100;
 

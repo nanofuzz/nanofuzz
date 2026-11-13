@@ -131,9 +131,19 @@ export class HypothesisRunner {
     let stderrText = "";
     let exitCode: number | null = null;
 
+    const fileDir = path.dirname(filePath);
+    // If the test file is inside a tests/ or test/ folder, run from the project root
+    // so coverage.py and pytest can locate project source files in src/.
+    const projectRoot =
+      path.basename(fileDir) === "tests" || path.basename(fileDir) === "test"
+        ? path.resolve(fileDir, "..")
+        : fileDir;
+
+    env.NANOFUZZ_PROJECT_ROOT = projectRoot;
+
     try {
       proc = child_process.spawn(pythonEnv.interpreter, args, {
-        cwd: path.dirname(filePath),
+        cwd: projectRoot,
         env,
         stdio: ["ignore", "pipe", "pipe"],
       });
