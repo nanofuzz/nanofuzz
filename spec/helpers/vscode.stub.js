@@ -120,6 +120,12 @@ module.exports = {
       this.input = input;
     }
   },
+  LanguageModelToolResultPart: class LanguageModelToolResultPart {
+    constructor(callId, content) {
+      this.callId = callId;
+      this.content = content;
+    }
+  },
   LanguageModelChatToolMode: {
     Auto: 1,
     Required: 2,
@@ -190,8 +196,28 @@ const mockModels = [
   },
 ];
 
+const registeredTools = new Map();
+
 module.exports.lm = {
-  registerTool: (_name, _tool) => ({ dispose: () => {} }),
+  registerTool: (name, tool) => {
+    registeredTools.set(name, tool);
+    return {
+      dispose: () => {
+        registeredTools.delete(name);
+      },
+    };
+  },
+  invokeTool: async (name, options) => {
+    const tool = registeredTools.get(name);
+    if (tool && typeof tool.invoke === "function") {
+      return await tool.invoke(options);
+    }
+    return new module.exports.LanguageModelToolResult([
+      new module.exports.LanguageModelTextPart(
+        `Tool ${name} executed successfully.`
+      ),
+    ]);
+  },
   selectChatModels: async (selector) => {
     if (selector && selector.family) {
       return mockModels.filter((m) => m.family === selector.family);
