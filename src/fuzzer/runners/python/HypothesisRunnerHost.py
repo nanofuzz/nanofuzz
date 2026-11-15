@@ -97,14 +97,14 @@ def _collect_coverage():
     try:
         data = _cov.get_data()
         measured = data.measured_files()
-        project_root = os.environ.get("NANOFUZZ_PROJECT_ROOT", os.getcwd())
+        project_root = os.path.realpath(os.environ.get("NANOFUZZ_PROJECT_ROOT", os.getcwd()))
         tot_stmts = 0
         cov_stmts = 0
         tot_br = 0
         cov_br = 0
         uncovered = {}
 
-        files_to_measure = allowed_files if allowed_files is not None else measured
+        files_to_measure = _include_files if _include_files is not None else measured
 
         for f in files_to_measure:
             real_f = os.path.realpath(f)

@@ -653,7 +653,8 @@ def program_files(
             continue
 
         is_site_pkg = "site-packages" in parts_lower or "dist-packages" in parts_lower
-        is_venv = any(p in (".venv", "venv", "env") for p in parts_lower)
+        is_venv = any(p in (".venv", "venv", "env")
+                      for p in parts_lower) and not is_site_pkg
         is_stdlib = os.path.normcase(modfile).startswith(stdlib_path) and not is_site_pkg
 
         # Group C: Exclude Python Standard Library and virtualenv internals
@@ -661,7 +662,7 @@ def program_files(
             continue
 
         # Group A: Local project files
-        if is_under(root, modfile):
+        if not is_site_pkg and is_under(root, modfile):
             files.add(modfile)
             continue
 
