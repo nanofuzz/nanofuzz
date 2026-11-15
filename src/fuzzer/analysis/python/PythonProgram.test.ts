@@ -229,7 +229,7 @@ type MixedColumn = list[int | str]`,
 type Lookup = typing.Dict[str, float]
 type Labels = set[str]
 type TaggedScores = dict[str, int | str]
-type MaybeScores = Optional[dict[str, int]]`,
+type WrappedScores = Union[dict[str, int]]`,
       "python"
     ).types;
 
@@ -254,16 +254,37 @@ type MaybeScores = Optional[dict[str, int]]`,
         (child) => child.type?.type
       )
     ).toEqual([ArgTag.NUMBER, ArgTag.STRING]);
-    expect(types["MaybeScores"].type?.type).toEqual(ArgTag.DICTIONARY);
+    expect(types["WrappedScores"].type?.type).toEqual(ArgTag.DICTIONARY);
   });
 
   it("collapses singleton annotation unions", () => {
     const types = ProgramFactory.fromSource(
-      () => "type MaybeCount = Optional[int]",
+      () => "type Count = Union[int]",
       "python"
     ).types;
 
-    expect(types["MaybeCount"].type?.type).toEqual(ArgTag.NUMBER);
+    expect(types["Count"].type?.type).toEqual(ArgTag.NUMBER);
+  });
+
+  it("gives `Optional[T]` the same None arm as `T | None`", () => {
+    const functions = ProgramFactory.fromSource(
+      () => `def optional(value: Optional[int]) -> None:
+    pass
+
+def piped(value: int | None) -> None:
+    pass`,
+      "python"
+    ).functionsExported;
+
+    expect(functions["optional"].getRef().args?.[0].type).toEqual(
+      functions["piped"].getRef().args?.[0].type
+    );
+    expect(
+      functions["optional"]
+        .getArgDefs()[0]
+        .getChildren()
+        .map((child) => child.getType())
+    ).toEqual([ArgTag.NUMBER, ArgTag.LITERAL]);
   });
 
   it("extracts TypedDict annotations as fixed objects", () => {
