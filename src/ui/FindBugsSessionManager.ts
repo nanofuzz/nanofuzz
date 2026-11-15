@@ -26,6 +26,8 @@ export type FuzzRunStatsSnapshot = {
   maxTests?: number;
   statementCoveragePct?: number;
   branchCoveragePct?: number;
+  branchesCovered?: number;
+  branchesTotal?: number;
   deepSlotWaitMs?: number;
   generatorName?: string;
   details?: string;

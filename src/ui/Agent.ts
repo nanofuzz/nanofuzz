@@ -70,62 +70,6 @@ export {
   FuzzerCodeSnippet,
 };
 
-// Cached raw results from previous fuzzing runs by normalized module + function name
-const _rawResultsCache = new Map<string, FuzzTestResults>();
-
-/**
- * Returns the cache key for storing raw fuzz results.
- */
-function getRawResultsCacheKey(filePath: string, functionName: string): string {
-  return `${normalizePathForKey(filePath)}::${functionName}`;
-} // fn: getRawResultsCacheKey
-
-/**
- * Caches the raw fuzz results for a module and function.
- */
-export function cacheRawResults(
-  filePath: string,
-  functionName: string,
-  results: FuzzTestResults
-): void {
-  _rawResultsCache.set(getRawResultsCacheKey(filePath, functionName), results);
-} // fn: cacheRawResults
-
-/**
- * Retrieves cached raw fuzz results for a module and function, if available.
- */
-export function getCachedRawResults(
-  filePath: string,
-  functionName: string
-): FuzzTestResults | undefined {
-  return _rawResultsCache.get(getRawResultsCacheKey(filePath, functionName));
-} // fn: getCachedRawResults
-
-/**
- * Clears the raw results cache (primarily for tests).
- */
-export function clearCachedRawResults(): void {
-  _rawResultsCache.clear();
-} // fn: clearCachedRawResults
-
-/**
- * Removes cached raw results for a specific path prefix or file.
- *
- * @param pathPrefix directory or file path prefix
- */
-export function clearCachedRawResultsForPath(pathPrefix: string): void {
-  const norm = normalizePathForKey(pathPrefix);
-  for (const key of _rawResultsCache.keys()) {
-    if (key.startsWith(norm)) {
-      _rawResultsCache.delete(key);
-    }
-  }
-} // fn: clearCachedRawResultsForPath
-
-// -------------------------------------------------------------------------- //
-// Primary Public API
-// -------------------------------------------------------------------------- //
-
 /**
  * Resolves a target file path against absolute paths, file URIs, VS Code workspace folders, or process.cwd().
  *
@@ -663,6 +607,8 @@ export async function runFuzz(
           maxTests: options.maxTests ?? 0,
           statementCoveragePct: result.coverage?.statementCoveragePercent,
           branchCoveragePct: result.coverage?.branchCoveragePercent,
+          branchesCovered: result.coverage?.branchesCovered,
+          branchesTotal: result.coverage?.branchesTotal,
           deepSlotWaitMs,
           generatorName:
             result.primaryCounterexample?.origin ??
@@ -905,6 +851,8 @@ export async function runFuzz(
         maxTests: options.maxTests ?? normalizedOptions.maxTests,
         statementCoveragePct: cov?.statementCoveragePercent,
         branchCoveragePct: cov?.branchCoveragePercent,
+        branchesCovered: cov?.branchesCovered,
+        branchesTotal: cov?.branchesTotal,
         deepSlotWaitMs,
         generatorName: formatted.primaryCounterexample?.origin,
         details:
@@ -1570,6 +1518,59 @@ export async function synthesizeTestSuite(
   }
 } // fn: synthesizeTestSuite
 
+// Set of files explicitly excluded from evaluated coverage metrics (e.g. synthetic test harnesses created by agents)
+const _excludedCoverageFiles = new Set<string>();
+
+// Optional whitelist of target files to evaluate coverage on (if configured for benchmark task)
+let _targetCoverageFiles: Set<string> | undefined = undefined;
+
+/**
+ * Sets an explicit whitelist of target files to evaluate coverage on.
+ * When set, only files in this list will be counted in coverage metrics.
+ *
+ * @param filePaths array or set of allowed target file paths
+ */
+export function setTargetCoverageFiles(
+  filePaths?: string[] | Set<string>
+): void {
+  if (!filePaths) {
+    _targetCoverageFiles = undefined;
+    return;
+  }
+  _targetCoverageFiles = new Set<string>();
+  for (const fp of filePaths) {
+    _targetCoverageFiles.add(path.resolve(fp));
+  }
+} // fn: setTargetCoverageFiles
+
+/**
+ * Returns the currently active whitelist of target coverage files, if any.
+ */
+export function getTargetCoverageFiles(): Set<string> | undefined {
+  return _targetCoverageFiles;
+} // fn: getTargetCoverageFiles
+
+/**
+ * Registers one or more file paths to be explicitly excluded from coverage metrics evaluation.
+ *
+ * @param filePaths absolute or relative file paths to exclude
+ */
+export function registerExcludedCoverageFiles(
+  filePaths: string[] | Set<string>
+): void {
+  for (const fp of filePaths) {
+    _excludedCoverageFiles.add(path.resolve(fp));
+  }
+} // fn: registerExcludedCoverageFiles
+
+/**
+ * Clears the registry of excluded coverage files.
+ */
+export function clearExcludedCoverageFiles(): void {
+  _excludedCoverageFiles.clear();
+  _targetCoverageFiles = undefined;
+} // fn: clearExcludedCoverageFiles
+
 /**
  * Computes coverage summary statistics from FuzzTestResults.
  */
@@ -1584,17 +1585,20 @@ export async function getCoverageSummary(
   try {
     const covStats: CodeCoverageMeasureStats = await coverageFn();
 
-    // Option B: Exclude test harnesses and test fixtures from evaluated branch metrics
-    // if other project source files are present.
+    // Exclude explicitly registered created files (e.g. test harnesses)
+    // and test fixtures (conftest.py), and restrict to _targetCoverageFiles if configured.
     const nonHarnessFiles = (covStats.files || []).filter((f) => {
-      const p = f.path.toLowerCase();
-      return (
-        !p.includes("nanofuzz_harness_") &&
-        !p.includes("test_pbt_") &&
-        !p.endsWith("conftest.py") &&
-        !p.includes("/tests/") &&
-        !p.includes("\\tests\\")
-      );
+      const resolved = path.resolve(f.path);
+      if (_targetCoverageFiles && !_targetCoverageFiles.has(resolved)) {
+        return false;
+      }
+      if (_excludedCoverageFiles.has(resolved)) {
+        return false;
+      }
+      if (path.basename(resolved) === "conftest.py") {
+        return false;
+      }
+      return true;
     });
 
     // If project files exist alongside the harness, compute metrics strictly on the project files.
@@ -2513,6 +2517,58 @@ function coerceAgentInputForArgDef(
       return val;
   }
 } // fn: coerceAgentInputForArgDef
+
+// Cached raw results from previous fuzzing runs by normalized module + function name
+const _rawResultsCache = new Map<string, FuzzTestResults>();
+
+/**
+ * Returns the cache key for storing raw fuzz results.
+ */
+function getRawResultsCacheKey(filePath: string, functionName: string): string {
+  return `${normalizePathForKey(filePath)}::${functionName}`;
+} // fn: getRawResultsCacheKey
+
+/**
+ * Caches the raw fuzz results for a module and function.
+ */
+export function cacheRawResults(
+  filePath: string,
+  functionName: string,
+  results: FuzzTestResults
+): void {
+  _rawResultsCache.set(getRawResultsCacheKey(filePath, functionName), results);
+} // fn: cacheRawResults
+
+/**
+ * Retrieves cached raw fuzz results for a module and function, if available.
+ */
+export function getCachedRawResults(
+  filePath: string,
+  functionName: string
+): FuzzTestResults | undefined {
+  return _rawResultsCache.get(getRawResultsCacheKey(filePath, functionName));
+} // fn: getCachedRawResults
+
+/**
+ * Clears the raw results cache (primarily for tests).
+ */
+export function clearCachedRawResults(): void {
+  _rawResultsCache.clear();
+} // fn: clearCachedRawResults
+
+/**
+ * Removes cached raw results for a specific path prefix or file.
+ *
+ * @param pathPrefix directory or file path prefix
+ */
+export function clearCachedRawResultsForPath(pathPrefix: string): void {
+  const norm = normalizePathForKey(pathPrefix);
+  for (const key of _rawResultsCache.keys()) {
+    if (key.startsWith(norm)) {
+      _rawResultsCache.delete(key);
+    }
+  }
+} // fn: clearCachedRawResultsForPath
 
 /**
  * Asynchronous counting semaphore for concurrency throttling.

@@ -7,7 +7,12 @@ import * as Config from "../Config";
 import { isKeyedObject } from "../Util";
 import { sessionManager } from "./FindBugsSessionManager";
 import { formatDuration } from "./FuzzTextFormatter";
-import { clearCachedRawResultsForPath } from "./Agent";
+import {
+  clearCachedRawResultsForPath,
+  registerExcludedCoverageFiles,
+  clearExcludedCoverageFiles,
+  setTargetCoverageFiles,
+} from "./Agent";
 
 // ============================================================================
 // Configuration
@@ -22,10 +27,12 @@ const WORKTREES_DIR = path.join(BENCHMARK_DIR, "worktrees");
 export const BASE_RESULTS_DIR = path.join(BENCHMARK_DIR, "results");
 
 export interface BenchmarkRunContext {
+  runDir: string;
   resultsDir: string;
   reportsDir: string;
   telemetryDir: string;
   scoringSheetsDir: string;
+  partsDir: string;
   dataCsvPath: string;
   surveyResponsesCsvPath: string;
   stateJsonPath: string;
@@ -44,21 +51,25 @@ export function formatDatestamp(date: Date = new Date()): string {
 }
 
 export function createRunContext(targetDir?: string): BenchmarkRunContext {
-  const resultsDir =
+  const runDir =
     targetDir ?? path.join(BASE_RESULTS_DIR, formatDatestamp());
+  const resultsDir = path.join(runDir, "results");
+
   return {
+    runDir,
     resultsDir,
-    reportsDir: resultsDir,
-    telemetryDir: path.join(resultsDir, "telemetry"),
-    scoringSheetsDir: path.join(resultsDir, "scoring_sheets"),
+    reportsDir: runDir,
+    telemetryDir: path.join(runDir, "telemetry"),
+    scoringSheetsDir: path.join(runDir, "scoring_sheets"),
+    partsDir: path.join(resultsDir, "parts"),
     dataCsvPath: path.join(resultsDir, "data.csv"),
     surveyResponsesCsvPath: path.join(resultsDir, "survey_responses.csv"),
-    stateJsonPath: path.join(resultsDir, "benchmark_state.json"),
-    dashboardPath: path.join(resultsDir, "DASHBOARD.md"),
+    stateJsonPath: path.join(runDir, "benchmark_state.json"),
+    dashboardPath: path.join(runDir, "DASHBOARD.md"),
   };
 }
 
-let activeRunContext: BenchmarkRunContext = createRunContext(BASE_RESULTS_DIR);
+let activeRunContext: BenchmarkRunContext = createRunContext();
 
 export function getActiveRunContext(): BenchmarkRunContext {
   return activeRunContext;
@@ -66,6 +77,10 @@ export function getActiveRunContext(): BenchmarkRunContext {
 
 export function setActiveRunContext(ctx: BenchmarkRunContext): void {
   activeRunContext = ctx;
+}
+
+export function getRunDir(): string {
+  return activeRunContext.runDir;
 }
 
 export function getResultsDir(): string {
@@ -82,6 +97,10 @@ export function getTelemetryDir(): string {
 
 export function getScoringSheetsDir(): string {
   return activeRunContext.scoringSheetsDir;
+}
+
+export function getPartsDir(): string {
+  return activeRunContext.partsDir;
 }
 
 export function getDataCsvPath(): string {
@@ -126,25 +145,7 @@ export function mirrorLatestResultsToRoot(
   baseDir: string = BASE_RESULTS_DIR
 ): void {
   try {
-    updateLatestSymlink(ctx.resultsDir, baseDir);
-    if (!fs.existsSync(baseDir)) {
-      fs.mkdirSync(baseDir, { recursive: true });
-    }
-    for (const fname of [
-      "data.csv",
-      "survey_responses.csv",
-      "DASHBOARD.md",
-      "benchmark_state.json",
-    ]) {
-      const srcFile = path.join(ctx.resultsDir, fname);
-      const dstFile = path.join(baseDir, fname);
-      if (
-        fs.existsSync(srcFile) &&
-        path.resolve(srcFile) !== path.resolve(dstFile)
-      ) {
-        fs.copyFileSync(srcFile, dstFile);
-      }
-    }
+    updateLatestSymlink(ctx.runDir, baseDir);
   } catch {
     // Non-fatal
   }
@@ -387,7 +388,7 @@ export function loadCompletedParticipants(): Map<
       for (const item of parsed) {
         if (item && item.participant && item.status === "completed") {
           const reportPath = path.join(
-            getResultsDir(),
+            getReportsDir(),
             item.reportFilename || `${item.participant}.md`
           );
           const hasReport =
@@ -415,7 +416,7 @@ export function loadCompletedParticipants(): Map<
             (r.maxTests === 0 || r.maxTests === Number.MAX_SAFE_INTEGER)
         );
       const reportPath = path.join(
-        getResultsDir(),
+        getReportsDir(),
         t.reportFilename || `${t.participant}.md`
       );
       const hasReport =
@@ -1605,6 +1606,8 @@ function appendToDataCsv(
   totalFuzzRuns: number,
   totalTests: number,
   branchCoverage: number,
+  branchesCovered: number = 0,
+  branchesTotal: number = 0,
   survey?: ParticipantSurvey
 ): void {
   const headerCols = [
@@ -1644,6 +1647,8 @@ function appendToDataCsv(
     "TotalFuzzRuns",
     "TotalTestsExecuted",
     "BranchCoveragePct",
+    "BranchesCovered",
+    "BranchesTotal",
     "TaskBugCount",
     "BugsElicited",
     "NormalizedScore",
@@ -1674,10 +1679,12 @@ function appendToDataCsv(
     (sum, r) => sum + (r.netScore ?? (r.reported === 1 ? 1.0 : 0.0)),
     0
   );
-  const accuracy =
-    taskBugCount > 0
-      ? Math.max(-0.5, Math.min(1.0, totalNetScore / taskBugCount)).toFixed(3)
-      : "0.000";
+  const hasAccuracyScores =
+    evalResults.length > 0 &&
+    evalResults.some((r) => r.netScore !== undefined);
+  const accuracy = hasAccuracyScores
+    ? Math.max(-0.5, Math.min(1.0, totalNetScore / taskBugCount)).toFixed(3)
+    : "N/A";
 
   const generators = evalResults
     .filter((r) => r.elicited === 1)
@@ -1693,7 +1700,7 @@ function appendToDataCsv(
     return "#N/A";
   });
 
-  const reportPath = path.join(getResultsDir(), run.reportFilename);
+  const reportPath = run.reportPath || path.join(getReportsDir(), run.reportFilename);
   const hasBugReport =
     fs.existsSync(reportPath) && fs.statSync(reportPath).size > 0;
   const isIncomplete = !hasBugReport || !survey;
@@ -1736,6 +1743,8 @@ function appendToDataCsv(
     String(totalFuzzRuns),
     String(totalTests),
     branchCoverage.toFixed(1),
+    String(branchesCovered),
+    String(branchesTotal),
     String(taskBugCount),
     String(bugsElicited),
     score,
@@ -1888,6 +1897,22 @@ export async function runSingleBenchmarkSession(
 
   // Clean lane worktree, reset session state, and apply settings
   cleanLane(laneId);
+  clearExcludedCoverageFiles();
+
+  // Load target coverage files for this task if defined in target_coverage_files.json
+  try {
+    const mapFile = path.join(WORKSPACE_ROOT, "benchmark", "scripts", "target_coverage_files.json");
+    if (fs.existsSync(mapFile)) {
+      const mapData = JSON.parse(fs.readFileSync(mapFile, "utf8"));
+      if (Array.isArray(mapData[run.task])) {
+        const absTargets = mapData[run.task].map((rel: string) => path.join(laneRepoPath, rel));
+        setTargetCoverageFiles(absTargets);
+      }
+    }
+  } catch {
+    // Ignore map load error
+  }
+
   sessionManager.clear(sessionId);
   sessionManager.getOrCreateSession(
     sessionId,
@@ -2509,6 +2534,7 @@ export async function runSingleBenchmarkSession(
             typeof toolInput.content === "string" ? toolInput.content : "";
           fs.mkdirSync(path.dirname(targetFile), { recursive: true });
           fs.writeFileSync(targetFile, content, "utf8");
+          registerExcludedCoverageFiles([targetFile]);
           resultText = `File created successfully at ${targetFile}`;
           toolSucceeded = true;
         } catch (err: unknown) {
@@ -2774,27 +2800,48 @@ export async function runSingleBenchmarkSession(
     contextualize,
   };
 
-  // Evaluate ground-truth bugs elicited & reported for this participant via Protocol B PoLL Jury
-  const reportContent = fs.existsSync(run.reportPath)
-    ? fs.readFileSync(run.reportPath, "utf8")
-    : "";
-
+  // Evaluate ground-truth bugs elicited & reported for this participant via Protocol B PoLL Jury (DISABLED)
   const activeSession = sessionManager.getSession(sessionId, laneRepoPath);
   const fuzzRuns = activeSession?.fuzzRuns || [];
-  const jury = await selectJuryModels(model);
-  const evalResults = await evaluateBugsWithLlmJudge(
-    jury,
-    run.task,
-    reportContent,
-    fuzzRuns,
-    token
-  );
+  // const jury = await selectJuryModels(model);
+  // const evalResults = await evaluateBugsWithLlmJudge(
+  //   jury,
+  //   run.task,
+  //   reportContent,
+  //   fuzzRuns,
+  //   token
+  // );
+  const evalResults: BugEvaluationResult[] = (
+    GROUND_TRUTH_BUGS[run.task] || []
+  ).map((bug) => ({
+    bug,
+    elicited: 0,
+    reported: 0,
+    generator: "None",
+    creditEarned: 0,
+    deduction: 0,
+    netScore: undefined,
+    evidenceQuote: "",
+    rationale: "Jury evaluation disabled.",
+    jurorScores: {},
+  }));
 
   const totalTests = fuzzRuns.reduce((sum, r) => sum + r.totalTests, 0);
-  const branchCoverage =
-    fuzzRuns.length > 0
-      ? Math.max(...fuzzRuns.map((r) => r.branchCoveragePct ?? 0))
-      : 0;
+
+  // Peak branch coverage and its associated numerator/denominator
+  let branchCoverage = 0;
+  let branchesCovered = 0;
+  let branchesTotal = 0;
+
+  if (fuzzRuns.length > 0) {
+    const sortedByCov = [...fuzzRuns].sort(
+      (a, b) => (b.branchCoveragePct ?? 0) - (a.branchCoveragePct ?? 0)
+    );
+    const peakRun = sortedByCov[0];
+    branchCoverage = peakRun.branchCoveragePct ?? 0;
+    branchesCovered = peakRun.branchesCovered ?? 0;
+    branchesTotal = peakRun.branchesTotal ?? 0;
+  }
 
   // Conduct Post-Task Survey & SUS Evaluation with the Agent
   const { survey, rawSurveyOutputs } = await collectPostTaskSurvey({
@@ -2823,6 +2870,8 @@ export async function runSingleBenchmarkSession(
     fuzzRuns.length,
     totalTests,
     branchCoverage,
+    branchesCovered,
+    branchesTotal,
     survey
   );
 
@@ -2847,19 +2896,7 @@ export async function runSingleBenchmarkSession(
     targetCommit: TARGET_COMMIT,
     targetVersion: TARGET_VERSION,
     agentModel: getModelIdentity(model),
-    juryPanel: {
-      slots: (jury.slots || []).map((s) => ({
-        slot: s.slot,
-        requested: s.requested,
-        actual: s.actualModel ?? getModelIdentity(s.model),
-      })),
-      slot1: getModelIdentity(jury.slots?.[0]?.model ?? jury.gemini),
-      slot2: getModelIdentity(jury.slots?.[1]?.model ?? jury.claude),
-      slot3: getModelIdentity(jury.slots?.[2]?.model ?? jury.gpt4o),
-      gemini: getModelIdentity(jury.slots?.[0]?.model ?? jury.gemini),
-      claude: getModelIdentity(jury.slots?.[1]?.model ?? jury.claude),
-      gpt4o: getModelIdentity(jury.slots?.[2]?.model ?? jury.gpt4o),
-    },
+    juryPanel: undefined,
     reportFilename: run.reportFilename,
     durationSeconds: durationSec,
     activeExecutionSeconds: activeSec,
@@ -2941,7 +2978,7 @@ export async function runBenchmarkMatrix(
   recoverDir?: string
 ): Promise<void> {
   // Validate that jury models are fully resolvable before starting benchmark runs
-  await validateJuryModels();
+  // await validateJuryModels();
 
   if (recoverDir) {
     activeRunContext = createRunContext(recoverDir);
@@ -3212,7 +3249,7 @@ export async function runBenchmarkSmoketest(): Promise<void> {
   mirrorLatestResultsToRoot(activeRunContext);
 
   // Validate that jury models are fully resolvable before starting the smoketest
-  await validateJuryModels();
+  // await validateJuryModels();
 
   const schedule = generateBenchmarkSchedule(1);
   const smoketestRun = schedule[0];
@@ -3366,8 +3403,12 @@ export function runAnalysisPipeline(
       "[ANALYSIS] Running QuartoN dissertation analysis pipeline (analyze_quarton.py)..."
     );
     try {
+      const partsDir = runContext.partsDir;
+      if (!fs.existsSync(partsDir)) {
+        fs.mkdirSync(partsDir, { recursive: true });
+      }
       const stdout = execSync(
-        `"${pythonBin}" "${analyzeQuartonScript}" --data "${runContext.dataCsvPath}" --survey "${runContext.surveyResponsesCsvPath}"`,
+        `"${pythonBin}" "${analyzeQuartonScript}" --data "${runContext.dataCsvPath}" --survey "${runContext.surveyResponsesCsvPath}" --local-parts-dir "${partsDir}"`,
         {
           encoding: "utf8",
           stdio: ["ignore", "pipe", "pipe"],

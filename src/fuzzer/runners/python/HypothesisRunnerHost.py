@@ -48,10 +48,23 @@ LAST_FLUSH = 0.0
 
 # Initialize code coverage tracer
 _cov = None
+_include_files = None
 try:
     import coverage
 
-    _cov = coverage.Coverage(branch=True, data_file=None)
+    _include_env = os.environ.get("NANOFUZZ_COVERAGE_INCLUDE_FILES")
+    if _include_env:
+        import json
+        _raw_includes = json.loads(_include_env)
+        _proj_root = os.environ.get("NANOFUZZ_PROJECT_ROOT", os.getcwd())
+        _include_files = [
+            os.path.realpath(os.path.join(_proj_root, f)) if not os.path.isabs(f) else os.path.realpath(f)
+            for f in _raw_includes
+        ]
+        _cov = coverage.Coverage(include=_include_files, branch=True, data_file=None)
+    else:
+        _cov = coverage.Coverage(branch=True, data_file=None)
+
     _cov.start()
 except Exception:
     _cov = None
@@ -90,10 +103,14 @@ def _collect_coverage():
         tot_br = 0
         cov_br = 0
         uncovered = {}
-        for f in measured:
-            if not f.startswith(project_root):
+
+        files_to_measure = allowed_files if allowed_files is not None else measured
+
+        for f in files_to_measure:
+            real_f = os.path.realpath(f)
+            if not real_f.startswith(project_root):
                 continue
-            rel = os.path.relpath(f, project_root)
+            rel = os.path.relpath(real_f, project_root)
             # Exclude tests, virtualenvs, site-packages, build artifacts, and conftest.py
             parts = rel.split(os.sep)
             parts_lower = [p.lower() for p in parts]
@@ -101,10 +118,10 @@ def _collect_coverage():
                 continue
             if "conftest.py" in parts_lower:
                 continue
-            if not f.endswith(".py"):
+            if not real_f.endswith(".py"):
                 continue
             try:
-                analysis = _cov._analyze(f)
+                analysis = _cov._analyze(real_f)
                 ts = len(analysis.statements)
                 ms = len(analysis.missing)
                 cs = ts - ms

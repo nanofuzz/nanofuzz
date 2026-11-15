@@ -583,6 +583,18 @@ def static_coverage_all(cov: coverage.Coverage, filenames: List[str]) -> dict[st
 VALID_COVERAGE_SCOPES = ("project", "project directimports")
 
 
+def find_project_root(path_str: str) -> str:
+    """Finds the actual project root directory by walking upwards until marker files or git root."""
+    curr = os.path.abspath(path_str)
+    if os.path.isfile(curr):
+        curr = os.path.dirname(curr)
+    while curr != os.path.dirname(curr):
+        if any(os.path.exists(os.path.join(curr, m)) for m in ("pyproject.toml", "setup.py", "setup.cfg", ".git")):
+            return curr
+        curr = os.path.dirname(curr)
+    return os.path.dirname(os.path.abspath(path_str))
+
+
 def is_under(root: str, path: str) -> bool:
     """
     Returns whether `path` is `root` or sits beneath it.
@@ -611,7 +623,7 @@ def program_files(
         raise ValueError(
             f"Invalid coverage_scope '{coverage_scope}'. Allowed values: {VALID_COVERAGE_SCOPES}"
         )
-    root = os.path.dirname(filename)
+    root = find_project_root(filename)
     stdlib_path = os.path.normcase(
         os.path.realpath(sysconfig.get_path("stdlib")))
 
@@ -641,13 +653,11 @@ def program_files(
             continue
 
         is_site_pkg = "site-packages" in parts_lower or "dist-packages" in parts_lower
-        is_venv_internal = any(p in (".venv", "venv", "env")
-                               for p in parts_lower) and not is_site_pkg
-        is_stdlib = os.path.normcase(modfile).startswith(
-            stdlib_path) and not is_site_pkg
+        is_venv = any(p in (".venv", "venv", "env") for p in parts_lower)
+        is_stdlib = os.path.normcase(modfile).startswith(stdlib_path) and not is_site_pkg
 
         # Group C: Exclude Python Standard Library and virtualenv internals
-        if is_venv_internal or is_stdlib:
+        if is_venv or is_stdlib:
             continue
 
         # Group A: Local project files

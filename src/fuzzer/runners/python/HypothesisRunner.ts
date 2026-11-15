@@ -13,6 +13,7 @@ import {
   AgentGeneratorSummary,
   buildSummaryMarkdown,
   shrinkInputs,
+  getTargetCoverageFiles,
 } from "../../../ui/Agent";
 import { PythonRunner } from "./PythonRunner";
 import { getToolVersion } from "../../../ToolVersion";
@@ -140,6 +141,12 @@ export class HypothesisRunner {
         : fileDir;
 
     env.NANOFUZZ_PROJECT_ROOT = projectRoot;
+
+    // Pass target coverage files to HypothesisRunnerHost if configured in Agent session
+    const activeTargets = getTargetCoverageFiles();
+    if (activeTargets && activeTargets.size > 0) {
+      env.NANOFUZZ_COVERAGE_INCLUDE_FILES = JSON.stringify(Array.from(activeTargets));
+    }
 
     try {
       proc = child_process.spawn(pythonEnv.interpreter, args, {
