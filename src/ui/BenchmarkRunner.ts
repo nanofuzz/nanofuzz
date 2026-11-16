@@ -529,6 +529,7 @@ export function saveBenchmarkState(
 
 export interface ParticipantSurvey {
   realistic: number; // 1-5 Likert
+  taskConfidence: number; // 1-5 Likert: Confidence finding all pairs/defects
   sus1: number; // 1-5 Likert
   sus2: number;
   sus3: number;
@@ -596,6 +597,7 @@ function writeSurveyResponsesCsv(
     "Sequence",
     "Date",
     "Realistic",
+    "TaskConfidence",
     "SUS_Score",
     "SUS1_FrequentUse",
     "SUS2_Complexity",
@@ -625,6 +627,7 @@ function writeSurveyResponsesCsv(
     String(run.sequence),
     new Date().toISOString().split("T")[0],
     String(survey.realistic),
+    String(survey.taskConfidence),
     survey.susScore.toFixed(1),
     String(survey.sus1),
     String(survey.sus2),
@@ -715,6 +718,7 @@ export async function collectPostTaskSurvey(
     "- `toolImprovementFeedback`: String with feedback/suggestions to improve the testing tool.",
     "- `studyImprovementFeedback`: String with feedback/suggestions to improve this or future studies.",
     "- `realistic`: Integer rating from 1 (Strongly Disagree) to 5 (Strongly Agree) for statement: 'I thought the testing tasks in this study resemble tasks I might encounter outside the study.'",
+    "- `taskConfidence`: Integer rating from 1 to 5 describing how confident you are that you accurately found all the pairs/defects in the code above (1 = Not at all Confident, 2 = Slightly Confident, 3 = Somewhat Confident, 4 = Moderately Confident, 5 = Extremely Confident).",
     "",
     "### Part 2: System Usability Scale (SUS)",
     "Reflecting on your experience above, provide an integer rating from 1 (Strongly Disagree) to 5 (Strongly Agree) for each statement:",
@@ -777,30 +781,34 @@ export async function collectPostTaskSurvey(
       if (jsonMatch) {
         try {
           const parsed = JSON.parse(jsonMatch[1]);
-          const clampLikert = (v: unknown): number => {
+          const validateLikertStrict = (v: unknown, fieldName: string): number => {
             const n = Number(v);
-            if (isNaN(n) || n < 1) return 3;
-            if (n > 5) return 5;
-            return Math.round(n);
+            if (v === undefined || v === null || isNaN(n) || !Number.isInteger(n) || n < 1 || n > 5) {
+              throw new Error(`Invalid or missing ${fieldName}: expected integer between 1 and 5, got ${JSON.stringify(v)}`);
+            }
+            return n;
           };
 
           const susResponses = {
-            sus1: clampLikert(parsed.sus1),
-            sus2: clampLikert(parsed.sus2),
-            sus3: clampLikert(parsed.sus3),
-            sus4: clampLikert(parsed.sus4),
-            sus5: clampLikert(parsed.sus5),
-            sus6: clampLikert(parsed.sus6),
-            sus7: clampLikert(parsed.sus7),
-            sus8: clampLikert(parsed.sus8),
-            sus9: clampLikert(parsed.sus9),
-            sus10: clampLikert(parsed.sus10),
+            sus1: validateLikertStrict(parsed.sus1, "sus1"),
+            sus2: validateLikertStrict(parsed.sus2, "sus2"),
+            sus3: validateLikertStrict(parsed.sus3, "sus3"),
+            sus4: validateLikertStrict(parsed.sus4, "sus4"),
+            sus5: validateLikertStrict(parsed.sus5, "sus5"),
+            sus6: validateLikertStrict(parsed.sus6, "sus6"),
+            sus7: validateLikertStrict(parsed.sus7, "sus7"),
+            sus8: validateLikertStrict(parsed.sus8, "sus8"),
+            sus9: validateLikertStrict(parsed.sus9, "sus9"),
+            sus10: validateLikertStrict(parsed.sus10, "sus10"),
           };
+
+          const taskConfidence = validateLikertStrict(parsed.taskConfidence, "taskConfidence");
 
           const computedSus = computeSusScore(susResponses);
 
           survey = {
-            realistic: clampLikert(parsed.realistic),
+            realistic: validateLikertStrict(parsed.realistic, "realistic"),
+            taskConfidence,
             ...susResponses,
             susScore: computedSus,
             toolHelpfulFeedback: String(
@@ -820,7 +828,7 @@ export async function collectPostTaskSurvey(
             ).trim(),
           };
 
-          if (writeCsv) {
+          if (writeCsv && survey) {
             writeSurveyResponsesCsv(run, survey);
           }
           break;
@@ -1676,6 +1684,7 @@ function appendToDataCsv(
     "NormalizedScore",
     "Accuracy",
     "Realistic",
+    "TaskConfidence",
     "SUS_Score",
     "SUS1",
     "SUS2",
@@ -1772,6 +1781,7 @@ function appendToDataCsv(
     score,
     accuracy,
     survey ? String(survey.realistic) : "",
+    survey ? String(survey.taskConfidence) : "",
     survey ? survey.susScore.toFixed(1) : "",
     survey ? String(survey.sus1) : "",
     survey ? String(survey.sus2) : "",

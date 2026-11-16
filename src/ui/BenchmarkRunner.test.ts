@@ -26,6 +26,7 @@ import { FuzzValueOrigin } from "../fuzzer/Types";
 
 const sampleSurveyJson = JSON.stringify({
   realistic: 5,
+  taskConfidence: 4,
   sus1: 4,
   sus2: 2,
   sus3: 5,
@@ -98,6 +99,7 @@ describe("BenchmarkRunner - collectPostTaskSurvey", () => {
 
     expect(result.survey).toBeDefined();
     expect(result.survey?.realistic).toBe(5);
+    expect(result.survey?.taskConfidence).toBe(4);
     expect(result.survey?.sus1).toBe(4);
     expect(result.survey?.susScore).toBeGreaterThan(0);
     expect(result.rawSurveyOutputs.length).toBe(1);
