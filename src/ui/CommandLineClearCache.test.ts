@@ -71,7 +71,7 @@ async function runCli(
     console.info = origConsoleInfo;
     console.error = origConsoleError;
   }
-}
+} // fn: runCli
 
 describe("CommandLine: --clear-compile-cache isolated", () => {
   let tmpDir: string;
