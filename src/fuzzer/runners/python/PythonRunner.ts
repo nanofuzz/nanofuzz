@@ -101,7 +101,8 @@ export class PythonRunner extends AbstractRunner {
   public async run(
     inputs: unknown[],
     timeout: number | undefined = 0,
-    validators: string[] = []
+    validators: string[] = [],
+    env?: Record<string, string>
   ): Promise<RunnerResult> {
     const thisSeq = this._seq++;
     if (this._runDepth++ > 0) {
@@ -125,6 +126,7 @@ export class PythonRunner extends AbstractRunner {
         typeHints,
         timeout: timeout ?? 0,
         validators: validators.length > 0 ? validators : undefined,
+        env,
         collect: {
           coverageData: this._coverageEnabled ? true : undefined,
           debugData: debugEnabled ? true : undefined,

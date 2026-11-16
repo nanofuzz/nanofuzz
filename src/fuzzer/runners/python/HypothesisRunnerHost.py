@@ -56,7 +56,7 @@ try:
     if _include_env:
         import json
         _raw_includes = json.loads(_include_env)
-        _proj_root = os.environ.get("NANOFUZZ_PROJECT_ROOT", os.getcwd())
+        _proj_root = os.path.realpath(os.environ.get("NANOFUZZ_PROJECT_ROOT", os.getcwd()))
         _include_files = [
             os.path.realpath(os.path.join(_proj_root, f)) if not os.path.isabs(f) else os.path.realpath(f)
             for f in _raw_includes
@@ -172,7 +172,7 @@ def _flush():
                 existing_data = unpack_payload(existing_file.read())
                 if isinstance(existing_data, dict):
                     existing_execs = existing_data.get("total_executions", 0)
-                    if existing_execs > run_data["total_executions"]:
+                    if existing_execs >= run_data["total_executions"]:
                         run_data["total_executions"] = existing_execs
                         run_data["pass_count"] = max(
                             run_data["pass_count"], existing_data.get(
@@ -192,11 +192,12 @@ def _flush():
                             )
                         if existing_data.get("stop_reason") not in (None, "completed"):
                             run_data["stop_reason"] = existing_data["stop_reason"]
-                        if not run_data.get("coverage") and existing_data.get(
-                            "coverage"
-                        ):
-                            run_data["coverage"] = existing_data.get(
-                                "coverage")
+
+                    existing_cov = existing_data.get("coverage")
+                    if existing_cov:
+                        curr_cov = run_data.get("coverage")
+                        if not curr_cov or (curr_cov.get("branches_covered", 0) <= existing_cov.get("branches_covered", 0)):
+                            run_data["coverage"] = existing_cov
         except Exception:
             pass
 
@@ -396,7 +397,10 @@ def _instrument_hypothesis_test(fn, test_name):
         try:
             res = original(*args, **kwargs)
             run_data["pass_count"] += 1
-            _record_step(is_fail=False)
+            if MAX_TESTS > 0 and run_data["total_executions"] >= MAX_TESTS:
+                _flush()
+            else:
+                _record_step(is_fail=False)
             return res
         except Exception as exc:
             # Exclude assumption failures (skips) from execution count and failure count

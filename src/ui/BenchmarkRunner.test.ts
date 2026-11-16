@@ -18,6 +18,8 @@ import {
   BenchmarkRunSpec,
   JurorRating,
 } from "./BenchmarkRunner";
+import { resolveFullProvenance } from "../fuzzer/FuzzerV3";
+import { FuzzValueOrigin } from "../fuzzer/Types";
 
 const sampleSurveyJson = JSON.stringify({
   realistic: 5,
@@ -571,9 +573,10 @@ describe("BenchmarkRunner - Timestamped Directories & Recovery", () => {
 
     expect(ctx.runDir).toBe(targetDir);
     expect(ctx.resultsDir).toBe(path.join(targetDir, "results"));
-    expect(ctx.reportsDir).toBe(targetDir);
+    expect(ctx.reportsDir).toBe(path.join(targetDir, "artifacts"));
     expect(ctx.telemetryDir).toBe(path.join(targetDir, "telemetry"));
-    expect(ctx.scoringSheetsDir).toBe(path.join(targetDir, "scoring_sheets"));
+    expect(ctx.scoringSheetsDir).toBe(path.join(targetDir, "artifacts"));
+    expect(ctx.artifactsDir).toBe(path.join(targetDir, "artifacts"));
     expect(ctx.partsDir).toBe(path.join(targetDir, "results", "parts"));
     expect(ctx.dataCsvPath).toBe(path.join(targetDir, "results", "data.csv"));
     expect(ctx.surveyResponsesCsvPath).toBe(path.join(targetDir, "results", "survey_responses.csv"));
@@ -719,17 +722,21 @@ describe("BenchmarkRunner - Timestamped Directories & Recovery", () => {
             })(),
           };
         } else if (turnCount === 2) {
-          // Turn 2: submit invariants
+          // Turn 2: submit invariants and create test harness
           return {
             text: (async function* () {})(),
             stream: (async function* () {
-              yield new vscode.LanguageModelToolCallPart("call-2", "nanofuzz_findBugs", {
+              yield new vscode.LanguageModelToolCallPart("call-2a", "create_file", {
+                filePath: "nanofuzz_harness_TreeValue.py",
+                content: "# test harness\ndef fuzz_TreeValue(): pass\n",
+              });
+              yield new vscode.LanguageModelToolCallPart("call-2b", "nanofuzz_findBugs", {
                 phase: "invariants_extracted",
                 statePayload: {
                   entrypoints: [
                     {
                       name: "fuzz_TreeValue",
-                      filePath: "harness.py",
+                      filePath: "nanofuzz_harness_TreeValue.py",
                       invariants: ["TreeValue == None raises TypeError"],
                     },
                   ],
@@ -813,7 +820,7 @@ describe("BenchmarkRunner - Timestamped Directories & Recovery", () => {
     expect(fs.statSync(reportPath).size).toBeGreaterThan(500);
 
     // Verify scoring sheet was written
-    const scoringSheet = path.join(testContext.scoringSheetsDir, "scoring_sheet_P99.md");
+    const scoringSheet = path.join(testContext.artifactsDir, "P99", "scoring_sheet_P99.md");
     expect(fs.existsSync(scoringSheet)).toBe(true);
     const sheetContent = fs.readFileSync(scoringSheet, "utf8");
     expect(sheetContent).not.toContain("Gemini slot");
@@ -842,5 +849,81 @@ describe("BenchmarkRunner - Timestamped Directories & Recovery", () => {
     expect(fs.existsSync(testContext.surveyResponsesCsvPath)).toBe(true);
     const surveyContent = fs.readFileSync(testContext.surveyResponsesCsvPath, "utf8");
     expect(surveyContent).toContain("P99");
+
+    // Verify participant artifacts were preserved
+    const savedHarness = path.join(
+      testContext.artifactsDir,
+      "P99",
+      "nanofuzz_harness_TreeValue.py"
+    );
+    expect(fs.existsSync(savedHarness)).toBe(true);
+    expect(fs.readFileSync(savedHarness, "utf8")).toContain("fuzz_TreeValue");
   });
 });
+
+describe("Dynamic Defect Elicitation & Recursive Provenance Resolution", () => {
+  it("resolves multi-step recursive provenance chains without modifying FuzzValueOrigin", () => {
+    const leaderboardProvenance = new Map<number, string>();
+
+    // 1. Seed originated by UserInputGenerator at tick 1
+    const userGenOrigin: FuzzValueOrigin = {
+      type: "generator",
+      generator: "UserInputGenerator",
+      fnName: "fuzz_TreeValueGenerator",
+    };
+    const userProv = resolveFullProvenance(userGenOrigin, leaderboardProvenance);
+    expect(userProv).toBe("CustomGen[fuzz_TreeValueGenerator]");
+    leaderboardProvenance.set(1, userProv);
+
+    // 2. Transformer applied to seed at tick 2
+    const transformerOrigin: FuzzValueOrigin = {
+      type: "transformer",
+      transformer: "fuzz_TreeValueTransformer",
+      basis: {
+        value: [],
+        source: userGenOrigin,
+      },
+    };
+    const transProv = resolveFullProvenance(transformerOrigin, leaderboardProvenance);
+    expect(transProv).toBe(
+      "CustomGen[fuzz_TreeValueGenerator]->Transformer[fuzz_TreeValueTransformer]"
+    );
+    leaderboardProvenance.set(2, transProv);
+
+    // 3. Mutation 1 applied to transformed input at tick 10 (pointing to tick 2)
+    const mut1Origin: FuzzValueOrigin = {
+      type: "generator",
+      generator: "MutationInputGenerator",
+      tick: 2,
+      steps: {
+        taken: 1,
+        max: 2,
+        mode: "mutate",
+        mutators: ["int_negate"],
+      },
+    };
+    const mut1Prov = resolveFullProvenance(mut1Origin, leaderboardProvenance);
+    expect(mut1Prov).toBe(
+      "CustomGen[fuzz_TreeValueGenerator]->Transformer[fuzz_TreeValueTransformer]->Mutation[int_negate]"
+    );
+    leaderboardProvenance.set(10, mut1Prov);
+
+    // 4. Mutation 2 applied to Mutation 1 at tick 25 (pointing to tick 10)
+    const mut2Origin: FuzzValueOrigin = {
+      type: "generator",
+      generator: "MutationInputGenerator",
+      tick: 10,
+      steps: {
+        taken: 1,
+        max: 2,
+        mode: "mutate",
+        mutators: ["byte_corrupt"],
+      },
+    };
+    const mut2Prov = resolveFullProvenance(mut2Origin, leaderboardProvenance);
+    expect(mut2Prov).toBe(
+      "CustomGen[fuzz_TreeValueGenerator]->Transformer[fuzz_TreeValueTransformer]->Mutation[int_negate]->Mutation[byte_corrupt]"
+    );
+  });
+});
+

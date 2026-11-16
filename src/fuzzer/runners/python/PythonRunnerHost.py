@@ -838,6 +838,10 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
 
     timeout_ms = input.get("timeout", 0)
 
+    extra_env = input.get("env")
+    if extra_env and isinstance(extra_env, dict):
+        os.environ.update(extra_env)
+
     if coverage_enabled:
         cov.get_data().erase()
         if not _tracer_running:

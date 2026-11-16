@@ -98,6 +98,7 @@ export class HypothesisRunner {
       NANOFUZZ_SUITE_TIMEOUT_SEC: String(suiteTimeoutSec),
       NANOFUZZ_MAX_FAILURES: String(this._options.maxFailures ?? 0),
       NANOFUZZ_MAX_TESTS: String(this._options.maxTests ?? 0),
+      NANOFUZZ_PROVENANCE: this._tool === "hypofuzz" ? "Hypofuzz" : "Hypothesis",
     };
 
     if (injectedFile) {

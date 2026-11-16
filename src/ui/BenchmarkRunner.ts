@@ -32,6 +32,7 @@ export interface BenchmarkRunContext {
   reportsDir: string;
   telemetryDir: string;
   scoringSheetsDir: string;
+  artifactsDir: string;
   partsDir: string;
   dataCsvPath: string;
   surveyResponsesCsvPath: string;
@@ -58,9 +59,10 @@ export function createRunContext(targetDir?: string): BenchmarkRunContext {
   return {
     runDir,
     resultsDir,
-    reportsDir: runDir,
+    reportsDir: path.join(runDir, "artifacts"),
     telemetryDir: path.join(runDir, "telemetry"),
-    scoringSheetsDir: path.join(runDir, "scoring_sheets"),
+    scoringSheetsDir: path.join(runDir, "artifacts"),
+    artifactsDir: path.join(runDir, "artifacts"),
     partsDir: path.join(resultsDir, "parts"),
     dataCsvPath: path.join(resultsDir, "data.csv"),
     surveyResponsesCsvPath: path.join(resultsDir, "survey_responses.csv"),
@@ -97,6 +99,10 @@ export function getTelemetryDir(): string {
 
 export function getScoringSheetsDir(): string {
   return activeRunContext.scoringSheetsDir;
+}
+
+export function getArtifactsDir(): string {
+  return activeRunContext.artifactsDir;
 }
 
 export function getPartsDir(): string {
@@ -344,7 +350,7 @@ export function generateBenchmarkSchedule(
       sequence: seq,
       participant,
       reportFilename,
-      reportPath: path.join(getReportsDir(), reportFilename),
+      reportPath: path.join(getArtifactsDir(), participant, reportFilename),
     };
   });
 }
@@ -388,11 +394,17 @@ export function loadCompletedParticipants(): Map<
       for (const item of parsed) {
         if (item && item.participant && item.status === "completed") {
           const reportPath = path.join(
-            getReportsDir(),
+            getArtifactsDir(),
+            item.participant,
+            item.reportFilename || `${item.participant}.md`
+          );
+          const legacyPath = path.join(
+            activeRunContext.runDir,
             item.reportFilename || `${item.participant}.md`
           );
           const hasReport =
-            fs.existsSync(reportPath) && fs.statSync(reportPath).size > 0;
+            (fs.existsSync(reportPath) && fs.statSync(reportPath).size > 0) ||
+            (fs.existsSync(legacyPath) && fs.statSync(legacyPath).size > 0);
           if (hasReport) {
             completed.set(item.participant, item);
           }
@@ -416,11 +428,17 @@ export function loadCompletedParticipants(): Map<
             (r.maxTests === 0 || r.maxTests === Number.MAX_SAFE_INTEGER)
         );
       const reportPath = path.join(
-        getReportsDir(),
+        getArtifactsDir(),
+        t.participant,
+        t.reportFilename || `${t.participant}.md`
+      );
+      const legacyPath = path.join(
+        activeRunContext.runDir,
         t.reportFilename || `${t.participant}.md`
       );
       const hasReport =
-        fs.existsSync(reportPath) && fs.statSync(reportPath).size > 0;
+        (fs.existsSync(reportPath) && fs.statSync(reportPath).size > 0) ||
+        (fs.existsSync(legacyPath) && fs.statSync(legacyPath).size > 0);
       const hasSurvey = Boolean(t.survey);
 
       if (
@@ -1429,7 +1447,7 @@ export async function evaluateBugsWithLlmJudge(
   return results;
 }
 
-function writeScoringSheet(
+export function writeScoringSheet(
   run: BenchmarkRunSpec,
   evalResults: BugEvaluationResult[],
   normalizedScore: string,
@@ -1588,8 +1606,10 @@ function writeScoringSheet(
   }
 
   lines.push("");
+  const participantArtifactsDir = path.join(getArtifactsDir(), run.participant);
+  fs.mkdirSync(participantArtifactsDir, { recursive: true });
   const sheetPath = path.join(
-    getScoringSheetsDir(),
+    participantArtifactsDir,
     `scoring_sheet_${run.participant}.md`
   );
   fs.writeFileSync(sheetPath, lines.join("\n"), "utf8");
@@ -1781,7 +1801,7 @@ function appendToDataCsv(
       `[DATA] Recorded ${run.participant} row in data.csv (Score: ${score}, SUS: ${survey ? survey.susScore.toFixed(1) : "N/A"})`
     );
 
-    // Write individual participant scoring sheet
+    // Write individual participant scoring sheet into artifacts/<participant>/
     writeScoringSheet(run, evalResults, score, durationSec, splits, survey);
   });
 } // fn: appendToDataCsv
@@ -1796,7 +1816,7 @@ export function initializeConcurrentWorktrees(
   fs.mkdirSync(WORKTREES_DIR, { recursive: true });
   fs.mkdirSync(getResultsDir(), { recursive: true });
   fs.mkdirSync(getTelemetryDir(), { recursive: true });
-  fs.mkdirSync(getScoringSheetsDir(), { recursive: true });
+  fs.mkdirSync(getArtifactsDir(), { recursive: true });
 
   execSync(`git -C "${SOURCE_REPO}" worktree prune`, { stdio: "pipe" });
 
@@ -1898,6 +1918,24 @@ export async function runSingleBenchmarkSession(
   // Clean lane worktree, reset session state, and apply settings
   cleanLane(laneId);
   clearExcludedCoverageFiles();
+
+  const elicitationLogPath = path.join(laneRepoPath, "elicited_bugs.json");
+  if (fs.existsSync(elicitationLogPath)) {
+    try {
+      fs.unlinkSync(elicitationLogPath);
+    } catch {
+      // Non-fatal
+    }
+  }
+
+  const scriptsDir = path.join(WORKSPACE_ROOT, "benchmark", "scripts");
+  const currentPyPath = process.env.PYTHONPATH
+    ? process.env.PYTHONPATH.split(path.delimiter)
+    : [];
+  if (!currentPyPath.includes(scriptsDir)) {
+    process.env.PYTHONPATH = [scriptsDir, ...currentPyPath].join(path.delimiter);
+  }
+  process.env.NANOFUZZ_DYNAMIC_BUG_ELICITATION = "1";
 
   // Load target coverage files for this task if defined in target_coverage_files.json
   try {
@@ -2085,7 +2123,7 @@ export async function runSingleBenchmarkSession(
 
   const recordedToolEvents: Array<{
     tool: string;
-    args: unknown;
+    args: Record<string, unknown>;
     timestamp: string;
     result?: string;
     shrinkSteps?: number;
@@ -2327,7 +2365,7 @@ export async function runSingleBenchmarkSession(
 
       const eventRecord: {
         tool: string;
-        args: unknown;
+        args: Record<string, unknown>;
         timestamp: string;
         result?: string;
         shrinkSteps?: number;
@@ -2527,9 +2565,10 @@ export async function runSingleBenchmarkSession(
         typeof toolInput.filePath === "string"
       ) {
         try {
-          const targetFile = isOwnReportFile
-            ? run.reportPath
-            : toolInput.filePath;
+          const rawPath = isOwnReportFile ? run.reportPath : toolInput.filePath;
+          const targetFile = path.isAbsolute(rawPath)
+            ? rawPath
+            : path.join(laneRepoPath, rawPath);
           const content =
             typeof toolInput.content === "string" ? toolInput.content : "";
           fs.mkdirSync(path.dirname(targetFile), { recursive: true });
@@ -2800,31 +2839,51 @@ export async function runSingleBenchmarkSession(
     contextualize,
   };
 
-  // Evaluate ground-truth bugs elicited & reported for this participant via Protocol B PoLL Jury (DISABLED)
+  // Evaluate ground-truth bugs elicited & reported for this participant
   const activeSession = sessionManager.getSession(sessionId, laneRepoPath);
   const fuzzRuns = activeSession?.fuzzRuns || [];
-  // const jury = await selectJuryModels(model);
-  // const evalResults = await evaluateBugsWithLlmJudge(
-  //   jury,
-  //   run.task,
-  //   reportContent,
-  //   fuzzRuns,
-  //   token
-  // );
+
+  const elicitedMap = new Map<
+    string,
+    { bug_id: string; elicited: number; generator: string; args: string[] }
+  >();
+
+  if (fs.existsSync(elicitationLogPath)) {
+    try {
+      const rawLines = fs.readFileSync(elicitationLogPath, "utf8").split("\n");
+      for (const line of rawLines) {
+        if (!line.trim()) continue;
+        const entry = JSON.parse(line);
+        if (entry.bug_id && !elicitedMap.has(entry.bug_id)) {
+          elicitedMap.set(entry.bug_id, entry);
+        }
+      }
+    } catch (err) {
+      log(`[ELICITATION] [WARN] Could not parse ${elicitationLogPath}: ${String(err)}`);
+    }
+  }
+
   const evalResults: BugEvaluationResult[] = (
     GROUND_TRUTH_BUGS[run.task] || []
-  ).map((bug) => ({
-    bug,
-    elicited: 0,
-    reported: 0,
-    generator: "None",
-    creditEarned: 0,
-    deduction: 0,
-    netScore: undefined,
-    evidenceQuote: "",
-    rationale: "Jury evaluation disabled.",
-    jurorScores: {},
-  }));
+  ).map((bug) => {
+    const hit = elicitedMap.get(bug.id);
+    const elicited = hit ? 1 : 0;
+    const generator = hit ? hit.generator : "None";
+    return {
+      bug,
+      elicited,
+      reported: 0,
+      generator,
+      creditEarned: elicited ? 1.0 : 0.0,
+      deduction: 0.0,
+      netScore: elicited ? 1.0 : 0.0,
+      evidenceQuote: hit && hit.args ? `Trigger args: ${hit.args.join(", ")}` : "",
+      rationale: hit
+        ? `[Dynamic Elicitation] Elicited via ${generator}`
+        : "No eliciting input generated.",
+      jurorScores: {},
+    };
+  });
 
   const totalTests = fuzzRuns.reduce((sum, r) => sum + r.totalTests, 0);
 
@@ -2934,6 +2993,43 @@ export async function runSingleBenchmarkSession(
     "utf8"
   );
   log(`${prefix} Saved telemetry: ${path.basename(telemetryJsonPath)}`);
+
+  // Preserve participant artifacts (harnesses, reproducer tests, etc.) before cleaning lane
+  const participantArtifactsDir = path.join(getArtifactsDir(), run.participant);
+  fs.mkdirSync(participantArtifactsDir, { recursive: true });
+  if (fs.existsSync(path.join(laneRepoPath, ".git"))) {
+    const status = execSync("git status --porcelain -uall", {
+      cwd: laneRepoPath,
+      encoding: "utf8",
+    });
+    for (const line of status.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      const relPath = trimmed.slice(3).trim();
+      if (relPath.endsWith(".md")) continue;
+      const srcPath = path.join(laneRepoPath, relPath);
+      const dstPath = path.join(participantArtifactsDir, relPath);
+      if (fs.existsSync(srcPath) && fs.statSync(srcPath).isFile()) {
+        fs.mkdirSync(path.dirname(dstPath), { recursive: true });
+        fs.copyFileSync(srcPath, dstPath);
+      }
+    }
+  } else if (fs.existsSync(laneRepoPath)) {
+    const entries = fs.readdirSync(laneRepoPath, {
+      recursive: true,
+      withFileTypes: true,
+    });
+    for (const entry of entries) {
+      if (entry.isFile() && !entry.name.endsWith(".md")) {
+        const dir = entry.parentPath ?? laneRepoPath;
+        const fullPath = path.join(dir, entry.name);
+        const relPath = path.relative(laneRepoPath, fullPath);
+        const dstPath = path.join(participantArtifactsDir, relPath);
+        fs.mkdirSync(path.dirname(dstPath), { recursive: true });
+        fs.copyFileSync(fullPath, dstPath);
+      }
+    }
+  }
 
   // Clean target lane worktree
   log(`${prefix} Cleaning lane ${laneId} worktree...`);
@@ -3344,12 +3440,14 @@ export function runAnalysisPipeline(
         ? analysisVenvPython
         : "python3";
 
+  /*
   const scoreAccuracyScript = path.join(
     WORKSPACE_ROOT,
     "benchmark",
     "scripts",
     "score_accuracy.py"
   );
+  */
   const analyzeQuartonScript = path.join(
     WORKSPACE_ROOT,
     "benchmark",
@@ -3373,7 +3471,8 @@ export function runAnalysisPipeline(
       : process.env.PYTHONPATH,
   };
 
-  // Run dual-rater accuracy scoring engine
+  // Dual-rater accuracy scoring engine (disabled: LLM jury removed)
+  /*
   if (fs.existsSync(scoreAccuracyScript)) {
     log(
       "[ANALYSIS] Running dual-rater accuracy scoring engine (score_accuracy.py)..."
@@ -3396,6 +3495,7 @@ export function runAnalysisPipeline(
       log(`  [ANALYSIS] [WARN] Accuracy scoring engine error: ${String(err)}`);
     }
   }
+  */
 
   // Run QuartoN dissertation analysis pipeline (Table 5.3, 5.4, 5.5, Figure 5.4)
   if (fs.existsSync(analyzeQuartonScript)) {
@@ -3408,7 +3508,7 @@ export function runAnalysisPipeline(
         fs.mkdirSync(partsDir, { recursive: true });
       }
       const stdout = execSync(
-        `"${pythonBin}" "${analyzeQuartonScript}" --data "${runContext.dataCsvPath}" --survey "${runContext.surveyResponsesCsvPath}" --local-parts-dir "${partsDir}"`,
+        `"${pythonBin}" "${analyzeQuartonScript}" --data "${runContext.dataCsvPath}" --survey "${runContext.surveyResponsesCsvPath}" --parts-dir "${partsDir}"`,
         {
           encoding: "utf8",
           stdio: ["ignore", "pipe", "pipe"],

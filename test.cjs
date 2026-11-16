@@ -344,8 +344,9 @@ async function main() {
     totalSpecsRun += res.specs;
     totalFailures += res.failures;
     const statusTag = res.code === 0 ? "✓ PASS" : "❌ FAIL";
+    const progress = `[${completedCount}/${totalFiles}]`;
     console.log(
-      `[${completedCount}/${totalFiles}] ${statusTag} ${clearCacheFile} (${(res.duration / 1000).toFixed(2)}s)`
+      `${progress.padStart(7)} ${statusTag} ${clearCacheFile} (${res.durationSec}s)`
     );
     if (res.code !== 0) {
       console.log(
