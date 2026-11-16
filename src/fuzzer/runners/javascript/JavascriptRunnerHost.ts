@@ -122,12 +122,20 @@ async function main() {
   startHeartbeat(250);
   try {
     if (initialFilename && initialFnName) {
-      try {
-        getTargetFunction(initialFilename, initialFnName);
-      } catch {
-        // Ignore if initial load fails; loop will handle per-request errors
-      }
+      getTargetFunction(initialFilename, initialFnName);
     }
+  } catch (err: unknown) {
+    stopHeartbeat();
+    sendMsg({
+      tag: "error",
+      name: isError(err) ? err.name : "ModuleLoadError",
+      message: isError(err) ? err.message : String(err),
+      stack: isError(err) ? err.stack : undefined,
+      source: "host",
+      seq: -1,
+    });
+    // Park until parent process reads error and kills the host (Option A)
+    await new Promise<void>(() => {});
   } finally {
     stopHeartbeat();
   }
