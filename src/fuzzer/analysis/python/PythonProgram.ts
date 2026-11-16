@@ -829,8 +829,28 @@ export class PythonProgram extends AbstractProgram {
               }
               return child;
             });
+          // `Optional[T]` = `T | None`
+          //
+          // Note: T is not checked for None, either at the top level
+          // (`Optional[None]`) or nested (`Optional[int | None]`); the extra
+          // None arm is harmless.
           case "Optional":
-            return args.map((c) => this._getTypeRefFromAstNode(c));
+            return [
+              ...args.map((c) => this._getTypeRefFromAstNode(c)),
+              {
+                module: this._filename,
+                dims: 0,
+                optional: false,
+                isExported: true,
+                type: {
+                  dims: 0,
+                  type: ArgTag.LITERAL,
+                  children: [],
+                  value: undefined,
+                  resolved: true,
+                },
+              },
+            ];
           case "tuple":
           case "Tuple": {
             if (
