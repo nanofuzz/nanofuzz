@@ -1518,57 +1518,144 @@ export async function synthesizeTestSuite(
   }
 } // fn: synthesizeTestSuite
 
-// Set of files explicitly excluded from evaluated coverage metrics (e.g. synthetic test harnesses created by agents)
-const _excludedCoverageFiles = new Set<string>();
+// Scoped target coverage files and excluded files by root directory to prevent cross-lane race conditions
+const _targetCoverageFilesByRoot = new Map<string, Set<string>>();
+const _excludedCoverageFilesByRoot = new Map<string, Set<string>>();
 
-// Optional whitelist of target files to evaluate coverage on (if configured for benchmark task)
-let _targetCoverageFiles: Set<string> | undefined = undefined;
+const _defaultTargetCoverageFiles = new Set<string>();
+const _defaultExcludedCoverageFiles = new Set<string>();
+
+function findRootForPath(p: string): string {
+  let curr = path.resolve(p);
+  try {
+    if (fs.existsSync(curr) && fs.statSync(curr).isFile()) {
+      curr = path.dirname(curr);
+    }
+  } catch {
+    curr = path.dirname(curr);
+  }
+  while (curr !== path.dirname(curr)) {
+    if (
+      fs.existsSync(path.join(curr, ".git")) ||
+      fs.existsSync(path.join(curr, ".venv")) ||
+      fs.existsSync(path.join(curr, "pyproject.toml"))
+    ) {
+      return curr;
+    }
+    curr = path.dirname(curr);
+  }
+  return path.resolve(p);
+}
 
 /**
  * Sets an explicit whitelist of target files to evaluate coverage on.
  * When set, only files in this list will be counted in coverage metrics.
  *
  * @param filePaths array or set of allowed target file paths
+ * @param rootPath optional project root or lane worktree path to scope targets
  */
 export function setTargetCoverageFiles(
-  filePaths?: string[] | Set<string>
+  filePaths?: string[] | Set<string>,
+  rootPath?: string
 ): void {
-  if (!filePaths) {
-    _targetCoverageFiles = undefined;
+  const arr = filePaths ? Array.from(filePaths) : [];
+  const root = rootPath
+    ? path.resolve(rootPath)
+    : arr.length > 0
+      ? findRootForPath(arr[0])
+      : undefined;
+
+  if (!filePaths || arr.length === 0) {
+    if (root) {
+      _targetCoverageFilesByRoot.delete(root);
+    } else {
+      _targetCoverageFilesByRoot.clear();
+      _defaultTargetCoverageFiles.clear();
+    }
     return;
   }
-  _targetCoverageFiles = new Set<string>();
-  for (const fp of filePaths) {
-    _targetCoverageFiles.add(path.resolve(fp));
+
+  const set = new Set<string>();
+  for (const fp of arr) {
+    set.add(path.resolve(fp));
+  }
+
+  if (root) {
+    _targetCoverageFilesByRoot.set(root, set);
+  }
+  _defaultTargetCoverageFiles.clear();
+  for (const fp of set) {
+    _defaultTargetCoverageFiles.add(fp);
   }
 } // fn: setTargetCoverageFiles
 
 /**
  * Returns the currently active whitelist of target coverage files, if any.
+ *
+ * @param contextPath optional file or directory path to look up lane-scoped targets
  */
-export function getTargetCoverageFiles(): Set<string> | undefined {
-  return _targetCoverageFiles;
+export function getTargetCoverageFiles(
+  contextPath?: string
+): Set<string> | undefined {
+  if (contextPath) {
+    const root = findRootForPath(contextPath);
+    const scoped = _targetCoverageFilesByRoot.get(root);
+    if (scoped && scoped.size > 0) {
+      return scoped;
+    }
+  }
+  return _defaultTargetCoverageFiles.size > 0
+    ? _defaultTargetCoverageFiles
+    : undefined;
 } // fn: getTargetCoverageFiles
 
 /**
  * Registers one or more file paths to be explicitly excluded from coverage metrics evaluation.
  *
  * @param filePaths absolute or relative file paths to exclude
+ * @param rootPath optional project root or lane worktree path to scope exclusions
  */
 export function registerExcludedCoverageFiles(
-  filePaths: string[] | Set<string>
+  filePaths: string[] | Set<string>,
+  rootPath?: string
 ): void {
-  for (const fp of filePaths) {
-    _excludedCoverageFiles.add(path.resolve(fp));
+  const arr = Array.from(filePaths);
+  const root = rootPath
+    ? path.resolve(rootPath)
+    : arr.length > 0
+      ? findRootForPath(arr[0])
+      : undefined;
+
+  for (const fp of arr) {
+    const resolved = path.resolve(fp);
+    _defaultExcludedCoverageFiles.add(resolved);
+    if (root) {
+      let scoped = _excludedCoverageFilesByRoot.get(root);
+      if (!scoped) {
+        scoped = new Set<string>();
+        _excludedCoverageFilesByRoot.set(root, scoped);
+      }
+      scoped.add(resolved);
+    }
   }
 } // fn: registerExcludedCoverageFiles
 
 /**
  * Clears the registry of excluded coverage files.
+ *
+ * @param rootPath optional project root or lane worktree path to selectively clear
  */
-export function clearExcludedCoverageFiles(): void {
-  _excludedCoverageFiles.clear();
-  _targetCoverageFiles = undefined;
+export function clearExcludedCoverageFiles(rootPath?: string): void {
+  if (rootPath) {
+    const root = path.resolve(rootPath);
+    _targetCoverageFilesByRoot.delete(root);
+    _excludedCoverageFilesByRoot.delete(root);
+  } else {
+    _defaultExcludedCoverageFiles.clear();
+    _defaultTargetCoverageFiles.clear();
+    _targetCoverageFilesByRoot.clear();
+    _excludedCoverageFilesByRoot.clear();
+  }
 } // fn: clearExcludedCoverageFiles
 
 /**
@@ -1586,13 +1673,23 @@ export async function getCoverageSummary(
     const covStats: CodeCoverageMeasureStats = await coverageFn();
 
     // Exclude explicitly registered created files (e.g. test harnesses)
-    // and test fixtures (conftest.py), and restrict to _targetCoverageFiles if configured.
+    // and test fixtures (conftest.py), and restrict to target coverage files if configured.
     const nonHarnessFiles = (covStats.files || []).filter((f) => {
       const resolved = path.resolve(f.path);
-      if (_targetCoverageFiles && !_targetCoverageFiles.has(resolved)) {
+      const root = findRootForPath(resolved);
+      const targetWhitelist =
+        _targetCoverageFilesByRoot.get(root) ??
+        (_defaultTargetCoverageFiles.size > 0
+          ? _defaultTargetCoverageFiles
+          : undefined);
+
+      if (targetWhitelist && !targetWhitelist.has(resolved)) {
         return false;
       }
-      if (_excludedCoverageFiles.has(resolved)) {
+
+      const exclusions =
+        _excludedCoverageFilesByRoot.get(root) ?? _defaultExcludedCoverageFiles;
+      if (exclusions && exclusions.has(resolved)) {
         return false;
       }
       if (path.basename(resolved) === "conftest.py") {

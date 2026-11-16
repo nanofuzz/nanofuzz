@@ -1866,6 +1866,7 @@ export function cleanLane(laneId: number): void {
 
   // De-reference cached raw fuzz results to allow V8 garbage collection
   clearCachedRawResultsForPath(wtPath);
+  clearExcludedCoverageFiles(wtPath);
 } // fn: cleanLane
 
 export function cleanTargetRepo(): void {
@@ -1917,7 +1918,6 @@ export async function runSingleBenchmarkSession(
 
   // Clean lane worktree, reset session state, and apply settings
   cleanLane(laneId);
-  clearExcludedCoverageFiles();
 
   const elicitationLogPath = path.join(laneRepoPath, "elicited_bugs.json");
   if (fs.existsSync(elicitationLogPath)) {
@@ -1944,7 +1944,7 @@ export async function runSingleBenchmarkSession(
       const mapData = JSON.parse(fs.readFileSync(mapFile, "utf8"));
       if (Array.isArray(mapData[run.task])) {
         const absTargets = mapData[run.task].map((rel: string) => path.join(laneRepoPath, rel));
-        setTargetCoverageFiles(absTargets);
+        setTargetCoverageFiles(absTargets, laneRepoPath);
       }
     }
   } catch {
@@ -2573,7 +2573,7 @@ export async function runSingleBenchmarkSession(
             typeof toolInput.content === "string" ? toolInput.content : "";
           fs.mkdirSync(path.dirname(targetFile), { recursive: true });
           fs.writeFileSync(targetFile, content, "utf8");
-          registerExcludedCoverageFiles([targetFile]);
+          registerExcludedCoverageFiles([targetFile], laneRepoPath);
           resultText = `File created successfully at ${targetFile}`;
           toolSucceeded = true;
         } catch (err: unknown) {
@@ -3338,17 +3338,52 @@ export async function recoverBenchmarkMatrix(
   await runBenchmarkMatrix(replicates, concurrency, unfinishedDir);
 } // fn: recoverBenchmarkMatrix
 
-export async function runBenchmarkSmoketest(): Promise<void> {
+export function generateSmoketestSchedule(): BenchmarkRunSpec[] {
+  const treatments: ("nanofuzz" | "hypothesis" | "hypofuzz")[] = [
+    "nanofuzz",
+    "hypothesis",
+    "hypofuzz",
+  ];
+  const puts = BENCHMARK_TASKS;
+  const runs: Omit<BenchmarkRunSpec, "sequence" | "participant">[] = [];
+
+  for (const eng of treatments) {
+    for (const task of puts) {
+      runs.push({
+        replicate: 1,
+        task,
+        engine: eng,
+        source: "tests",
+        targetScope: [task],
+        reportFilename: "",
+        reportPath: "",
+      });
+    }
+  }
+
+  return runs.map((r, idx) => {
+    const seq = idx + 1;
+    const participant = `P${String(seq).padStart(2, "0")}`;
+    const reportFilename = `${participant}.md`;
+    return {
+      ...r,
+      sequence: seq,
+      participant,
+      reportFilename,
+      reportPath: path.join(getArtifactsDir(), participant, reportFilename),
+    };
+  });
+}
+
+export async function runBenchmarkSmoketest(
+  concurrency: number = Math.max(4, Math.min(CONCURRENCY_LANES, 5))
+): Promise<void> {
   activeRunContext = createRunContext();
-  initializeConcurrentWorktrees(1);
+  initializeConcurrentWorktrees(concurrency);
   updateLatestSymlink(activeRunContext.resultsDir);
   mirrorLatestResultsToRoot(activeRunContext);
 
-  // Validate that jury models are fully resolvable before starting the smoketest
-  // await validateJuryModels();
-
-  const schedule = generateBenchmarkSchedule(1);
-  const smoketestRun = schedule[0];
+  const schedule = generateSmoketestSchedule();
 
   if (activeCts) {
     activeCts.cancel();
@@ -3357,59 +3392,126 @@ export async function runBenchmarkSmoketest(): Promise<void> {
   activeCts = new vscode.CancellationTokenSource();
   const token = activeCts.token;
 
-  dashboardTracker.startMatrix(1, []);
+  const totalRuns = schedule.length;
+  dashboardTracker.startMatrix(totalRuns, []);
   getOutput().show(true);
 
   log(
     "================================================================================"
   );
   log(
-    `[SMOKETEST] Starting Live 1-Task Benchmark Smoketest: ${smoketestRun.participant} (${smoketestRun.task})`
+    `[SMOKETEST] Starting 15-Run Benchmark Smoketest: 3 Treatments x 5 PUTs (${concurrency} concurrency lanes)`
   );
   log(`Results Directory: ${getResultsDir()}`);
   log(
     "================================================================================\n"
   );
 
+  let nextQueueIndex = 0;
+  const results: {
+    participant: string;
+    lane: number;
+    task: string;
+    engine: string;
+    source: string;
+    replicate: number;
+    durationSec: number;
+    success: boolean;
+  }[] = [];
+
+  async function laneWorker(laneId: number): Promise<void> {
+    while (nextQueueIndex < schedule.length) {
+      if (token.isCancellationRequested) break;
+      const runIndex = nextQueueIndex++;
+      if (runIndex >= schedule.length) break;
+      const run = schedule[runIndex];
+
+      const sessionStart = Date.now();
+      try {
+        const res = await runSingleBenchmarkSession(
+          run,
+          totalRuns,
+          laneId,
+          token
+        );
+        results.push({
+          participant: run.participant,
+          lane: laneId,
+          task: run.task,
+          engine: run.engine,
+          source: run.source,
+          replicate: run.replicate,
+          durationSec: res.durationSec,
+          success: res.success,
+        });
+      } catch (err: unknown) {
+        const crashDurationSec = Math.floor((Date.now() - sessionStart) / 1000);
+        log(
+          `[FAILED] [Lane ${laneId}] Participant ${run.participant} crashed after ${crashDurationSec}s with error: ${String(err)}`
+        );
+        cleanLane(laneId);
+        dashboardTracker.sessionFinished(laneId, {
+          participant: run.participant,
+          lane: laneId,
+          task: run.task,
+          engine: run.engine,
+          source: run.source,
+          replicate: run.replicate,
+          durationSec: crashDurationSec,
+          success: false,
+          error: String(err),
+        });
+        results.push({
+          participant: run.participant,
+          lane: laneId,
+          task: run.task,
+          engine: run.engine,
+          source: run.source,
+          replicate: run.replicate,
+          durationSec: crashDurationSec,
+          success: false,
+        });
+      }
+    }
+  }
+
   try {
-    const res = await runSingleBenchmarkSession(smoketestRun, 1, 1, token);
-    const statusStr = res.incomplete
-      ? "INCOMPLETE"
-      : res.success
-        ? "PASS"
-        : "FAIL";
-    log(
-      `[SMOKETEST] Finished with status: ${statusStr} (Duration: ${res.durationSec}s)`
-    );
-    if (res.success) {
-      if (
-        vscode.window &&
-        typeof vscode.window.showInformationMessage === "function"
-      ) {
-        vscode.window.showInformationMessage(
-          `Benchmark smoketest completed successfully for ${smoketestRun.participant} (${smoketestRun.task})!`
-        );
-      }
-    } else {
-      if (
-        vscode.window &&
-        typeof vscode.window.showWarningMessage === "function"
-      ) {
-        vscode.window.showWarningMessage(
-          `Benchmark smoketest ended with status: ${statusStr}. Check output channel.`
-        );
-      }
+    const laneWorkers: Promise<void>[] = [];
+    for (let l = 1; l <= concurrency; l++) {
+      laneWorkers.push(laneWorker(l));
     }
-  } catch (err: unknown) {
-    log(`[SMOKETEST] [ERROR] Smoketest failed with error: ${String(err)}`);
-    if (vscode.window && typeof vscode.window.showErrorMessage === "function") {
-      vscode.window.showErrorMessage(
-        `Benchmark smoketest failed: ${String(err)}`
-      );
-    }
+    await Promise.all(laneWorkers);
   } finally {
     dashboardTracker.dispose();
+    if (activeCts?.token === token) {
+      activeCts.dispose();
+      activeCts = undefined;
+    }
   }
+
+  // Print final summary table
+  results.sort((a, b) => a.participant.localeCompare(b.participant));
+  log(
+    "\n================================================================================"
+  );
+  log("SMOKETEST COMPLETE: SUMMARY OF ALL PARTICIPANTS");
+  log(
+    "================================================================================"
+  );
+  log("| ID | Lane | Task | Engine | Source | Duration | Status |");
+  log("| :-: | :--: | :--- | :----: | :----: | :------: | :----: |");
+  for (const r of results) {
+    const dur = `${Math.floor(r.durationSec / 60)}m ${r.durationSec % 60}s`;
+    const st = r.success ? "[PASS]" : "[FAIL]";
+    log(
+      `| ${r.participant} | Lane ${r.lane} | ${r.task} | ${r.engine} | ${r.source} | ${dur} | ${st} |`
+    );
+  }
+  log(
+    "================================================================================\n"
+  );
+
+  runAnalysisPipeline(activeRunContext);
 } // fn: runBenchmarkSmoketest
 
 export function runAnalysisPipeline(

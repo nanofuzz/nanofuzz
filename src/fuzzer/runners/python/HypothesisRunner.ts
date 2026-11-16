@@ -144,7 +144,7 @@ export class HypothesisRunner {
     env.NANOFUZZ_PROJECT_ROOT = projectRoot;
 
     // Pass target coverage files to HypothesisRunnerHost if configured in Agent session
-    const activeTargets = getTargetCoverageFiles();
+    const activeTargets = getTargetCoverageFiles(projectRoot);
     if (activeTargets && activeTargets.size > 0) {
       env.NANOFUZZ_COVERAGE_INCLUDE_FILES = JSON.stringify(Array.from(activeTargets));
     }
