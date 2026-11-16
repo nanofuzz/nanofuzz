@@ -17,6 +17,7 @@ import {
   setActiveRunContext,
   BenchmarkRunSpec,
   JurorRating,
+  GROUND_TRUTH_BUGS,
 } from "./BenchmarkRunner";
 import { resolveFullProvenance } from "../fuzzer/FuzzerV3";
 import { FuzzValueOrigin } from "../fuzzer/Types";
@@ -351,6 +352,19 @@ describe("BenchmarkRunner - Protocol B PoLL Jury (Verga et al., 2024)", () => {
   });
 
   it("evaluates bugs with mock 3-model jury panel in evaluateBugsWithLlmJudge", async () => {
+    const rubricPath = path.resolve(
+      process.cwd(),
+      "benchmark",
+      "scripts",
+      "ground_truth_rubric.json"
+    );
+    if (!fs.existsSync(rubricPath) || !GROUND_TRUTH_BUGS["TreeValue"]?.length) {
+      pending(
+        "Skipping benchmark evaluation test: benchmark rubric not present in environment."
+      );
+      return;
+    }
+
     function createJudgeModel(netScore: number): vscode.LanguageModelChat {
       const jsonResponse = JSON.stringify({
         bug_id: "TV_EQ_NONE",

@@ -235,6 +235,24 @@ except Exception:
 atexit.register(_flush)
 
 
+def _get_fuzz_database():
+    """Returns a valid Hypothesis example database to ensure hypofuzz can attach its listeners."""
+    try:
+        from hypothesis import settings
+        from hypothesis.database import DirectoryBasedExampleDatabase
+        import tempfile
+        from pathlib import Path
+
+        db = getattr(settings.default, "database", None)
+        if db is None:
+            db_dir = Path(tempfile.gettempdir()) / "nanofuzz_hypothesis_db"
+            db_dir.mkdir(parents=True, exist_ok=True)
+            db = DirectoryBasedExampleDatabase(db_dir)
+        return db
+    except Exception:
+        return None
+
+
 def pytest_configure(config):
     """Configures the global Hypothesis settings profile on pytest startup.
 
@@ -242,19 +260,26 @@ def pytest_configure(config):
     shrinking, and suppresses all health checks so unconstrained generators do not abort.
     Configures max_examples dynamically based on NANOFUZZ_MAX_TESTS (or 10,000,000 for
     continuous exploration mode) so tests do not exit prematurely after Hypothesis's default 100.
+    Explicitly forces derandomize=False and provides a database to prevent CI-environment
+    profiles from skipping hypofuzz test collection.
     """
     from hypothesis import settings, Phase, HealthCheck
 
     max_examples = MAX_TESTS if MAX_TESTS > 0 else 10_000_000
+    db = _get_fuzz_database()
 
-    settings.register_profile(
-        "nanofuzz_pbt",
-        phases=(Phase.explicit, Phase.reuse, Phase.generate),
-        suppress_health_check=[
+    profile_kwargs = {
+        "phases": (Phase.explicit, Phase.reuse, Phase.generate),
+        "suppress_health_check": [
             h for h in HealthCheck if h != HealthCheck.nested_given],
-        deadline=None,
-        max_examples=max_examples,
-    )
+        "deadline": None,
+        "max_examples": max_examples,
+        "derandomize": False,
+    }
+    if db is not None:
+        profile_kwargs["database"] = db
+
+    settings.register_profile("nanofuzz_pbt", **profile_kwargs)
     settings.load_profile("nanofuzz_pbt")
 
 
@@ -290,14 +315,23 @@ def pytest_collection_modifyitems(session, config, items):
     for item in items:
         fn = getattr(item, "obj", None)
         if fn and hasattr(fn, "hypothesis") and hasattr(fn.hypothesis, "inner_test"):
-            # Strip HealthCheck.nested_given if present so hypofuzz collection does not reject the target
+            # Strip HealthCheck.nested_given if present so hypofuzz collection does not reject the target,
+            # and ensure derandomize=False and a valid database so hypofuzz does not reject targets in CI
             if hasattr(fn, "_hypothesis_internal_use_settings"):
                 fn_settings = fn._hypothesis_internal_use_settings
+                updates = {}
                 if hasattr(fn_settings, "suppress_health_check") and HealthCheck.nested_given in fn_settings.suppress_health_check:
-                    filtered = tuple(
+                    updates["suppress_health_check"] = tuple(
                         h for h in fn_settings.suppress_health_check if h != HealthCheck.nested_given)
+                if getattr(fn_settings, "derandomize", False):
+                    updates["derandomize"] = False
+                if getattr(fn_settings, "database", None) is None:
+                    db = _get_fuzz_database()
+                    if db is not None:
+                        updates["database"] = db
+                if updates:
                     fn._hypothesis_internal_use_settings = settings(
-                        fn_settings, suppress_health_check=filtered)
+                        fn_settings, **updates)
             for ex in injected_examples:
                 example(**ex)(fn)
             _instrument_hypothesis_test(fn, item.name)

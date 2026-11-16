@@ -12,9 +12,17 @@ describe("fuzzer/runners/python/HypothesisRunner", () => {
   });
 
   beforeEach(() => {
-    const venvPython = path.join(process.cwd(), ".venv", "bin", "python3.13");
-    if (fs.existsSync(venvPython)) {
-      Config.override("python.defaultInterpreterPath", venvPython);
+    const candidates = [
+      path.join(process.cwd(), ".venv", "bin", "python3.13"),
+      path.join(process.cwd(), ".venv", "bin", "python3"),
+      path.join(process.cwd(), ".venv", "bin", "python"),
+      path.join(process.cwd(), ".venv", "Scripts", "python.exe"),
+    ];
+    for (const cand of candidates) {
+      if (fs.existsSync(cand)) {
+        Config.override("python.defaultInterpreterPath", cand);
+        break;
+      }
     }
   });
 
