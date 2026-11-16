@@ -18,6 +18,7 @@ import { ArgDefGenerator } from "../analysis/ArgDefGenerator";
 import { ArgDefValidator } from "../analysis/ArgDefValidator";
 import seedrandom from "seedrandom";
 import * as Config from "../../Config";
+import { FuzzConfigStore } from "../FuzzConfigStore";
 
 describe("src/fuzzer/generators/AiInputGenerator: ", () => {
   it("dimsUnique schema directives", () => {
@@ -812,6 +813,100 @@ describe("src/fuzzer/generators/AiInputGenerator: ", () => {
     }
   });
 
+  it("getDiagnostics: disabled for short runs (<3s)", () => {
+    const fnDef = FunctionDef.fromFunctionRef({
+      module: "test.ts",
+      name: "testFn",
+      src: "function testFn(x: number) {}",
+      lang: "typescript",
+      startOffset: 0,
+      endOffset: 30,
+      isExported: true,
+      isVoid: true,
+      args: [],
+    });
+
+    const gen = new AiInputGenerator.AiInputGenerator(
+      fnDef,
+      "seed",
+      new Map(),
+      "function testFn(x: number) {}"
+    );
+
+    const fuzzOptions = {
+      ...FuzzConfigStore.getDefaultFuzzOptions(),
+      suiteTimeout: 2000,
+      maxTests: 1000,
+    };
+    gen.onRunStart(true, [], undefined, fuzzOptions);
+    expect(gen.nextable()).toBe(false);
+    expect(gen.getDiagnostics()).toEqual(["disabled for short runs (<3s)"]);
+  });
+
+  it("getDiagnostics: disabled for short runs (<1k tests)", () => {
+    const fnDef = FunctionDef.fromFunctionRef({
+      module: "test.ts",
+      name: "testFn",
+      src: "function testFn(x: number) {}",
+      lang: "typescript",
+      startOffset: 0,
+      endOffset: 30,
+      isExported: true,
+      isVoid: true,
+      args: [],
+    });
+
+    const gen = new AiInputGenerator.AiInputGenerator(
+      fnDef,
+      "seed",
+      new Map(),
+      "function testFn(x: number) {}"
+    );
+
+    const fuzzOptions = {
+      ...FuzzConfigStore.getDefaultFuzzOptions(),
+      suiteTimeout: 5000,
+      maxTests: 500,
+    };
+    gen.onRunStart(true, [], undefined, fuzzOptions);
+    expect(gen.nextable()).toBe(false);
+    expect(gen.getDiagnostics()).toEqual([
+      "disabled for short runs (<1k tests)",
+    ]);
+  });
+
+  it("getDiagnostics: disabled for short runs (<3s, <1k tests)", () => {
+    const fnDef = FunctionDef.fromFunctionRef({
+      module: "test.ts",
+      name: "testFn",
+      src: "function testFn(x: number) {}",
+      lang: "typescript",
+      startOffset: 0,
+      endOffset: 30,
+      isExported: true,
+      isVoid: true,
+      args: [],
+    });
+
+    const gen = new AiInputGenerator.AiInputGenerator(
+      fnDef,
+      "seed",
+      new Map(),
+      "function testFn(x: number) {}"
+    );
+
+    const fuzzOptions = {
+      ...FuzzConfigStore.getDefaultFuzzOptions(),
+      suiteTimeout: 1500,
+      maxTests: 200,
+    };
+    gen.onRunStart(true, [], undefined, fuzzOptions);
+    expect(gen.nextable()).toBe(false);
+    expect(gen.getDiagnostics()).toEqual([
+      "disabled for short runs (<3s, <1k tests)",
+    ]);
+  });
+
   it("nextable: 'now' when queue is non-empty", () => {
     class TestableAiInputGenerator extends AiInputGenerator.AiInputGenerator {
       public populateInputQueue(): void {
@@ -873,8 +968,110 @@ describe("src/fuzzer/generators/AiInputGenerator: ", () => {
       "function testFn(x: number) {}"
     );
 
-    gen.onRunStart(false); // Unconfigured / inactive
+    const dftOptions = FuzzConfigStore.getDefaultFuzzOptions();
+    gen.onRunStart(false, [], undefined, dftOptions); // Unconfigured / inactive
     expect<unknown>(gen.nextable()).toBe(false);
+  });
+
+  it("policy: defaults to eager and reads from config", () => {
+    const fnDef = FunctionDef.fromFunctionRef({
+      module: "test.ts",
+      name: "testFn",
+      src: "function testFn(x: number) {}",
+      lang: "typescript",
+      startOffset: 0,
+      endOffset: 30,
+      isExported: true,
+      isVoid: true,
+      args: [],
+    });
+
+    const gen = new AiInputGenerator.AiInputGenerator(
+      fnDef,
+      "seed",
+      new Map(),
+      "function testFn(x: number) {}"
+    );
+
+    expect(gen.policy).toBe("eager");
+
+    const dftOptions = FuzzConfigStore.getDefaultFuzzOptions();
+    Config.override("nanofuzz.ai.policy", "seed");
+    try {
+      gen.onRunStart(false, [], undefined, dftOptions);
+      expect(gen.policy).toBe("seed");
+    } finally {
+      Config.clearOverrides();
+    }
+  });
+
+  it("policy seed: drains seed batch and ceases further requests", () => {
+    let getMoreCalls = 0;
+    class TestableSeedAiGenerator extends AiInputGenerator.AiInputGenerator {
+      public populate(items: number): void {
+        this._stats.calls.sent = 1;
+        this._stats.calls.valid = 1;
+        this._inputQueue = Array.from({ length: items }, (_, i) => ({
+          tick: i + 1,
+          value: [{ value: i, tag: "ArgValueTypeWrapped" }],
+          source: {
+            type: "generator",
+            generator: "AiInputGenerator",
+            model: "test",
+          },
+        }));
+      }
+      protected override _getMoreInputs(): void {
+        getMoreCalls++;
+        super._getMoreInputs();
+      }
+    }
+
+    const fnDef = FunctionDef.fromFunctionRef({
+      module: "test.ts",
+      name: "testFn",
+      src: "function testFn(x: number) {}",
+      lang: "typescript",
+      startOffset: 0,
+      endOffset: 30,
+      isExported: true,
+      isVoid: true,
+      args: [],
+    });
+
+    const dftOptions = FuzzConfigStore.getDefaultFuzzOptions();
+    Config.override("nanofuzz.ai.policy", "seed");
+    try {
+      const gen = new TestableSeedAiGenerator(
+        fnDef,
+        "seed",
+        new Map(),
+        "function testFn(x: number) {}"
+      );
+      gen.onRunStart(false, [], undefined, dftOptions);
+      expect(gen.policy).toBe("seed");
+
+      // Populate with 2 inputs from the initial seed call
+      gen.populate(2);
+      expect(gen.nextable()).toBe("now");
+
+      // Consume first input: should NOT trigger another _getMoreInputs in seed mode
+      const input1 = gen.next();
+      expect<unknown>(input1.value[0].value).toBe(1);
+      expect(getMoreCalls).toBe(0);
+      expect(gen.nextable()).toBe("now");
+
+      // Consume second input
+      const input2 = gen.next();
+      expect<unknown>(input2.value[0].value).toBe(0);
+      expect(getMoreCalls).toBe(0);
+
+      // Now queue is empty: seed policy must return false and not query further
+      expect(gen.nextable()).toBe(false);
+      expect(getMoreCalls).toBe(0);
+    } finally {
+      Config.clearOverrides();
+    }
   });
 
   it("requested input count incorporates invalid buffer and response max tokens", () => {

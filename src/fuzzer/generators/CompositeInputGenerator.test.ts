@@ -16,6 +16,7 @@ import { AbstractRunner, RunnerResult } from "../runners/AbstractRunner";
 import * as ValueMapper from "../mappers/ValueMapper";
 import * as Config from "../../Config";
 import { getDefaultFuzzExecutionOptions } from "../FuzzerFactory";
+import { FuzzConfigStore } from "../FuzzConfigStore";
 
 function createGenStats(): FuzzTestStats["generators"] {
   return {
@@ -35,6 +36,17 @@ function createGenStats(): FuzzTestStats["generators"] {
       counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
       timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
     },
+  };
+}
+
+function createTestFuzzOptions(
+  overrides: Partial<FuzzOptions> = {}
+): FuzzOptions {
+  return {
+    ...FuzzConfigStore.getDefaultFuzzOptions(),
+    fnTimeout: 200,
+    maxDupeInputs: 1000,
+    ...overrides,
   };
 }
 
@@ -75,7 +87,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
       program.src
     );
 
-    cig.onRunStart(true, [], undefined, 200, 1000);
+    cig.onRunStart(true, [], undefined, createTestFuzzOptions());
     cig.next();
 
     const mockFuzzOptions: FuzzOptions = {
@@ -200,7 +212,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
         program.src
       );
 
-      cig.onRunStart(true, [], undefined, 200, 1000);
+      cig.onRunStart(true, [], undefined, createTestFuzzOptions());
 
       // Generating inputs triggers _selectNextSubGen
       expect(cig.nextable()).toBeTruthy();
@@ -347,7 +359,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
         program.src
       );
 
-      cig.onRunStart(true, [], undefined, 200, 1000);
+      cig.onRunStart(true, [], undefined, createTestFuzzOptions());
 
       const chunkSize = 20;
       for (let i = 0; i < chunkSize * 2; i++) {
@@ -483,7 +495,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
     try {
       // Run 1: mab (default)
       Config.override("nanofuzz.generators.scheduler.impl", "mab");
-      cig.onRunStart(true, [], undefined, 200, 1000);
+      cig.onRunStart(true, [], undefined, createTestFuzzOptions());
       expect(cig.scheduler.type).toBe("mab");
       expect(cig.nextable()).toBeTruthy();
       const inputRun1 = cig.next();
@@ -491,7 +503,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
 
       // Run 2: switch to random
       Config.override("nanofuzz.generators.scheduler.impl", "random");
-      cig.onRunStart(true, [], undefined, 200, 1000);
+      cig.onRunStart(true, [], undefined, createTestFuzzOptions());
       expect(cig.scheduler.type).toBe("random");
       expect(cig.nextable()).toBeTruthy();
       const inputRun2 = cig.next();
@@ -499,7 +511,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
 
       // Run 3: switch to round-robin
       Config.override("nanofuzz.generators.scheduler.impl", "round-robin");
-      cig.onRunStart(true, [], undefined, 200, 1000);
+      cig.onRunStart(true, [], undefined, createTestFuzzOptions());
       expect(cig.scheduler.type).toBe("round-robin");
       expect(cig.nextable()).toBeTruthy();
       const inputRun3 = cig.next();
@@ -507,7 +519,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
 
       // Run 4: switch to ucb1
       Config.override("nanofuzz.generators.scheduler.impl", "ucb1");
-      cig.onRunStart(true, [], undefined, 200, 1000);
+      cig.onRunStart(true, [], undefined, createTestFuzzOptions());
       expect(cig.scheduler.type).toBe("ucb1");
       expect(cig.nextable()).toBeTruthy();
       const inputRun4 = cig.next();
@@ -515,7 +527,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
 
       // Run 5: switch to thompson
       Config.override("nanofuzz.generators.scheduler.impl", "thompson");
-      cig.onRunStart(true, [], undefined, 200, 1000);
+      cig.onRunStart(true, [], undefined, createTestFuzzOptions());
       expect(cig.scheduler.type).toBe("thompson");
       expect(cig.nextable()).toBeTruthy();
       const inputRun5 = cig.next();
@@ -523,7 +535,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
 
       // Run 6: switch to ewma
       Config.override("nanofuzz.generators.scheduler.impl", "ewma");
-      cig.onRunStart(true, [], undefined, 200, 1000);
+      cig.onRunStart(true, [], undefined, createTestFuzzOptions());
       expect(cig.scheduler.type).toBe("ewma");
       expect(cig.nextable()).toBeTruthy();
       const inputRun6 = cig.next();
@@ -531,7 +543,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
 
       // Run 7: switch to mopt
       Config.override("nanofuzz.generators.scheduler.impl", "mopt");
-      cig.onRunStart(true, [], undefined, 200, 1000);
+      cig.onRunStart(true, [], undefined, createTestFuzzOptions());
       expect(cig.scheduler.type).toBe("mopt");
       expect(cig.nextable()).toBeTruthy();
       const inputRun7 = cig.next();
@@ -571,12 +583,12 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
 
       // Run 1 with MAB
       Config.override("nanofuzz.generators.scheduler.impl", "mab");
-      cig.onRunStart(true, [], undefined, 200, 1000);
+      cig.onRunStart(true, [], undefined, createTestFuzzOptions());
       cig.next();
 
       // Run 2 with Round-Robin
       Config.override("nanofuzz.generators.scheduler.impl", "round-robin");
-      cig.onRunStart(true, [], undefined, 200, 1000);
+      cig.onRunStart(true, [], undefined, createTestFuzzOptions());
       cig.next();
 
       const mockFuzzOptions: FuzzOptions = {
@@ -702,7 +714,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
       program.src
     );
 
-    cig.onRunStart(true, [], undefined, 200, 1000);
+    cig.onRunStart(true, [], undefined, createTestFuzzOptions());
     // Tri-state expectation: 'now' (or truthy 'now')
     expect(cig.nextable()).toBe("now");
   });
@@ -737,7 +749,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
       program.src
     );
 
-    cig.onRunStart(true, [], undefined, 200, 1000);
+    cig.onRunStart(true, [], undefined, createTestFuzzOptions());
     cig.setSubgenSoon("AiInputGenerator"); // Set AI generator to 'soon'
     expect(cig.nextable()).toBe("soon");
   });
@@ -764,7 +776,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
       program.src
     );
 
-    cig.onRunStart(true, [], undefined, 200, 1000);
+    cig.onRunStart(true, [], undefined, createTestFuzzOptions());
     expect(cig.nextable()).toBe(false);
   });
 
@@ -811,7 +823,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
       program.src
     );
 
-    cig.onRunStart(true, [], undefined, 200, 1000);
+    cig.onRunStart(true, [], undefined, createTestFuzzOptions());
     cig.setSubgenSoonThenNow("AiInputGenerator");
 
     const result = await cig.waitForNextInput();
@@ -848,7 +860,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
       program.src
     );
 
-    cig.onRunStart(true, [], undefined, 200, 1000);
+    cig.onRunStart(true, [], undefined, createTestFuzzOptions());
     cig.setSubgenSoon("AiInputGenerator");
 
     expect(cig.getPendingGeneratorNames()).toEqual(["AI"]);
@@ -896,7 +908,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
       program.src
     );
 
-    cig.onRunStart(true, [], undefined, 200, 1000);
+    cig.onRunStart(true, [], undefined, createTestFuzzOptions());
     cig.setSubgenNeverReady("AiInputGenerator");
 
     const start = performance.now();
@@ -940,7 +952,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
       program.src
     );
 
-    cig.onRunStart(true, [], undefined, 200, 1000);
+    cig.onRunStart(true, [], undefined, createTestFuzzOptions());
     cig.setSubgenSoon("AiInputGenerator"); // AI generator is "soon"
 
     expect(() => cig.testSelectNextSubGen()).not.toThrow();
@@ -980,8 +992,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
         },
       ],
       undefined,
-      200,
-      1000
+      createTestFuzzOptions()
     );
 
     expect(cig.nextable()).toBe("now!");
@@ -1029,7 +1040,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
 
     const mockTransformerRunner = new MockTransformerRunner("dummyTransformer");
 
-    cig.onRunStart(true, [], mockTransformerRunner, 200, 1000);
+    cig.onRunStart(true, [], mockTransformerRunner, createTestFuzzOptions());
 
     expect(() => cig.next()).toThrowMatching(
       (err: unknown) =>
@@ -1132,7 +1143,12 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
         program.src
       );
 
-      cig.onRunStart(true, [], undefined, 200, 100);
+      cig.onRunStart(
+        true,
+        [],
+        undefined,
+        createTestFuzzOptions({ maxDupeInputs: 100 })
+      );
 
       // First call to next() starts Chunk 0 with ConstantGenerator (index 0).
       // It generates "constant_val" (unique, tick 1), leaving 4 ticks in chunk.
@@ -1217,7 +1233,12 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
     );
 
     const maxDupes = 3;
-    cig.onRunStart(true, [], undefined, 200, maxDupes);
+    cig.onRunStart(
+      true,
+      [],
+      undefined,
+      createTestFuzzOptions({ maxDupeInputs: maxDupes })
+    );
 
     // First input succeeds
     const first = cig.next();
@@ -1317,7 +1338,12 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
       },
     ];
 
-    cig.onRunStart(true, injected, undefined, 200, 100);
+    cig.onRunStart(
+      true,
+      injected,
+      undefined,
+      createTestFuzzOptions({ maxDupeInputs: 100 })
+    );
 
     // 1. First two calls produce the injected inputs in order with priority
     expect(cig.nextable()).toBe("now!");
@@ -1436,7 +1462,12 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
       },
     ];
 
-    cig.onRunStart(true, injected, transformerRunner, 200, 100);
+    cig.onRunStart(
+      true,
+      injected,
+      transformerRunner,
+      createTestFuzzOptions({ maxDupeInputs: 100 })
+    );
 
     // 1. Drain injected input (value 5)
     const first = await cig.nextTransformed();
@@ -1564,7 +1595,12 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
     );
 
     // Start with NO transformer configured (tests the standalone UserInputGenerator path)
-    cig.onRunStart(true, [], undefined, 200, 100);
+    cig.onRunStart(
+      true,
+      [],
+      undefined,
+      createTestFuzzOptions({ maxDupeInputs: 100 })
+    );
 
     // When nextTransformed() runs, it must encounter the dupe (42), await in-flight (99),
     // and return 99 without throwing exhaustion
