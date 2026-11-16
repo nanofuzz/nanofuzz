@@ -33,16 +33,17 @@ runs:
       shell: bash
 
     - name: Install Rust
-      uses: dtolnay/rust-toolchain@stable
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: "1.99.1"
 
-    - name: Cache Cargo registry and target
+    - name: Cache Cargo registry
       uses: actions/cache@v4
       with:
         path: |
           ~/.cargo/registry/index/
           ~/.cargo/registry/cache/
           ~/.cargo/git/db/
-          packages/runtime/rust/target/
         key: cargo-${{ runner.os }}-${{ hashFiles('packages/runtime/rust/Cargo.toml') }}
         restore-keys: |
           cargo-${{ runner.os }}-
