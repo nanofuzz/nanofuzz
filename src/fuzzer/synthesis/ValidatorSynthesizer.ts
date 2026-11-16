@@ -1,12 +1,14 @@
 import { FunctionDef } from "../analysis/FunctionDef";
 import { TypescriptProgram } from "../analysis/typescript/TypescriptProgram";
 import { PythonProgram } from "../analysis/python/PythonProgram";
+import { RustProgram } from "../analysis/rust/RustProgram";
+import { OxcamlProgram } from "../analysis/oxcaml/OxcamlProgram";
+import { JavaProgram } from "../analysis/java/JavaProgram";
+import { GoProgram } from "../analysis/go/GoProgram";
 import { ProgramLanguage } from "../analysis/Types";
+import { CompanionManager } from "../analysis/CompanionManager";
 import { FuzzerCodeSnippet } from "./Types";
-import {
-  getNextAvailableFnNumber,
-  getIdentifierNameAvoidingConflicts,
-} from "./Util";
+import { getIdentifierNameAvoidingConflicts } from "./Util";
 
 // Candidate names for the validator result argument to avoid parameter name clashes
 const resultArgCandidateNames = ["r", "result", "_r", "_result"];
@@ -56,15 +58,14 @@ export function synthesizeValidator(
   validatorNameOverride?: string
 ): FuzzerCodeSnippet {
   const targetLang = lang ?? fn.getLang();
-  const validatorPrefix = fn.getName() + "Validator";
-
-  let validatorName = validatorNameOverride;
-  if (!validatorName) {
-    const fnCounter = existingFnNames
-      ? getNextAvailableFnNumber(existingFnNames, validatorPrefix)
-      : 0;
-    validatorName = `${validatorPrefix}${fnCounter === 0 ? "" : fnCounter}`;
-  }
+  const validatorName =
+    validatorNameOverride ??
+    CompanionManager.getNextAvailableName(
+      existingFnNames ?? [],
+      fn.getName(),
+      "validator",
+      targetLang
+    );
 
   const inArgs = fn.getArgDefs();
   const validatorArgs = getValidatorArgs(inArgs);
@@ -101,13 +102,219 @@ export function synthesizeValidator(
     ];
 
     const bodyLines: string[] = [];
+    bodyLines.push(
+      "  # Extract input arguments and return value from the execution result"
+    );
     if (inArgLines.length > 0) {
       bodyLines.push(...inArgLines);
     }
     bodyLines.push(outArgLine);
-    bodyLines.push(`\n  return "pass"\n`);
+    bodyLines.push(
+      `\n  # Validate properties and return "pass", "fail", or "unknown"`
+    );
+    bodyLines.push(`  return "pass"\n`);
 
     const skeleton = `\n\ndef ${validatorName}${validatorArgs.str} -> Literal["pass", "fail", "unknown"]:\n${bodyLines.join("\n")}`;
+    const importData = imports.map((i) => i.stmt).join("");
+    const fullTemplate = `${importData}${skeleton.trimStart()}`;
+
+    return {
+      name: validatorName,
+      skeleton,
+      imports,
+      fullTemplate,
+    };
+  } else if (targetLang === "rust") {
+    const inArgLines = inArgs.map((argDef, i) => {
+      const typeAnnot = RustProgram.getTypeAnnotation(argDef);
+      const ownedType = RustProgram.toOwnedType(typeAnnot);
+      return `  let ${argDef.getName()}: ${ownedType} = ${
+        validatorArgs.resultArgName
+      }.get_in(${i}).unwrap();`;
+    });
+    const outTypeAsArg = fn.getReturnArg();
+    const returnTypeStr = outTypeAsArg
+      ? RustProgram.toOwnedType(RustProgram.getTypeAnnotation(outTypeAsArg))
+      : undefined;
+    const outVarName = getIdentifierNameAvoidingConflicts(
+      inArgs,
+      outVarCandidateNames,
+      maxOutVarSuffix
+    );
+    const outArgLine =
+      !fn.isVoid() && returnTypeStr && returnTypeStr !== "()"
+        ? `  let ${outVarName.name}: ${returnTypeStr} = ${validatorArgs.resultArgName}.get_out().unwrap();`
+        : `  let ${outVarName.name}: () = ${validatorArgs.resultArgName}.get_out().unwrap_or(());`;
+
+    const imports = [
+      {
+        name: "FuzzTestResult",
+        stmt: `use nanofuzz_runtime::FuzzTestResult;\n`,
+      },
+      {
+        name: "ValidatorResult",
+        stmt: `use nanofuzz_runtime::ValidatorResult;\n`,
+      },
+    ];
+
+    const bodyLines: string[] = [];
+    bodyLines.push(
+      "  // Extract input arguments and return value from the execution result"
+    );
+    if (inArgLines.length > 0) {
+      bodyLines.push(...inArgLines);
+    }
+    bodyLines.push(outArgLine);
+    bodyLines.push(
+      `\n  // Validate properties and return ValidatorResult::Pass, ValidatorResult::Fail, or ValidatorResult::Unknown`
+    );
+    bodyLines.push(`  ValidatorResult::Pass\n}`);
+
+    const skeleton = `\n\npub fn ${validatorName}(${validatorArgs.resultArgName}: &FuzzTestResult) -> ValidatorResult {\n${bodyLines.join("\n")}`;
+    const importData = imports.map((i) => i.stmt).join("");
+    const fullTemplate = `${importData}${skeleton.trimStart()}`;
+
+    return {
+      name: validatorName,
+      skeleton,
+      imports,
+      fullTemplate,
+    };
+  } else if (targetLang === "oxcaml") {
+    const inArgLines = inArgs.map((argDef, i) => {
+      const typeAnnot = OxcamlProgram.getTypeAnnotation(argDef);
+      return `  (* let ${argDef.getName()} : ${typeAnnot} = Nanofuzz_runtime.get_in ${i} ${validatorArgs.resultArgName} in *)`;
+    });
+    const outVarName = getIdentifierNameAvoidingConflicts(
+      inArgs,
+      outVarCandidateNames,
+      maxOutVarSuffix
+    );
+    const outArgLine = `  (* let ${outVarName.name} = Nanofuzz_runtime.get_out ${validatorArgs.resultArgName} in *)`;
+
+    const imports = [
+      {
+        name: "Nanofuzz_runtime",
+        stmt: `open Nanofuzz_runtime\n`,
+      },
+    ];
+
+    const bodyLines: string[] = [];
+    bodyLines.push(
+      "  (* Extract input arguments and return value from execution result *)"
+    );
+    if (inArgLines.length > 0) {
+      bodyLines.push(...inArgLines);
+    }
+    bodyLines.push(outArgLine);
+    bodyLines.push(
+      `\n  (* Validate properties and return Nanofuzz_runtime.Pass, Fail, or Unknown *)`
+    );
+    bodyLines.push(`  Nanofuzz_runtime.Pass`);
+
+    const skeleton = `\n\nlet ${validatorName} (${validatorArgs.resultArgName} : Nanofuzz_runtime.fuzz_test_result) : Nanofuzz_runtime.validator_result =\n${bodyLines.join("\n")}\n`;
+    const importData = imports.map((i) => i.stmt).join("");
+    const fullTemplate = `${importData}${skeleton.trimStart()}`;
+
+    return {
+      name: validatorName,
+      skeleton,
+      imports,
+      fullTemplate,
+    };
+  } else if (targetLang === "java") {
+    const inArgLines = inArgs.map((argDef, i) => {
+      const typeAnnot = JavaProgram.getTypeAnnotation(argDef, {
+        useTypeRefs: true,
+      });
+      return `  ${typeAnnot} ${argDef.getName()} = ${
+        validatorArgs.resultArgName
+      }.getIn(${i});`;
+    });
+    const outTypeAsArg = fn.getReturnArg();
+    const returnTypeStr = outTypeAsArg
+      ? JavaProgram.getTypeAnnotation(outTypeAsArg, { useTypeRefs: true })
+      : undefined;
+    const outVarName = getIdentifierNameAvoidingConflicts(
+      inArgs,
+      outVarCandidateNames,
+      maxOutVarSuffix
+    );
+    const outArgLine =
+      !fn.isVoid() && returnTypeStr && returnTypeStr !== "void"
+        ? `  ${returnTypeStr} ${outVarName.name} = ${validatorArgs.resultArgName}.getOut();`
+        : `  Object ${outVarName.name} = ${validatorArgs.resultArgName}.getOut();`;
+    const imports = [
+      {
+        name: "FuzzTestResult",
+        stmt: `import com.nanofuzz.runtime.FuzzTestResult;\n`,
+      },
+      {
+        name: "ValidatorResult",
+        stmt: `import com.nanofuzz.runtime.ValidatorResult;\n`,
+      },
+    ];
+    const bodyLines: string[] = [];
+    bodyLines.push(
+      "  // Extract input arguments and return value from the execution result"
+    );
+    if (inArgLines.length > 0) {
+      bodyLines.push(...inArgLines);
+    }
+    bodyLines.push(outArgLine);
+    bodyLines.push(
+      `\n  // Validate properties and return ValidatorResult.PASS, ValidatorResult.FAIL, or ValidatorResult.UNKNOWN`
+    );
+    bodyLines.push(`  return ValidatorResult.PASS;\n}`);
+    const skeleton = `\n\npublic static ValidatorResult ${validatorName}(FuzzTestResult ${validatorArgs.resultArgName}) {\n${bodyLines.join("\n")}`;
+    const importData = imports.map((i) => i.stmt).join("");
+    const fullTemplate = `${importData}${skeleton.trimStart()}`;
+    return {
+      name: validatorName,
+      skeleton,
+      imports,
+      fullTemplate,
+    };
+  } else if (targetLang === "go") {
+    const inArgLines = inArgs.map((argDef, i) => {
+      const typeAnnot = GoProgram.getTypeAnnotation(argDef);
+      return `\t${argDef.getName()} := ${validatorArgs.resultArgName}.In[${i}].(${typeAnnot})`;
+    });
+    const outTypeAsArg = fn.getReturnArg();
+    const returnTypeStr = outTypeAsArg
+      ? GoProgram.getTypeAnnotation(outTypeAsArg)
+      : undefined;
+    const outVarName = getIdentifierNameAvoidingConflicts(
+      inArgs,
+      outVarCandidateNames,
+      maxOutVarSuffix
+    );
+    const outArgLine =
+      !fn.isVoid() && returnTypeStr && returnTypeStr !== "void"
+        ? `\t${outVarName.name} := ${validatorArgs.resultArgName}.Out.(${returnTypeStr})`
+        : `\t_ = ${validatorArgs.resultArgName}.Out`;
+
+    const imports = [
+      {
+        name: "runtime",
+        stmt: `import "github.com/nanofuzz/runtime"\n`,
+      },
+    ];
+
+    const bodyLines: string[] = [];
+    bodyLines.push(
+      "\t// Extract input arguments and return value from execution result"
+    );
+    if (inArgLines.length > 0) {
+      bodyLines.push(...inArgLines);
+    }
+    bodyLines.push(outArgLine);
+    bodyLines.push(
+      `\n\t// Validate properties and return runtime.Pass, runtime.Fail, or runtime.Unknown`
+    );
+    bodyLines.push(`\treturn runtime.Pass\n}`);
+
+    const skeleton = `\n\nfunc ${validatorName}(${validatorArgs.resultArgName} runtime.FuzzTestResult) runtime.ValidatorResult {\n${bodyLines.join("\n")}`;
     const importData = imports.map((i) => i.stmt).join("");
     const fullTemplate = `${importData}${skeleton.trimStart()}`;
 
@@ -146,11 +353,17 @@ export function synthesizeValidator(
     ];
 
     const bodyLines: string[] = [];
+    bodyLines.push(
+      "  // Extract input arguments and return value from the execution result"
+    );
     if (inArgLines.length > 0) {
       bodyLines.push(...inArgLines);
     }
     bodyLines.push(outArgLine);
-    bodyLines.push(`\n  return "pass";\n}`);
+    bodyLines.push(
+      `\n  // Validate properties and return "pass", "fail", or "unknown"`
+    );
+    bodyLines.push(`  return "pass";\n}`);
 
     const skeleton = `\n\nexport function ${validatorName}${validatorArgs.str}: "pass" | "fail" | "unknown" {\n${bodyLines.join("\n")}`;
     const importData = imports.map((i) => i.stmt).join("");

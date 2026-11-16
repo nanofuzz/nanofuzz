@@ -1,34 +1,6 @@
 import { ArgDef } from "../analysis/ArgDef";
 
 /**
- * Determines the next available integer counter suffix for a generated function name
- * given a list of existing function names and a prefix.
- *
- * @param existingFnNames Array of function names in the source module
- * @param prefix Name prefix (e.g., "myFnValidator" or "myFnTransformer")
- * @returns The next available counter value
- */
-export function getNextAvailableFnNumber(
-  existingFnNames: string[],
-  prefix: string
-): number {
-  let fnCounter = 0;
-  existingFnNames
-    .filter((e) => e.startsWith(prefix))
-    .forEach((e) => {
-      if (e.endsWith(prefix)) {
-        fnCounter++;
-      } else {
-        const suffix = e.substring(prefix.length);
-        if (suffix.match(/^[0-9]+$/)) {
-          fnCounter = Math.max(fnCounter, Number(suffix)) + 1;
-        }
-      }
-    });
-  return fnCounter;
-} // fn: getNextAvailableFnNumber
-
-/**
  * Chooses an identifier name from candidate names that does not conflict with input argument names.
  *
  * @param inArgs Input argument definitions

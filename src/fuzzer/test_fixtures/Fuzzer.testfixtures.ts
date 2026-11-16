@@ -2,7 +2,7 @@ import {
   importedLiteralDim2Type,
   testCoverageMultiFile2,
 } from "./Fuzzer.textfixturees2";
-import { UnsatisfiedAssumption } from "../Types";
+import { UnsatisfiedAssumption } from "@nanofuzz/runtime";
 
 /**
  * Fuzz target that alters its input - used to verify
@@ -348,3 +348,28 @@ export function testBigIntTargetValidator(
   }
   return "fail";
 }
+
+/**
+ * Test fixtures for CLI shrinking and failure tests
+ */
+export function testAlwaysFailValidator(x: number): number {
+  return x;
+} // fn: testAlwaysFailValidator
+
+export function testAlwaysFailValidatorValidator(
+  _r: FuzzTestResult
+): "pass" | "fail" | "unknown" {
+  return "fail";
+} // fn: testAlwaysFailValidatorValidator
+
+export function testReturnNaN(_x: number): number {
+  return NaN;
+} // fn: testReturnNaN
+
+export function testTimeoutPut(x: number): number {
+  if (x > 0)
+    while (true) {
+      /* infinite loop */
+    }
+  return x;
+} // fn: testTimeoutPut

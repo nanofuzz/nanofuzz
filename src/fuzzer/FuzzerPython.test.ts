@@ -63,15 +63,33 @@ describe("fuzzer: python targets", () => {
   });
 
   it("Python timeouts", async () => {
+    const pinned: FuzzPinnedTest[] = [
+      {
+        input: [{ name: "n", offset: 0, value: 0, origin: { type: "user" } }],
+        output: [],
+        pinned: true,
+      },
+      {
+        input: [{ name: "n", offset: 0, value: 1, origin: { type: "user" } }],
+        output: [],
+        pinned: true,
+      },
+    ];
+
     const fuzzResult = await FuzzerFactory(
       "./test_fixtures/Fuzzer.testfixtures.py",
       "timeouts",
-      intOptions
-    ).test();
+      {
+        ...intOptions,
+        maxTests: 2,
+        fnTimeout: 100,
+        suiteTimeout: 2000,
+      }
+    ).test(pinned, {});
 
-    expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
-    expect(fuzzResult.stats.outcomes.oracles.heuristic.pass).toBeGreaterThan(0);
-    expect(fuzzResult.stats.outcomes.timeouts).toBeGreaterThan(0);
+    expect(fuzzResult.stats.outcomes.total).toBe(2);
+    expect(fuzzResult.stats.outcomes.oracles.heuristic.pass).toBe(1);
+    expect(fuzzResult.stats.outcomes.timeouts).toBe(1);
   });
 
   it("Python exceptions", async () => {
@@ -228,9 +246,7 @@ describe("fuzzer: python targets", () => {
       "./test_fixtures/Fuzzer.testfixtures.py",
       "py_transformed",
       { ...intOptions, maxTests: 0 }
-    ).test([injectedInput], { gen: true }, undefined, undefined, (r) =>
-      results.push(r)
-    );
+    ).test([injectedInput], {}, undefined, undefined, (r) => results.push(r));
 
     expect(results.length).toBe(1);
     const injectedResult = results[0];

@@ -2,7 +2,11 @@ import { FuzzerEngineVersion, FuzzerFactory } from "./FuzzerFactory";
 import { FuzzerV3, WorkerContext } from "./FuzzerV3";
 import { AbstractRunner } from "./runners/AbstractRunner";
 import { CompositeInputGenerator } from "./generators/CompositeInputGenerator";
-import { FuzzBusyStatusMessage, FuzzStopReason } from "./Types";
+import {
+  FuzzBusyStatusMessage,
+  FuzzStopReason,
+  FuzzTestingMessage,
+} from "./Types";
 import { intOptions, initParser } from "./FuzzerTestHelper";
 import { getToolVersion } from "../ToolVersion";
 import { determineWorkerCount } from "./Util";
@@ -459,6 +463,46 @@ describe("fuzzer: general & parameterized engine tests", () => {
         expect<unknown>(results.results[0].input[1].value).toBe(99);
       });
 
+      it("reports progress based on injected count when gen is false", async () => {
+        const injected = Array.from({ length: 10 }, (_, i) => ({
+          input: [
+            {
+              name: "a",
+              offset: 0,
+              value: i,
+              origin: { type: "user" as const },
+            },
+            {
+              name: "b",
+              offset: 1,
+              value: i * 2,
+              origin: { type: "user" as const },
+            },
+          ],
+          output: [],
+          pinned: true,
+        }));
+
+        const updates: FuzzBusyStatusMessage[] = [];
+        const results = await FuzzerFactory(
+          "nanofuzz-study/examples/1.ts",
+          "minValue",
+          { ...intOptions, maxTests: 1000 },
+          { engine }
+        ).test(
+          injected,
+          {},
+          { update: (u) => updates.push(u), granularity: "result" }
+        );
+
+        expect(results.stopReason).toBe(FuzzStopReason.NOMOREINPUTS);
+        expect(results.stats.counters.inputsInjected).toBe(10);
+        const testingPcts = updates
+          .filter((u): u is FuzzTestingMessage => u.type === "testing")
+          .map((u) => u.pct);
+        expect(testingPcts.some((pct) => pct >= 10)).toBe(true);
+      });
+
       it("injected pinned tests are not interrupted by cancellation", async () => {
         const options = {
           ...intOptions,
@@ -767,6 +811,71 @@ describe("fuzzer: general & parameterized engine tests", () => {
         expect(run2.stats.counters.testingRuns).toBe(2);
         expect(run2.stats.outcomes.total).toBe(run1Total + 10);
         expect(run2.results.length).toBe(run1Total + 10);
+      });
+
+      it("tracks inputsInterrupted on cancellation and re-injects them upon resume", async () => {
+        const tmpdir = fs.mkdtempSync(
+          path.join(os.tmpdir(), `nanofuzz-interrupt-parity-${engine}-`)
+        );
+        const tsFile = path.join(tmpdir, "delayTarget.ts");
+        fs.writeFileSync(
+          tsFile,
+          `
+          export function delayFn(x: number): number {
+            const start = Date.now();
+            while (Date.now() - start < 120) {}
+            return x;
+          }
+          `
+        );
+
+        const options = {
+          ...intOptions,
+          maxTests: 5,
+          seed: "interrupt-seed",
+        };
+
+        try {
+          const tester = FuzzerFactory(tsFile, "delayFn", options, { engine });
+          let cancel = false;
+
+          const run1 = await tester.test(
+            [],
+            { gen: true },
+            {
+              update: (payload) => {
+                if (payload.type === "testing") {
+                  cancel = true;
+                }
+              },
+              granularity: "result",
+            },
+            () => cancel
+          );
+
+          expect(tester.state).toBe("paused");
+          expect(run1.stopReason).toBe(FuzzStopReason.PAUSE);
+          expect(run1.stats.counters.inputsInterrupted).toBeGreaterThanOrEqual(
+            1
+          );
+
+          const interruptedCount = run1.stats.counters.inputsInterrupted;
+          const run2 = await tester.test([], { gen: true });
+          expect(tester.state).toBe("paused");
+          expect(run2.stopReason).toBe(FuzzStopReason.MAXTESTS);
+          expect(run2.stats.counters.inputsInterrupted).toBe(0);
+          expect(run2.stats.outcomes.total).toBe(interruptedCount + 5);
+        } finally {
+          try {
+            fs.rmSync(tmpdir, {
+              recursive: true,
+              force: true,
+              maxRetries: 10,
+            });
+          } catch {
+            // Ignore cleanup failure
+          }
+        }
       });
 
       it("resuming after maxFailures uses per-run failure counts", async () => {

@@ -12,14 +12,11 @@ import {
   FunctionRef,
   ProgramLanguage,
 } from "../fuzzer/analysis/Types";
-import {
-  bigIntOrThrow,
-  getTransformers,
-  getUserGenerators,
-  getValidators,
-} from "../fuzzer/analysis/Util";
+import { bigIntOrThrow } from "../fuzzer/analysis/Util";
+import { CompanionManager } from "../fuzzer/analysis/CompanionManager";
 import { getIoKey } from "../fuzzer/Util";
 import * as fs from "fs";
+import * as path from "path";
 import { htmlEscape } from "escape-goat";
 import * as telemetry from "../telemetry/Telemetry";
 import {
@@ -38,6 +35,11 @@ import { CodeCoverageMeasureStats } from "../fuzzer/measures/CoverageMeasure";
 import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
 import { AbstractProgram } from "../fuzzer/analysis/AbstractProgram";
 import * as CompilerFactory from "../fuzzer/compilers/CompilerFactory";
+import {
+  CompilerError,
+  RustCompilerError,
+  JavaCompilerError,
+} from "../fuzzer/compilers/Types";
 import { synthesizeValidator } from "../fuzzer/synthesis/ValidatorSynthesizer";
 import { synthesizeTransformer } from "../fuzzer/synthesis/TransformerSynthesizer";
 import { synthesizeUserGenerator } from "../fuzzer/synthesis/UserGeneratorSynthesizer";
@@ -342,6 +344,74 @@ export class FuzzPanel {
   } // fn: constructor
 
   /**
+   * Directly sets pre-computed fuzz test results into this panel,
+   * transitioning it to the done state and displaying results immediately.
+   *
+   * @param results FuzzTestResults to display
+   * @param focusCategory Optional tab category to focus initially
+   */
+  public async displayResults(
+    results: fuzzer.FuzzTestResults,
+    focusCategory?: fuzzer.FuzzResultCategory | "runInfo"
+  ): Promise<void> {
+    this._results = results;
+    this._errorMessage = undefined;
+    this._errorStack = undefined;
+    this._state = FuzzPanelState.done;
+    this._retestingReason = false;
+
+    // Apply focus category or initial tab
+    if (focusCategory) {
+      if (focusCategory === "runInfo") {
+        this._lastTab = "runInfo";
+      } else {
+        this._focusInput = [focusCategory, 0];
+      }
+    } else {
+      const hasFailures = results.results?.some(
+        (r) =>
+          r.category === "badValue" ||
+          r.category === "exception" ||
+          r.category === "timeout" ||
+          r.category === "failure" ||
+          r.category === "disagree"
+      );
+      if (hasFailures) {
+        const firstFail = results.results?.find(
+          (r) =>
+            r.category === "badValue" ||
+            r.category === "exception" ||
+            r.category === "timeout" ||
+            r.category === "failure" ||
+            r.category === "disagree"
+        );
+        if (firstFail) {
+          this._focusInput = [firstFail.category, 0];
+        }
+      }
+    }
+
+    // Persist tests/options
+    this._updateFuzzTests();
+
+    // Get coverage data
+    this._coverageStats = results.stats.measures.CodeCoverageMeasure
+      ? await results.stats.measures.CodeCoverageMeasure()
+      : undefined;
+
+    // Update the UI
+    const message: FuzzPanelMessageToWebView = {
+      command: "busy.ending",
+    };
+    this._postToView(message);
+    this._updateHtml();
+    this._focusInput = undefined;
+
+    // Reveal the panel
+    this._panel.reveal();
+  } // fn: displayResults
+
+  /**
    * Returns the state of the FuzzPanel for serialization.
    *
    * @returns the state of the FuzzPanel
@@ -393,15 +463,23 @@ export class FuzzPanel {
       this._errorStack = error.stack ? htmlEscape(error.stack) : undefined;
 
       // Compiler-specific detailed messages
-      if (error instanceof fuzzer.TypescriptCompilerError) {
+      if (error instanceof CompilerError) {
         this._errorMessage += `<p style="margin-bottom:0.25em;"><strong>Source file</strong></p><small><pre style="margin-top:0;">${htmlEscape(error.details.inputFile)}</pre></small>`;
         if (error.details.output && error.details.output.length) {
-          this._errorMessage += `<p style="margin-bottom:0.25em;"><strong>Compiler output</strong></p><small><pre style="margin-top:0;">${error.details.output.map((e) => htmlEscape(e)).join("")}</pre></small>`;
+          this._errorMessage += `<p style="margin-bottom:0.25em;"><strong>Compiler output</strong></p><small><pre style="margin-top:0;">${error.details.output.map((e: string) => htmlEscape(e)).join("")}</pre></small>`;
         }
-        if (error.details.tscConfigFilename) {
-          this._errorMessage += `<p style="margin-bottom:0.25em;"><strong>tscconfig.json</strong></p><small><pre style="margin-top:0;">${error.details.tscConfigFilename}</pre></small>`;
+        if (error.details.configFilename) {
+          const configLabel =
+            error instanceof RustCompilerError
+              ? "Cargo.toml"
+              : error instanceof JavaCompilerError
+                ? path.basename(error.details.configFilename)
+                : "tsconfig.json";
+          this._errorMessage += `<p style="margin-bottom:0.25em;"><strong>${configLabel}</strong></p><small><pre style="margin-top:0;">${htmlEscape(error.details.configFilename)}</pre></small>`;
         }
-        this._errorMessage += `<p style="margin-bottom:0.25em;"><strong>Command line</strong></p><small><pre style="margin-top:0;">${htmlEscape(error.details.tscCli)}</pre></small>`;
+        if (error.details.cli) {
+          this._errorMessage += `<p style="margin-bottom:0.25em;"><strong>Command line</strong></p><small><pre style="margin-top:0;">${htmlEscape(error.details.cli)}</pre></small>`;
+        }
       }
     } else {
       this._errorMessage = "Unknown error";
@@ -893,7 +971,7 @@ export class FuzzPanel {
     }
 
     // If a transformer already exists, navigate to it rather than creating a new one
-    const existingTransformers = getTransformers(program, fn);
+    const existingTransformers = CompanionManager.getTransformers(program, fn);
     if (existingTransformers.length > 0) {
       this._fuzzEnv.transformers = existingTransformers;
       const fnDef = program.functions[existingTransformers[0].name];
@@ -1042,7 +1120,7 @@ export class FuzzPanel {
       // Change focus to the generated user generator
       try {
         const pgm = ProgramFactory.fromFile(module);
-        const userGens = getUserGenerators(pgm, fn);
+        const userGens = CompanionManager.getUserGenerators(pgm, fn);
         const targetGen =
           userGens.find((g) => g.name === userGenName) ?? userGens[0];
         if (targetGen && targetGen.startOffset !== undefined) {
@@ -1089,7 +1167,10 @@ export class FuzzPanel {
       return;
     }
 
-    const existingUserGenerators = getUserGenerators(program, fn);
+    const existingUserGenerators = CompanionManager.getUserGenerators(
+      program,
+      fn
+    );
     if (existingUserGenerators.length > 0) {
       this._fuzzEnv.userGenerators = existingUserGenerators;
       const targetGen = existingUserGenerators[0];
@@ -1139,13 +1220,13 @@ export class FuzzPanel {
     const oldValidatorNames = JSONN.stringify(
       this._fuzzEnv.validators.map((e) => e.name)
     );
-    const newValidators = getValidators(program, fn);
+    const newValidators = CompanionManager.getValidators(program, fn);
     const newValidatorNames = JSONN.stringify(newValidators.map((e) => e.name));
 
     // Only send the validators message if there has been a change
     if (oldValidatorNames !== newValidatorNames) {
       // Update the Fuzzer Environment
-      this._fuzzEnv.validators = getValidators(program, fn);
+      this._fuzzEnv.validators = CompanionManager.getValidators(program, fn);
 
       // Notify webview about the change
       const message: FuzzPanelMessageToWebView = {
@@ -1159,7 +1240,7 @@ export class FuzzPanel {
     const oldTransformerNames = JSONN.stringify(
       this._fuzzEnv.transformers.map((e) => e.name)
     );
-    const newTransformers = getTransformers(program, fn);
+    const newTransformers = CompanionManager.getTransformers(program, fn);
     const newTransformerNames = JSONN.stringify(
       newTransformers.map((e) => e.name)
     );
@@ -1181,7 +1262,7 @@ export class FuzzPanel {
     const oldUserGeneratorNames = JSONN.stringify(
       this._fuzzEnv.userGenerators.map((e) => e.name)
     );
-    const newUserGenerators = getUserGenerators(program, fn);
+    const newUserGenerators = CompanionManager.getUserGenerators(program, fn);
     const newUserGeneratorNames = JSONN.stringify(
       newUserGenerators.map((e) => e.name)
     );
@@ -1336,6 +1417,9 @@ export class FuzzPanel {
         this._tester.options = this._fuzzEnv.options;
         this._pauseTesting = false;
 
+        // Yield event loop to DOM re-render and message listener
+        await new Promise((resolve) => setImmediate(resolve));
+
         // Test the function & store the results
         const result = await this._tester.test(
           testsToInject,
@@ -1343,9 +1427,20 @@ export class FuzzPanel {
           // Observer that provides test status feedback to the panel => {
           {
             update: (payload: fuzzer.FuzzBusyStatusMessage): void => {
+              let messagePayload = payload;
+              if ("file" in payload && typeof payload.file === "string") {
+                let relFile = vscode.workspace.asRelativePath(
+                  payload.file,
+                  false
+                );
+                if (relFile.endsWith(".js")) {
+                  relFile = relFile.slice(0, -3) + ".ts";
+                }
+                messagePayload = { ...payload, file: relFile };
+              }
               const message: FuzzPanelMessageToWebView = {
                 command: "busy.message",
-                message: payload,
+                message: messagePayload,
               };
               this._postToView(message);
             },
@@ -2619,6 +2714,22 @@ export class FuzzPanel {
                       ? `, including ${this._results.stats.counters.inputsSkipped} skipped input${this._results.stats.counters.inputsSkipped === 1 ? "" : "s"}`
                       : ``) + `, which you can view in the other tabs.`
                   : `.`
+              }${
+                this._results.stats.counters.inputsInterrupted
+                  ? ` A further ${this._results.stats.counters.inputsInterrupted} input${
+                      this._results.stats.counters.inputsInterrupted === 1
+                        ? " was"
+                        : "s were"
+                    } in-flight when ${
+                      this._results.stopReason === fuzzer.FuzzStopReason.PAUSE
+                        ? "testing was interrupted"
+                        : "testing ended"
+                    } and ${
+                      this._results.stats.counters.inputsInterrupted === 1
+                        ? "is"
+                        : "are"
+                    } not shown in the results.`
+                  : ``
               }
             </p>
 
@@ -2844,10 +2955,12 @@ export class FuzzPanel {
         html += /*html*/ `
             <!-- Fuzzer Busy Status Message -->
             <div id="fuzzBusyStatusBarContainer">
-              <div id="fuzzBusyStatusBar" style="width: 0%;">0%</div>
+              <div id="fuzzBusyStatusBar" style="width: 0%;"></div>
+              <canvas id="fuzzBusyDotCanvas"></canvas>
+              <div id="fuzzBusyPercent">0%</div>
             </div>
             <div id="fuzzBusyMessage">
-              <pre id="fuzzBusyMessageNonMilestone">Initializing...</pre>
+              <pre id="fuzzBusyMessageNonMilestone">Initializing<span class="loading-dots">............</span></pre>
             </div>`;
       }
 
@@ -3534,6 +3647,30 @@ export async function handleFuzzWithValidatorCommand(
 } // fn: handleFuzzWithValidatorCommand()
 
 /**
+ * Renders or reveals the FuzzPanel for a target function.
+ * If pre-computed fuzz test results are provided, directly injects them into the panel.
+ *
+ * @param srcFile Absolute path to the source file
+ * @param fnName Name of the function under test
+ * @param results Optional pre-computed FuzzTestResults
+ * @param focusCategory Optional result tab to select initially
+ */
+export async function showResultsInFuzzPanel(
+  srcFile: string,
+  fnName: string,
+  results?: fuzzer.FuzzTestResults,
+  focusCategory?: fuzzer.FuzzResultCategory | "runInfo"
+): Promise<FuzzPanel> {
+  const extUri = FuzzPanel.context?.extensionUri ?? vscode.Uri.file(__dirname);
+  const fuzzOptions = results?.env?.options ?? getDefaultFuzzOptions();
+  const panel = FuzzPanel.render(extUri, srcFile, fnName, fuzzOptions);
+  if (results) {
+    await panel.displayResults(results, focusCategory);
+  }
+  return panel;
+} // fn: showResultsInFuzzPanel()
+
+/**
  * Finds the function under test (FUT) for a given validator function.
  *
  * @param validator The validator function
@@ -3912,7 +4049,16 @@ export const toolName = Config.get("nanofuzz.name", "NaNofuzz");
 /**
  * Languages supported by this module
  */
-export const languages = ["typescript", "typescriptreact", "python"];
+export const languages = [
+  "typescript",
+  "typescriptreact",
+  "python",
+  "rust",
+  "ocaml",
+  "oxcaml",
+  "java",
+  "go",
+];
 
 /**
  * The Fuzzer State Version we currently support.

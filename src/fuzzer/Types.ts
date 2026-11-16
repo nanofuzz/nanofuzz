@@ -423,6 +423,7 @@ export type FuzzTestingCompleteMessage = {
   type: "testing-complete";
   cancelled: boolean;
   pct: number;
+  stats?: CurrentRunStats;
 };
 
 /**
@@ -456,24 +457,6 @@ export type FuzzStatusObserver = {
  * Callback called for each test result produced during fuzzing
  */
 export type FuzzResultCallback = (result: FuzzTestResult) => void;
-
-/**
- * Exception class for TypeScript compiler errors
- */
-export type TypescriptCompilerErrorDetails = {
-  inputFile: string;
-  outputFile: string;
-  output?: string[];
-  tscConfigFilename?: string;
-  tscCli: string;
-};
-export class TypescriptCompilerError extends Error {
-  public details: TypescriptCompilerErrorDetails;
-  constructor(message: string, details: TypescriptCompilerErrorDetails) {
-    super(message);
-    this.details = details;
-  }
-}
 
 export { GeneratorExhaustedError } from "./generators/Types";
 
@@ -569,6 +552,7 @@ export type FuzzTestStats = {
     erroredTests: number; // number of tests with internal errors
     passedTests: number; // number of passed tests
     inputsSkipped: number; // number of skipped tests
+    inputsInterrupted: number; // number of in-flight tests interrupted before completion
     failedTests: number; // number of failed tests
   };
   outcomes: FuzzOutcomeStats;
@@ -620,6 +604,7 @@ export type CurrentRunStats = {
     failedTests: number; // number of failed tests so far
     passedTests: number; // number of passed tests so far
     inputsSkipped: number; // number of skipped tests so far
+    inputsInterrupted: number; // number of in-flight tests interrupted so far
   };
   outcomes: FuzzOutcomeStats;
   timers: {

@@ -1,5 +1,22 @@
 # autopep8: off
 import sys
+
+# Temporarily isolate sys.path during host startup so host dependencies
+# (logging, asyncio, coverage, etc.) resolve from standard library / site-packages
+# rather than being shadowed by user project files (e.g. a user logging.py in PYTHONPATH).
+_bootstrap_orig_sys_path = list(sys.path)
+_base_p = sys.base_prefix.replace("\\", "/").rstrip("/").lower()
+_pref_p = sys.prefix.replace("\\", "/").rstrip("/").lower()
+_script_dir = sys.path[0] if sys.path else ""
+
+_stdlib_paths = []
+for _p in sys.path[1:]:
+    _norm_p = _p.replace("\\", "/").rstrip("/").lower()
+    if _p and (_norm_p.startswith(_base_p) or _norm_p.startswith(_pref_p)):
+        _stdlib_paths.append(_p)
+
+sys.path = ([_script_dir] if _script_dir else []) + _stdlib_paths
+
 from typing import Any, Literal, List, Tuple, Union, TypedDict, NotRequired, Optional, cast
 import signal
 
@@ -93,6 +110,11 @@ finally:
     # Remove _VENDOR_DIR from sys.path so PUT (Program Under Test) cannot import from it
     sys.path = [p for p in sys.path if os.path.realpath(
         p) != os.path.realpath(_VENDOR_DIR)]
+
+# Restore original user sys.path (including PYTHONPATH entries) now that host dependencies are loaded
+_clean_user_paths = [p for p in _bootstrap_orig_sys_path if os.path.realpath(
+    p) != os.path.realpath(_VENDOR_DIR)]
+sys.path = _clean_user_paths
 
 _NANOFUZZ_VENDOR_MODULE_NAMES = set(sys.modules.keys()) - _sys_modules_before
 
@@ -313,13 +335,18 @@ def loadPythonFn(filename: str, modulename: str, fn: str) -> Tuple[Union[RunnerE
     curr = os.path.abspath(rootDir)
     while curr:
         if curr not in sys.path:
-            sys.path.insert(0, curr)
+            sys.path.append(curr)
         parent = os.path.dirname(curr)
         if parent == curr:
             break
         curr = parent
 
-    spec = importlib.util.spec_from_file_location(modulename, filename)
+    load_modulename = (
+        f"_nanofuzz_put_{modulename}"
+        if (hasattr(sys, "stdlib_module_names") and modulename in sys.stdlib_module_names) or modulename in sys.modules
+        else modulename
+    )
+    spec = importlib.util.spec_from_file_location(load_modulename, filename)
     if spec is None:
         return (RunnerErrorResult(
             tag="error",
@@ -331,7 +358,7 @@ def loadPythonFn(filename: str, modulename: str, fn: str) -> Tuple[Union[RunnerE
     module = importlib.util.module_from_spec(spec)
 
     try:
-        sys.modules[modulename] = module
+        sys.modules[load_modulename] = module
         with redirect_stdout(io.StringIO()) as f:
             if spec.loader is None:
                 return (RunnerErrorResult(
@@ -700,20 +727,17 @@ def program_files(
     return sorted(files)
 
 
-def transform_arg(val: Any, hint: Any) -> Any:
+def transform_arg(val: Any, hint: Any, arg_index: int = 0) -> Any:
     if isinstance(val, dict) and val.get("__nanofuzz_type") == "prng":
         raw_seed = val.get("seed")
-        seed = raw_seed if isinstance(raw_seed, (int, float, str, bytes, bytearray)) else (
-            str(raw_seed) if raw_seed is not None else None)
-        return random.Random(seed).random if seed is not None else random.random
+        if raw_seed is not None and (not isinstance(raw_seed, str) or len(raw_seed) > 0):
+            seed = raw_seed if isinstance(
+                raw_seed, (int, float, str, bytes, bytearray)) else str(raw_seed)
+            return random.Random(seed).random
+        return random.random
 
     if val is None:
         return None
-
-    if hint == "prng":
-        seed = val if isinstance(val, (int, float, str, bytes, bytearray)) else (
-            str(val) if val is not None else None)
-        return random.Random(seed).random if seed is not None else random.random
 
     if hint == "uuid":
         if isinstance(val, str):
@@ -898,35 +922,42 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
             _tracer_running = False
 
     error = None
+    error_name = "PythonPutError"
     skip = None
     is_timeout = False
     value = None
 
     args = list(input["args"])
     type_hints = input.get("typeHints", [])
-    for i in range(len(args)):
-        hint = type_hints[i] if i < len(type_hints) else None
-        args[i] = transform_arg(args[i], hint)
-
     try:
-        with redirect_stdout(io.StringIO()) as f:
-            with isolate_put_environment():
-                # If fn is a Hypothesis-wrapped test, bypass Hypothesis
-                # and call the original underlying function
-                if hasattr(fn, 'hypothesis') and hasattr(fn.hypothesis, 'inner_test'):
-                    # Unwrap Hypothesis test function
-                    value = call_with_timeout(
-                        fn.hypothesis.inner_test, args, timeout_ms)
-                else:
-                    # Not Hypothesis; call directly
-                    value = call_with_timeout(fn, args, timeout_ms)
-    except PutTimeoutException:
-        is_timeout = True
+        for i in range(len(args)):
+            hint = type_hints[i] if i < len(type_hints) else None
+            args[i] = transform_arg(args[i], hint, i)
     except Exception as e:
-        if e.__class__.__name__ == "UnsatisfiedAssumption":
-            skip = e
-        else:
-            error = e
+        error = e
+        error_name = "ArgumentError"
+
+    if error is None:
+        try:
+            with redirect_stdout(io.StringIO()) as f:
+                with isolate_put_environment():
+                    # If fn is a Hypothesis-wrapped test, bypass Hypothesis
+                    # and call the original underlying function
+                    if hasattr(fn, 'hypothesis') and hasattr(fn.hypothesis, 'inner_test'):
+                        # Unwrap Hypothesis test function
+                        value = call_with_timeout(
+                            fn.hypothesis.inner_test, args, timeout_ms)
+                    else:
+                        # Not Hypothesis; call directly
+                        value = call_with_timeout(fn, args, timeout_ms)
+        except PutTimeoutException:
+            is_timeout = True
+        except Exception as e:
+            if e.__class__.__name__ == "UnsatisfiedAssumption":
+                skip = e
+            else:
+                error = e
+                error_name = "PythonPutError"
 
     validator_results = {}
     req_validators = input.get("validators")
@@ -1047,7 +1078,7 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
     if error is not None:
         res_err: RunnerErrorResult = {
             "tag": "error",
-            "name": "PythonPutError",
+            "name": error_name,
             "message": str(error),
             "source": "put",
             "stack": "".join(traceback.format_exception(error)),

@@ -21,7 +21,8 @@ import {
 } from "./CommandLine";
 
 async function runCli(
-  args: string[]
+  args: string[],
+  cliOptions?: { progressBar?: boolean }
 ): Promise<{ status: number; stdout: string; stderr: string }> {
   let stdout = "";
   let stderr = "";
@@ -93,6 +94,16 @@ async function runCli(
     ) {
       effectiveArgs.push("--workers", "1");
     }
+    if (
+      !effectiveArgs.includes("--no-progress-bar") &&
+      !effectiveArgs.includes("--help") &&
+      !effectiveArgs.includes("-h") &&
+      !effectiveArgs.includes("--version") &&
+      !effectiveArgs.includes("-V") &&
+      !cliOptions?.progressBar
+    ) {
+      effectiveArgs.push("--no-progress-bar");
+    }
     const status = await runCliInProcess(effectiveArgs);
     return { status, stdout, stderr };
   } finally {
@@ -107,13 +118,11 @@ async function runCli(
 describe("cli:", () => {
   let tmpDir: string;
 
-  beforeEach(() => {
-    Config.clearOverrides();
+  beforeAll(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nanofuzz-cli-test-"));
   });
 
-  afterEach(() => {
-    Config.clearOverrides();
+  afterAll(() => {
     if (fs.existsSync(tmpDir)) {
       try {
         fs.rmSync(tmpDir, {
@@ -128,6 +137,14 @@ describe("cli:", () => {
     }
   });
 
+  beforeEach(() => {
+    Config.clearOverrides();
+  });
+
+  afterEach(() => {
+    Config.clearOverrides();
+  });
+
   it("returns exit code 0 for --help and --version", async () => {
     const helpRes = await runCli(["--help"]);
     expect(helpRes.status).toBe(0);
@@ -137,6 +154,12 @@ describe("cli:", () => {
     const versionRes = await runCli(["--version"]);
     expect(versionRes.status).toBe(0);
     expect(versionRes.stdout).toContain("NaNofuzz");
+
+    const mcpHelpRes = await runCli(["mcp", "--help"]);
+    expect(mcpHelpRes.status).toBe(0);
+    expect(mcpHelpRes.stdout).toContain("Usage: nanofuzz mcp");
+    expect(mcpHelpRes.stdout).toContain("--transport");
+    expect(mcpHelpRes.stdout).toContain("--model-provider");
   });
 
   it("returns exit code 4 with reason when target function is unsupported", async () => {
@@ -189,6 +212,37 @@ describe("cli:", () => {
     expect(outputData.stats.outcomes.total).toBeGreaterThan(0);
   });
 
+  it("outputs Compile and Instrument messages below Target and above Inputs", async () => {
+    const targetFile = path.join(tmpDir, "compile_order_target.ts");
+    fs.writeFileSync(
+      targetFile,
+      `export function sampleFn(x: number): number {\n  return x * 2;\n}\n`,
+      "utf8"
+    );
+
+    const res = await runCli([
+      targetFile,
+      "sampleFn",
+      "--max-tests",
+      "1",
+      "--seed",
+      "cli_compile_order_test",
+    ]);
+
+    expect(res.status).toBe(0);
+    const targetIdx = res.stdout.indexOf("Target:");
+    const compileIdx = res.stdout.indexOf(" - Compile...:");
+    const instrumentIdx = res.stdout.indexOf(" - Instrument:");
+    const inputsIdx = res.stdout.indexOf("Inputs:");
+    const onlineIdx = res.stdout.indexOf("Online:");
+
+    expect(targetIdx).toBeGreaterThanOrEqual(0);
+    expect(compileIdx).toBeGreaterThan(targetIdx);
+    expect(instrumentIdx).toBeGreaterThan(compileIdx);
+    expect(inputsIdx).toBeGreaterThan(instrumentIdx);
+    expect(onlineIdx).toBeGreaterThan(inputsIdx);
+  });
+
   it("returns exit code 4 when missing function argument or using invalid :: syntax", async () => {
     const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
 
@@ -230,7 +284,7 @@ describe("cli:", () => {
       "--output-file",
       outputFile,
       "--workers",
-      "auto",
+      "1",
       "--max-tests",
       maxTests.toString(),
       "--max-runtime",
@@ -261,7 +315,7 @@ describe("cli:", () => {
     expect(outputData.env.options.maxDupeInputs).toBe(maxDupeInputs);
     expect(outputData.env.options.fnTimeout).toBe(fnTimeout);
     expect(outputData.env.options.seed).toBe(seed);
-    expect(outputData.env.executionOptions.workers).toBe("auto");
+    expect(outputData.env.executionOptions.workers).toBe(1);
 
     // Verify test results were produced
     expect(outputData.stats.outcomes.total).toBeGreaterThan(0);
@@ -309,6 +363,92 @@ describe("cli:", () => {
     // Verify test results were produced
     expect(pyOutputData.stats.outcomes.total).toBeGreaterThan(0);
     expect(pyOutputData.stats.outcomes.total).toBeLessThanOrEqual(maxTests);
+  });
+
+  it("--output-file: check matching parameter set for Rust", async () => {
+    const outputFile = path.join(tmpDir, "rs_output.json5");
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.rs";
+    const targetFn = "greeting";
+    const seed = "rs_cli_seed_789";
+    const maxTests = 2;
+    const maxRuntime = 10000;
+
+    const res = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--max-tests",
+      maxTests.toString(),
+      "--max-runtime",
+      maxRuntime.toString(),
+      "--seed",
+      seed,
+    ]);
+
+    expect(res.status).toBe(0);
+    expect(fs.existsSync(outputFile)).toBeTrue();
+
+    const rsOutputData = JSON5.parse<FuzzTestResults>(
+      fs.readFileSync(outputFile, "utf8")
+    );
+
+    // Verify output matches target function
+    const fnMeta = getFnNameAndModule(rsOutputData.env.function);
+    expect(fnMeta.name).toBe(targetFn);
+    expect(fnMeta.module).toBe(path.resolve(targetFile));
+
+    // Verify parameter set in output options matches CLI flags
+    expect(rsOutputData.env.options.maxTests).toBe(maxTests);
+    expect(rsOutputData.env.options.suiteTimeout).toBe(maxRuntime);
+    expect(rsOutputData.env.options.seed).toBe(seed);
+
+    // Verify test results were produced
+    expect(rsOutputData.stats.outcomes.total).toBeGreaterThan(0);
+    expect(rsOutputData.stats.outcomes.total).toBeLessThanOrEqual(maxTests);
+  });
+
+  it("--output-file: check matching parameter set for Java", async () => {
+    const outputFile = path.join(tmpDir, "java_output.json5");
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.java";
+    const targetFn = "greeting";
+    const seed = "java_cli_seed_789";
+    const maxTests = 2;
+    const maxRuntime = 10000;
+
+    const res = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--max-tests",
+      maxTests.toString(),
+      "--max-runtime",
+      maxRuntime.toString(),
+      "--seed",
+      seed,
+    ]);
+
+    expect(res.status).toBe(0);
+    expect(fs.existsSync(outputFile)).toBeTrue();
+
+    const javaOutputData = JSON5.parse<FuzzTestResults>(
+      fs.readFileSync(outputFile, "utf8")
+    );
+
+    // Verify output matches target function
+    const fnMeta = getFnNameAndModule(javaOutputData.env.function);
+    expect(fnMeta.name).toBe(targetFn);
+    expect(fnMeta.module).toBe(path.resolve(targetFile));
+
+    // Verify parameter set in output options matches CLI flags
+    expect(javaOutputData.env.options.maxTests).toBe(maxTests);
+    expect(javaOutputData.env.options.suiteTimeout).toBe(maxRuntime);
+    expect(javaOutputData.env.options.seed).toBe(seed);
+
+    // Verify test results were produced
+    expect(javaOutputData.stats.outcomes.total).toBeGreaterThan(0);
+    expect(javaOutputData.stats.outcomes.total).toBeLessThanOrEqual(maxTests);
   });
 
   it("--output-file: writes packed binary output for .msgpack extension", async () => {
@@ -682,6 +822,8 @@ describe("cli:", () => {
       "ollama",
       "--model-name",
       "qwen2.5-coder:7b",
+      "--model-timeout",
+      "100",
       "--max-tests",
       "1",
       "--seed",
@@ -839,6 +981,96 @@ describe("cli:", () => {
     expect(res2.stdout).toContain("Online: 1 worker, v2 engine, mab scheduler");
   });
 
+  it("formats inputs line with Inject first and User (<fn>) when inputs are injected", async () => {
+    const outputFile = path.join(tmpDir, "inject_generator_online.json5");
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetWithUserGen = "targetUserGen";
+    const targetNoUserGen = "testCoverageOneFile";
+
+    const origLoad = FuzzConfigStore.loadForFunction;
+    spyOn(FuzzConfigStore, "loadForFunction").and.callFake(
+      (...args: Parameters<typeof FuzzConfigStore.loadForFunction>) => {
+        const cfg = origLoad(...args);
+        const fn = args[1];
+        if (fn === targetWithUserGen) {
+          cfg.tests = {
+            pin1: {
+              input: [
+                { name: "n", offset: 0, value: 1, origin: { type: "user" } },
+                {
+                  name: "s",
+                  offset: 1,
+                  value: "hello",
+                  origin: { type: "user" },
+                },
+              ],
+              output: [],
+              pinned: true,
+            },
+          };
+        } else if (fn === targetNoUserGen) {
+          cfg.tests = {
+            pin1: {
+              input: [
+                { name: "n", offset: 0, value: 1, origin: { type: "user" } },
+              ],
+              output: [],
+              pinned: true,
+            },
+          };
+        }
+        return cfg;
+      }
+    );
+
+    // Both injected tests and user generator are active -> Inject as first token, User (<fn>)
+    const res1 = await runCli([
+      targetFile,
+      targetWithUserGen,
+      "--output-file",
+      outputFile,
+      "--max-tests",
+      "1",
+      "--seed",
+      "cli_seed_inject_with_user_gen",
+    ]);
+    expect(res1.status).toBe(0);
+    expect(res1.stdout).toContain(
+      "Inputs: Inject, Random, Mutation, User (targetUserGenGenerator)"
+    );
+
+    // Injected tests active but user generator disabled via CLI -> Inject first, no User (<fn>)
+    const res2 = await runCli([
+      targetFile,
+      targetWithUserGen,
+      "--output-file",
+      outputFile,
+      "--no-user-input-generator",
+      "--max-tests",
+      "1",
+      "--seed",
+      "cli_seed_inject_disabled_user_gen",
+    ]);
+    expect(res2.status).toBe(0);
+    expect(res2.stdout).toContain("Inputs: Inject, Random, Mutation");
+    expect(res2.stdout).not.toContain("User (");
+
+    // Injected tests active on a function without user generator -> Inject first
+    const res3 = await runCli([
+      targetFile,
+      targetNoUserGen,
+      "--output-file",
+      outputFile,
+      "--max-tests",
+      "1",
+      "--seed",
+      "cli_seed_inject_no_user_gen",
+    ]);
+    expect(res3.status).toBe(0);
+    expect(res3.stdout).toContain("Inputs: Inject, Random, Mutation");
+    expect(res3.stdout).not.toContain("User (");
+  });
+
   it("captures and suppresses NodeLLM console spam during CommandLine runs", async () => {
     clearCapturedConsoleLogs();
     const outputFile = path.join(tmpDir, "nodellm_spam_suppression.json5");
@@ -981,6 +1213,9 @@ describe("cli:", () => {
 
   it("formatDuration: formats seconds, minutes, and hours correctly", () => {
     expect(formatDuration(0)).toBe("0s");
+    expect(formatDuration(-10)).toBe("0s");
+    expect(formatDuration(NaN)).toBe("0s");
+    expect(formatDuration(Infinity)).toBe("0s");
     expect(formatDuration(2)).toBe("2s");
     expect(formatDuration(59)).toBe("59s");
     expect(formatDuration(60)).toBe("1m00s");
@@ -990,33 +1225,33 @@ describe("cli:", () => {
     expect(formatDuration(19325)).toBe("5h22m05s");
   });
 
-  it("formatThroughput: formats execs/s, inputs/min, and inputs/hr correctly", () => {
+  it("formatThroughput: formats execs/s, execs/min, and execs/hr correctly", () => {
     // Zero or invalid elapsed
     expect(formatThroughput(0, 0)).toBe("0 execs/s");
     expect(formatThroughput(5, 0)).toBe("0 execs/s");
     expect(formatThroughput(0, 10)).toBe("0 execs/s");
-    expect(formatThroughput(0, 120)).toBe("0 inputs/min");
-    expect(formatThroughput(0, 7200)).toBe("0 inputs/hr");
+    expect(formatThroughput(0, 120)).toBe("0 execs/min");
+    expect(formatThroughput(0, 7200)).toBe("0 execs/hr");
 
     // >= 1 exec/s
     expect(formatThroughput(100, 2)).toBe("50 execs/s");
     expect(formatThroughput(5, 5)).toBe("1 execs/s");
     expect(formatThroughput(10, 8)).toBe("1 execs/s");
 
-    // < 1 exec/s but >= 1 input/min
-    expect(formatThroughput(50, 239)).toBe("13 inputs/min");
-    expect(formatThroughput(1, 2)).toBe("30 inputs/min");
-    expect(formatThroughput(1, 60)).toBe("1 inputs/min");
+    // < 1 exec/s but >= 1 exec/min
+    expect(formatThroughput(50, 239)).toBe("13 execs/min");
+    expect(formatThroughput(1, 2)).toBe("30 execs/min");
+    expect(formatThroughput(1, 60)).toBe("1 execs/min");
 
-    // < 1 input/min (measured in inputs/hr)
-    expect(formatThroughput(1, 120)).toBe("30 inputs/hr");
-    expect(formatThroughput(5, 900)).toBe("20 inputs/hr");
-    expect(formatThroughput(1, 3600)).toBe("1 inputs/hr");
+    // < 1 exec/min (measured in execs/hr)
+    expect(formatThroughput(1, 120)).toBe("30 execs/hr");
+    expect(formatThroughput(5, 900)).toBe("20 execs/hr");
+    expect(formatThroughput(1, 3600)).toBe("1 execs/hr");
 
     // formatRate alias works identically
-    expect(formatRate(50, 239)).toBe("13 inputs/min");
+    expect(formatRate(50, 239)).toBe("13 execs/min");
 
-    // unit: inputs uses same minutes and fallback logic
+    // unit: inputs uses inputs/min and inputs/hr
     expect(formatThroughput(0, 0, "inputs")).toBe("0 inputs/s");
     expect(formatThroughput(5, 0, "inputs")).toBe("0 inputs/s");
     expect(formatThroughput(0, 10, "inputs")).toBe("0 inputs/s");
@@ -1034,6 +1269,34 @@ describe("cli:", () => {
     expect(formatThroughput(1, 120, "inputs")).toBe("30 inputs/hr");
     expect(formatThroughput(5, 900, "inputs")).toBe("20 inputs/hr");
     expect(formatThroughput(1, 3600, "inputs")).toBe("1 inputs/hr");
+  });
+
+  it("returns exit code 4 when target path is a directory", async () => {
+    const res = await runCli(["src", "myFunc"]);
+    expect(res.status).toBe(4);
+    expect(res.stderr).toContain("Error: 'src' is a directory, not a file.");
+  });
+
+  it("returns exit code 4 when invalid --rust-sanitizer is passed", async () => {
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const res = await runCli([
+      targetFile,
+      "testBoolean",
+      "--rust-sanitizer",
+      "invalid",
+    ]);
+    expect(res.status).toBe(4);
+    expect(res.stderr).toContain(
+      "Invalid rust sanitizer 'invalid'. Allowed: none, borrow, address"
+    );
+  });
+
+  it("returns exit code 4 when invalid mcp --transport is passed", async () => {
+    const res = await runCli(["mcp", "--transport", "invalid"]);
+    expect(res.status).toBe(4);
+    expect(res.stderr).toContain(
+      "Invalid transport 'invalid'. Allowed: stdio, sse"
+    );
   });
 
   it("formatTestResults: formats non-zero groups and omits empty/zero groups", () => {
@@ -1207,21 +1470,63 @@ describe("cli:", () => {
         configurable: true,
         writable: true,
       });
-      const res = await runCli([
-        targetFile,
-        targetFn,
-        "--max-tests",
-        "5",
-        "--seed",
-        "cli_seed_bar_runtime",
-      ]);
+      const res = await runCli(
+        [
+          targetFile,
+          targetFn,
+          "--max-tests",
+          "5",
+          "--seed",
+          "cli_seed_bar_runtime",
+        ],
+        { progressBar: true }
+      );
 
       expect(res.status).toBe(0);
       expect(res.stderr).toMatch(/Testing \[.*\] \d+%/);
+      expect(res.stderr).toContain("\x1b[32m█\x1b[0m");
+      expect(res.stderr).not.toContain("\x1b[31m█\x1b[0m");
       expect(res.stderr).toMatch(/@ \d+s/);
       expect(res.stderr).toMatch(/(inputs\/s|inputs\/min)/);
       expect(res.stderr).toMatch(/(execs\/s|inputs\/min)/);
+      expect(res.stderr).toMatch(/\d+% sys cpu/);
       expect(res.stderr).toMatch(/Results \[.*Passed:/);
+    } finally {
+      Object.defineProperty(process.stderr, "isTTY", {
+        value: origIsTTY,
+        configurable: true,
+        writable: true,
+      });
+    }
+  });
+
+  it("progress bar includes red blocks when errors occur in TTY mode", async () => {
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testStandardVoidReturnException";
+
+    const origIsTTY = process.stderr.isTTY;
+    try {
+      Object.defineProperty(process.stderr, "isTTY", {
+        value: true,
+        configurable: true,
+        writable: true,
+      });
+      const res = await runCli(
+        [
+          targetFile,
+          targetFn,
+          "--max-failures",
+          "2",
+          "--max-tests",
+          "10",
+          "--seed",
+          "cli_seed_bar_errors",
+        ],
+        { progressBar: true }
+      );
+
+      expect(res.stderr).toMatch(/Testing \[.*\] \d+%/);
+      expect(res.stderr).toContain("\x1b[31m█\x1b[0m");
     } finally {
       Object.defineProperty(process.stderr, "isTTY", {
         value: origIsTTY,
@@ -1435,7 +1740,7 @@ describe("cli:", () => {
       "--cig-input-chunk-size",
       "10",
       "--max-tests",
-      "50",
+      "20",
       "--seed",
       "cli_seed_cig_checkpoints_mab",
     ]);
@@ -1457,7 +1762,7 @@ describe("cli:", () => {
       "--cig-input-chunk-size",
       "10",
       "--max-tests",
-      "50",
+      "20",
       "--seed",
       "cli_seed_cig_checkpoints_random",
     ]);
@@ -1479,7 +1784,7 @@ describe("cli:", () => {
       "--cig-input-chunk-size",
       "10",
       "--max-tests",
-      "50",
+      "20",
       "--seed",
       "cli_seed_cig_checkpoints_rr",
     ]);
@@ -1503,7 +1808,7 @@ describe("cli:", () => {
       "--cig-input-chunk-size",
       "10",
       "--max-tests",
-      "50",
+      "20",
       "--seed",
       "cli_seed_cig_checkpoints_ucb",
     ]);
@@ -1530,7 +1835,7 @@ describe("cli:", () => {
       "--cig-input-chunk-size",
       "10",
       "--max-tests",
-      "50",
+      "20",
       "--seed",
       "cli_seed_cig_checkpoints_thompson",
     ]);
@@ -1556,7 +1861,7 @@ describe("cli:", () => {
       "--cig-input-chunk-size",
       "10",
       "--max-tests",
-      "50",
+      "20",
       "--seed",
       "cli_seed_cig_checkpoints_ewma",
     ]);
@@ -1582,7 +1887,7 @@ describe("cli:", () => {
       "--cig-input-chunk-size",
       "10",
       "--max-tests",
-      "50",
+      "20",
       "--seed",
       "cli_seed_cig_checkpoints_mopt",
     ]);
@@ -1620,6 +1925,35 @@ describe("cli:", () => {
     expect(outputData.stopReason).toBe(FuzzStopReason.MAXFAILURES);
     expect(outputData.results.length).toBe(maxFailures);
     expect(outputData.stats.counters.failedTests).toBe(maxFailures);
+  });
+
+  it("--max-failures: defaults to 1 when omitted", async () => {
+    const outputFile = path.join(tmpDir, "max_failures_default.json5");
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testStandardVoidReturnException";
+
+    const res = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--no-shrink",
+      "--max-tests",
+      "100",
+      "--seed",
+      "cli_seed_max_failures_default",
+    ]);
+
+    expect(res.status).toBe(1);
+    expect(fs.existsSync(outputFile)).toBeTrue();
+
+    const outputData = JSON5.parse<FuzzTestResults>(
+      fs.readFileSync(outputFile, "utf8")
+    );
+
+    expect(outputData.env.options.maxFailures).toBe(1);
+    expect(outputData.stopReason).toBe(FuzzStopReason.MAXFAILURES);
+    expect(outputData.results.length).toBe(1);
   });
 
   it("--max-failures: stop fuzzing python put after 1 failure", async () => {
@@ -1745,6 +2079,8 @@ def ${targetFn}(n: int) -> int:
       outFileNone,
       "--output-results",
       "none",
+      "--max-failures",
+      "0",
       "--max-tests",
       "5",
       "--seed",
@@ -1759,24 +2095,12 @@ def ${targetFn}(n: int) -> int:
     expect(dataNone.stats.outcomes.exceptions).toBe(5);
   });
   it("--max-failures 1: badValue via Property Validator with shrinking", async () => {
-    const tsFile = path.join(tmpDir, "badvalue_prop_shrink.ts");
-    fs.writeFileSync(
-      tsFile,
-      `
-type FuzzTestResult = any;
-export function myPut(x: number): number {
-  return x;
-}
-export function myPutValidator(r: FuzzTestResult): "pass" | "fail" | "unknown" {
-  return "fail";
-}
-`,
-      "utf8"
-    );
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testAlwaysFailValidator";
 
     const res = await runCli([
-      tsFile,
-      "myPut",
+      targetFile,
+      targetFn,
       "--max-failures",
       "1",
       "--seed",
@@ -1785,7 +2109,7 @@ export function myPutValidator(r: FuzzTestResult): "pass" | "fail" | "unknown" {
 
     expect(res.status).toBe(1);
     expect(res.stdout).toContain(
-      "❌ FAILED by Property Validator (myPutValidator):"
+      "❌ FAILED by Property Validator (testAlwaysFailValidatorValidator):"
     );
     expect(res.stdout).toContain("- Failing test input     :");
     expect(res.stdout).toContain("- Test output            :");
@@ -1793,24 +2117,12 @@ export function myPutValidator(r: FuzzTestResult): "pass" | "fail" | "unknown" {
   });
 
   it("--max-failures 1: badValue via Property Validator with --no-shrink", async () => {
-    const tsFile = path.join(tmpDir, "badvalue_prop_noshrink.ts");
-    fs.writeFileSync(
-      tsFile,
-      `
-type FuzzTestResult = any;
-export function myPut(x: number): number {
-  return x;
-}
-export function myPutValidator(r: FuzzTestResult): "pass" | "fail" | "unknown" {
-  return "fail";
-}
-`,
-      "utf8"
-    );
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testAlwaysFailValidator";
 
     const res = await runCli([
-      tsFile,
-      "myPut",
+      targetFile,
+      targetFn,
       "--max-failures",
       "1",
       "--no-shrink",
@@ -1820,7 +2132,7 @@ export function myPutValidator(r: FuzzTestResult): "pass" | "fail" | "unknown" {
 
     expect(res.status).toBe(1);
     expect(res.stdout).toContain(
-      "❌ FAILED by Property Validator (myPutValidator):"
+      "❌ FAILED by Property Validator (testAlwaysFailValidatorValidator):"
     );
     expect(res.stdout).toContain("- Failing test input     :");
     expect(res.stdout).toContain("- Test output            :");
@@ -1829,20 +2141,12 @@ export function myPutValidator(r: FuzzTestResult): "pass" | "fail" | "unknown" {
   });
 
   it("--max-failures 1: badValue via Heuristic Validator with shrinking", async () => {
-    const tsFile = path.join(tmpDir, "badvalue_heur_shrink.ts");
-    fs.writeFileSync(
-      tsFile,
-      `
-export function myPut(x: number): number {
-  return NaN;
-}
-`,
-      "utf8"
-    );
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testReturnNaN";
 
     const res = await runCli([
-      tsFile,
-      "myPut",
+      targetFile,
+      targetFn,
       "--max-failures",
       "1",
       "--no-property-oracle",
@@ -1858,20 +2162,12 @@ export function myPut(x: number): number {
   });
 
   it("--max-failures 1: badValue via Heuristic Validator with --no-shrink", async () => {
-    const tsFile = path.join(tmpDir, "badvalue_heur_noshrink.ts");
-    fs.writeFileSync(
-      tsFile,
-      `
-export function myPut(x: number): number {
-  return NaN;
-}
-`,
-      "utf8"
-    );
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testReturnNaN";
 
     const res = await runCli([
-      tsFile,
-      "myPut",
+      targetFile,
+      targetFn,
       "--max-failures",
       "1",
       "--no-shrink",
@@ -1889,8 +2185,8 @@ export function myPut(x: number): number {
   });
 
   it("--max-failures 1: badValue via Example Oracle with shrinking", async () => {
-    const tsFile = path.join(tmpDir, "badvalue_example_shrink.ts");
-    const jsonFile = path.join(tmpDir, "badvalue_example_shrink.ts.nano.json5");
+    const tsFile = path.join(tmpDir, "badvalue_example.ts");
+    const jsonFile = path.join(tmpDir, "badvalue_example.ts.nano.json5");
     fs.writeFileSync(
       tsFile,
       `
@@ -1949,51 +2245,57 @@ export function myPut(x: number): number {
   });
 
   it("--max-failures 1: badValue via Example Oracle with --no-shrink", async () => {
-    const tsFile = path.join(tmpDir, "badvalue_example_noshrink.ts");
-    const jsonFile = path.join(
-      tmpDir,
-      "badvalue_example_noshrink.ts.nano.json5"
-    );
-    fs.writeFileSync(
-      tsFile,
-      `
+    const tsFile = path.join(tmpDir, "badvalue_example.ts");
+    const jsonFile = path.join(tmpDir, "badvalue_example.ts.nano.json5");
+    if (!fs.existsSync(tsFile)) {
+      fs.writeFileSync(
+        tsFile,
+        `
 export function myPut(x: number): number {
   return x;
 }
 `,
-      "utf8"
-    );
-    fs.writeFileSync(
-      jsonFile,
-      JSON.stringify({
-        version: "0.4.0",
-        functions: {
-          myPut: {
-            options: {},
-            validators: [],
-            isVoid: false,
-            tests: {
-              '{"value":[5]}': {
-                input: [
-                  { name: "x", offset: 0, value: 5, origin: { type: "user" } },
-                ],
-                output: [],
-                pinned: true,
-                expectedOutput: [
-                  {
-                    name: "0",
-                    offset: 0,
-                    value: 999,
-                    origin: { type: "user" },
-                  },
-                ],
+        "utf8"
+      );
+    }
+    if (!fs.existsSync(jsonFile)) {
+      fs.writeFileSync(
+        jsonFile,
+        JSON.stringify({
+          version: "0.4.0",
+          functions: {
+            myPut: {
+              options: {},
+              validators: [],
+              isVoid: false,
+              tests: {
+                '{"value":[5]}': {
+                  input: [
+                    {
+                      name: "x",
+                      offset: 0,
+                      value: 5,
+                      origin: { type: "user" },
+                    },
+                  ],
+                  output: [],
+                  pinned: true,
+                  expectedOutput: [
+                    {
+                      name: "0",
+                      offset: 0,
+                      value: 999,
+                      origin: { type: "user" },
+                    },
+                  ],
+                },
               },
             },
           },
-        },
-      }),
-      "utf8"
-    );
+        }),
+        "utf8"
+      );
+    }
 
     const res = await runCli([
       tsFile,
@@ -2068,9 +2370,114 @@ export function myPut(x: number): number {
     ]);
 
     expect(res.status).toBe(0);
-    expect(res.stdout).toContain("Testing finished.");
-    expect(res.stdout).toContain("Injected 0 and generated 5 inputs");
+    expect(res.stdout).toContain("Testing finished in ");
+    expect(res.stdout).toContain("Generated 5 inputs");
     expect(res.stdout).not.toContain("FAILED by Example Oracle");
+  });
+
+  it("loads options from .nano.json5 only when file exists and option is explicitly present", async () => {
+    const tsFile = path.join(tmpDir, "config_precedence.ts");
+    const jsonFile = path.join(tmpDir, "config_precedence.ts.nano.json5");
+    const outFile = path.join(tmpDir, "config_precedence_out.json5");
+    fs.writeFileSync(
+      tsFile,
+      `
+export function calc(x: number): number {
+  return x * 2;
+}
+`,
+      "utf8"
+    );
+    // Explicitly specify maxTests: 7 in the config file, but omit maxFailures
+    fs.writeFileSync(
+      jsonFile,
+      JSON.stringify({
+        version: "0.4.0",
+        functions: {
+          calc: {
+            options: {
+              maxTests: 7,
+            },
+            validators: [],
+            isVoid: false,
+            tests: {},
+          },
+        },
+      }),
+      "utf8"
+    );
+
+    const res = await runCli([
+      tsFile,
+      "calc",
+      "--output-file",
+      outFile,
+      "--seed",
+      "cli_seed_prec",
+    ]);
+
+    expect(res.status).toBe(0);
+    expect(fs.existsSync(outFile)).toBeTrue();
+    const data = JSON5.parse<FuzzTestResults>(fs.readFileSync(outFile, "utf8"));
+    // maxTests came from the file (7)
+    expect(data.env.options.maxTests).toBe(7);
+    expect(data.stats.outcomes.total).toBe(7);
+    // maxFailures was NOT in the file, so it used CLI default (1), NOT the extension default (0)
+    expect(data.env.options.maxFailures).toBe(1);
+  });
+
+  it("options in .nano.json5 take precedence over in-source @settings", async () => {
+    const pyFile = path.join(tmpDir, "precedence_settings.py");
+    const jsonFile = path.join(tmpDir, "precedence_settings.py.nano.json5");
+    const outFile = path.join(tmpDir, "precedence_settings_out.json5");
+    fs.writeFileSync(
+      pyFile,
+      `
+def settings(**kwargs):
+    def deco(fn):
+        return fn
+    return deco
+
+@settings(max_examples=100)
+def py_fn(x: int) -> int:
+    return x * 2
+`,
+      "utf8"
+    );
+    // Config file specifies maxTests: 4, overriding the in-source @settings(max_examples=100)
+    fs.writeFileSync(
+      jsonFile,
+      JSON.stringify({
+        version: "0.4.0",
+        functions: {
+          py_fn: {
+            options: {
+              maxTests: 4,
+            },
+            validators: [],
+            isVoid: false,
+            tests: {},
+          },
+        },
+      }),
+      "utf8"
+    );
+
+    const res = await runCli([
+      pyFile,
+      "py_fn",
+      "--output-file",
+      outFile,
+      "--seed",
+      "cli_seed_settings_precedence",
+    ]);
+
+    expect(res.status).toBe(0);
+    expect(fs.existsSync(outFile)).toBeTrue();
+    const data = JSON5.parse<FuzzTestResults>(fs.readFileSync(outFile, "utf8"));
+    // maxTests came from .nano.json5 (4), overriding in-source @settings (100)
+    expect(data.env.options.maxTests).toBe(4);
+    expect(data.stats.outcomes.total).toBe(4);
   });
 
   it("--max-failures 1: exception via PUT exception with shrinking", async () => {
@@ -2124,21 +2531,12 @@ export function myPut(x: number): number {
   });
 
   it("--max-failures 1: timeout via PUT timeout with shrinking", async () => {
-    const tsFile = path.join(tmpDir, "timeout_put_shrink.ts");
-    fs.writeFileSync(
-      tsFile,
-      `
-export function myPut(x: number): number {
-  if (x > 0) while (true) {}
-  return x;
-}
-`,
-      "utf8"
-    );
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testTimeoutPut";
 
     const res = await runCli([
-      tsFile,
-      "myPut",
+      targetFile,
+      targetFn,
       "--max-failures",
       "1",
       "--fn-timeout",
@@ -2155,21 +2553,12 @@ export function myPut(x: number): number {
   });
 
   it("--max-failures 1: timeout via PUT timeout with --no-shrink", async () => {
-    const tsFile = path.join(tmpDir, "timeout_put_noshrink.ts");
-    fs.writeFileSync(
-      tsFile,
-      `
-export function myPut(x: number): number {
-  if (x > 0) while (true) {}
-  return x;
-}
-`,
-      "utf8"
-    );
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testTimeoutPut";
 
     const res = await runCli([
-      tsFile,
-      "myPut",
+      targetFile,
+      targetFn,
       "--max-failures",
       "1",
       "--no-shrink",
@@ -2188,8 +2577,8 @@ export function myPut(x: number): number {
   });
 
   it("--max-failures 1: disagree via Oracle Disagreement with shrinking", async () => {
-    const tsFile = path.join(tmpDir, "disagree_shrink.ts");
-    const jsonFile = path.join(tmpDir, "disagree_shrink.ts.nano.json5");
+    const tsFile = path.join(tmpDir, "disagree.ts");
+    const jsonFile = path.join(tmpDir, "disagree.ts.nano.json5");
     fs.writeFileSync(
       tsFile,
       `
@@ -2249,11 +2638,12 @@ export function myPutValidator(r: FuzzTestResult): "pass" | "fail" | "unknown" {
   });
 
   it("--max-failures 1: disagree via Oracle Disagreement with --no-shrink", async () => {
-    const tsFile = path.join(tmpDir, "disagree_noshrink.ts");
-    const jsonFile = path.join(tmpDir, "disagree_noshrink.ts.nano.json5");
-    fs.writeFileSync(
-      tsFile,
-      `
+    const tsFile = path.join(tmpDir, "disagree.ts");
+    const jsonFile = path.join(tmpDir, "disagree.ts.nano.json5");
+    if (!fs.existsSync(tsFile)) {
+      fs.writeFileSync(
+        tsFile,
+        `
 type FuzzTestResult = any;
 export function myPut(x: number): number {
   return x;
@@ -2262,34 +2652,47 @@ export function myPutValidator(r: FuzzTestResult): "pass" | "fail" | "unknown" {
   return "fail";
 }
 `,
-      "utf8"
-    );
-    fs.writeFileSync(
-      jsonFile,
-      JSON.stringify({
-        version: "0.4.0",
-        functions: {
-          myPut: {
-            options: {},
-            validators: ["myPutValidator"],
-            isVoid: false,
-            tests: {
-              '{"value":[5]}': {
-                input: [
-                  { name: "x", offset: 0, value: 5, origin: { type: "user" } },
-                ],
-                output: [],
-                pinned: true,
-                expectedOutput: [
-                  { name: "0", offset: 0, value: 5, origin: { type: "user" } },
-                ],
+        "utf8"
+      );
+    }
+    if (!fs.existsSync(jsonFile)) {
+      fs.writeFileSync(
+        jsonFile,
+        JSON.stringify({
+          version: "0.4.0",
+          functions: {
+            myPut: {
+              options: {},
+              validators: ["myPutValidator"],
+              isVoid: false,
+              tests: {
+                '{"value":[5]}': {
+                  input: [
+                    {
+                      name: "x",
+                      offset: 0,
+                      value: 5,
+                      origin: { type: "user" },
+                    },
+                  ],
+                  output: [],
+                  pinned: true,
+                  expectedOutput: [
+                    {
+                      name: "0",
+                      offset: 0,
+                      value: 5,
+                      origin: { type: "user" },
+                    },
+                  ],
+                },
               },
             },
           },
-        },
-      }),
-      "utf8"
-    );
+        }),
+        "utf8"
+      );
+    }
 
     const res = await runCli([
       tsFile,
@@ -2311,24 +2714,12 @@ export function myPutValidator(r: FuzzTestResult): "pass" | "fail" | "unknown" {
   });
 
   it("--max-failures 1: failure via Property Validator Exception", async () => {
-    const tsFile = path.join(tmpDir, "fail_validator_exc.ts");
-    fs.writeFileSync(
-      tsFile,
-      `
-type FuzzTestResult = any;
-export function myPut(x: number): number {
-  return x;
-}
-export function myPutValidator(r: FuzzTestResult): "pass" | "fail" | "unknown" {
-  throw new Error("Validator throw message");
-}
-`,
-      "utf8"
-    );
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "targetValidatorException";
 
     const res = await runCli([
-      tsFile,
-      "myPut",
+      targetFile,
+      targetFn,
       "--max-failures",
       "1",
       "--seed",
@@ -2338,33 +2729,23 @@ export function myPutValidator(r: FuzzTestResult): "pass" | "fail" | "unknown" {
     expect(res.stdout).toContain(
       "❌ TESTING ERROR: Property validator threw an exception"
     );
-    expect(res.stdout).toContain("- Validator Function     : myPutValidator");
+    expect(res.stdout).toContain(
+      "- Validator Function     : targetValidatorExceptionValidator"
+    );
     expect(res.stdout).toContain("- Was validating:");
     expect(res.stdout).toContain("- Test input           :");
     expect(res.stdout).toContain("- Test output          :");
-    expect(res.stdout).toContain("Error: Validator throw message");
+    expect(res.stdout).toContain("Error: Validator error message");
     expect(res.stdout).toContain("===============");
   });
 
   it("--max-failures 1: failure via Property Validator Timeout", async () => {
-    const tsFile = path.join(tmpDir, "fail_validator_timeout.ts");
-    fs.writeFileSync(
-      tsFile,
-      `
-type FuzzTestResult = any;
-export function myPut(x: number): number {
-  return x;
-}
-export function myPutValidator(r: FuzzTestResult): "pass" | "fail" | "unknown" {
-  while (true) {}
-}
-`,
-      "utf8"
-    );
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "targetValidatorTimeout";
 
     const res = await runCli([
-      tsFile,
-      "myPut",
+      targetFile,
+      targetFn,
       "--max-failures",
       "1",
       "--fn-timeout",
@@ -2376,7 +2757,9 @@ export function myPutValidator(r: FuzzTestResult): "pass" | "fail" | "unknown" {
     expect(res.stdout).toContain(
       "❌ TESTING ERROR: Property validator timed out"
     );
-    expect(res.stdout).toContain("- Validator Function     : myPutValidator");
+    expect(res.stdout).toContain(
+      "- Validator Function     : targetValidatorTimeoutValidator"
+    );
     expect(res.stdout).toContain("- Was validating:");
     expect(res.stdout).toContain("- Test input           :");
     expect(res.stdout).toContain("- Test output          :");
@@ -2385,23 +2768,12 @@ export function myPutValidator(r: FuzzTestResult): "pass" | "fail" | "unknown" {
   });
 
   it("--max-failures 1: failure via Input Transformer Exception", async () => {
-    const tsFile = path.join(tmpDir, "fail_trans_exc.ts");
-    fs.writeFileSync(
-      tsFile,
-      `
-export function myPut(x: number): number {
-  return x;
-}
-export function myPutTransformer(x: number): [number] {
-  throw new Error("Transformer throw message");
-}
-`,
-      "utf8"
-    );
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "targetTransformedException";
 
     const res = await runCli([
-      tsFile,
-      "myPut",
+      targetFile,
+      targetFn,
       "--max-failures",
       "1",
       "--seed",
@@ -2411,32 +2783,23 @@ export function myPutTransformer(x: number): [number] {
     expect(res.stdout).toContain(
       "❌ TESTING ERROR: Input transformer threw an exception"
     );
-    expect(res.stdout).toContain("- Transformer Function   : myPutTransformer");
+    expect(res.stdout).toContain(
+      "- Transformer Function   : targetTransformedExceptionTransformer"
+    );
     expect(res.stdout).toContain("- Was transforming:");
     expect(res.stdout).toContain("- Test input (generated)");
     expect(res.stdout).toContain("- Test output          : (not executed)");
-    expect(res.stdout).toContain("Error: Transformer throw message");
+    expect(res.stdout).toContain("Error: Transformer error message");
     expect(res.stdout).toContain("===============");
   });
 
   it("--max-failures 1: failure via Input Transformer Timeout", async () => {
-    const tsFile = path.join(tmpDir, "fail_trans_timeout.ts");
-    fs.writeFileSync(
-      tsFile,
-      `
-export function myPut(x: number): number {
-  return x;
-}
-export function myPutTransformer(x: number): [number] {
-  while (true) {}
-}
-`,
-      "utf8"
-    );
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "targetTransformedTimeout";
 
     const res = await runCli([
-      tsFile,
-      "myPut",
+      targetFile,
+      targetFn,
       "--max-failures",
       "1",
       "--fn-timeout",
@@ -2448,7 +2811,9 @@ export function myPutTransformer(x: number): [number] {
     expect(res.stdout).toContain(
       "❌ TESTING ERROR: Input transformer timed out"
     );
-    expect(res.stdout).toContain("- Transformer Function   : myPutTransformer");
+    expect(res.stdout).toContain(
+      "- Transformer Function   : targetTransformedTimeoutTransformer"
+    );
     expect(res.stdout).toContain("- Was transforming:");
     expect(res.stdout).toContain("- Test input (generated)");
     expect(res.stdout).toContain("- Test output          : (not executed)");
@@ -2574,39 +2939,6 @@ export function myPutTransformer(x: number): [number] {
     ]);
     expect(resAi.status).toBe(0);
   });
-
-  /*
-   * Commented out so the cache clear does not step on other running tests
-   *
-  it("--clear-compile-cache", async () => {
-    const outputFile = path.join(tmpDir, "clear_cache_output.json5");
-    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
-    const targetFn = "testCoverageOneFile";
-
-    // First run to populate cache
-    const res1 = await runCli([targetFile, targetFn, "--max-tests", "5"]);
-    expect(res1.status).toBe(0);
-
-    // Second run with --clear-compile-cache flag
-    const res2 = await runCli([
-      targetFile,
-      targetFn,
-      "--output-file",
-      outputFile,
-      "--clear-compile-cache",
-      "--max-tests",
-      "5",
-    ]);
-
-    expect(res2.status).toBe(0);
-    expect(fs.existsSync(outputFile)).toBeTrue();
-
-    const outputData = JSON5.parse<FuzzTestResults>(
-      fs.readFileSync(outputFile, "utf8")
-    );
-    expect(outputData.results.length).toBeGreaterThan(0);
-  });
-  */
 });
 
 function getFnNameAndModule(fnObj: unknown): {

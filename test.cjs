@@ -11,16 +11,6 @@ const path = require("path");
 const os = require("os");
 const { spawn } = require("child_process");
 
-// Clean up any stale compiler output once before running tests
-try {
-  const tmpTsc = path.join(fs.realpathSync(os.tmpdir()), "nanofuzz", "tsc");
-  if (fs.existsSync(tmpTsc)) {
-    fs.rmSync(tmpTsc, { recursive: true, force: true });
-  }
-} catch {
-  // Ignore cleanup errors
-}
-
 const isVerbose = process.argv.includes("--verbose");
 
 // Determine test files to run
@@ -46,7 +36,7 @@ function getTestFiles() {
   }
 
   return findTestFiles("src");
-}
+} // fn: getTestFiles
 
 // Find all test/spec files under a directory
 function findTestFiles(dir) {
@@ -64,25 +54,56 @@ function findTestFiles(dir) {
       return isJsTest || isPyTest;
     })
     .map((f) => path.join(dir, f).replace(/\\/g, "/"));
-}
+} // fn: findTestFiles
 
 // Prioritize known longer running test files to run early in the queue.
-// Interleave TypeScript-heavy and Python-heavy suites so workers do not
-// all contend for Python runner host process spawns simultaneously at t=0.
+// Interleave heavy suites across distinct disaffinity domains (CLI/TS, OCaml, Python, Rust, Java, Go)
+// so initial workers start long-running tasks immediately without blocking each other.
 function sortTestFiles(files) {
   const priority = [
-    "FuzzerCoverageOneFile.test.ts",
-    "PythonRunner.test.ts",
-    "FuzzerExamples2.test.ts",
+    // Phase 1: Heavy language runner suites (one per disaffinity domain)
     "CommandLine.test.ts",
-    "FuzzerExamples1.test.ts",
-    "PytestAdapter.test.ts",
-    "FuzzerTypescript.test.ts",
+    "OxcamlRunner.test.ts",
+    "PythonRunner.test.ts",
+    "RustRunner.test.ts",
+    "JavaRunner.test.ts",
+    "GoRunner.test.ts",
+
+    // Phase 2: Heavy fuzzer execution suites (interleaved across domains)
     "Fuzzer.test.ts",
-    "FuzzerCoverageMultiFile.test.ts",
+    "FuzzerOxcaml.test.ts",
     "FuzzerPython.test.ts",
-    "CommandLineAiCache.test.ts",
+    "FuzzerRust.test.ts",
+    "FuzzerJava.test.ts",
+    "FuzzerGo.test.ts",
+
+    // Phase 3: Coverage measures & multi-worker campaigns
+    "FuzzerExamples1.test.ts",
+    "CoverageMeasureOxcaml.test.ts",
+    "CoverageMeasureRust.test.ts",
+    "CoverageMeasureJava.test.ts",
+    "CoverageMeasureGo.test.ts",
+    "FuzzerCoverageOneFile.test.ts",
+    "FuzzerExamples2.test.ts",
+    "FuzzerTypescript.test.ts",
+
+    // Phase 4: Compilers, adapters, and harnesses
+    "CargoTestAdapter.test.ts",
+    "RustCompiler.test.ts",
+    "JUnitTestAdapter.test.ts",
+    "JavaCompiler.test.ts",
+    "DuneTestAdapter.test.ts",
+    "OxcamlCompiler.test.ts",
+    "OxcamlHarness.test.ts",
+    "PytestAdapter.test.ts",
+    "GoTestAdapter.test.ts",
+    "GoCompiler.test.ts",
+    "JavascriptRunner.test.ts",
+    "TypescriptCompiler.test.ts",
     "Agent.test.ts",
+    "CommandLineAiCache.test.ts",
+    "VscodeLmAdapter.test.ts",
+    "FuzzerCoverageMultiFile.test.ts",
   ];
 
   return [...files].sort((a, b) => {
@@ -93,34 +114,29 @@ function sortTestFiles(files) {
     if (pB !== -1) return 1;
     return a.localeCompare(b);
   });
-}
+} // fn: sortTestFiles
 
 // Disaffinity groups: suites within the same group must not execute concurrently.
-// This prevents multiple heavy subprocess or fuzzer workloads from thrashing CPU and
-// starving sub-second timeouts.
+// Partitioned by runtime domain to prevent resource/compiler thrashing and timeout starvation
+// within a single runtime while allowing concurrent execution across different runtimes.
 const disaffinityGroups = [
-  // Group 1: Subprocess-heavy Python runner & adapter suites
-  // No two of these may run at the same time.
+  // Heavy general fuzzing engine & multi-worker campaigns
   [
-    "PythonRunner.test.ts",
-    "PytestAdapter.test.ts",
     "CommandLine.test.ts",
-    "FuzzerPython.test.ts",
-    "CommandLineAiCache.test.ts",
-  ],
-  // Group 2: Heavy multi-worker fuzzing campaigns
-  // No two of these may run at the same time.
-  [
+    "Fuzzer.test.ts",
     "FuzzerCoverageOneFile.test.ts",
     "FuzzerCoverageMultiFile.test.ts",
-    "FuzzerExamples1.test.ts",
-    "FuzzerExamples2.test.ts",
-    "CommandLine.test.ts",
-    "FuzzerTypescript.test.ts",
-    "Fuzzer.test.ts",
-    "Agent.test.ts",
-    "VscodeLmAdapter.test.ts",
   ],
+  // Subprocess-heavy Python runner & fuzzer suites
+  ["PythonRunner.test.ts", "FuzzerPython.test.ts"],
+  // Subprocess-heavy Rust runner & fuzzer suites
+  ["RustRunner.test.ts", "FuzzerRust.test.ts"],
+  // Subprocess-heavy Java runner & fuzzer suites
+  ["JavaRunner.test.ts", "FuzzerJava.test.ts"],
+  // Subprocess-heavy OCaml/OxCaml runner & fuzzer suites
+  ["OxcamlRunner.test.ts", "FuzzerOxcaml.test.ts"],
+  // Subprocess-heavy Go runner & fuzzer suites
+  ["GoRunner.test.ts", "FuzzerGo.test.ts"],
 ];
 
 function hasConflict(fileA, fileB) {
@@ -132,7 +148,7 @@ function hasConflict(fileA, fileB) {
     if (hasA && hasB) return true;
   }
   return false;
-}
+} // fn: hasConflict
 
 function canRunFile(candidateFile, currentlyRunningFiles) {
   for (const running of currentlyRunningFiles) {
@@ -141,7 +157,7 @@ function canRunFile(candidateFile, currentlyRunningFiles) {
     }
   }
   return true;
-}
+} // fn: canRunFile
 
 // Run a single test file in a spawned Node or pytest process
 function runTestFile(file) {
@@ -314,6 +330,30 @@ async function main() {
   const queue = [...testFiles];
   const runningFiles = new Set();
   let waiters = [];
+
+  // Phase 0: If CommandLineClearCache test is present, run it first in isolation
+  // before all other tests to both test --clear-compile-cache and ensure a clean compiler cache.
+  const clearCacheIdx = queue.findIndex((f) =>
+    f.includes("CommandLineClearCache.test.ts")
+  );
+  if (clearCacheIdx !== -1) {
+    const clearCacheFile = queue.splice(clearCacheIdx, 1)[0];
+    const res = await runTestFile(clearCacheFile);
+    results.push(res);
+    completedCount++;
+    totalSpecsRun += res.specs;
+    totalFailures += res.failures;
+    const statusTag = res.code === 0 ? "✓ PASS" : "❌ FAIL";
+    const progress = `[${completedCount}/${totalFiles}]`;
+    console.log(
+      `${progress.padStart(7)} ${statusTag} ${clearCacheFile} (${res.durationSec}s)`
+    );
+    if (res.code !== 0) {
+      console.log(
+        `\n--- FAILURE OUTPUT: ${clearCacheFile} ---\n${res.stdout}\n${res.stderr}\n--- END FAILURE OUTPUT ---\n`
+      );
+    }
+  }
 
   function notifyWaiters() {
     const list = waiters;

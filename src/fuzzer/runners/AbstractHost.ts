@@ -168,6 +168,33 @@ export abstract class AbstractHost {
     return this._isActive;
   } // get: isActive
 
+  /**
+   * Returns accumulated stderr output captured from the host process.
+   */
+  public get stderr(): string {
+    return this._stderrChunks.length > 0
+      ? Buffer.concat(this._stderrChunks).toString("utf-8")
+      : "";
+  } // get: stderr
+
+  /**
+   * Returns the exit code of the underlying process, or null if still running.
+   */
+  public get exitCode(): number | null {
+    return this._proc ? this._proc.exitCode : null;
+  } // get: exitCode
+
+  /**
+   * Appends stderr data for simulating runner error diagnostics in tests.
+   *
+   * @param data String or Buffer to append to stderr chunks
+   */
+  public appendStderrForTest(data: string | Buffer): void {
+    const chunk = typeof data === "string" ? Buffer.from(data, "utf-8") : data;
+    this._stderrChunks.push(chunk);
+    this._stderrBytes += chunk.length;
+  } // fn: appendStderrForTest
+
   protected _onStdout = (chunk: Buffer): void => {
     this._stdoutChunks.push(chunk);
     this._stdoutBytes += chunk.length;

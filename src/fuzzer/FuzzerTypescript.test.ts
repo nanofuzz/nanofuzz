@@ -405,9 +405,7 @@ describe("fuzzer: typescript targets", () => {
       "./test_fixtures/Fuzzer.testfixtures.ts",
       "targetTransformed",
       { ...intOptions, maxTests: 0 }
-    ).test([injectedInput], { gen: true }, undefined, undefined, (r) =>
-      results.push(r)
-    );
+    ).test([injectedInput], {}, undefined, undefined, (r) => results.push(r));
 
     expect(results.length).toBe(1);
     const injectedResult = results[0];

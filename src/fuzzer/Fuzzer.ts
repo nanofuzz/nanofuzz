@@ -34,13 +34,8 @@ import { MeasureFactory } from "./measures/MeasureFactory";
 import { RunnerFactory } from "./runners/RunnerFactory";
 import { Leaderboard } from "./generators/Leaderboard";
 import { categorizeResult, getIoKey, isError, isSameJudgments } from "./Util";
-import {
-  getTransformers,
-  getUserGenerators,
-  getValidators,
-  isArgValueType,
-  isOptionValid,
-} from "./analysis/Util";
+import { isArgValueType, isOptionValid } from "./analysis/Util";
+import { CompanionManager } from "./analysis/CompanionManager";
 import { ImplicitOracle } from "./oracles/ImplicitOracle";
 import { ExampleOracle } from "./oracles/ExampleOracle";
 import { PropertyOracle } from "./oracles/PropertyOracle";
@@ -74,6 +69,7 @@ export class Tester {
 
   protected _results: FuzzTestResults; // test results
 
+  protected _interruptedQueue: TransformedInputAndSource[] = [];
   protected _fuzzerFocus: FuzzerFocus = deepFreeze({ mode: "gen" });
   protected _failingResultToShrink?: FuzzTestResult;
   protected _shrinkStartTime = 0;
@@ -127,13 +123,22 @@ export class Tester {
     this._function = fnList[this._fnName];
 
     // Get the list of property validators
-    this._validators = getValidators(this._program, this._function);
+    this._validators = CompanionManager.getValidators(
+      this._program,
+      this._function
+    );
 
     // Get the list of input transformers
-    this._transformers = getTransformers(this._program, this._function);
+    this._transformers = CompanionManager.getTransformers(
+      this._program,
+      this._function
+    );
 
     // Get the list of user generators
-    this._userGenerators = getUserGenerators(this._program, this._function);
+    this._userGenerators = CompanionManager.getUserGenerators(
+      this._program,
+      this._function
+    );
 
     // Options
     if (!isOptionValid(normalizedOptions)) {
@@ -234,8 +239,14 @@ export class Tester {
         executionOptions: structuredClone(this._executionOptions),
         function: this._function,
         validators: structuredClone(this._validators),
-        transformers: getTransformers(this._program, this._function),
-        userGenerators: getUserGenerators(this._program, this._function),
+        transformers: CompanionManager.getTransformers(
+          this._program,
+          this._function
+        ),
+        userGenerators: CompanionManager.getUserGenerators(
+          this._program,
+          this._function
+        ),
       },
       stopReason: FuzzStopReason.CRASH, // updated later
       stats: {
@@ -257,6 +268,7 @@ export class Tester {
           passedTests: 0, // updated later
           erroredTests: 0, // updated later
           inputsSkipped: 0, // updated later
+          inputsInterrupted: 0, // updated later
           failedTests: 0, // updated later
         },
         outcomes: {
@@ -530,6 +542,7 @@ export class Tester {
         failedTests: 0, // number of failed tests encountered so far
         passedTests: 0, // number of passed tests encountered so far
         inputsSkipped: 0, // number of skipped tests so far
+        inputsInterrupted: 0, // number of in-flight tests interrupted so far
       },
       outcomes: {
         total: 0,
@@ -579,15 +592,16 @@ export class Tester {
     // Note: Python is currently instrumented in PythonRunnerHost
     // Assumes: put, transformers, & validators are in the same module
     const instrumentTime = performance.now(); // start time: instrument
-    const targetMod = this._lastCompiler
-      ? Instrumenter.prepareInstrumentedTree(
-          mod,
-          this._lastCompiler.getCompiledDependencies(),
-          this._measures,
-          this._lastCompiler.options.tmpDir,
-          update
-        )
-      : mod;
+    const targetMod =
+      this._lastCompiler instanceof CompilerFactory.TypescriptCompiler
+        ? Instrumenter.prepareInstrumentedTree(
+            mod,
+            this._lastCompiler.getCompiledDependencies(),
+            this._measures,
+            this._lastCompiler.options.tmpDir,
+            update
+          )
+        : mod;
     this._results.stats.timers.instrument = performance.now() - instrumentTime;
 
     // Build a test runner for executing tests
@@ -746,6 +760,8 @@ export class Tester {
             runStats.counters.passedTests;
           this._results.stats.counters.inputsSkipped +=
             runStats.counters.inputsSkipped;
+          this._results.stats.counters.inputsInterrupted +=
+            runStats.counters.inputsInterrupted;
           this._results.stats.counters.failedTests +=
             runStats.counters.failedTests;
 
@@ -797,6 +813,7 @@ export class Tester {
             type: "testing-complete",
             cancelled: cancelFn(),
             pct: 100,
+            stats: runStats,
           });
 
           this._state = "paused";
@@ -855,43 +872,45 @@ export class Tester {
           return () => !stillInjecting && cancelFn();
         };
 
-        if (this._compositeInputGenerator.nextable() === "soon") {
-          const remainingTimeout =
-            this._options.suiteTimeout > 0 && runStats.timers.startGenTime > 0
-              ? Math.max(
-                  0,
-                  this._options.suiteTimeout -
-                    (performance.now() - runStats.timers.startGenTime)
-                )
-              : undefined;
-          const waitTimer = setTimeout(() => {
-            update({
-              type: "waiting-for-generator",
-              pendingGenerators:
-                this._compositeInputGenerator.getPendingGeneratorNames(),
-              stats: runStats,
-              pct: typeof stopCondition === "number" ? stopCondition : 0,
-            });
-          }, 200);
-          try {
-            await this._compositeInputGenerator.waitForNextInput(
-              remainingTimeout
-            );
-          } catch (e: unknown) {
-            this._state = "crashed";
-            this._results.stopReason = FuzzStopReason.CRASH;
-            throw e;
-          } finally {
-            clearTimeout(waitTimer);
+        if (this._interruptedQueue.length === 0) {
+          if (this._compositeInputGenerator.nextable() === "soon") {
+            const remainingTimeout =
+              this._options.suiteTimeout > 0 && runStats.timers.startGenTime > 0
+                ? Math.max(
+                    0,
+                    this._options.suiteTimeout -
+                      (performance.now() - runStats.timers.startGenTime)
+                  )
+                : undefined;
+            const waitTimer = setTimeout(() => {
+              update({
+                type: "waiting-for-generator",
+                pendingGenerators:
+                  this._compositeInputGenerator.getPendingGeneratorNames(),
+                stats: runStats,
+                pct: typeof stopCondition === "number" ? stopCondition : 0,
+              });
+            }, 200);
+            try {
+              await this._compositeInputGenerator.waitForNextInput(
+                remainingTimeout
+              );
+            } catch (e: unknown) {
+              this._state = "crashed";
+              this._results.stopReason = FuzzStopReason.CRASH;
+              throw e;
+            } finally {
+              clearTimeout(waitTimer);
+            }
           }
-        }
 
-        if (
-          this._compositeInputGenerator.nextable() !== "now" &&
-          this._compositeInputGenerator.nextable() !== "now!" &&
-          !stillInjecting
-        ) {
-          continue;
+          if (
+            this._compositeInputGenerator.nextable() !== "now" &&
+            this._compositeInputGenerator.nextable() !== "now!" &&
+            !stillInjecting
+          ) {
+            continue;
+          }
         }
 
         const getRemainingSuiteTime = (): number => {
@@ -905,7 +924,14 @@ export class Tester {
             : Infinity;
         };
 
-        if (transformRunner) {
+        if (this._interruptedQueue.length > 0) {
+          result.inputGenerated = this._interruptedQueue.shift()!;
+          if (runStats.counters.inputsInterrupted > 0) {
+            runStats.counters.inputsInterrupted--;
+          } else if (this._results.stats.counters.inputsInterrupted > 0) {
+            this._results.stats.counters.inputsInterrupted--;
+          }
+        } else if (transformRunner) {
           let transformedInput: TransformedInputAndSource;
           try {
             transformedInput =
@@ -1041,6 +1067,8 @@ export class Tester {
             );
           } catch (e: unknown) {
             if (isError(e) && e.message === "runnerInterrupted") {
+              runStats.counters.inputsInterrupted++;
+              this._interruptedQueue.push(result.inputGenerated);
               continue;
             }
 
@@ -1144,6 +1172,8 @@ export class Tester {
                 );
               } catch (e: unknown) {
                 if (isError(e) && e.message === "runnerInterrupted") {
+                  runStats.counters.inputsInterrupted++;
+                  this._interruptedQueue.push(result.inputGenerated);
                   continue;
                 }
                 throw e;
@@ -1431,19 +1461,24 @@ const _checkStopCondition = (
   }
 
   // End testing if we exceed the maximum number of tests
-  const executedNonInjected = gen
-    ? stats.counters.inputsGenerated -
+  if (gen && options.maxTests > 0) {
+    const executedNonInjected =
+      stats.counters.inputsGenerated -
       stats.counters.dupesGenerated -
-      stats.counters.inputsSkipped
-    : 0;
-  const totalInputsCount = stats.counters.inputsInjected + executedNonInjected;
-  const targetCount = injectCount + (gen ? options.maxTests : 0);
+      stats.counters.inputsSkipped;
+    const totalInputsCount =
+      stats.counters.inputsInjected + executedNonInjected;
+    const targetCount = injectCount + options.maxTests;
 
-  if (totalInputsCount >= targetCount) {
-    return FuzzStopReason.MAXTESTS;
-  }
-  if (targetCount > 0) {
-    const testsPct = totalInputsCount / targetCount;
+    if (totalInputsCount >= targetCount) {
+      return FuzzStopReason.MAXTESTS;
+    }
+    if (targetCount > 0) {
+      const testsPct = totalInputsCount / targetCount;
+      if (testsPct > maxPct) maxPct = testsPct;
+    }
+  } else if (!gen && injectCount > 0) {
+    const testsPct = stats.counters.inputsInjected / injectCount;
     if (testsPct > maxPct) maxPct = testsPct;
   }
 

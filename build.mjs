@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as esbuild from "esbuild";
 import copyfiles from "copyfiles";
 import * as rimraf from "rimraf";
@@ -13,13 +14,12 @@ const version = JSON.stringify(pkg.version);
 // Clear the build folder
 fs.rmSync("./build", { recursive: true, force: true });
 
-// Copy static assets
-copyfiles(["./src/ui/*.css", "./build/ui"], true /* flat */, () =>
-  console.log("copied css assets")
-);
-copyfiles(["./src/ui/*.svg", "./build/ui"], true /* flat */, () =>
-  console.log("copied svg assets")
-);
+// Copy static assets synchronously
+fs.mkdirSync("./build/ui", { recursive: true });
+fs.copyFileSync("./src/ui/FuzzPanelView.css", "./build/ui/FuzzPanelView.css");
+console.log("copied css assets");
+fs.copyFileSync("./src/ui/icon.svg", "./build/ui/icon.svg");
+console.log("copied svg assets");
 
 // Copy Python assets
 copyfiles(
@@ -33,6 +33,30 @@ copyfiles(
   () => console.log("copied .py oracle")
 );
 
+// Copy Rust assets
+copyfiles(
+  ["./src/fuzzer/runners/rust/RustRunnerHost.template.rs", "./build/extension"],
+  true,
+  () => console.log("copied .rs runner template")
+);
+
+// Copy OCaml assets
+copyfiles(
+  [
+    "./src/fuzzer/runners/oxcaml/OxcamlRunnerHost.template.ml",
+    "./build/extension",
+  ],
+  true,
+  () => console.log("copied .ml runner template")
+);
+
+// Copy Go assets
+copyfiles(
+  ["./src/fuzzer/runners/go/GoRunnerHost.template.go", "./build/extension"],
+  true,
+  () => console.log("copied .go runner template")
+);
+
 // Copy Python runtime package (nanofuzz_runtime)
 const pyRuntimeSrc = path.resolve(
   "./packages/runtime/python/src/nanofuzz_runtime"
@@ -41,7 +65,7 @@ if (fs.existsSync(pyRuntimeSrc)) {
   const destPyRuntime = path.resolve("./build/extension/nanofuzz_runtime");
   fs.mkdirSync(destPyRuntime, { recursive: true });
   fs.cpSync(pyRuntimeSrc, destPyRuntime, { recursive: true });
-  console.log("copied nanofuzz_runtime");
+  console.log("copied runtime (python)");
 }
 
 // Build and copy TypeScript runtime package (@nanofuzz/runtime)
@@ -57,8 +81,145 @@ if (fs.existsSync(tsRuntimeDir)) {
     "./build/extension/node_modules/@nanofuzz/runtime"
   );
   fs.mkdirSync(path.dirname(destTsRuntime), { recursive: true });
-  fs.cpSync(tsRuntimeDir, destTsRuntime, { recursive: true });
-  console.log("copied @nanofuzz/runtime");
+  fs.cpSync(tsRuntimeDir, destTsRuntime, {
+    recursive: true,
+    filter: (src) => !src.includes(`${path.sep}node_modules`),
+  });
+  console.log("copied runtime (typescript)");
+}
+
+// Build and copy Rust runtime crate (nanofuzz-runtime)
+const rustRuntimeDir = path.resolve("./packages/runtime/rust");
+if (fs.existsSync(rustRuntimeDir)) {
+  const rustTargetDeps = path.join(rustRuntimeDir, "target", "debug", "deps");
+  const hasRlib =
+    fs.existsSync(rustTargetDeps) &&
+    fs
+      .readdirSync(rustTargetDeps)
+      .some((f) => f.startsWith("libnanofuzz_runtime") && f.endsWith(".rlib"));
+
+  if (!hasRlib) {
+    const cargoBin = resolveCargo();
+    if (cargoBin) {
+      ChildProcess.execFileSync(cargoBin, ["build"], {
+        cwd: rustRuntimeDir,
+        stdio: "inherit",
+      });
+    } else {
+      console.warn(
+        "WARNING: Cargo not found. Rust runtime crate was not prebuilt (see ./CONTRIBUTING.md)"
+      );
+    }
+  }
+
+  const destRustRuntime = path.resolve("./build/extension/nanofuzz-runtime");
+  fs.mkdirSync(destRustRuntime, { recursive: true });
+  fs.cpSync(rustRuntimeDir, destRustRuntime, {
+    recursive: true,
+    filter: (src) => !src.includes(`${path.sep}target`),
+  });
+  console.log("copied runtime (rust)");
+}
+
+// Build and copy OCaml runtime library (nanofuzz_runtime)
+const oxRuntimeDir = path.resolve("./packages/runtime/oxcaml");
+if (fs.existsSync(oxRuntimeDir)) {
+  const duneBin = resolveDune();
+  if (duneBin) {
+    try {
+      const duneDir = path.dirname(duneBin);
+      const pathEnvKey =
+        Object.keys(process.env).find((k) => k.toLowerCase() === "path") ||
+        "PATH";
+      ChildProcess.execFileSync(duneBin, ["build"], {
+        cwd: oxRuntimeDir,
+        env: {
+          ...process.env,
+          [pathEnvKey]: `${duneDir}${path.delimiter}${process.env[pathEnvKey] || ""}`,
+        },
+        stdio: "inherit",
+      });
+    } catch {
+      console.warn("WARNING: dune build failed for nanofuzz_runtime");
+    }
+  }
+
+  const destOxRuntime = path.resolve(
+    "./build/extension/nanofuzz_runtime_oxcaml"
+  );
+  fs.mkdirSync(destOxRuntime, { recursive: true });
+  fs.cpSync(oxRuntimeDir, destOxRuntime, {
+    recursive: true,
+    filter: (src) => !src.includes(`${path.sep}_build`),
+  });
+  console.log("copied runtime (ocaml)");
+}
+
+// Build and copy Java runtime package (nanofuzz-runtime)
+const javaRuntimeDir = path.resolve("./packages/runtime/java");
+if (fs.existsSync(javaRuntimeDir)) {
+  const javaTargetDir = path.join(javaRuntimeDir, "target");
+  // Locate the versioned shaded runtime JAR
+  const findJar = () => {
+    if (!fs.existsSync(javaTargetDir)) return undefined;
+    const files = fs.readdirSync(javaTargetDir);
+    const jar = files.find(
+      (f) =>
+        f.startsWith("nanofuzz-runtime") &&
+        f.endsWith(".jar") &&
+        !f.includes("sources") &&
+        !f.startsWith("original-")
+    );
+    return jar ? path.join(javaTargetDir, jar) : undefined;
+  };
+
+  let javaTargetJar = findJar();
+  if (!javaTargetJar) {
+    const mvnBin = resolveMaven();
+    if (mvnBin) {
+      ChildProcess.execFileSync(mvnBin, ["clean", "package", "-DskipTests"], {
+        cwd: javaRuntimeDir,
+        stdio: "inherit",
+        shell: process.platform === "win32",
+      });
+      javaTargetJar = findJar();
+    } else {
+      throw new Error(
+        "Maven (mvn) not found. Java runtime JAR cannot be built (see ./CONTRIBUTING.md)"
+      );
+    }
+  }
+
+  if (!javaTargetJar || !fs.existsSync(javaTargetJar)) {
+    throw new Error(
+      `Java runtime JAR was not found in ${javaTargetDir} after build.`
+    );
+  }
+
+  const destJavaRuntime = path.resolve(
+    "./build/extension/nanofuzz-runtime-java"
+  );
+  fs.mkdirSync(destJavaRuntime, { recursive: true });
+  fs.cpSync(javaRuntimeDir, destJavaRuntime, {
+    recursive: true,
+    filter: (src) => !src.includes(`${path.sep}target`),
+  });
+  fs.copyFileSync(
+    javaTargetJar,
+    path.join(destJavaRuntime, "nanofuzz-runtime.jar")
+  );
+  console.log("copied runtime (java)");
+}
+
+// Copy Go runtime package
+const goRuntimeDir = path.resolve("./packages/runtime/go");
+if (fs.existsSync(goRuntimeDir)) {
+  const destGoRuntime = path.resolve("./build/extension/nanofuzz-runtime-go");
+  fs.mkdirSync(destGoRuntime, { recursive: true });
+  fs.cpSync(goRuntimeDir, destGoRuntime, {
+    recursive: true,
+  });
+  console.log("copied runtime (go)");
 }
 
 // Copy Python imports
@@ -129,6 +290,10 @@ await esbuild.build({
     "tree-sitter-python",
     "tree-sitter-typescript",
     "tree-sitter-javascript",
+    "tree-sitter-rust",
+    "tree-sitter-ocaml",
+    "tree-sitter-java",
+    "tree-sitter-go",
     "web-tree-sitter",
   ],
   define: {
@@ -165,6 +330,9 @@ await esbuild.build({
   minify: false,
   format: "cjs",
   sourcemap: "both",
+  banner: {
+    js: "#!/usr/bin/env node",
+  },
   tsconfig: "./tsconfig.json",
   external: [
     "path",
@@ -174,6 +342,10 @@ await esbuild.build({
     "tree-sitter-python",
     "tree-sitter-typescript",
     "tree-sitter-javascript",
+    "tree-sitter-rust",
+    "tree-sitter-ocaml",
+    "tree-sitter-java",
+    "tree-sitter-go",
     "web-tree-sitter",
   ],
   plugins: [
@@ -186,6 +358,7 @@ await esbuild.build({
     "process.env.NANOFUZZ_VERSION": version,
   },
 });
+fs.chmodSync("./build/cli/cli.cjs", 0o755);
 
 // CompilerWorker
 await esbuild.build({
@@ -235,7 +408,7 @@ await esbuild.build({
   bundle: true,
   platform: "node",
   metafile: true,
-  minify: false,
+  minify: true,
   format: "cjs",
   sourcemap: "both",
   tsconfig: "./tsconfig.json",
@@ -247,6 +420,10 @@ await esbuild.build({
     "tree-sitter-python",
     "tree-sitter-typescript",
     "tree-sitter-javascript",
+    "tree-sitter-rust",
+    "tree-sitter-ocaml",
+    "tree-sitter-java",
+    "tree-sitter-go",
     "web-tree-sitter",
   ],
   define: {
@@ -354,3 +531,112 @@ else:
     return undefined;
   }
 }
+
+/**
+ * Resolves the cargo executable location.
+ *
+ * @returns Path to the cargo executable or undefined if not found
+ */
+function resolveCargo() {
+  const cargoBinName = process.platform === "win32" ? "cargo.exe" : "cargo";
+  const candidates = [];
+  if (process.env.CARGO_HOME) {
+    candidates.push(path.join(process.env.CARGO_HOME, "bin", cargoBinName));
+  }
+  const home = os.homedir();
+  if (home) {
+    candidates.push(path.join(home, ".cargo", "bin", cargoBinName));
+  }
+  candidates.push(cargoBinName);
+
+  for (const candidate of candidates) {
+    try {
+      const res = ChildProcess.spawnSync(candidate, ["--version"], {
+        encoding: "utf8",
+        stdio: "pipe",
+      });
+      if (res.status === 0) {
+        return candidate;
+      }
+    } catch {
+      // not found or not executable
+    }
+  }
+  return undefined;
+} // fn: resolveCargo
+
+/**
+ * Resolves the dune executable location.
+ *
+ * @returns Path to the dune executable or undefined if not found
+ */
+function resolveDune() {
+  const duneBinName = process.platform === "win32" ? "dune.exe" : "dune";
+  const candidates = [];
+  if (process.env.OPAM_SWITCH_PREFIX) {
+    candidates.push(
+      path.join(process.env.OPAM_SWITCH_PREFIX, "bin", duneBinName)
+    );
+  }
+  const home = os.homedir();
+  if (home) {
+    const opamDir = path.join(home, ".opam");
+    if (fs.existsSync(opamDir)) {
+      try {
+        const switches = fs.readdirSync(opamDir);
+        for (const sw of switches) {
+          candidates.push(path.join(opamDir, sw, "bin", duneBinName));
+        }
+      } catch {
+        // ignore
+      }
+    }
+  }
+  candidates.push(duneBinName);
+  for (const candidate of candidates) {
+    try {
+      const res = ChildProcess.spawnSync(candidate, ["--version"], {
+        encoding: "utf8",
+        stdio: "pipe",
+      });
+      if (res.status === 0) {
+        return candidate;
+      }
+    } catch {
+      // not found or not executable
+    }
+  }
+  return undefined;
+} // fn: resolveDune
+
+/**
+ * Resolves the maven (mvn) executable location.
+ *
+ * @returns Path to the mvn executable or undefined if not found
+ */
+function resolveMaven() {
+  const mvnBinName = process.platform === "win32" ? "mvn.cmd" : "mvn";
+  const candidates = [];
+  if (process.env.M2_HOME) {
+    candidates.push(path.join(process.env.M2_HOME, "bin", mvnBinName));
+  }
+  if (process.env.MAVEN_HOME) {
+    candidates.push(path.join(process.env.MAVEN_HOME, "bin", mvnBinName));
+  }
+  candidates.push(mvnBinName);
+  for (const candidate of candidates) {
+    try {
+      const res = ChildProcess.spawnSync(candidate, ["--version"], {
+        encoding: "utf8",
+        stdio: "pipe",
+        shell: process.platform === "win32",
+      });
+      if (res.status === 0) {
+        return candidate;
+      }
+    } catch {
+      // not found or not executable
+    }
+  }
+  return undefined;
+} // fn: resolveMaven

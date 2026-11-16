@@ -1,11 +1,14 @@
 import seedrandom from "seedrandom";
 import { FunctionDef } from "../analysis/FunctionDef";
 import { PythonProgram } from "../analysis/python/PythonProgram";
+import { RustProgram } from "../analysis/rust/RustProgram";
+import { OxcamlProgram } from "../analysis/oxcaml/OxcamlProgram";
+import { GoProgram } from "../analysis/go/GoProgram";
 import { ProgramLanguage } from "../analysis/Types";
+import { CompanionManager } from "../analysis/CompanionManager";
 import { ArgDefGenerator } from "../analysis/ArgDefGenerator";
 import * as ValueMapper from "../mappers/ValueMapper";
 import { FuzzerCodeSnippet } from "./Types";
-import { getNextAvailableFnNumber } from "./Util";
 
 /**
  * Synthesizes a complete user-provided input generator code skeleton for a function definition.
@@ -23,15 +26,14 @@ export function synthesizeUserGenerator(
   generatorNameOverride?: string
 ): FuzzerCodeSnippet {
   const targetLang = lang ?? fn.getLang();
-  const userGenPrefix = fn.getName() + "Generator";
-
-  let userGenName = generatorNameOverride;
-  if (!userGenName) {
-    const fnCounter = existingFnNames
-      ? getNextAvailableFnNumber(existingFnNames, userGenPrefix)
-      : 0;
-    userGenName = `${userGenPrefix}${fnCounter === 0 ? "" : fnCounter}`;
-  }
+  const userGenName =
+    generatorNameOverride ??
+    CompanionManager.getNextAvailableName(
+      existingFnNames ?? [],
+      fn.getName(),
+      "generator",
+      targetLang
+    );
 
   const inArgs = fn.getArgDefs();
 
@@ -69,7 +71,152 @@ export function synthesizeUserGenerator(
       },
     ];
 
-    const skeleton = `\n\ndef ${userGenName}(prng: Callable[[], float]) -> ${pyTupleType}:\n  # Return an argument tuple for ${fn.getName()}, or return None when exhausted\n  return ${pyDefaultArgs}\n`;
+    const skeleton = `\n\ndef ${userGenName}(prng: Callable[[], float]) -> ${pyTupleType}:\n  # Return an argument tuple for ${fn.getName()}, or return None when exhausted\n  # Call prng() to generate random float values in [0.0, 1.0)\n  return ${pyDefaultArgs}\n`;
+    const importData = imports.map((i) => i.stmt).join("");
+    const fullTemplate = `${importData}${skeleton.trimStart()}`;
+
+    return {
+      name: userGenName,
+      skeleton,
+      imports,
+      fullTemplate,
+    };
+  } else if (targetLang === "rust") {
+    const rustTupleType =
+      inArgs.length === 0
+        ? "Option<()>"
+        : inArgs.length === 1
+          ? `Option<(${RustProgram.getTypeAnnotation(inArgs[0], { useTypeRefs: true })},)>`
+          : `Option<(${inArgs
+              .map((a) =>
+                RustProgram.getTypeAnnotation(a, { useTypeRefs: true })
+              )
+              .join(", ")})>`;
+
+    const rustDefaultArgs =
+      inArgs.length === 0
+        ? "()"
+        : inArgs.length === 1
+          ? `(${ValueMapper.toLang(
+              "rust",
+              ArgDefGenerator.gen(inArgs[0], seedrandom("skeleton")),
+              inArgs[0]
+            )},)`
+          : `(${inArgs
+              .map((a) =>
+                ValueMapper.toLang(
+                  "rust",
+                  ArgDefGenerator.gen(a, seedrandom("skeleton")),
+                  a
+                )
+              )
+              .join(", ")})`;
+
+    const imports: { name: string; stmt: string }[] = [];
+    const skeleton = `\n\npub fn ${userGenName}(mut _prng: impl FnMut() -> f64) -> ${rustTupleType} {\n  // Return an argument tuple for ${fn.getName()}, or return None when exhausted\n  // Call _prng() to generate random f64 values in [0.0, 1.0)\n  Some(${rustDefaultArgs})\n}`;
+    const importData = imports.map((i) => i.stmt).join("");
+    const fullTemplate = `${importData}${skeleton.trimStart()}`;
+
+    return {
+      name: userGenName,
+      skeleton,
+      imports,
+      fullTemplate,
+    };
+  } else if (targetLang === "oxcaml") {
+    const oxcamlTupleType =
+      inArgs.length === 0
+        ? "unit option"
+        : inArgs.length === 1
+          ? `${OxcamlProgram.getTypeAnnotation(inArgs[0], { useTypeRefs: true })} option`
+          : `(${inArgs
+              .map((a) =>
+                OxcamlProgram.getTypeAnnotation(a, { useTypeRefs: true })
+              )
+              .join(" * ")}) option`;
+
+    const oxcamlDefaultArgs =
+      inArgs.length === 0
+        ? "()"
+        : inArgs.length === 1
+          ? ValueMapper.toLang(
+              "oxcaml",
+              ArgDefGenerator.gen(inArgs[0], seedrandom("skeleton")),
+              inArgs[0]
+            )
+          : `(${inArgs
+              .map((a) =>
+                ValueMapper.toLang(
+                  "oxcaml",
+                  ArgDefGenerator.gen(a, seedrandom("skeleton")),
+                  a
+                )
+              )
+              .join(", ")})`;
+
+    const imports: { name: string; stmt: string }[] = [];
+    const skeleton = `\n\nlet ${userGenName} (_prng : unit -> float) : ${oxcamlTupleType} =\n  (* Return an argument tuple for ${fn.getName()}, or return None when exhausted *)\n  (* Call _prng () to generate random float values in [0.0, 1.0) *)\n  Some (${oxcamlDefaultArgs})\n`;
+    const importData = imports.map((i) => i.stmt).join("");
+    const fullTemplate = `${importData}${skeleton.trimStart()}`;
+    return {
+      name: userGenName,
+      skeleton,
+      imports,
+      fullTemplate,
+    };
+  } else if (targetLang === "java") {
+    const javaDefaultArgs =
+      inArgs.length === 0
+        ? "new Object[0]"
+        : `new Object[] { ${inArgs
+            .map((a) =>
+              ValueMapper.toLang(
+                "java",
+                ArgDefGenerator.gen(a, seedrandom("skeleton")),
+                a
+              )
+            )
+            .join(", ")} }`;
+
+    const imports = [
+      {
+        name: "DoubleSupplier",
+        stmt: `import java.util.function.DoubleSupplier;\n`,
+      },
+    ];
+
+    const skeleton = `\n\npublic static Object[] ${userGenName}(DoubleSupplier prng) {\n  // Return an argument array for ${fn.getName()}, or return null when exhausted\n  // Call prng.getAsDouble() to generate random double values in [0.0, 1.0)\n  return ${javaDefaultArgs};\n}`;
+    const importData = imports.map((i) => i.stmt).join("");
+    const fullTemplate = `${importData}${skeleton.trimStart()}`;
+
+    return {
+      name: userGenName,
+      skeleton,
+      imports,
+      fullTemplate,
+    };
+  } else if (targetLang === "go") {
+    const goTypes = inArgs
+      .map((a) => GoProgram.getTypeAnnotation(a))
+      .join(", ");
+    const returnSig =
+      inArgs.length === 0 ? "bool" : `(${goTypes}, bool)`;
+
+    const defaultArgs = inArgs
+      .map((a) =>
+        ValueMapper.toLang(
+          "go",
+          ArgDefGenerator.gen(a, seedrandom("skeleton")),
+          a
+        )
+      )
+      .join(", ");
+
+    const returnStmt =
+      inArgs.length === 0 ? "return true" : `return ${defaultArgs}, true`;
+
+    const imports: { name: string; stmt: string }[] = [];
+    const skeleton = `\n\nfunc ${userGenName}(prng func() float64) ${returnSig} {\n\t// Return generated arguments, or ok=false when sequence exhausted\n\t// Call prng() to generate random float64 values in [0.0, 1.0)\n\t${returnStmt}\n}`;
     const importData = imports.map((i) => i.stmt).join("");
     const fullTemplate = `${importData}${skeleton.trimStart()}`;
 
@@ -94,7 +241,7 @@ export function synthesizeUserGenerator(
             .join(", ");
 
     const imports: { name: string; stmt: string }[] = [];
-    const skeleton = `\n\nexport function ${userGenName}(prng: () => number): Parameters<typeof ${fn.getName()}> | undefined {\n  // Return an argument tuple for ${fn.getName()}, or return undefined when exhausted\n  return [${tsDefaultArgs}];\n}`;
+    const skeleton = `\n\nexport function ${userGenName}(prng: () => number): Parameters<typeof ${fn.getName()}> | undefined {\n  // Return an argument tuple for ${fn.getName()}, or return undefined when exhausted\n  // Call prng() to generate random number values in [0.0, 1.0)\n  return [${tsDefaultArgs}];\n}`;
     const importData = imports.map((i) => i.stmt).join("");
     const fullTemplate = `${importData}${skeleton.trimStart()}`;
 

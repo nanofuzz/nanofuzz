@@ -498,21 +498,29 @@ export function asyncPropValidator(result: { out: number }): string {
     );
 
     try {
-      const npxCmd = process.platform === "win32" ? "npx.cmd" : "npx";
-      const res = spawnSync(
-        npxCmd,
-        [
-          "jest",
-          "asyncModule.test.js",
-          "--config=jest.config.json",
-          "--colors=false",
-        ],
-        {
-          cwd: tmpDir,
-          encoding: "utf8",
-          shell: process.platform === "win32",
-        }
+      const localJest = path.resolve(
+        "./node_modules/.bin",
+        process.platform === "win32" ? "jest.cmd" : "jest"
       );
+      const isLocal = fs.existsSync(localJest);
+      const cmd = isLocal
+        ? localJest
+        : process.platform === "win32"
+          ? "npx.cmd"
+          : "npx";
+      const args = isLocal
+        ? ["asyncModule.test.js", "--config=jest.config.json", "--colors=false"]
+        : [
+            "jest",
+            "asyncModule.test.js",
+            "--config=jest.config.json",
+            "--colors=false",
+          ];
+      const res = spawnSync(cmd, args, {
+        cwd: tmpDir,
+        encoding: "utf8",
+        shell: process.platform === "win32",
+      });
       expect(res.status).toBe(0);
       expect(res.stderr + res.stdout).toContain("4 passed");
     } finally {

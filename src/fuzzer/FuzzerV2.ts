@@ -28,12 +28,8 @@ import {
   InputAndSource,
   TransformedInputAndSource,
 } from "./Types";
-import {
-  getTransformers,
-  getUserGenerators,
-  getValidators,
-  isOptionValid,
-} from "./analysis/Util";
+import { isOptionValid } from "./analysis/Util";
+import { CompanionManager } from "./analysis/CompanionManager";
 import { MeasureFactory } from "./measures/MeasureFactory";
 import { RunnerFactory } from "./runners/RunnerFactory";
 import { Leaderboard } from "./generators/Leaderboard";
@@ -74,6 +70,7 @@ export class FuzzerV2 {
   >;
 
   // Cooperative Shrink State
+  protected _interruptedQueue: TransformedInputAndSource[] = [];
   protected _fuzzerFocus: FuzzerFocus = deepFreeze({ mode: "gen" });
   protected _failingResultToShrink?: FuzzTestResult;
   protected _shrinkStartTime = 0;
@@ -123,9 +120,18 @@ export class FuzzerV2 {
     }
     this._function = fnList[this._fnName];
 
-    this._validators = getValidators(this._program, this._function);
-    this._transformers = getTransformers(this._program, this._function);
-    this._userGenerators = getUserGenerators(this._program, this._function);
+    this._validators = CompanionManager.getValidators(
+      this._program,
+      this._function
+    );
+    this._transformers = CompanionManager.getTransformers(
+      this._program,
+      this._function
+    );
+    this._userGenerators = CompanionManager.getUserGenerators(
+      this._program,
+      this._function
+    );
 
     if (!isOptionValid(normalizedOptions)) {
       throw new Error(
@@ -425,63 +431,70 @@ export class FuzzerV2 {
           this._stats!.markGenStarted(startGenTime);
         }
 
-        // Handle async generator wait (e.g. LLM inputs)
-        if (this._compositeInputGenerator.nextable() === "soon") {
-          const remainingTimeout =
-            this._options.suiteTimeout > 0 && this._stats!.startGenTime > 0
-              ? Math.max(
-                  0,
-                  this._options.suiteTimeout -
-                    (performance.now() - this._stats!.startGenTime)
-                )
-              : undefined;
-          const waitTimer = setTimeout(() => {
-            update({
-              type: "waiting-for-generator",
-              pendingGenerators:
-                this._compositeInputGenerator.getPendingGeneratorNames(),
-              stats: this._stats!.currentRun,
-              pct: typeof stopCondition === "number" ? stopCondition : 0,
-            });
-          }, 200);
+        // Fetch candidate input
+        let candidate: TransformedInputAndSource;
+        let genTime = 0;
+
+        if (this._interruptedQueue.length > 0) {
+          candidate = this._interruptedQueue.shift()!;
+          this._stats.decrementInterrupted();
+        } else {
+          // Handle async generator wait (e.g. LLM inputs)
+          if (this._compositeInputGenerator.nextable() === "soon") {
+            const remainingTimeout =
+              this._options.suiteTimeout > 0 && this._stats!.startGenTime > 0
+                ? Math.max(
+                    0,
+                    this._options.suiteTimeout -
+                      (performance.now() - this._stats!.startGenTime)
+                  )
+                : undefined;
+            const waitTimer = setTimeout(() => {
+              update({
+                type: "waiting-for-generator",
+                pendingGenerators:
+                  this._compositeInputGenerator.getPendingGeneratorNames(),
+                stats: this._stats!.currentRun,
+                pct: typeof stopCondition === "number" ? stopCondition : 0,
+              });
+            }, 200);
+            try {
+              await this._compositeInputGenerator.waitForNextInput(
+                remainingTimeout
+              );
+            } catch (e: unknown) {
+              this._state = "crashed";
+              if (this._stats) {
+                this._stats.results.stopReason = FuzzStopReason.CRASH;
+              }
+              throw e;
+            } finally {
+              clearTimeout(waitTimer);
+            }
+          }
+
+          if (
+            this._compositeInputGenerator.nextable() !== "now" &&
+            this._compositeInputGenerator.nextable() !== "now!" &&
+            !stillInjecting
+          ) {
+            continue;
+          }
+
           try {
-            await this._compositeInputGenerator.waitForNextInput(
-              remainingTimeout
-            );
+            candidate = await this._compositeInputGenerator.nextTransformed();
           } catch (e: unknown) {
+            if (e instanceof GeneratorExhaustedError) {
+              continue;
+            }
             this._state = "crashed";
             if (this._stats) {
               this._stats.results.stopReason = FuzzStopReason.CRASH;
             }
             throw e;
-          } finally {
-            clearTimeout(waitTimer);
           }
+          genTime = performance.now() - startGenTime;
         }
-
-        if (
-          this._compositeInputGenerator.nextable() !== "now" &&
-          this._compositeInputGenerator.nextable() !== "now!" &&
-          !stillInjecting
-        ) {
-          continue;
-        }
-
-        // Fetch candidate input
-        let candidate: TransformedInputAndSource;
-        try {
-          candidate = await this._compositeInputGenerator.nextTransformed();
-        } catch (e: unknown) {
-          if (e instanceof GeneratorExhaustedError) {
-            continue;
-          }
-          this._state = "crashed";
-          if (this._stats) {
-            this._stats.results.stopReason = FuzzStopReason.CRASH;
-          }
-          throw e;
-        }
-        const genTime = performance.now() - startGenTime;
 
         if (!candidate.injected) {
           stillInjecting = false;
@@ -521,6 +534,8 @@ export class FuzzerV2 {
         );
 
         if (!execution) {
+          this._stats.recordInterrupted(candidate);
+          this._interruptedQueue.push(candidate);
           continue; // Interrupted
         }
 
@@ -594,15 +609,16 @@ export class FuzzerV2 {
     }
 
     const instrumentTime = performance.now();
-    const targetMod = this._lastCompiler
-      ? Instrumenter.prepareInstrumentedTree(
-          mod,
-          this._lastCompiler.getCompiledDependencies(),
-          this._measures,
-          this._lastCompiler.options.tmpDir,
-          update
-        )
-      : mod;
+    const targetMod =
+      this._lastCompiler instanceof CompilerFactory.TypescriptCompiler
+        ? Instrumenter.prepareInstrumentedTree(
+            mod,
+            this._lastCompiler.getCompiledDependencies(),
+            this._measures,
+            this._lastCompiler.options.tmpDir,
+            update
+          )
+        : mod;
     if (this._stats) {
       this._stats.results.stats.timers.instrument =
         performance.now() - instrumentTime;
@@ -830,6 +846,7 @@ export class FuzzerV2 {
       type: "testing-complete",
       cancelled: cancelFn(),
       pct: 100,
+      stats: this._stats!.currentRun,
     });
 
     this._state = "paused";

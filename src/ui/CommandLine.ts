@@ -17,9 +17,11 @@ import {
   FuzzBusyStatusMessage,
   FuzzExecutionOptions,
   FuzzOptions,
+  FuzzTestResults,
 } from "../fuzzer/Types";
 import {
   formatCompilingStatus,
+  formatDuration,
   formatInstrumentingStatus,
   formatRunSummary,
 } from "./FuzzTextFormatter";
@@ -29,7 +31,7 @@ import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
 import { parseCoverageScope } from "../fuzzer/measures/Util";
 import path from "node:path";
 import * as JSONN from "../Jsonn";
-import { isError } from "../fuzzer/Util";
+import { isError, CpuSampler } from "../fuzzer/Util";
 import { isKeyedObject } from "../Util";
 import { LlmAdapter } from "../fuzzer/adapters/LlmAdapter";
 import { LlmDelayCalculator } from "../fuzzer/adapters/LlmDelayCalculator";
@@ -37,6 +39,7 @@ import { FuzzPinnedTest } from "../fuzzer/Types";
 import { InputSchedulerType } from "../fuzzer/schedulers/Types";
 import { FuzzConfigStore } from "../fuzzer/FuzzConfigStore";
 import { ConsoleIsolator } from "./ConsoleIsolator";
+import { runMcpServer, McpServerOptions } from "./McpServer";
 import pkg from "../../package.json";
 
 const nanofuzzVersion = process.env.NANOFUZZ_VERSION ?? pkg.version;
@@ -84,7 +87,7 @@ function createProgram(): Commander.Command {
     )
     .option(
       `--max-tests <integer>`,
-      `Max tests to run`,
+      `Max tests to run (0=no limit)`,
       parseIntArgGeZero,
       1000
     )
@@ -98,13 +101,13 @@ function createProgram(): Commander.Command {
       `--max-failures <integer>`,
       `Max test failures (0=no limit)`,
       parseIntArgGeZero,
-      0
+      1
     )
     .option(
       `--fn-timeout <integer>`,
       `Per-test timeout (ms)`,
       parseIntArgGeZero,
-      200
+      500
     )
     .option(
       `--host-startup-timeout <integer>`,
@@ -298,13 +301,78 @@ function createProgram(): Commander.Command {
     )
     .option(`--cig-stats-checkpoints`, `Track generator selection statistics`)
 
+    // -------------------------------- Language --------------------------------- //
+
+    .option(
+      `--rust-sanitizer <none|borrow|address>`,
+      `Rust sanitizer: none, borrow, address`,
+      parseRustSanitizer,
+      "none"
+    )
+
     // ------------------------------ System Cleanup ----------------------------- //
 
     .option(`--debug [scope]`, `Debug logging: *, runners, ai (default: *)`)
-    .option(`--clear-compile-cache`, `Clear compiler cache before run`);
+    .option(`--clear-compile-cache`, `Clear compiler cache before run`)
+    .addHelpText(
+      "after",
+      "\nCommands:\n  mcp [options]                                    Start the NaNofuzz Model Context Protocol (MCP) server\n"
+    );
 
   return program;
 } // fn: createProgram
+
+/**
+ * Creates and configures the Commander Command instance for the `mcp` subcommand.
+ *
+ * @returns Configured Commander.Command instance for the MCP server CLI
+ */
+function createMcpProgram(): Commander.Command {
+  const program = new Commander.Command();
+  program
+    .name("nanofuzz mcp")
+    .description("Start the NaNofuzz Model Context Protocol (MCP) server")
+    .option(
+      "-w, --workspace <path>",
+      "Root workspace directory for file resolution"
+    )
+    .option(
+      "--transport <stdio|sse>",
+      "MCP transport protocol: stdio, sse",
+      parseMcpTransport,
+      "stdio"
+    )
+    .option(
+      "--port <integer>",
+      "Port for SSE transport",
+      parseIntArgGeOne,
+      3000
+    )
+    .option(
+      "--model-provider <string>",
+      "AI provider (e.g. anthropic, openai, gemini, openrouter)"
+    )
+    .option("--model-name <string>", "AI model name")
+    .option("--model-key <string>", "AI model API key")
+    .option("--model-endpoint <string>", "AI model endpoint base URL")
+    .option(
+      "--model-timeout <integer>",
+      "AI model request timeout in ms",
+      parseIntArgGeOne
+    )
+    .option(
+      "--workers <integer|auto>",
+      "Number of worker processes",
+      parseWorkersOption,
+      "auto"
+    )
+    .option("--no-config-file", "Ignore .nano.json5 config")
+    .option("--debug [scope]", "Debug logging: *, runners, ai (default: *)")
+    .option("--log-file <path>", "Redirect debug logs to a file")
+    .option("--clear-compile-cache", "Clear compiler cache before run");
+
+  return program;
+} // fn: createMcpProgram
 
 export async function runCliInProcess(
   args: string[] = process.argv.slice(2)
@@ -317,6 +385,29 @@ export async function runCliInProcess(
   const isolator = ConsoleIsolator.activate({ isDebug: isDebugConfigured });
 
   try {
+    if (args.length > 0 && args[0] === "mcp") {
+      const mcpProgram = createMcpProgram();
+      mcpProgram.exitOverride((_err: Commander.CommanderError) => {
+        throw _err;
+      });
+
+      try {
+        isolator.asCli(() => {
+          mcpProgram.parse(args.slice(1), { from: "user" });
+        });
+      } catch (_e: unknown) {
+        if (_e instanceof Commander.CommanderError && _e.exitCode === 0) {
+          return EXIT_OK;
+        }
+        return ERROR_USAGE;
+      }
+
+      isolator.restore();
+      const mcpOpts = mcpProgram.opts<McpServerOptions>();
+      await runMcpServer(mcpOpts);
+      return EXIT_OK;
+    }
+
     const program = createProgram();
 
     program.exitOverride((_err: Commander.CommanderError) => {
@@ -364,12 +455,18 @@ export async function runCliInProcess(
     try {
       filename = require.resolve(filenameIn);
     } catch (_e: unknown) {
-      if (fs.existsSync(path.resolve(filenameIn))) {
-        filename = path.resolve(filenameIn);
+      const resolved = path.resolve(filenameIn);
+      if (fs.existsSync(resolved)) {
+        filename = resolved;
       } else {
         isolator.error(`Error: file not found: ${filenameIn}`);
         return ERROR_USAGE; // command line usage error
       }
+    }
+
+    if (fs.existsSync(filename) && fs.statSync(filename).isDirectory()) {
+      isolator.error(`Error: '${filenameIn}' is a directory, not a file.`);
+      return ERROR_USAGE;
     }
 
     const options = program.opts();
@@ -382,17 +479,23 @@ export async function runCliInProcess(
     const showProgressBar = options["progressBar"] !== false;
 
     // Setup update message handler & the progress bar
+    const cpuSampler = new CpuSampler();
     let isCancelled = false;
+    let isHeaderFlushed = false;
+    let flushHeader = () => {};
     let lastWasMilestone = true;
     let lastStats: CurrentRunStats | undefined;
     let multiBar: MultiBar | undefined;
     let progressBar: SingleBar | undefined;
     let resultsBar: SingleBar | undefined;
+    const barSize = 20;
+    let barBlocks: ("pass" | "fail")[] = [];
+    let lastFailErrorCount = 0;
 
     restoreCursor = () => {
       isolator.asCli(() => {
-        if (process.stderr.isTTY) process.stderr.write("\x1B[?25h");
-        if (process.stdout.isTTY) process.stdout.write("\x1B[?25h");
+        if (process.stderr.isTTY) process.stderr.write("\x1B[0m\x1B[?25h");
+        if (process.stdout.isTTY) process.stdout.write("\x1B[0m\x1B[?25h");
       });
     }; // fn: restoreCursor
     process.on("exit", restoreCursor);
@@ -404,7 +507,11 @@ export async function runCliInProcess(
           multiBar = undefined;
           progressBar = undefined;
           resultsBar = undefined;
+          barBlocks = [];
+          lastFailErrorCount = 0;
           lastWasMilestone = true;
+          if (process.stderr.isTTY) process.stderr.write("\x1B[0m");
+          if (process.stdout.isTTY) process.stdout.write("\x1B[0m");
           if (restoreCursor) restoreCursor();
         });
       }
@@ -416,6 +523,7 @@ export async function runCliInProcess(
       } else {
         isCancelled = true;
         stopBars();
+        flushHeader();
         isolator.log("Cancellation requested. Stopping NaNofuzz...");
 
         // Upon SIGINT, abandon any in-flight AI requests or retries.
@@ -441,6 +549,7 @@ export async function runCliInProcess(
         case "testing":
         case "waiting-for-generator":
         case "progress-tick": {
+          flushHeader();
           if ("stats" in payload && payload.stats) {
             lastStats = payload.stats;
           }
@@ -471,19 +580,25 @@ export async function runCliInProcess(
           const testResults = formatTestResults(lastStats);
 
           if (lastWasMilestone) {
+            barBlocks = [];
+            lastFailErrorCount = 0;
             isolator.asCli(() => {
               if (process.stderr.isTTY) process.stderr.write("\x1B[?25l");
               if (process.stdout.isTTY) process.stdout.write("\x1B[?25l");
+              const isTty = Boolean(
+                process.stderr.isTTY && !process.env.NO_COLOR
+              );
               multiBar = new MultiBar(
                 {
                   clearOnComplete: true,
-                  linewrap: true,
-                  barsize: 20,
+                  linewrap: false,
+                  barsize: barSize,
                   hideCursor: true,
                   gracefulExit: true,
                 },
                 Presets.shades_classic
               );
+              const cpuToken = `${cpuSampler.getCpu()}% sys cpu`;
               progressBar = multiBar.create(
                 100,
                 0,
@@ -492,10 +607,13 @@ export async function runCliInProcess(
                   inputsRate: inputsRate,
                   execsRate: execsRate,
                   rate: execsRate,
+                  cpu: cpuToken,
+                  coloredBar: "░".repeat(barSize),
                 },
                 {
-                  format:
-                    " - Testing [{bar}] {percentage}% @ {runtime}, {inputsRate}, {execsRate}",
+                  format: isTty
+                    ? " - Testing [{coloredBar}] {percentage}% @ {runtime}, {inputsRate}, {execsRate}, {cpu}"
+                    : " - Testing [{bar}] {percentage}% @ {runtime}, {inputsRate}, {execsRate}, {cpu}",
                 }
               );
               resultsBar = multiBar.create(
@@ -523,12 +641,43 @@ export async function runCliInProcess(
             const rb = resultsBar;
             const mb = multiBar;
             isolator.asCli(() => {
-              pb.update(Math.max(0, Math.min(pct, 100)), {
+              const isTty = Boolean(
+                process.stderr.isTTY && !process.env.NO_COLOR
+              );
+              const cpuToken = `${cpuSampler.getCpu()}% sys cpu`;
+              const updateTokens: Record<string, string> = {
                 runtime: formatDuration(elapsedSec),
                 inputsRate: inputsRate,
                 execsRate: execsRate,
                 rate: execsRate,
-              });
+                cpu: cpuToken,
+              };
+              if (isTty) {
+                const targetBlocks = Math.max(
+                  0,
+                  Math.min(barSize, Math.floor((pct / 100) * barSize))
+                );
+                if (targetBlocks > barBlocks.length) {
+                  const currentFailErrorCount =
+                    (lastStats?.counters.failedTests ?? 0) +
+                    (lastStats?.counters.erroredTests ?? 0);
+                  const hasFailures =
+                    currentFailErrorCount > lastFailErrorCount;
+                  while (barBlocks.length < targetBlocks) {
+                    barBlocks.push(hasFailures ? "fail" : "pass");
+                  }
+                  lastFailErrorCount = currentFailErrorCount;
+                }
+                updateTokens.coloredBar =
+                  barBlocks
+                    .map((b) =>
+                      b === "fail" ? "\x1b[31m█\x1b[0m" : "\x1b[32m█\x1b[0m"
+                    )
+                    .join("") +
+                  "░".repeat(Math.max(0, barSize - barBlocks.length)) +
+                  "\x1b[0m";
+              }
+              pb.update(Math.max(0, Math.min(pct, 100)), updateTokens);
               rb.update(0, {
                 results: testResults,
               });
@@ -549,6 +698,9 @@ export async function runCliInProcess(
       "nanofuzz.fuzzer.hostStartupTimeout",
       options["hostStartupTimeout"]
     );
+    if (options["rustSanitizer"] !== undefined) {
+      Config.override("nanofuzz.rust.sanitizer", options["rustSanitizer"]);
+    }
     if (options["maxRunnerMemory"] !== undefined) {
       Config.override(
         "nanofuzz.fuzzer.maxRunnerMemory",
@@ -751,7 +903,7 @@ export async function runCliInProcess(
       // Load companion .nano.json5 configuration and pinned tests (with version upgrade and migration)
       const useConfigFile = options["configFile"] !== false;
       const fnConfig = useConfigFile
-        ? FuzzConfigStore.loadForFunction(filename, fnname)
+        ? FuzzConfigStore.loadForFunction(filename, fnname, undefined, false)
         : FuzzConfigStore.createDefaultFunctionConfig(fnname);
       const injectTests: FuzzPinnedTest[] = Object.values(fnConfig.tests ?? {});
 
@@ -762,13 +914,7 @@ export async function runCliInProcess(
       ): FuzzOptions[K] {
         const isDefault =
           program.getOptionValueSource(cliOptionName) === "default";
-        if (
-          isDefault &&
-          fnFuzzOptions &&
-          fnFuzzOptions[fuzzOptKey] !== undefined
-        ) {
-          return fnFuzzOptions[fuzzOptKey]!;
-        }
+        // Options explicitly saved in companion .nano.json5 file override in-source annotations and CLI defaults
         if (
           useConfigFile &&
           isDefault &&
@@ -777,8 +923,17 @@ export async function runCliInProcess(
         ) {
           return fnConfig.options[fuzzOptKey]!;
         }
+        // In-source options (e.g. annotations) override CLI defaults
+        if (
+          isDefault &&
+          fnFuzzOptions &&
+          fnFuzzOptions[fuzzOptKey] !== undefined
+        ) {
+          return fnFuzzOptions[fuzzOptKey]!;
+        }
+        // CLI default value
         return cliValue;
-      }
+      } // fn: getEffectiveOption
 
       const executionOptions: FuzzExecutionOptions = {
         engine: options["engine"],
@@ -787,16 +942,21 @@ export async function runCliInProcess(
         precompile: false,
       };
 
+      const effectiveMaxTests = getEffectiveOption(
+        "maxTests",
+        "maxTests",
+        options["maxTests"]
+      );
+
       const fuzzer = FuzzerFactory(
         filename,
         fnname,
         {
           argDefaults: ArgDef.getDefaultOptions(),
-          maxTests: getEffectiveOption(
-            "maxTests",
-            "maxTests",
-            options["maxTests"]
-          ),
+          maxTests:
+            effectiveMaxTests === 0
+              ? Number.MAX_SAFE_INTEGER
+              : effectiveMaxTests,
           fnTimeout: getEffectiveOption(
             "fnTimeout",
             "fnTimeout",
@@ -870,6 +1030,9 @@ export async function runCliInProcess(
       ).replace(/\\/g, "/");
 
       const activeGenerators: string[] = [];
+      if (injectTests.length > 0) {
+        activeGenerators.push("Inject");
+      }
       if (fuzzer.env.options.generators.RandomInputGenerator?.enabled) {
         activeGenerators.push("Random");
       }
@@ -894,24 +1057,41 @@ export async function runCliInProcess(
       }
 
       isolator.log(`Target: ${displayPath}::${fnname}`);
-      isolator.log(`Inputs: ${activeGenerators.join(", ")}`);
-      isolator.log(
-        `Online: ${workerWord}, ${engine} engine, ${scheduler} scheduler`
-      );
+      if (options["clearCompileCache"]) {
+        isolator.log(" - Compile cache cleared");
+      }
 
-      const results = await fuzzer
-        .test(
-          injectTests,
-          undefined,
-          { update: updateFn, granularity: 100, heartbeat: true },
-          () => isCancelled
-        )
-        .catch((e: unknown) => {
-          if (isCancelled || LlmAdapter.isAbandoned) {
-            return undefined;
-          }
-          throw e;
-        });
+      // Bounce to allow waiting status updates to process
+      await new Promise((resolve) => setImmediate(resolve));
+
+      isHeaderFlushed = false;
+      flushHeader = () => {
+        if (isHeaderFlushed) return;
+        isHeaderFlushed = true;
+        isolator.log(`Inputs: ${activeGenerators.join(", ")}`);
+        isolator.log(
+          `Online: ${workerWord}, ${engine} engine, ${scheduler} scheduler`
+        );
+      }; // fn: flushHeader
+
+      let results: FuzzTestResults | undefined;
+      try {
+        results = await fuzzer
+          .test(
+            injectTests,
+            undefined,
+            { update: updateFn, granularity: 100, heartbeat: true },
+            () => isCancelled
+          )
+          .catch((e: unknown) => {
+            if (isCancelled || LlmAdapter.isAbandoned) {
+              return undefined;
+            }
+            throw e;
+          });
+      } finally {
+        flushHeader();
+      }
 
       process.removeListener("SIGINT", sigintListener);
       process.removeListener("exit", restoreCursor);
@@ -1141,24 +1321,30 @@ function parseEngineOption(
   );
 } // fn: parseEngineOption
 
+function parseRustSanitizer(value: string, _previous: string): string {
+  const allowed = ["none", "borrow", "address"];
+  const normalized = value.toLowerCase();
+  if (allowed.includes(normalized)) {
+    return normalized;
+  }
+  throw new Commander.InvalidArgumentError(
+    `Invalid rust sanitizer '${value}'. Allowed: ${allowed.join(", ")}`
+  );
+} // fn: parseRustSanitizer
+
+function parseMcpTransport(value: string, _previous: string): "stdio" | "sse" {
+  const normalized = value.toLowerCase();
+  if (normalized === "stdio" || normalized === "sse") {
+    return normalized;
+  }
+  throw new Commander.InvalidArgumentError(
+    `Invalid transport '${value}'. Allowed: stdio, sse`
+  );
+} // fn: parseMcpTransport
+
 // ------------------------------ Format Helpers ----------------------------- //
 
-export function formatDuration(totalSeconds: number): string {
-  const s = Math.max(0, Math.floor(isNaN(totalSeconds) ? 0 : totalSeconds));
-  if (s < 60) {
-    return `${s}s`;
-  }
-  const minutes = Math.floor(s / 60);
-  const remainingSeconds = s % 60;
-  const secStr = remainingSeconds.toString().padStart(2, "0");
-  if (minutes < 60) {
-    return `${minutes}m${secStr}s`;
-  }
-  const hours = Math.floor(minutes / 60);
-  const remainingMinutes = minutes % 60;
-  const minStr = remainingMinutes.toString().padStart(2, "0");
-  return `${hours}h${minStr}m${secStr}s`;
-} // fn: formatDuration
+export { formatDuration };
 
 export function formatThroughput(
   total: number,
@@ -1166,6 +1352,8 @@ export function formatThroughput(
   unit: "execs" | "inputs" = "execs"
 ): string {
   const perSecUnit = unit === "inputs" ? "inputs/s" : "execs/s";
+  const perMinUnit = unit === "inputs" ? "inputs/min" : "execs/min";
+  const perHourUnit = unit === "inputs" ? "inputs/hr" : "execs/hr";
   if (elapsedSec <= 0 || isNaN(elapsedSec)) {
     return `0 ${perSecUnit}`;
   }
@@ -1174,9 +1362,9 @@ export function formatThroughput(
       return `0 ${perSecUnit}`;
     }
     if (elapsedSec < 3600) {
-      return "0 inputs/min";
+      return `0 ${perMinUnit}`;
     }
-    return "0 inputs/hr";
+    return `0 ${perHourUnit}`;
   }
 
   const ratePerSec = total / elapsedSec;
@@ -1186,11 +1374,11 @@ export function formatThroughput(
 
   const ratePerMin = ratePerSec * 60;
   if (ratePerMin >= 1) {
-    return `${Math.round(ratePerMin)} inputs/min`;
+    return `${Math.round(ratePerMin)} ${perMinUnit}`;
   }
 
   const ratePerHour = ratePerSec * 3600;
-  return `${Math.round(ratePerHour)} inputs/hr`;
+  return `${Math.round(ratePerHour)} ${perHourUnit}`;
 } // fn: formatThroughput
 
 export const formatRate = formatThroughput;

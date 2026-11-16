@@ -42,10 +42,10 @@ describe("src/fuzzer/synthesis/ValidatorSynthesizer", () => {
     expect(fnDef).toBeDefined();
 
     const result = synthesizeValidator(fnDef, "python");
-    expect(result.name).toBe("greetingValidator");
+    expect(result.name).toBe("greeting_validator");
     expect(result.imports.length).toBe(2);
     expect(result.skeleton).toContain(
-      'def greetingValidator(r: FuzzTestResult) -> Literal["pass", "fail", "unknown"]:'
+      'def greeting_validator(r: FuzzTestResult) -> Literal["pass", "fail", "unknown"]:'
     );
     expect(result.skeleton).toContain("name: a = r['in'][0]");
     expect(result.skeleton).toContain("out: a = r['out']");
@@ -53,6 +53,125 @@ describe("src/fuzzer/synthesis/ValidatorSynthesizer", () => {
       "from nanofuzz_runtime import FuzzTestResult"
     );
     expect(result.fullTemplate).toContain("from typing import Literal");
+  });
+
+  it("synthesizes Rust validator with correct signature and FuzzTestResult unpacking", () => {
+    const src = `pub fn add(a: i32, b: f64) -> i32 { a + (b as i32) }`;
+    const program = ProgramFactory.fromSource(() => src, "rust");
+    const fnDef = program.functionsExported["add"];
+    expect(fnDef).toBeDefined();
+
+    const result = synthesizeValidator(fnDef, "rust");
+    expect(result.name).toBe("add_validator");
+    expect(result.imports.length).toBe(2);
+    expect(result.imports[0].name).toBe("FuzzTestResult");
+    expect(result.imports[1].name).toBe("ValidatorResult");
+    expect(result.skeleton).toContain(
+      "pub fn add_validator(r: &FuzzTestResult) -> ValidatorResult {"
+    );
+    expect(result.skeleton).toContain("let a: i32 = r.get_in(0).unwrap();");
+    expect(result.skeleton).toContain("let b: f64 = r.get_in(1).unwrap();");
+    expect(result.skeleton).toContain("let out: i32 = r.get_out().unwrap();");
+    expect(result.skeleton).toContain("ValidatorResult::Pass");
+    expect(result.skeleton).toContain("// Extract input arguments");
+    expect(result.skeleton).toContain("// Validate properties");
+    expect(result.fullTemplate).toContain(
+      "use nanofuzz_runtime::FuzzTestResult;\nuse nanofuzz_runtime::ValidatorResult;\n"
+    );
+  });
+
+  it("synthesizes Rust validator converting reference types to owned deserializable types", () => {
+    const src = `pub fn parse_expr(s: &str, items: &[i32]) -> &'static str { s }`;
+    const program = ProgramFactory.fromSource(() => src, "rust");
+    const fnDef = program.functionsExported["parse_expr"];
+    expect(fnDef).toBeDefined();
+
+    const result = synthesizeValidator(fnDef, "rust");
+    expect(result.skeleton).toContain("let s: String = r.get_in(0).unwrap();");
+    expect(result.skeleton).toContain(
+      "let items: Vec<i32> = r.get_in(1).unwrap();"
+    );
+    expect(result.skeleton).toContain(
+      "let out: String = r.get_out().unwrap();"
+    );
+  });
+
+  it("synthesizes OxCaml validator with Nanofuzz_runtime open and types", () => {
+    const src = `let add (a : int) (b : int) : int = a + b`;
+    const program = ProgramFactory.fromSource(() => src, "oxcaml");
+    const fnDef = program.functionsExported["add"];
+    expect(fnDef).toBeDefined();
+
+    const result = synthesizeValidator(fnDef, "oxcaml");
+    expect(result.name).toBe("add_validator");
+    expect(result.imports.length).toBe(1);
+    expect(result.imports[0].name).toBe("Nanofuzz_runtime");
+    expect(result.skeleton).toContain(
+      "let add_validator (r : Nanofuzz_runtime.fuzz_test_result) : Nanofuzz_runtime.validator_result ="
+    );
+    expect(result.skeleton).toContain("Nanofuzz_runtime.Pass");
+    expect(result.fullTemplate).toContain("open Nanofuzz_runtime\n");
+  });
+
+  it("synthesizes Java validator with correct signature and FuzzTestResult unpacking", () => {
+    const src = `public class MathOps { public static int add(int a, double b) { return (int)(a + b); } }`;
+    const program = ProgramFactory.fromSource(() => src, "java");
+    const fnDef = program.functionsExported["add"];
+    expect(fnDef).toBeDefined();
+
+    const result = synthesizeValidator(fnDef, "java");
+    expect(result.name).toBe("addValidator");
+    expect(result.imports.length).toBe(2);
+    expect(result.imports[0].name).toBe("FuzzTestResult");
+    expect(result.imports[1].name).toBe("ValidatorResult");
+    expect(result.skeleton).toContain(
+      "public static ValidatorResult addValidator(FuzzTestResult r) {"
+    );
+    expect(result.skeleton).toContain("int a = r.getIn(0);");
+    expect(result.skeleton).toContain("double b = r.getIn(1);");
+    expect(result.skeleton).toContain("int out = r.getOut();");
+    expect(result.skeleton).toContain("return ValidatorResult.PASS;");
+    expect(result.fullTemplate).toContain(
+      "import com.nanofuzz.runtime.FuzzTestResult;\nimport com.nanofuzz.runtime.ValidatorResult;\n"
+    );
+  });
+
+  it("synthesizes Go validator with correct signature and type assertions", () => {
+    const src = `package mathutil\nfunc Add(a int, b float64) int { return a + int(b) }`;
+    const program = ProgramFactory.fromSource(() => src, "go");
+    const fnDef = program.functionsExported["Add"];
+    expect(fnDef).toBeDefined();
+
+    const result = synthesizeValidator(fnDef, "go");
+    expect(result.name).toBe("AddValidator");
+    expect(result.skeleton).toContain(
+      "func AddValidator(r runtime.FuzzTestResult) runtime.ValidatorResult {"
+    );
+    expect(result.skeleton).toContain("a := r.In[0].(int)");
+    expect(result.skeleton).toContain("b := r.In[1].(float64)");
+    expect(result.skeleton).toContain("out := r.Out.(int)");
+    expect(result.skeleton).toContain("return runtime.Pass");
+    expect(result.fullTemplate).toContain(
+      'import "github.com/nanofuzz/runtime"'
+    );
+  });
+
+  it("synthesizes Go validator for compound types (structs, slices, maps, pointers)", () => {
+    const src = `package app
+type User struct { Name string }
+func Process(u User, items []string, lookup map[string]int, ptr *int) *User {
+    return &u
+}`;
+    const program = ProgramFactory.fromSource(() => src, "go");
+    const fnDef = program.functionsExported["Process"];
+    expect(fnDef).toBeDefined();
+
+    const result = synthesizeValidator(fnDef, "go");
+    expect(result.skeleton).toContain("u := r.In[0].(User)");
+    expect(result.skeleton).toContain("items := r.In[1].([]string)");
+    expect(result.skeleton).toContain("lookup := r.In[2].(map[string]int)");
+    expect(result.skeleton).toContain("ptr := r.In[3].(*int)");
+    expect(result.skeleton).toContain("out := r.Out.(*User)");
   });
 
   it("disambiguates validator name when existing names conflict", () => {

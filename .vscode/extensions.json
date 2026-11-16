@@ -4,6 +4,7 @@
     "esbenp.prettier-vscode",
     "ms-python.autopep8",
     "hbenl.vscode-jasmine-test-adapter",
-    "tobermory.es6-string-html"
+    "tobermory.es6-string-html",
+    "rust-lang.rust-analyzer"
   ]
 }

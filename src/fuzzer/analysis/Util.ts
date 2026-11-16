@@ -1,7 +1,5 @@
 import { ArgDef } from "./ArgDef";
-import { AbstractProgram } from "./AbstractProgram";
-import { FunctionDef } from "./FunctionDef";
-import { ArgType, ArgValueType, FunctionRef } from "./Types";
+import { ArgType, ArgValueType } from "./Types";
 import { FuzzExecutionOptions, FuzzOptions } from "../Types";
 
 /**
@@ -116,77 +114,3 @@ export function bigIntOrThrow(value: ArgType): bigint {
   }
   return value;
 } // fn: bigIntOrThrow()
-
-/**
- * Returns a list of validator FunctionRefs found within the ProgramDef
- * associated with a FunctionDef
- *
- * @param program the ProgramDef to search
- * @returns an array of validator FunctionRefs
- */
-export function getValidators(
-  program: AbstractProgram,
-  fnUnderTest: FunctionDef
-): FunctionRef[] {
-  const fnUnderTestName = fnUnderTest.getName();
-  return Object.values(program.functions)
-    .filter(
-      (fn) =>
-        fn.isValidator() && fn.getValidatorTargetName() === fnUnderTestName
-    )
-    .map((fn) => fn.getRef());
-} // fn: getValidators()
-
-/**
- * Returns a list of input transformer functions for the function under test.
- *
- * @param program the program to search
- * @param fnUnderTest the function under test
- * @returns an array of transformer FunctionRefs
- */
-export function getTransformers(
-  program: AbstractProgram,
-  fnUnderTest: FunctionDef
-): FunctionRef[] {
-  return Object.values(program.functions)
-    .filter(
-      (fn) =>
-        fn.isTransformer() && fn.getName().startsWith(fnUnderTest.getName())
-    )
-    .map((fn) => fn.getRef());
-} // fn: getTransformers()
-
-/**
- * Returns a list of user-provided input generator functions for the function under test.
- *
- * @param program the program to search
- * @param fnUnderTest the function under test
- * @returns an array of user generator FunctionRefs
- */
-export function getUserGenerators(
-  program: AbstractProgram,
-  fnUnderTest: FunctionDef
-): FunctionRef[] {
-  const fnUnderTestName = fnUnderTest.getName();
-
-  const isUserGen = (name: string, isExported: boolean) =>
-    isExported &&
-    name.endsWith("Generator") &&
-    !name.endsWith("InputGenerator") &&
-    name !== fnUnderTestName &&
-    name.startsWith(fnUnderTestName);
-
-  const fromSupported = Object.values(program.functions)
-    .filter((fn) => isUserGen(fn.getName(), fn.isExported()))
-    .map((fn) => fn.getRef());
-
-  const fromUnsupported = Object.values(program.functionsNotSupported)
-    .filter(
-      (entry): entry is { reason: string; function: FunctionRef } =>
-        "function" in entry && entry.function !== undefined
-    )
-    .map((entry) => entry.function)
-    .filter((fnRef) => isUserGen(fnRef.name, fnRef.isExported));
-
-  return [...fromSupported, ...fromUnsupported];
-} // fn: getUserGenerators()

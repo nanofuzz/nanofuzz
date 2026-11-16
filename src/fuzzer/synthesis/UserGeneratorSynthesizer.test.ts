@@ -39,14 +39,95 @@ describe("src/fuzzer/synthesis/UserGeneratorSynthesizer", () => {
     expect(fnDef).toBeDefined();
 
     const result = synthesizeUserGenerator(fnDef, "python");
-    expect(result.name).toBe("py_user_genGenerator");
+    expect(result.name).toBe("py_user_gen_generator");
     expect(result.imports.length).toBe(1);
     expect(result.imports[0].stmt).toContain("from typing import Callable");
     expect(result.skeleton).toContain(
-      "def py_user_genGenerator(prng: Callable[[], float]) -> tuple[int, str] | None:"
+      "def py_user_gen_generator(prng: Callable[[], float]) -> tuple[int, str] | None:"
     );
     expect(result.skeleton).toContain("return (");
     expect(result.fullTemplate).toContain("from typing import Callable");
+  });
+
+  it("synthesizes Rust user input generator with FnMut prng and Option tuple return type", () => {
+    const src = `pub fn add(a: i32, b: f64) -> i32 { a + (b as i32) }`;
+    const program = ProgramFactory.fromSource(() => src, "rust");
+    const fnDef = program.functionsExported["add"];
+    expect(fnDef).toBeDefined();
+
+    const result = synthesizeUserGenerator(fnDef, "rust");
+    expect(result.name).toBe("add_generator");
+    expect(result.skeleton).toContain(
+      "pub fn add_generator(mut _prng: impl FnMut() -> f64) -> Option<(i32, f64)> {"
+    );
+    expect(result.skeleton).toContain("Some(");
+    expect(result.fullTemplate).toContain("pub fn add_generator");
+  });
+
+  it("synthesizes OxCaml user input generator with prng closure parameter", () => {
+    const src = `let add (a : int) (b : int) : int = a + b`;
+    const program = ProgramFactory.fromSource(() => src, "oxcaml");
+    const fnDef = program.functionsExported["add"];
+    expect(fnDef).toBeDefined();
+
+    const result = synthesizeUserGenerator(fnDef, "oxcaml");
+    expect(result.name).toBe("add_generator");
+    expect(result.skeleton).toContain(
+      "let add_generator (_prng : unit -> float) : (int * int) option ="
+    );
+    expect(result.skeleton).toContain("Some (");
+  });
+
+  it("synthesizes Java user input generator with DoubleSupplier prng and Object[] return", () => {
+    const src = `public class MathOps { public static int add(int a, double b) { return (int)(a + b); } }`;
+    const program = ProgramFactory.fromSource(() => src, "java");
+    const fnDef = program.functionsExported["add"];
+    expect(fnDef).toBeDefined();
+
+    const result = synthesizeUserGenerator(fnDef, "java");
+    expect(result.name).toBe("addGenerator");
+    expect(result.imports.length).toBe(1);
+    expect(result.imports[0].name).toBe("DoubleSupplier");
+    expect(result.imports[0].stmt).toContain(
+      "import java.util.function.DoubleSupplier;"
+    );
+    expect(result.skeleton).toContain(
+      "public static Object[] addGenerator(DoubleSupplier prng) {"
+    );
+    expect(result.skeleton).toContain("return new Object[] {");
+    expect(result.fullTemplate).toContain(
+      "import java.util.function.DoubleSupplier;"
+    );
+  });
+
+  it("synthesizes Go user input generator with prng func() float64", () => {
+    const src = `package mathutil\nfunc Add(a int, b float64) int { return a + int(b) }`;
+    const program = ProgramFactory.fromSource(() => src, "go");
+    const fnDef = program.functionsExported["Add"];
+    expect(fnDef).toBeDefined();
+
+    const result = synthesizeUserGenerator(fnDef, "go");
+    expect(result.name).toBe("AddGenerator");
+    expect(result.skeleton).toContain(
+      "func AddGenerator(prng func() float64) (int, float64, bool) {"
+    );
+    expect(result.skeleton).toContain("return");
+    expect(result.skeleton).toContain("true");
+  });
+
+  it("synthesizes Go user input generator for compound types", () => {
+    const src = `package app
+type User struct { Name string }
+func Process(u User, items []string, lookup map[string]int) int { return 0 }`;
+    const program = ProgramFactory.fromSource(() => src, "go");
+    const fnDef = program.functionsExported["Process"];
+    expect(fnDef).toBeDefined();
+
+    const result = synthesizeUserGenerator(fnDef, "go");
+    expect(result.name).toBe("ProcessGenerator");
+    expect(result.skeleton).toContain(
+      "func ProcessGenerator(prng func() float64) (User, []string, map[string]int, bool) {"
+    );
   });
 
   it("disambiguates generator name when existing names conflict", () => {

@@ -5,6 +5,9 @@ import * as ParserAdapter from "./ParserAdapter";
 import {
   ListTargetsTool,
   FuzzFunctionTool,
+  FindBugsTool,
+  ShowResultsTool,
+  ShrinkInputsTool,
   registerLmTools,
   resolveMatchingModel,
 } from "./VscodeLmAdapter";
@@ -231,10 +234,109 @@ describe("VscodeLmAdapter", () => {
     expect(res3.model).toBeDefined();
   });
 
+  it("findBugs: prepare and invoke", async () => {
+    const tool = new FindBugsTool();
+    const prepared = tool.prepareInvocation({
+      input: {
+        phase: "init",
+        model: "gemini-2.0-flash",
+        vendor: "google",
+      },
+    });
+    expect(prepared).toBeDefined();
+    if (prepared && !("then" in prepared)) {
+      expect(prepared.invocationMessage).toContain("Find Bugs: Phase [init]");
+    }
+
+    const token = new vscode.CancellationTokenSource().token;
+    const result = await tool.invoke(
+      {
+        input: {
+          phase: "init",
+          model: "gemini-2.0-flash",
+          vendor: "google",
+        },
+        toolInvocationToken: undefined,
+      },
+      token
+    );
+    expect(result).toBeDefined();
+    expect(getTextContent(result)).toContain("Find Bugs: Phase `init`");
+    expect(getTextContent(result)).toContain(
+      "DO NOT READ THE INTERNAL IMPLEMENTATION BODIES"
+    );
+  });
+
+  it("showResults: prepare and invoke", async () => {
+    const tool = new ShowResultsTool();
+    const prepared = tool.prepareInvocation({
+      input: {
+        filePath: tsFixture,
+        functionName: "testStandardVoidReturnUndefined",
+      },
+    });
+    expect(prepared).toBeDefined();
+    if (prepared && !("then" in prepared)) {
+      expect(prepared.invocationMessage).toContain(
+        "Displaying NaNofuzz results"
+      );
+      expect(prepared.invocationMessage).toContain(
+        "testStandardVoidReturnUndefined"
+      );
+    }
+
+    const token = new vscode.CancellationTokenSource().token;
+    const result = await tool.invoke(
+      {
+        input: {
+          filePath: tsFixture,
+          functionName: "testStandardVoidReturnUndefined",
+        },
+        toolInvocationToken: undefined,
+      },
+      token
+    );
+    expect(result).toBeDefined();
+    expect(getTextContent(result)).toContain("FuzzPanel");
+  });
+
+  it("shrinkInputs: prepare and invoke", async () => {
+    const tool = new ShrinkInputsTool();
+    const prepared = tool.prepareInvocation({
+      input: {
+        filePath: tsFixture,
+        functionName: "testStandardVoidReturnException",
+        inputs: [{ _x: 10000 }],
+      },
+    });
+    expect(prepared).toBeDefined();
+    if (prepared && !("then" in prepared)) {
+      expect(prepared.invocationMessage).toContain("Shrinking test inputs");
+      expect(prepared.invocationMessage).toContain(
+        "testStandardVoidReturnException"
+      );
+    }
+
+    const token = new vscode.CancellationTokenSource().token;
+    const result = await tool.invoke(
+      {
+        input: {
+          filePath: tsFixture,
+          functionName: "testStandardVoidReturnException",
+          inputs: [{ _x: 10000 }],
+        },
+        toolInvocationToken: undefined,
+      },
+      token
+    );
+    expect(result).toBeDefined();
+    expect(getTextContent(result)).toContain("NaNofuzz Input Shrinking");
+  });
+
   it("register: success", () => {
     const subscriptions: vscode.Disposable[] = [];
     const disposables = registerLmTools({ subscriptions });
-    expect(disposables.length).toBe(2);
-    expect(subscriptions.length).toBe(2);
+    expect(disposables.length).toBe(5);
+    expect(subscriptions.length).toBe(5);
   });
 });

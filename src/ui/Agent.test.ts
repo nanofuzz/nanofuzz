@@ -2,12 +2,14 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as Config from "../Config";
+import { isKeyedObject } from "../Util";
 import * as ParserAdapter from "../fuzzer/adapters/ParserAdapter";
 import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
 import { LlmAdapter } from "../fuzzer/adapters/LlmAdapter";
 import {
   listTargets,
   runFuzz,
+  shrinkInputs,
   resolveFilePath,
   getDefaultFuzzOptions,
   normalizeAgentFuzzOptions,
@@ -21,6 +23,7 @@ import {
   synthesizeValidator,
   synthesizeTransformer,
   synthesizeUserGenerator,
+  convertAgentInputsToPinnedTests,
   AgentFuzzOptions,
 } from "./Agent";
 import { FuzzTestResult, FuzzStopReason } from "../fuzzer/Types";
@@ -37,6 +40,18 @@ describe("Agent", () => {
   const pyFixture = path.resolve(
     __dirname,
     "../fuzzer/test_fixtures/Fuzzer.testfixtures.py"
+  );
+  const rsFixture = path.resolve(
+    __dirname,
+    "../fuzzer/test_fixtures/Fuzzer.testfixtures.rs"
+  );
+  const mlFixture = path.resolve(
+    __dirname,
+    "../fuzzer/test_fixtures/Fuzzer.testfixtures.ml"
+  );
+  const javaFixture = path.resolve(
+    __dirname,
+    "../fuzzer/test_fixtures/Fuzzer.testfixtures.java"
   );
 
   beforeAll(async () => {
@@ -125,7 +140,7 @@ describe("Agent", () => {
       "from nanofuzz_runtime import FuzzTestResult"
     );
     expect(greetingFn.validatorTemplate).toContain(
-      'def greetingValidator1(r: FuzzTestResult) -> Literal["pass", "fail", "unknown"]:'
+      'def greeting_validator_1(r: FuzzTestResult) -> Literal["pass", "fail", "unknown"]:'
     );
     expect(greetingFn.validatorTemplate).toContain("name: a = r['in'][0]");
 
@@ -133,20 +148,116 @@ describe("Agent", () => {
     expect(greetingFn.transformerTemplate).toContain(
       "from nanofuzz_runtime import UnsatisfiedAssumption, assume"
     );
-    expect(greetingFn.transformerTemplate).toContain("def greetingTransformer");
+    expect(greetingFn.transformerTemplate).toContain(
+      "def greeting_transformer"
+    );
 
     expect(greetingFn.generatorTemplate).toBeDefined();
     expect(greetingFn.generatorTemplate).toContain(
       "from typing import Callable"
     );
     expect(greetingFn.generatorTemplate).toContain(
-      "def greetingGenerator(prng: Callable[[], float]) -> tuple["
+      "def greeting_generator(prng: Callable[[], float]) -> tuple["
     );
 
     const asyncFn = fnMap.get("async_greeting");
     expect(asyncFn).toBeDefined();
     expect(asyncFn!.isAsync).toBe(true);
     expect(asyncFn!.signature).toContain("async def async_greeting");
+  });
+
+  it("listTargets: rs", async () => {
+    const result = await listTargets(rsFixture);
+    expect(result.language).toBe("rust");
+    expect(result.functions.length).toBeGreaterThan(0);
+
+    const fnMap = new Map(result.functions.map((f) => [f.name, f]));
+    expect(fnMap.has("greeting")).toBe(true);
+    expect(fnMap.has("throws")).toBe(true);
+
+    const greetingFn = fnMap.get("greeting")!;
+    expect(greetingFn.args.length).toBe(1);
+    expect(greetingFn.args[0].name).toBe("name");
+    expect(greetingFn.signature).toContain(
+      "pub fn greeting(name: String) -> String"
+    );
+    expect(greetingFn.validatorTemplate).toBeDefined();
+    expect(greetingFn.validatorTemplate).toContain(
+      "use nanofuzz_runtime::FuzzTestResult;"
+    );
+    expect(greetingFn.validatorTemplate).toContain(
+      "use nanofuzz_runtime::ValidatorResult;"
+    );
+    expect(greetingFn.validatorTemplate).toContain(
+      "pub fn greeting_validator_1(r: &FuzzTestResult) -> ValidatorResult {"
+    );
+
+    expect(greetingFn.transformerTemplate).toBeDefined();
+    expect(greetingFn.transformerTemplate).toContain(
+      "use nanofuzz_runtime::{assume, UnsatisfiedAssumption};"
+    );
+    expect(greetingFn.transformerTemplate).toContain(
+      "pub fn greeting_transformer"
+    );
+
+    expect(greetingFn.generatorTemplate).toBeDefined();
+    expect(greetingFn.generatorTemplate).toContain("pub fn greeting_generator");
+
+    const asyncFn = fnMap.get("async_greeting");
+    expect(asyncFn).toBeDefined();
+    expect(asyncFn!.isAsync).toBe(true);
+    expect(asyncFn!.signature).toContain("pub async fn async_greeting");
+  });
+
+  it("listTargets: ml", async () => {
+    const result = await listTargets(mlFixture);
+    expect(result.language).toBe("oxcaml");
+    expect(result.functions.length).toBeGreaterThan(0);
+
+    const fnMap = new Map(result.functions.map((f) => [f.name, f]));
+    expect(fnMap.has("greeting")).toBe(true);
+    expect(fnMap.has("throws")).toBe(true);
+
+    const greetingFn = fnMap.get("greeting")!;
+    expect(greetingFn.args.length).toBe(1);
+    expect(greetingFn.args[0].name).toBe("name");
+    expect(greetingFn.signature).toContain(
+      "let greeting (name : string) : string"
+    );
+    expect(greetingFn.validatorTemplate).toBeDefined();
+    expect(greetingFn.validatorTemplate).toContain("open Nanofuzz_runtime");
+    expect(greetingFn.validatorTemplate).toContain(
+      "let greeting_validator_1 (r : Nanofuzz_runtime.fuzz_test_result) : Nanofuzz_runtime.validator_result ="
+    );
+
+    expect(greetingFn.transformerTemplate).toBeDefined();
+    expect(greetingFn.transformerTemplate).toContain("open Nanofuzz_runtime");
+    expect(greetingFn.transformerTemplate).toContain(
+      "let greeting_transformer"
+    );
+
+    expect(greetingFn.generatorTemplate).toBeDefined();
+    expect(greetingFn.generatorTemplate).toContain(
+      "let greeting_generator (_prng : unit -> float)"
+    );
+  });
+
+  it("listTargets: java", async () => {
+    const result = await listTargets(javaFixture);
+    expect(result.language).toBe("java");
+    expect(result.functions.length).toBeGreaterThan(0);
+
+    const fnMap = new Map(result.functions.map((f) => [f.name, f]));
+    expect(fnMap.has("greeting")).toBe(true);
+    expect(fnMap.has("throwsException")).toBe(true);
+
+    const greetingFn = fnMap.get("greeting")!;
+    expect(greetingFn.args.length).toBe(1);
+    expect(greetingFn.args[0].name).toBe("name");
+    expect(greetingFn.signature).toBe("public String greeting(String name)");
+    expect(
+      result.unsupportedFunctions.some((f) => f.name === "javaUserGenGenerator")
+    ).toBeTrue();
   });
 
   it("listTargets: missing file", async () => {
@@ -201,6 +312,46 @@ describe("Agent", () => {
     expect(normalized.fnTimeout).toBe(50);
     expect(normalized.suiteTimeout).toBe(1000);
     expect(normalized.useImplicit).toBe(true);
+
+    const unlimited: AgentFuzzOptions = {
+      filePath: tsFixture,
+      functionName: "testStandardVoidReturnUndefined",
+      maxTests: 0,
+    };
+    const normalizedUnlimited = normalizeAgentFuzzOptions(unlimited);
+    expect(normalizedUnlimited.maxTests).toBe(Number.MAX_SAFE_INTEGER);
+
+    const longTimeout: AgentFuzzOptions = {
+      filePath: tsFixture,
+      functionName: "testStandardVoidReturnUndefined",
+      suiteTimeout: 60000,
+    };
+    const normalizedLongTimeout = normalizeAgentFuzzOptions(longTimeout);
+    expect(normalizedLongTimeout.maxTests).toBe(Number.MAX_SAFE_INTEGER);
+  });
+
+  it("shrinkInputs: shrinks failing input", async () => {
+    const res = await shrinkInputs({
+      filePath: tsFixture,
+      functionName: "testStandardVoidReturnException",
+      inputs: [{ _x: 9999999 }],
+      maxSteps: 50,
+      fnTimeout: 500,
+    });
+
+    expect(res).toBeDefined();
+    expect(res.functionName).toBe("testStandardVoidReturnException");
+    expect(res.totalInputs).toBe(1);
+    expect(res.shrunkInputs.length).toBe(1);
+    const item = res.shrunkInputs[0];
+    expect(item.outcome).toBe("exception");
+    expect(item.shrinkSteps).toBeGreaterThan(0);
+    expect(item.status).toBe("shrunk");
+    expect(isKeyedObject(item.shrunkenInput)).toBe(true);
+    if (isKeyedObject(item.shrunkenInput)) {
+      expect(Number(item.shrunkenInput["_x"])).toBeLessThan(9999999);
+    }
+    expect(res.summaryText).toContain("NaNofuzz Input Shrinking");
   });
 
   it("reproducer: jest output", () => {
@@ -315,6 +466,40 @@ describe("Agent", () => {
     expect(selected[0].category).toBe("exception");
     expect(selected[1].category).toBe("ok");
     expect(selected[1].interestingReasons).toContain("CoverageMeasure");
+  });
+
+  it("convertAgentInputsToPinnedTests: coerces number/string seeds for BIGINT and arrays for SET", () => {
+    const javaSrc = `
+import java.util.List;
+import java.util.Set;
+public class SeedCoercionDemo {
+    public static void target(long count, List<Long> history, Set<String> tags) {}
+}
+`;
+    const pgm = ProgramFactory.fromSource(() => javaSrc, "java");
+    const argDefs = pgm.functionsExported["target"].getArgDefs();
+    const pinned = convertAgentInputsToPinnedTests(
+      [
+        { count: 42, history: [10, "20"], tags: ["a", "b"] },
+        [99, [1, 2], ["c"]],
+      ],
+      argDefs
+    );
+
+    expect(pinned.length).toBe(2);
+    const val0: unknown = pinned[0].input[0].value;
+    const val1: unknown = pinned[0].input[1].value;
+    const val2: unknown = pinned[0].input[2].value;
+    expect(val0).toEqual(42n);
+    expect(val1).toEqual([10n, 20n]);
+    expect(val2).toEqual(new Set(["a", "b"]));
+
+    const val3: unknown = pinned[1].input[0].value;
+    const val4: unknown = pinned[1].input[1].value;
+    const val5: unknown = pinned[1].input[2].value;
+    expect(val3).toEqual(99n);
+    expect(val4).toEqual([1n, 2n]);
+    expect(val5).toEqual(new Set(["c"]));
   });
 
   it("synthesizeTestSuite: directly synthesizes multi-test suite from results", async () => {
@@ -544,7 +729,183 @@ describe("Agent", () => {
       expect(res.primaryCounterexample?.input[1].value === 99).toBe(true);
     } finally {
       if (fs.existsSync(tmpDir)) {
-        fs.rmSync(tmpDir, { recursive: true, force: true });
+        try {
+          fs.rmSync(tmpDir, {
+            recursive: true,
+            force: true,
+            maxRetries: 10,
+            retryDelay: 100,
+          });
+        } catch {
+          // Ignore residual file lock cleanup errors on Windows
+        }
+      }
+    }
+  });
+
+  it("runFuzz: honors in-source @settings when not overridden by .nano.json5 or caller", async () => {
+    const tmpDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agent-settings-test-")
+    );
+    try {
+      const pyFile = path.join(tmpDir, "settings_test.py");
+      fs.writeFileSync(
+        pyFile,
+        `def settings(**kwargs):
+    def deco(fn):
+        return fn
+    return deco
+
+@settings(max_examples=3, deadline=250)
+def py_double(x: int) -> int:
+    return x * 2
+`
+      );
+
+      const res = await runFuzz({
+        filePath: pyFile,
+        functionName: "py_double",
+      });
+
+      expect(res.status).toBe("success");
+      expect(res.totalTests).toBe(3);
+      expect(res.rawResults?.env.options.maxTests).toBe(3);
+      expect(res.rawResults?.env.options.fnTimeout).toBe(250);
+    } finally {
+      if (fs.existsSync(tmpDir)) {
+        try {
+          fs.rmSync(tmpDir, {
+            recursive: true,
+            force: true,
+            maxRetries: 10,
+            retryDelay: 100,
+          });
+        } catch {
+          // Ignore residual file lock cleanup errors on Windows
+        }
+      }
+    }
+  });
+
+  it("runFuzz: .nano.json5 options take precedence over in-source @settings", async () => {
+    const tmpDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agent-nano-precedence-")
+    );
+    try {
+      const pyFile = path.join(tmpDir, "settings_override.py");
+      const jsonFile = path.join(tmpDir, "settings_override.py.nano.json5");
+      fs.writeFileSync(
+        pyFile,
+        `def settings(**kwargs):
+    def deco(fn):
+        return fn
+    return deco
+
+@settings(max_examples=50)
+def py_double(x: int) -> int:
+    return x * 2
+`
+      );
+
+      fs.writeFileSync(
+        jsonFile,
+        JSON.stringify({
+          version: "0.4.0",
+          functions: {
+            py_double: {
+              options: {
+                maxTests: 4,
+              },
+              validators: [],
+              isVoid: false,
+              tests: {},
+            },
+          },
+        })
+      );
+
+      const res = await runFuzz({
+        filePath: pyFile,
+        functionName: "py_double",
+      });
+
+      expect(res.status).toBe("success");
+      expect(res.totalTests).toBe(4);
+      expect(res.rawResults?.env.options.maxTests).toBe(4);
+    } finally {
+      if (fs.existsSync(tmpDir)) {
+        try {
+          fs.rmSync(tmpDir, {
+            recursive: true,
+            force: true,
+            maxRetries: 10,
+            retryDelay: 100,
+          });
+        } catch {
+          // Ignore residual file lock cleanup errors on Windows
+        }
+      }
+    }
+  });
+
+  it("runFuzz: tool call options take precedence over both .nano.json5 and in-source @settings", async () => {
+    const tmpDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agent-caller-precedence-")
+    );
+    try {
+      const pyFile = path.join(tmpDir, "caller_override.py");
+      const jsonFile = path.join(tmpDir, "caller_override.py.nano.json5");
+      fs.writeFileSync(
+        pyFile,
+        `def settings(**kwargs):
+    def deco(fn):
+        return fn
+    return deco
+
+@settings(max_examples=50)
+def py_double(x: int) -> int:
+    return x * 2
+`
+      );
+
+      fs.writeFileSync(
+        jsonFile,
+        JSON.stringify({
+          version: "0.4.0",
+          functions: {
+            py_double: {
+              options: {
+                maxTests: 20,
+              },
+              validators: [],
+              isVoid: false,
+              tests: {},
+            },
+          },
+        })
+      );
+
+      const res = await runFuzz({
+        filePath: pyFile,
+        functionName: "py_double",
+        maxTests: 2,
+      });
+
+      expect(res.status).toBe("success");
+      expect(res.totalTests).toBe(2);
+      expect(res.rawResults?.env.options.maxTests).toBe(2);
+    } finally {
+      if (fs.existsSync(tmpDir)) {
+        try {
+          fs.rmSync(tmpDir, {
+            recursive: true,
+            force: true,
+            maxRetries: 10,
+            retryDelay: 100,
+          });
+        } catch {
+          // Ignore residual file lock cleanup errors on Windows
+        }
       }
     }
   });
@@ -586,7 +947,16 @@ describe("Agent", () => {
       expect(result.summaryText).toContain(outTestFile);
     } finally {
       if (fs.existsSync(tmpDir)) {
-        fs.rmSync(tmpDir, { recursive: true, force: true });
+        try {
+          fs.rmSync(tmpDir, {
+            recursive: true,
+            force: true,
+            maxRetries: 10,
+            retryDelay: 100,
+          });
+        } catch {
+          // Ignore residual file lock cleanup errors on Windows
+        }
       }
     }
   });

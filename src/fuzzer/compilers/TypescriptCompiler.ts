@@ -16,16 +16,13 @@ import { Worker } from "worker_threads";
 import path from "node:path";
 import os from "node:os";
 import * as JSONN from "../../Jsonn";
-import {
-  FuzzStatusUpdater,
-  TypescriptCompilerError,
-  VmGlobals,
-} from "../Types";
+import { FuzzStatusUpdater, VmGlobals } from "../Types";
 import { findInAncestor } from "../Util";
 import {
   CompilerStaleness,
   CompilerMessageToWorker,
   CompilerMessageFromWorker,
+  TypescriptCompilerError,
 } from "./Types";
 
 // Global list of compilations by entrypoint module
@@ -263,7 +260,7 @@ export class TypescriptCompiler {
     }
 
     // Update the list of compilations
-    if (!(this._moduleFile in _compilationsByModule) && !hookException) {
+    if (!hookException) {
       _compilationsByModule[this._moduleFile] = localCompilations;
     }
 
@@ -613,6 +610,15 @@ export class TypescriptCompiler {
       module: module,
       global: globals,
       root: globals,
+      process: process,
+      console: console,
+      Buffer: Buffer,
+      setTimeout: setTimeout,
+      clearTimeout: clearTimeout,
+      setInterval: setInterval,
+      clearInterval: clearInterval,
+      setImmediate: setImmediate,
+      clearImmediate: clearImmediate,
     };
     vm.runInNewContext(src, context, {
       filename: jsname,
@@ -836,6 +842,9 @@ export class TypescriptCompiler {
    * Clears compilation temp files
    */
   public static clean(tmpDir: string = defaultOptions.tmpDir): void {
+    for (const key of Object.keys(_compilationsByModule)) {
+      delete _compilationsByModule[key];
+    }
     if (fs.existsSync(tmpDir)) {
       try {
         fs.rmSync(tmpDir, { recursive: true, force: true });

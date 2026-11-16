@@ -1,8 +1,12 @@
-import { PythonProgram } from "../analysis/python/PythonProgram";
+import * as ProgramFactory from "../analysis/ProgramFactory";
 import { FuzzEnv } from "../Types";
 import { AbstractRunner, RunnerOverrides } from "./AbstractRunner";
 import { JavascriptRunner } from "./javascript/JavascriptRunner";
 import { PythonRunner } from "./python/PythonRunner";
+import { RustRunner } from "./rust/RustRunner";
+import { OxcamlRunner } from "./oxcaml/OxcamlRunner";
+import { JavaRunner } from "./java/JavaRunner";
+import { GoRunner } from "./go/GoRunner";
 
 /**
  * Returns an AbstractRunner appropriate to the input environment, module,
@@ -28,9 +32,21 @@ export function RunnerFactory(
     return new JavascriptRunner(module, fn, env, overrides);
   }
 
-  if (PythonProgram.understands({ filename: module })) {
-    return new PythonRunner(module, fn, env, overrides);
+  const lang = ProgramFactory.getLanguage({ filename: module });
+  switch (lang) {
+    case "python":
+      return new PythonRunner(module, fn, env, overrides);
+    case "rust":
+      return new RustRunner(module, fn, env, overrides);
+    case "oxcaml":
+      return new OxcamlRunner(module, fn, env, overrides);
+    case "java":
+      return new JavaRunner(module, fn, env, overrides);
+    case "go":
+      return new GoRunner(module, fn, env, overrides);
+    case "typescript":
+    case "*":
+    default:
+      throw new Error(`Support not yet implemented for program in: ${module}`);
   }
-
-  throw new Error(`Support not yet implemented for program in: ${module}`);
 } // fn: RunnerFactory

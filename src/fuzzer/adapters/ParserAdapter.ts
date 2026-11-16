@@ -11,7 +11,14 @@ import { ProgramLanguage } from "../analysis/Types";
 
 // internal variables
 const grammars: Record<string, GrammarData> = {};
-const grammarsToLoad = ["tree-sitter-typescript", "tree-sitter-python"];
+const grammarsToLoad = [
+  "tree-sitter-typescript",
+  "tree-sitter-python",
+  "tree-sitter-rust",
+  "tree-sitter-ocaml",
+  "tree-sitter-java",
+  "tree-sitter-go",
+];
 let loaded: "no" | "pending" | "yes" = "no";
 let initPromise: Promise<void> | undefined; // init only once
 
@@ -199,7 +206,21 @@ function _getGrammarOrThrow(grammarName: string): GrammarData {
  * @returns internal grammar name
  */
 function _langToGrammarName(lang: ProgramLanguage): string {
-  return `tree-sitter-${lang}`;
+  switch (lang) {
+    case "oxcaml":
+      return "tree-sitter-ocaml";
+    case "java":
+      return "tree-sitter-java";
+    case "go":
+      return "tree-sitter-go";
+    case "typescript":
+    case "python":
+    case "rust":
+    case "*":
+      return `tree-sitter-${lang}`;
+    default:
+      throw new Error(`Unsupported parser language: ${lang}`);
+  }
 } // fn: _langToGrammarName()
 
 type Parser = TSWeb.Parser;

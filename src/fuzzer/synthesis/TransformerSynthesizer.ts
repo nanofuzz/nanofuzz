@@ -1,8 +1,12 @@
 import { FunctionDef } from "../analysis/FunctionDef";
 import { PythonProgram } from "../analysis/python/PythonProgram";
+import { RustProgram } from "../analysis/rust/RustProgram";
+import { OxcamlProgram } from "../analysis/oxcaml/OxcamlProgram";
+import { JavaProgram } from "../analysis/java/JavaProgram";
+import { GoProgram } from "../analysis/go/GoProgram";
 import { ProgramLanguage } from "../analysis/Types";
+import { CompanionManager } from "../analysis/CompanionManager";
 import { FuzzerCodeSnippet } from "./Types";
-import { getNextAvailableFnNumber } from "./Util";
 
 /**
  * Synthesizes a complete input transformer code skeleton for a function definition.
@@ -20,15 +24,14 @@ export function synthesizeTransformer(
   transformerNameOverride?: string
 ): FuzzerCodeSnippet {
   const targetLang = lang ?? fn.getLang();
-  const transformerPrefix = fn.getName() + "Transformer";
-
-  let transformerName = transformerNameOverride;
-  if (!transformerName) {
-    const fnCounter = existingFnNames
-      ? getNextAvailableFnNumber(existingFnNames, transformerPrefix)
-      : 0;
-    transformerName = `${transformerPrefix}${fnCounter === 0 ? "" : fnCounter}`;
-  }
+  const transformerName =
+    transformerNameOverride ??
+    CompanionManager.getNextAvailableName(
+      existingFnNames ?? [],
+      fn.getName(),
+      "transformer",
+      targetLang
+    );
 
   const inArgs = fn.getArgDefs();
   const inputsTypeName = `${fn.getName()}Inputs`;
@@ -66,6 +69,163 @@ export function synthesizeTransformer(
     ];
 
     const skeleton = `\n\ndef ${transformerName}(${pyParams}) -> ${pyTupleType}:\n  # Use assume(condition) or raise UnsatisfiedAssumption("msg") to filter out-of-domain inputs\n  # Otherwise, return the transformed inputs\n  return ${pyReturnTuple}\n`;
+    const importData = imports.map((i) => i.stmt).join("");
+    const fullTemplate = `${importData}${skeleton.trimStart()}`;
+
+    return {
+      name: transformerName,
+      skeleton,
+      imports,
+      fullTemplate,
+    };
+  } else if (targetLang === "rust") {
+    const rustParams = inArgs
+      .map(
+        (a) =>
+          `${a.getName()}: ${RustProgram.getTypeAnnotation(a, {
+            useTypeRefs: true,
+          })}`
+      )
+      .join(", ");
+    const rustTupleType =
+      inArgs.length === 0
+        ? "()"
+        : inArgs.length === 1
+          ? `(${RustProgram.getTypeAnnotation(inArgs[0], { useTypeRefs: true })},)`
+          : `(${inArgs
+              .map((a) =>
+                RustProgram.getTypeAnnotation(a, { useTypeRefs: true })
+              )
+              .join(", ")})`;
+    const rustReturnTuple =
+      inArgs.length === 0
+        ? "()"
+        : inArgs.length === 1
+          ? `(${argDestructuring},)`
+          : `(${argDestructuring})`;
+
+    const imports = [
+      {
+        name: "assume",
+        stmt: `use nanofuzz_runtime::{assume, UnsatisfiedAssumption};\n`,
+      },
+    ];
+
+    const skeleton = `\n\npub fn ${transformerName}(${rustParams}) -> ${rustTupleType} {\n  // Use assume!(condition, "msg") or panic with UnsatisfiedAssumption to filter out-of-domain inputs\n  // Otherwise, return the transformed inputs\n  ${rustReturnTuple}\n}`;
+    const importData = imports.map((i) => i.stmt).join("");
+    const fullTemplate = `${importData}${skeleton.trimStart()}`;
+
+    return {
+      name: transformerName,
+      skeleton,
+      imports,
+      fullTemplate,
+    };
+  } else if (targetLang === "oxcaml") {
+    const oxcamlParams =
+      inArgs.length === 0
+        ? "()"
+        : inArgs
+            .map(
+              (a) =>
+                `(${a.getName()} : ${OxcamlProgram.getTypeAnnotation(a, {
+                  useTypeRefs: true,
+                })})`
+            )
+            .join(" ");
+    const oxcamlTupleType =
+      inArgs.length === 0
+        ? "unit"
+        : inArgs.length === 1
+          ? OxcamlProgram.getTypeAnnotation(inArgs[0], { useTypeRefs: true })
+          : `(${inArgs
+              .map((a) =>
+                OxcamlProgram.getTypeAnnotation(a, { useTypeRefs: true })
+              )
+              .join(" * ")})`;
+    const oxcamlReturnTuple =
+      inArgs.length === 0
+        ? "()"
+        : inArgs.length === 1
+          ? argDestructuring
+          : `(${argDestructuring})`;
+
+    const imports = [
+      {
+        name: "assume",
+        stmt: `open Nanofuzz_runtime\n`,
+      },
+    ];
+
+    const skeleton = `\n\nlet ${transformerName} ${oxcamlParams} : ${oxcamlTupleType} =\n  (* Use assume condition to filter out-of-domain inputs *)\n  (* Otherwise, return the transformed inputs *)\n  ${oxcamlReturnTuple}\n`;
+    const importData = imports.map((i) => i.stmt).join("");
+    const fullTemplate = `${importData}${skeleton.trimStart()}`;
+    return {
+      name: transformerName,
+      skeleton,
+      imports,
+      fullTemplate,
+    };
+  } else if (targetLang === "java") {
+    const javaParams = inArgs
+      .map(
+        (a) =>
+          `${JavaProgram.getTypeAnnotation(a, {
+            useTypeRefs: true,
+          })} ${a.getName()}`
+      )
+      .join(", ");
+    const javaReturn =
+      inArgs.length === 0
+        ? "new Object[0]"
+        : `new Object[] { ${argDestructuring} }`;
+
+    const imports = [
+      {
+        name: "Assume",
+        stmt: `import com.nanofuzz.runtime.Assume;\n`,
+      },
+      {
+        name: "UnsatisfiedAssumptionException",
+        stmt: `import com.nanofuzz.runtime.UnsatisfiedAssumptionException;\n`,
+      },
+    ];
+
+    const skeleton = `\n\npublic static Object[] ${transformerName}(${javaParams}) {\n  // Use Assume.that(condition, "msg") or throw new UnsatisfiedAssumptionException("msg") to filter out-of-domain inputs\n  // Otherwise, return the transformed inputs\n  return ${javaReturn};\n}`;
+    const importData = imports.map((i) => i.stmt).join("");
+    const fullTemplate = `${importData}${skeleton.trimStart()}`;
+
+    return {
+      name: transformerName,
+      skeleton,
+      imports,
+      fullTemplate,
+    };
+  } else if (targetLang === "go") {
+    const goParams = inArgs
+      .map((a) => `${a.getName()} ${GoProgram.getTypeAnnotation(a)}`)
+      .join(", ");
+    const goReturnTypes =
+      inArgs.length === 0
+        ? ""
+        : inArgs.length === 1
+          ? GoProgram.getTypeAnnotation(inArgs[0])
+          : `(${inArgs
+              .map((a) => GoProgram.getTypeAnnotation(a))
+              .join(", ")})`;
+
+    const returnSig = goReturnTypes ? ` ${goReturnTypes}` : "";
+    const returnValues =
+      inArgs.length === 0 ? "" : `return ${argDestructuring}`;
+
+    const imports = [
+      {
+        name: "runtime",
+        stmt: `import "github.com/nanofuzz/runtime"\n`,
+      },
+    ];
+
+    const skeleton = `\n\nfunc ${transformerName}(${goParams})${returnSig} {\n\t// Use runtime.Assume(condition, "msg") to filter out-of-domain inputs\n\t// Otherwise, return the transformed inputs\n\t${returnValues}\n}`;
     const importData = imports.map((i) => i.stmt).join("");
     const fullTemplate = `${importData}${skeleton.trimStart()}`;
 

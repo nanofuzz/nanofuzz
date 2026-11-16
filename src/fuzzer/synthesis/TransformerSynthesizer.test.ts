@@ -44,18 +44,105 @@ describe("src/fuzzer/synthesis/TransformerSynthesizer", () => {
     expect(fnDef).toBeDefined();
 
     const result = synthesizeTransformer(fnDef, "python");
-    expect(result.name).toBe("greetingTransformer");
+    expect(result.name).toBe("greeting_transformer");
     expect(result.imports.length).toBe(1);
     expect(result.imports[0].stmt).toContain(
       "from nanofuzz_runtime import UnsatisfiedAssumption, assume"
     );
     expect(result.skeleton).toContain(
-      "def greetingTransformer(name: a) -> tuple[a]:"
+      "def greeting_transformer(name: a) -> tuple[a]:"
     );
     expect(result.skeleton).toContain("return (name,)");
     expect(result.fullTemplate).toContain(
       "from nanofuzz_runtime import UnsatisfiedAssumption, assume"
     );
+  });
+
+  it("synthesizes Rust transformer with typed parameters and return tuple", () => {
+    const src = `pub fn add(a: i32, b: f64) -> i32 { a + (b as i32) }`;
+    const program = ProgramFactory.fromSource(() => src, "rust");
+    const fnDef = program.functionsExported["add"];
+    expect(fnDef).toBeDefined();
+
+    const result = synthesizeTransformer(fnDef, "rust");
+    expect(result.name).toBe("add_transformer");
+    expect(result.imports.length).toBe(1);
+    expect(result.imports[0].stmt).toContain("use nanofuzz_runtime::{assume,");
+    expect(result.skeleton).toContain(
+      "pub fn add_transformer(a: i32, b: f64) -> (i32, f64) {"
+    );
+    expect(result.skeleton).toContain("(a, b)");
+    expect(result.fullTemplate).toContain("use nanofuzz_runtime::{assume,");
+  });
+
+  it("synthesizes OxCaml input transformer with assume and tuple return", () => {
+    const src = `let add (a : int) (b : int) : int = a + b`;
+    const program = ProgramFactory.fromSource(() => src, "oxcaml");
+    const fnDef = program.functionsExported["add"];
+    expect(fnDef).toBeDefined();
+
+    const result = synthesizeTransformer(fnDef, "oxcaml");
+    expect(result.name).toBe("add_transformer");
+    expect(result.imports[0].stmt).toContain("open Nanofuzz_runtime");
+    expect(result.skeleton).toContain(
+      "let add_transformer (a : int) (b : int) : (int * int) ="
+    );
+    expect(result.skeleton).toContain("(a, b)");
+  });
+
+  it("synthesizes Java transformer with typed parameters and Object[] return", () => {
+    const src = `public class MathOps { public static int add(int a, double b) { return (int)(a + b); } }`;
+    const program = ProgramFactory.fromSource(() => src, "java");
+    const fnDef = program.functionsExported["add"];
+    expect(fnDef).toBeDefined();
+
+    const result = synthesizeTransformer(fnDef, "java");
+    expect(result.name).toBe("addTransformer");
+    expect(result.imports.length).toBe(2);
+    expect(result.imports[0].name).toBe("Assume");
+    expect(result.imports[1].name).toBe("UnsatisfiedAssumptionException");
+    expect(result.skeleton).toContain(
+      "public static Object[] addTransformer(int a, double b) {"
+    );
+    expect(result.skeleton).toContain("return new Object[] { a, b };");
+    expect(result.fullTemplate).toContain(
+      "import com.nanofuzz.runtime.Assume;\nimport com.nanofuzz.runtime.UnsatisfiedAssumptionException;\n"
+    );
+  });
+
+  it("synthesizes Go transformer with typed parameters and return values", () => {
+    const src = `package mathutil\nfunc Add(a int, b float64) int { return a + int(b) }`;
+    const program = ProgramFactory.fromSource(() => src, "go");
+    const fnDef = program.functionsExported["Add"];
+    expect(fnDef).toBeDefined();
+
+    const result = synthesizeTransformer(fnDef, "go");
+    expect(result.name).toBe("AddTransformer");
+    expect(result.skeleton).toContain(
+      "func AddTransformer(a int, b float64) (int, float64) {"
+    );
+    expect(result.skeleton).toContain("return a, b");
+    expect(result.fullTemplate).toContain(
+      'import "github.com/nanofuzz/runtime"'
+    );
+  });
+
+  it("synthesizes Go transformer for compound types (structs, slices, maps, pointers)", () => {
+    const src = `package app
+type User struct { Name string }
+func Process(u User, items []string, lookup map[string]int, ptr *int) int {
+    return 0
+}`;
+    const program = ProgramFactory.fromSource(() => src, "go");
+    const fnDef = program.functionsExported["Process"];
+    expect(fnDef).toBeDefined();
+
+    const result = synthesizeTransformer(fnDef, "go");
+    expect(result.name).toBe("ProcessTransformer");
+    expect(result.skeleton).toContain(
+      "func ProcessTransformer(u User, items []string, lookup map[string]int, ptr *int) (User, []string, map[string]int, *int) {"
+    );
+    expect(result.skeleton).toContain("return u, items, lookup, ptr");
   });
 
   it("disambiguates transformer name when existing names conflict", () => {

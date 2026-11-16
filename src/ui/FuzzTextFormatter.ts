@@ -8,6 +8,7 @@ import {
   FuzzTestingMessage,
   FuzzTestResult,
   FuzzTestResults,
+  FuzzStopReason,
   FuzzWaitingForGeneratorMessage,
 } from "../fuzzer/Types";
 
@@ -31,34 +32,91 @@ export function formatRunSummary(
     });
   }
 
+  const stopReason =
+    results.stopReason === FuzzStopReason.PAUSE
+      ? "interrupted"
+      : results.stopReason;
+
+  const dupeText =
+    counters.dupesGenerated > 0
+      ? ` (${counters.dupesGenerated} were dupes)`
+      : "";
+
+  if (counters.inputsInjected > 0) {
+    lines.push(
+      ` - Injected ${counters.inputsInjected} and generated ${counters.inputsGenerated} inputs${dupeText}`
+    );
+  } else {
+    lines.push(` - Generated ${counters.inputsGenerated} inputs${dupeText}`);
+  }
+
+  const compileMs =
+    (stats.timers.compile ?? 0) + (stats.timers.instrument ?? 0);
+  const testMs = Math.max(0, stats.timers.total - compileMs);
+  const ms = testMs.toFixed(0);
+  if (counters.inputsInterrupted) {
+    const skippedText =
+      counters.inputsSkipped > 0 ? `, skipped ${counters.inputsSkipped}` : "";
+    lines.push(
+      ` - Executed ${outcomes.total}${skippedText}, interrupted ${counters.inputsInterrupted} in-flight tests in ${ms} ms`
+    );
+  } else {
+    const skippedText =
+      counters.inputsSkipped > 0
+        ? ` and skipped ${counters.inputsSkipped}`
+        : "";
+    lines.push(` - Executed ${outcomes.total}${skippedText} tests in ${ms} ms`);
+  }
+
   lines.push(
-    ` - Executed ${outcomes.total} and skipped ${
-      counters.inputsSkipped
-    } tests in ${stats.timers.total.toFixed(0)} ms this run. Stopped for reason: ${
-      results.stopReason
-    }.`
-  );
-  lines.push(
-    ` - Injected ${counters.inputsInjected} and generated ${
-      counters.inputsGenerated
-    } inputs (${counters.dupesGenerated} were dupes) this run.`
-  );
-  lines.push(
-    ` - Total tests with exceptions: ${outcomes.exceptions}, timeouts: ${
+    `   - Tests with exceptions: ${outcomes.exceptions}, timeouts: ${
       outcomes.timeouts
     }, errors: ${counters.erroredTests}`
   );
-  lines.push(
-    ` - Total tests where human validator passed: ${outcomes.oracles.human.pass}, failed: ${outcomes.oracles.human.fail}`
-  );
-  lines.push(
-    ` - Total tests where property validator passed: ${outcomes.oracles.property.pass}, failed: ${outcomes.oracles.property.fail}`
-  );
-  lines.push(
-    ` - Total tests where heuristic validator passed: ${outcomes.oracles.heuristic.pass}, failed: ${outcomes.oracles.heuristic.fail}`
-  );
 
-  if (results.env.options.outputFile) {
+  const useHuman = results.env?.options?.useHuman ?? false;
+  const hasHuman =
+    useHuman &&
+    ((outcomes.oracles?.human?.pass ?? 0) +
+      (outcomes.oracles?.human?.fail ?? 0) >
+      0 ||
+      Boolean(
+        results.results?.some(
+          (r) => r.expectedOutput && r.expectedOutput.length > 0
+        )
+      ));
+  if (hasHuman) {
+    lines.push(
+      `   - Human validator passed: ${outcomes.oracles.human.pass}, failed: ${outcomes.oracles.human.fail}`
+    );
+  }
+
+  const useProperty = results.env?.options?.useProperty ?? false;
+  const hasProperty =
+    useProperty &&
+    ((results.env?.validators && results.env.validators.length > 0) ||
+      (outcomes.oracles?.property?.pass ?? 0) +
+        (outcomes.oracles?.property?.fail ?? 0) >
+        0);
+  if (hasProperty) {
+    lines.push(
+      `   - Property validator passed: ${outcomes.oracles.property.pass}, failed: ${outcomes.oracles.property.fail}`
+    );
+  }
+
+  const useHeuristic = results.env?.options?.useImplicit ?? false;
+  const hasHeuristic =
+    useHeuristic &&
+    (outcomes.oracles?.heuristic?.pass ?? 0) +
+      (outcomes.oracles?.heuristic?.fail ?? 0) >
+      0;
+  if (hasHeuristic) {
+    lines.push(
+      `   - Heuristic validator passed: ${outcomes.oracles.heuristic.pass}, failed: ${outcomes.oracles.heuristic.fail}`
+    );
+  }
+
+  if (results.env?.options?.outputFile) {
     lines.push(` - Test results: ${results.env.options.outputFile}`);
   }
 
@@ -75,7 +133,11 @@ export function formatRunSummary(
     );
   }
 
-  lines.push(`Testing ${isCancelled ? "interrupted" : "finished"}.`);
+  const stopReasonStr = stopReason ? ` Stopped for reason: ${stopReason}.` : "";
+  const totalDuration = formatDuration((stats.timers.total ?? 0) / 1000);
+  lines.push(
+    `Testing ${isCancelled ? "interrupted" : "finished"} in ${totalDuration}.${stopReasonStr}`
+  );
 
   return lines.join("\n");
 } // fn: formatRunSummary
@@ -88,7 +150,7 @@ export function formatFailureBlock(
   result: FuzzTestResult,
   lang: ProgramLanguage,
   validators: FunctionRef[],
-  fnTimeout: number = 200,
+  fnTimeout: number = 500,
   termWidth: number = typeof process !== "undefined" &&
   process.stdout &&
   process.stdout.columns &&
@@ -380,7 +442,7 @@ export function formatWaitingStatus(
  * @returns Formatted message string.
  */
 export function formatCompilingStatus(msg: FuzzCompilingMessage): string {
-  return ` - Compile...: ${msg.file}`;
+  return ` - Compile...: ${normalizePathForDisplay(msg.file)}`;
 } // fn: formatCompilingStatus
 
 /**
@@ -392,7 +454,7 @@ export function formatCompilingStatus(msg: FuzzCompilingMessage): string {
 export function formatInstrumentingStatus(
   msg: FuzzInstrumentingMessage
 ): string {
-  return ` - Instrument: ${msg.file}`;
+  return ` - Instrument: ${normalizePathForDisplay(msg.file)}`;
 } // fn: formatInstrumentingStatus
 
 /**
@@ -435,3 +497,50 @@ export function normalizeDisplayPath(
   }
   return displayPath;
 } // fn: normalizeDisplayPath
+
+/**
+ * Normalizes a file path relative to current working directory when located within it.
+ * Maps compiled JavaScript files back to their TypeScript source if the source exists.
+ *
+ * @param filePath Path to normalize for display
+ * @returns Normalized user-facing path
+ */
+function normalizePathForDisplay(filePath: string): string {
+  let displayPath = filePath.replace(/\\/g, "/");
+  if (typeof process !== "undefined" && typeof process.cwd === "function") {
+    const cwd = process.cwd().replace(/\\/g, "/");
+    if (displayPath.startsWith(cwd + "/")) {
+      displayPath = displayPath.slice(cwd.length + 1);
+    }
+  }
+  if (displayPath.endsWith(".js")) {
+    displayPath = displayPath.slice(0, -3) + ".ts";
+  }
+  return displayPath;
+} // fn: normalizePathForDisplay
+
+/**
+ * Formats duration in seconds into a human-readable string (e.g. "39s", "1m00s", "1h00m00s").
+ *
+ * @param totalSeconds Total seconds elapsed
+ * @returns Formatted duration string
+ */
+export function formatDuration(totalSeconds: number): string {
+  if (!isFinite(totalSeconds) || isNaN(totalSeconds) || totalSeconds <= 0) {
+    return "0s";
+  }
+  const s = Math.floor(totalSeconds);
+  if (s < 60) {
+    return `${s}s`;
+  }
+  const minutes = Math.floor(s / 60);
+  const remainingSeconds = s % 60;
+  const secStr = remainingSeconds.toString().padStart(2, "0");
+  if (minutes < 60) {
+    return `${minutes}m${secStr}s`;
+  }
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  const minStr = remainingMinutes.toString().padStart(2, "0");
+  return `${hours}h${minStr}m${secStr}s`;
+} // fn: formatDuration

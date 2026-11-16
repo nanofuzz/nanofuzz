@@ -21,6 +21,10 @@
             buildInputs = [
               nixfmt-rfc-style
               yarn
+              cargo
+              rustc
+              jdk17
+              maven
             ];
           };
       }

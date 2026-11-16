@@ -1,0 +1,27 @@
+name: Publish VS Code Extension
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  publish-extension:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup NaNofuzz environment
+        uses: ./.github/actions/setup-nanofuzz
+
+      - name: Build extension
+        run: yarn build
+
+      - name: Run tests
+        run: yarn test
+
+      - name: Publish to Marketplace
+        run: yarn run vscode:publish
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}

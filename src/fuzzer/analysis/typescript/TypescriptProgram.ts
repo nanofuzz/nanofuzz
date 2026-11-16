@@ -2027,6 +2027,43 @@ export class TypescriptProgram extends AbstractProgram {
         return arg.getType();
     }
   } // fn: getBaseType()
+
+  /**
+   * Lazily finds callee identifiers called within a TypeScript function body.
+   * Invoked on-demand only when callees are requested, avoiding any overhead
+   * during the editor typing loop.
+   *
+   * @param fnName Name of function to inspect
+   * @returns Set of callee names
+   */
+  protected _findCallees(fnName: string): Set<string> {
+    const callees = new Set<string>();
+    const unsupp = this._functions.unsupported[fnName];
+    const unsuppFn =
+      unsupp && "function" in unsupp ? unsupp.function : undefined;
+    const fnRef = this._functions.supported[fnName] ?? unsuppFn;
+    if (!fnRef || !fnRef.src) return callees;
+
+    const ast = parse(fnRef.src, {
+      sourceType: "unambiguous",
+      plugins: ["typescript"],
+    });
+    traverse(ast, {
+      CallExpression: (path) => {
+        const callee = path.node.callee;
+        if (callee.type === "Identifier") {
+          callees.add(callee.name);
+        } else if (
+          callee.type === "MemberExpression" &&
+          callee.property.type === "Identifier"
+        ) {
+          callees.add(callee.property.name);
+        }
+      },
+    });
+
+    return callees;
+  } // fn: _findCallees()
 } // class: TypescriptProgram
 
 /**

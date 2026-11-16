@@ -52,10 +52,22 @@ function getGlobalPaths(): string[] {
 async function main() {
   const initialFilename = process.argv[2];
   const initialFnName = process.argv[3];
-  const collectStaticArg = process.argv[5];
+  const coverageScope = process.argv[4] || "project";
+  const directPkgs: string[] = process.argv[5]
+    ? JSON.parse(process.argv[5])
+    : [];
+  const collectStaticArg = process.argv[6];
   const isRespawn = collectStaticArg === "respawn";
   const collectStatic =
     collectStaticArg !== undefined ? collectStaticArg === "true" : true;
+
+  if (
+    coverageScope.includes("directimports") &&
+    Array.isArray(directPkgs) &&
+    directPkgs.length > 0
+  ) {
+    setupDirectImportsHook(directPkgs);
+  }
 
   const loadedModules: Record<string, unknown> = {};
 
@@ -158,9 +170,21 @@ async function main() {
 
     const fnToExec = getTargetFunction(targetFilename, targetFnName);
     const typeHints = input.typeHints ?? [];
-    const hydratedArgs = input.args.map((arg, i) =>
-      transformArg(arg, i < typeHints.length ? typeHints[i] : undefined)
-    );
+    let hydratedArgs: unknown[];
+    try {
+      hydratedArgs = input.args.map((arg, i) =>
+        transformArg(arg, i < typeHints.length ? typeHints[i] : undefined, i)
+      );
+    } catch (e: unknown) {
+      sendMsg({
+        tag: "error",
+        name: "ArgumentError",
+        message: isError(e) ? e.message : String(e),
+        source: "put",
+        seq: input.seq,
+      });
+      continue;
+    }
 
     const putExec = await invokeWithTimeout(
       fnToExec,
@@ -496,7 +520,7 @@ function functionTimeout(
  * @param hint The type hint guiding the transformation.
  * @returns The transformed value.
  */
-function isPrngPayload(val: unknown): val is { seed?: string } {
+function isPrngPayload(val: unknown): val is { seed?: unknown } {
   return (
     val !== null &&
     typeof val === "object" &&
@@ -505,17 +529,25 @@ function isPrngPayload(val: unknown): val is { seed?: string } {
   );
 }
 
-function transformArg(val: unknown, hint: TypeHint | undefined): unknown {
+function transformArg(
+  val: unknown,
+  hint: TypeHint | undefined,
+  argIndex: number = 0
+): unknown {
   if (isPrngPayload(val)) {
-    return seedrandom(val.seed);
+    const rawSeed = val.seed;
+    if (
+      rawSeed !== undefined &&
+      rawSeed !== null &&
+      (typeof rawSeed !== "string" || rawSeed.length > 0)
+    ) {
+      return seedrandom(String(rawSeed));
+    }
+    return Math.random;
   }
 
   if (val === null || val === undefined || hint === undefined) {
     return val;
-  }
-
-  if (hint === "prng") {
-    return seedrandom(typeof val === "string" ? val : undefined);
   }
 
   if (hint === "bytes") {
@@ -526,13 +558,8 @@ function transformArg(val: unknown, hint: TypeHint | undefined): unknown {
   }
 
   if (typeof hint === "object") {
-    if (hint.kind === "prng") {
-      const seed = typeof val === "string" ? val : hint.seed;
-      return seedrandom(seed);
-    }
-
     if (hint.kind === "array" && Array.isArray(val)) {
-      return val.map((item) => transformArg(item, hint.element));
+      return val.map((item) => transformArg(item, hint.element, argIndex));
     }
 
     if (hint.kind === "set") {
@@ -824,6 +851,63 @@ function isCoverageMap(
 function getGlobalCoverageData(): unknown {
   return Reflect.get(globalThis, "__coverage__");
 }
+
+/**
+ * Resolves the top-level package name for a file inside node_modules.
+ */
+function getPackageNameFromPath(filePath: string): string | undefined {
+  const norm = path.resolve(filePath).replace(/\\/g, "/");
+  const idx = norm.lastIndexOf("/node_modules/");
+  if (idx === -1) return undefined;
+
+  const sub = norm.substring(idx + "/node_modules/".length);
+  const parts = sub.split("/");
+  if (parts.length === 0 || !parts[0]) return undefined;
+
+  if (parts[0].startsWith("@") && parts.length > 1) {
+    return `${parts[0]}/${parts[1]}`;
+  }
+  return parts[0];
+} // fn: getPackageNameFromPath
+
+/**
+ * Sets up istanbul-lib-hook to instrument directly imported 3rd-party packages on require.
+ */
+function setupDirectImportsHook(directPkgs: string[]): void {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { hookRequire } = require("istanbul-lib-hook");
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { createInstrumenter } = require("istanbul-lib-instrument");
+
+  const directSet = new Set(directPkgs.map((p) => p.toLowerCase()));
+  const instrumenter = createInstrumenter({
+    produceSourceMap: true,
+    coverageGlobalScope: "global",
+  });
+  let isInstrumenting = false;
+
+  hookRequire(
+    (filePath: string) => {
+      const pkg = getPackageNameFromPath(filePath);
+      return pkg !== undefined && directSet.has(pkg.toLowerCase());
+    },
+    (code: string, opts: unknown) => {
+      if (isInstrumenting) return code;
+      if (code.includes("__coverage__") || code.includes("cov_")) {
+        return code;
+      }
+      const filename =
+        isRecord(opts) && "filename" in opts ? String(opts.filename) : "";
+      isInstrumenting = true;
+      try {
+        return instrumenter.instrumentSync(code, filename);
+      } finally {
+        isInstrumenting = false;
+      }
+    },
+    { extensions: [".js", ".cjs"] }
+  );
+} // fn: setupDirectImportsHook
 
 type FileCoverageData = {
   path?: string;

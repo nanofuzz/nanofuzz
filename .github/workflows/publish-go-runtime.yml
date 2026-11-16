@@ -1,0 +1,55 @@
+name: Publish Go Runtime Package
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish/tag (e.g. v0.5.0, default: reads packages/runtime/go/runtime.go)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  publish-go-runtime:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Test Go runtime package
+        working-directory: packages/runtime/go
+        run: go test -v ./...
+
+      - name: Tag and Index Go module
+        working-directory: packages/runtime/go
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ github.event.inputs.version || github.event.release.tag_name }}"
+          if [ -z "$VERSION" ]; then
+            VERSION="v$(grep 'const Version =' runtime.go | cut -d '"' -f 2)"
+          fi
+          echo "Preparing release for Go runtime ${VERSION}"
+
+          # Tag subpackage for Go module proxy resolution
+          TAG="packages/runtime/go/${VERSION}"
+          if ! git rev-parse "$TAG" >/dev/null 2>&1; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git tag "$TAG"
+            git push origin "$TAG" || echo "Tag push skipped or already exists on remote"
+          fi
+
+          # Prompt the official Go proxy to index the module
+          GOPROXY=https://proxy.golang.org go list -m "github.com/nanofuzz/runtime@${VERSION}" || true

@@ -1,7 +1,7 @@
 // For format details, see https://aka.ms/devcontainer.json. For config options, see the
 // README at: https://github.com/devcontainers/templates/tree/main/src/typescript-node
 {
-  "name": "Node.js & TypeScript",
+  "name": "NaNofuzz (Node.js, Python & Rust)",
   // Or use a Dockerfile or Docker Compose file. More info: https://containers.dev/guide/dockerfile
   "image": "mcr.microsoft.com/devcontainers/typescript-node:1-22-bookworm",
 
@@ -12,6 +12,9 @@
     },
     "ghcr.io/devcontainers/features/python:1": {
       "version": "3.13"
+    },
+    "ghcr.io/devcontainers/features/rust:1": {
+      "version": "latest"
     }
   },
 
@@ -19,7 +22,7 @@
   // "forwardPorts": [],
 
   // Use 'postCreateCommand' to run commands after the container is created.
-  "postCreateCommand": "python -m venv .venv && .venv/bin/pip install -r requirements.txt && yarn install"
+  "postCreateCommand": "python -m venv .venv && .venv/bin/pip install -r requirements.txt && yarn install && cargo build --manifest-path packages/runtime/rust/Cargo.toml"
 
   // Configure tool-specific properties.
   // "customizations": {},

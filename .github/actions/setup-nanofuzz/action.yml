@@ -1,0 +1,96 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-action.json
+name: Setup NaNofuzz Environment
+description: Sets up Python 3.13, virtual environment, Rust, Java 17, Maven, OCaml, Node.js 22, and root dependencies
+inputs:
+  registry-url:
+    description: Optional npm registry URL for publishing
+    required: false
+    default: ""
+runs:
+  using: composite
+  steps:
+    - name: Install Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.13"
+        cache: "pip"
+        cache-dependency-path: "requirements.txt"
+
+    - name: Create Python virtual env
+      run: python -m venv .venv
+      shell: bash
+
+    - name: Add venv to GITHUB_PATH
+      run: |
+        import os
+        venv_bin = os.path.join(os.getcwd(), ".venv", "Scripts" if os.name == "nt" else "bin")
+        with open(os.environ["GITHUB_PATH"], "a") as f:
+            f.write(f"{venv_bin}\n")
+      shell: python
+
+    - name: Install Python packages
+      run: pip install -r requirements.txt
+      shell: bash
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: "1.99.1"
+
+    - name: Cache Cargo registry
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+        key: cargo-${{ runner.os }}-${{ hashFiles('packages/runtime/rust/Cargo.toml') }}
+        restore-keys: |
+          cargo-${{ runner.os }}-
+
+    - name: Install OCaml
+      uses: ocaml/setup-ocaml@v3
+      with:
+        ocaml-compiler: 5.2.0
+
+    - name: Install OCaml packages
+      run: opam install dune yojson msgpck ounit2 -y
+      shell: bash
+
+    - name: Add OCaml switch to GITHUB_PATH
+      run: |
+        opam var bin >> "$GITHUB_PATH"
+        echo "OPAM_SWITCH_PREFIX=$(opam var prefix)" >> "$GITHUB_ENV"
+      shell: bash
+
+    - name: Setup Java
+      uses: actions/setup-java@v4
+      with:
+        distribution: "temurin"
+        java-version: "17"
+        cache: "maven"
+
+    - name: Setup Maven
+      uses: stCarolas/setup-maven@v5
+      with:
+        maven-version: "3.9.6"
+
+    - name: Setup Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: "1.22"
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        cache: yarn
+        registry-url: ${{ inputs.registry-url }}
+
+    - name: Install root dependencies
+      run: yarn --frozen-lockfile
+      shell: bash
+
+    - name: Build TypeScript runtime
+      run: yarn --cwd packages/runtime/typescript build
+      shell: bash

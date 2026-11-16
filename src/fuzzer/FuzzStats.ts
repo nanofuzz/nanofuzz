@@ -196,6 +196,28 @@ export class FuzzStats {
   } // fn: record
 
   /**
+   * Records an in-flight test that was interrupted (e.g. by user cancellation/SIGINT)
+   * before receiving execution results.
+   *
+   * @param candidate the input and source metadata
+   */
+  public recordInterrupted(_candidate?: TransformedInputAndSource): void {
+    this._currentRun.counters.inputsInterrupted++;
+  } // fn: recordInterrupted
+
+  /**
+   * Decrements the interrupted inputs counter when an interrupted input is withdrawn
+   * from the replay queue to be re-executed.
+   */
+  public decrementInterrupted(): void {
+    if (this._currentRun.counters.inputsInterrupted > 0) {
+      this._currentRun.counters.inputsInterrupted--;
+    } else if (this._results.stats.counters.inputsInterrupted > 0) {
+      this._results.stats.counters.inputsInterrupted--;
+    }
+  } // fn: decrementInterrupted
+
+  /**
    * Checks whether testing should stop based on suite timeout, max tests,
    * max failures, max duplicates, user cancellation, or input exhaustion.
    *
@@ -234,20 +256,24 @@ export class FuzzStats {
     }
 
     // Max Tests limit
-    const executedNonInjected = gen
-      ? this._currentRun.counters.inputsGenerated -
+    if (gen && options.maxTests > 0) {
+      const executedNonInjected =
+        this._currentRun.counters.inputsGenerated -
         this._currentRun.counters.dupesGenerated -
-        this._currentRun.counters.inputsSkipped
-      : 0;
-    const totalInputsCount =
-      this._currentRun.counters.inputsInjected + executedNonInjected;
-    const targetCount = injectCount + (gen ? options.maxTests : 0);
+        this._currentRun.counters.inputsSkipped;
+      const totalInputsCount =
+        this._currentRun.counters.inputsInjected + executedNonInjected;
+      const targetCount = injectCount + options.maxTests;
 
-    if (totalInputsCount >= targetCount) {
-      return FuzzStopReason.MAXTESTS;
-    }
-    if (targetCount > 0) {
-      const testsPct = totalInputsCount / targetCount;
+      if (totalInputsCount >= targetCount) {
+        return FuzzStopReason.MAXTESTS;
+      }
+      if (targetCount > 0) {
+        const testsPct = totalInputsCount / targetCount;
+        if (testsPct > maxPct) maxPct = testsPct;
+      }
+    } else if (!gen && injectCount > 0) {
+      const testsPct = this._currentRun.counters.inputsInjected / injectCount;
       if (testsPct > maxPct) maxPct = testsPct;
     }
 
@@ -299,6 +325,8 @@ export class FuzzStats {
       this._currentRun.counters.passedTests;
     this._results.stats.counters.inputsSkipped +=
       this._currentRun.counters.inputsSkipped;
+    this._results.stats.counters.inputsInterrupted +=
+      this._currentRun.counters.inputsInterrupted;
     this._results.stats.counters.failedTests +=
       this._currentRun.counters.failedTests;
 
@@ -366,6 +394,7 @@ export class FuzzStats {
           passedTests: 0,
           erroredTests: 0,
           inputsSkipped: 0,
+          inputsInterrupted: 0,
           failedTests: 0,
         },
         outcomes: {
@@ -431,6 +460,7 @@ export class FuzzStats {
         failedTests: 0,
         passedTests: 0,
         inputsSkipped: 0,
+        inputsInterrupted: 0,
       },
       outcomes: {
         total: 0,

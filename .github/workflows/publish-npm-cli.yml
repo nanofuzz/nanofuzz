@@ -1,0 +1,44 @@
+name: Publish npm CLI Package
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  publish-npm-cli:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup NaNofuzz environment
+        uses: ./.github/actions/setup-nanofuzz
+        with:
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Upgrade npm CLI to support Trusted Publishing (OIDC)
+        run: npm install -g npm@latest
+
+      - name: Build CLI
+        run: yarn build
+
+      # Set package name to @nanofuzz/cli (vsce requires unscoped name in git)
+      # Point @nanofuzz/runtime to npm (link: protocol not allowed by npm publish)
+      # Use distinct CLI README for the npm package page
+      - name: Prepare package.json for CLI publication
+        run: |
+          cp docs/CLI.md README.md
+          node -e '
+            const pkg = require("./package.json");
+            const rtVersion = require("./packages/runtime/typescript/package.json").version;
+            pkg.name = "@nanofuzz/cli";
+            pkg.dependencies["@nanofuzz/runtime"] = "^" + rtVersion;
+            require("fs").writeFileSync("package.json", JSON.stringify(pkg, null, 2) + "\n");
+          '
+
+      - name: Publish CLI package to npm
+        run: npm publish --access public --ignore-scripts

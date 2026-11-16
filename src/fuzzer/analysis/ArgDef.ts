@@ -176,6 +176,8 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
           : undefined;
     } else if (ref.type.options?.numIntervals) {
       intervals = ref.type.options?.numIntervals;
+    } else if (ref.type.options?.bigintIntervals) {
+      intervals = ref.type.options?.bigintIntervals;
     }
 
     // A source language may provide additional constraints for an otherwise
@@ -317,6 +319,15 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
   public getBaseTypeRef(): string | undefined {
     return this.baseTypeRef;
   } // fn: getBaseTypeRef()
+
+  /**
+   * Sets the terminal concrete type reference name (e.g., Map, Set).
+   *
+   * @param baseTypeRef The terminal base type reference name
+   */
+  public setBaseTypeRef(baseTypeRef: string | undefined): void {
+    this.baseTypeRef = baseTypeRef;
+  } // fn: setBaseTypeRef()
 
   /**
    * Returns the outer dimensions attached to the type reference.

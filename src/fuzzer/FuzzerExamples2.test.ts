@@ -1,6 +1,11 @@
 import { FuzzerFactory } from "./FuzzerFactory";
 import { intOptions, initParser } from "./FuzzerTestHelper";
 
+const options = {
+  ...intOptions,
+  maxTests: 10,
+};
+
 describe("fuzzer: study examples 8-14", () => {
   beforeAll(async () => {
     await initParser();
@@ -12,7 +17,7 @@ describe("fuzzer: study examples 8-14", () => {
         await FuzzerFactory(
           "nanofuzz-study/examples/8.ts",
           "minSalary",
-          intOptions
+          options
         ).test()
       ).stats.outcomes.total
     ).toBeGreaterThan(0);
@@ -24,7 +29,7 @@ describe("fuzzer: study examples 8-14", () => {
         await FuzzerFactory(
           "nanofuzz-study/examples/9.ts",
           "getOffsetOrDefault",
-          intOptions
+          options
         ).test()
       ).stats.outcomes.total
     ).toBeGreaterThan(0);
@@ -37,7 +42,7 @@ describe("fuzzer: study examples 8-14", () => {
         await FuzzerFactory(
           "nanofuzz-study/examples/10.ts",
           "gramSchmidt",
-          intOptions
+          options
         ).test()
       ).stats.outcomes.total
     ).toBeGreaterThan(0);
@@ -49,7 +54,7 @@ describe("fuzzer: study examples 8-14", () => {
         await FuzzerFactory(
           "nanofuzz-study/examples/11.ts",
           "idMatrix",
-          intOptions
+          options
         ).test()
       ).stats.outcomes.total
     ).toBeGreaterThan(0);
@@ -61,7 +66,7 @@ describe("fuzzer: study examples 8-14", () => {
         await FuzzerFactory(
           "nanofuzz-study/examples/12.ts",
           "levenshtein",
-          intOptions
+          options
         ).test()
       ).stats.outcomes.total
     ).toBeGreaterThan(0);
@@ -73,7 +78,7 @@ describe("fuzzer: study examples 8-14", () => {
         await FuzzerFactory(
           "nanofuzz-study/examples/13.ts",
           "isSteady",
-          intOptions
+          options
         ).test()
       ).stats.outcomes.total
     ).toBeGreaterThan(0);

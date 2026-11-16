@@ -1,6 +1,13 @@
 import { ArgDef } from "./ArgDef";
-import { FunctionRef, ArgOptionOverrides, ArgOptions, TypeRef } from "./Types";
+import {
+  FunctionRef,
+  ArgOptionOverrides,
+  ArgOptions,
+  TypeRef,
+  ArgTag,
+} from "./Types";
 import { ProgramLanguage } from "./Types";
+import { CompanionManager } from "./CompanionManager";
 
 /**
  * The FunctionDef class represents a function definition in a Typescript source
@@ -20,6 +27,8 @@ export class FunctionDef {
   private _options: ArgOptions;
   private _ref: FunctionRef;
   private _cmt: string | undefined; // docstring comment for function
+  private _calleeProvider: () => Set<string>;
+  private _callees?: Set<string>;
 
   /**
    * Constructs a new FunctionDef instance using a FunctionRef object.
@@ -27,11 +36,17 @@ export class FunctionDef {
    *
    * @param ref The function reference to be analyzed
    * @param options Options for the function analysis (optional)
+   * @param calleeProvider Lazy callback provider for callees
    */
-  private constructor(ref: FunctionRef, options?: ArgOptions) {
+  private constructor(
+    ref: FunctionRef,
+    options?: ArgOptions,
+    calleeProvider: () => Set<string> = () => new Set()
+  ) {
     this._options = options ?? ArgDef.getDefaultOptions();
     this._ref = ref;
     this._cmt = ref.cmt;
+    this._calleeProvider = calleeProvider;
 
     if (!ref.args) {
       throw new Error(`FunctionRef.args is undefined: ${JSON.stringify(ref)}`);
@@ -49,13 +64,15 @@ export class FunctionDef {
    *
    * @param ref FunctionRef object
    * @param options Optional set of options
+   * @param calleeProvider Optional lazy callback provider for callees
    * @returns new FunctionDef instance
    */
   public static fromFunctionRef(
     ref: FunctionRef,
-    options?: ArgOptions
+    options?: ArgOptions,
+    calleeProvider: () => Set<string> = () => new Set()
   ): FunctionDef {
-    return new FunctionDef(ref, options);
+    return new FunctionDef(ref, options, calleeProvider);
   } // fn: fromFunctionRef()
 
   /**
@@ -170,7 +187,9 @@ export class FunctionDef {
    */
   public getReturnArg(): ArgDef | undefined {
     // If a return type is defined and resolved, convert it to an ArgDef
-    return this._ref.returnType && this._ref.returnType.type
+    return this._ref.returnType &&
+      this._ref.returnType.type &&
+      this._ref.returnType.type.type !== ArgTag.UNRESOLVED
       ? ArgDef.fromTypeRef(this._ref.returnType, this._options)
       : undefined;
   } // fn: getReturnArg()
@@ -208,10 +227,15 @@ export class FunctionDef {
    * @returns true if the function is a validator; false, otherwise.
    */
   public isValidator(): boolean {
+    const typeRef = this._argDefs[0]?.getTypeRef();
+    const isFtr =
+      typeRef === "FuzzTestResult" ||
+      typeRef?.endsWith(".FuzzTestResult") ||
+      typeRef === "fuzz_test_result";
     return (
       this._argDefs.length === 1 &&
-      this._argDefs[0].getTypeRef() === "FuzzTestResult" &&
-      this._ref.name.includes("Validator", 1)
+      isFtr &&
+      CompanionManager.isValidator(this._ref.name, this.getLang())
     );
   } // fn: isValidator()
 
@@ -221,7 +245,7 @@ export class FunctionDef {
    * @returns true if the function is an input transformer; false, otherwise.
    */
   public isTransformer(): boolean {
-    return this._ref.name.endsWith("Transformer");
+    return CompanionManager.isTransformer(this._ref.name, this.getLang());
   } // fn: isTransformer()
 
   /**
@@ -230,7 +254,7 @@ export class FunctionDef {
    * @returns true if the function is a user input generator; false, otherwise.
    */
   public isUserGenerator(): boolean {
-    return this._ref.name.endsWith("Generator");
+    return CompanionManager.isUserGenerator(this._ref.name, this.getLang());
   } // fn: isUserGenerator()
 
   /*
@@ -245,8 +269,41 @@ export class FunctionDef {
       throw new Error(
         `Function ${this.getName()} is not a validator and, therefore, does not have a validation target`
       );
-    return this._ref.name.substring(0, this._ref.name.lastIndexOf("Validator"));
+    const target = CompanionManager.getValidatorTarget(
+      this._ref.name,
+      this.getLang()
+    );
+    if (target === undefined) {
+      throw new Error(
+        `Function ${this.getName()} is not a validator and, therefore, does not have a validation target`
+      );
+    }
+    return target;
   } // fn: getValidatorTargetName()
+
+  /*
+   * Returns the transformer's target function name if isTransformer()===true
+   *
+   * Throws an exception if the function is not an input transformer.
+   *
+   * @returns the name of the input transformer's target function.
+   */
+  public getTransformerTargetName(): string {
+    if (!this.isTransformer())
+      throw new Error(
+        `Function ${this.getName()} is not an input transformer and, therefore, does not have a transformer target`
+      );
+    const target = CompanionManager.getTransformerTarget(
+      this._ref.name,
+      this.getLang()
+    );
+    if (target === undefined) {
+      throw new Error(
+        `Function ${this.getName()} is not an input transformer and, therefore, does not have a transformer target`
+      );
+    }
+    return target;
+  } // fn: getTransformerTargetName()
 
   /*
    * Returns the user generator's target function name if isUserGenerator()===true
@@ -260,7 +317,16 @@ export class FunctionDef {
       throw new Error(
         `Function ${this.getName()} is not a user generator and, therefore, does not have a generator target`
       );
-    return this._ref.name.substring(0, this._ref.name.lastIndexOf("Generator"));
+    const target = CompanionManager.getUserGeneratorTarget(
+      this._ref.name,
+      this.getLang()
+    );
+    if (target === undefined) {
+      throw new Error(
+        `Function ${this.getName()} is not a user generator and, therefore, does not have a generator target`
+      );
+    }
+    return target;
   } // fn: getUserGeneratorTargetName()
 
   /**
@@ -305,4 +371,19 @@ export class FunctionDef {
     }
     return ret;
   } // fn: getArgDefsFlat()
+
+  /**
+   * Returns the set of callee function and method identifiers called by this
+   * function's body. We do this lazily because the AbstractProgram instances
+   * run inside the editor loop as the user is typing, so we defer computation
+   * of calles until sometime later... outside the editor loop.
+   *
+   * @returns Set of callee names
+   */
+  public getCallees(): Set<string> {
+    if (!this._callees) {
+      this._callees = this._calleeProvider();
+    }
+    return new Set(this._callees);
+  } // fn: getCallees()
 } // class: FunctionDef
