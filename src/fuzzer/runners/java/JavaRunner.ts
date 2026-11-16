@@ -11,6 +11,7 @@ import { isRecordOfFileCoverageData } from "../../measures/CoverageMeasure";
 import { FuzzEnv } from "../../Types";
 import { normalizePathForKey } from "../../Util";
 import * as JSONN from "../../../Jsonn";
+import * as Config from "../../../Config";
 import * as ProgramFactory from "../../analysis/ProgramFactory";
 import { JavaProgram } from "../../analysis/java/JavaProgram";
 import {
@@ -114,11 +115,13 @@ export class JavaRunner extends AbstractRunner {
     }
     this._classesDir = this._compiler.classesDir;
 
-    const pgm = ProgramFactory.fromFile(this._filename, "java");
-    if (pgm instanceof JavaProgram) {
-      this._fqClassName = pgm.getFqClassName(this._fn);
-    } else {
-      this._fqClassName = path.basename(this._filename, ".java");
+    if (!this._fqClassName) {
+      const pgm = ProgramFactory.fromFile(this._filename, "java");
+      if (pgm instanceof JavaProgram) {
+        this._fqClassName = pgm.getFqClassName(this._fn);
+      } else {
+        this._fqClassName = path.basename(this._filename, ".java");
+      }
     }
 
     const { staticCov, staticCovMap, branchSpecsMap, directImportClasspath } =
@@ -370,11 +373,43 @@ export class JavaRunner extends AbstractRunner {
       instrumentClasspath,
     ];
 
-    this._host = new JavaHost(javaBin, args, projectPath, process.env, () => {
-      this._host = undefined;
+    const host = new JavaHost(javaBin, args, projectPath, process.env, () => {
+      if (this._host === host) {
+        this._host = undefined;
+      }
     });
 
-    return this._host;
+    const hostStartupTimeout = Config.get<number>(
+      "nanofuzz.fuzzer.hostStartupTimeout",
+      20000
+    );
+
+    const rawOkBuf = await host.getResponseBuffer(hostStartupTimeout);
+    const okcode = JSONN.unpack<unknown>(rawOkBuf);
+    if (okcode === "READY") {
+      this._host = host;
+      return host;
+    } else {
+      host.kill();
+      if (
+        isRecord(okcode) &&
+        (okcode.tag === "error" || typeof okcode.message === "string")
+      ) {
+        const message =
+          typeof okcode.message === "string"
+            ? okcode.message
+            : "Java runner host failed to load";
+        const err = new Error(message);
+        if (typeof okcode.name === "string") {
+          err.name = okcode.name;
+        }
+        if (typeof okcode.stack === "string") {
+          err.stack = okcode.stack;
+        }
+        throw err;
+      }
+      throw new Error(`JavaHost not ready (okcode: ${String(okcode)})`);
+    }
   } // fn: _getHost
 
   /**
@@ -414,3 +449,7 @@ type JavaHostResponse = {
   jacocoCoverage?: Record<string, JacocoClassCoverage>;
   coverageError?: string;
 };
+
+function isRecord(val: unknown): val is Record<string, unknown> {
+  return typeof val === "object" && val !== null;
+} // fn: isRecord
