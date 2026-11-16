@@ -992,8 +992,7 @@ export class FuzzerV3 {
       Boolean(mode.gen),
       injectTests,
       this._executor.transformRunner,
-      this._options.fnTimeout,
-      this._options.maxDupeInputs,
+      this._options,
       this._executor.userGenRunner
     );
 

@@ -15,7 +15,13 @@ import {
 } from "../adapters/LlmAdapter";
 import { ArgDef } from "../analysis/ArgDef";
 import { FunctionDef } from "../analysis/FunctionDef";
-import { FuzzTestResults, InputAndSource } from "../Types";
+import {
+  FuzzOptions,
+  FuzzPinnedTest,
+  FuzzTestResults,
+  InputAndSource,
+} from "../Types";
+import { AbstractRunner } from "../runners/AbstractRunner";
 import { InputGeneratorStatsAi, LlmQueryResult, NextableStatus } from "./Types";
 import { ArgDefValidator } from "../analysis/ArgDefValidator";
 import { ArgDefTokenEstimator } from "../analysis/ArgDefTokenEstimator";
@@ -54,6 +60,8 @@ export class AiInputGenerator extends AbstractInputGenerator {
   protected _targetAttempts: Record<string, number> = {}; // Historical attempts per target function to decay weight
   protected _leaderboard?: Leaderboard<InputAndSource>; // Running list of interesting inputs
   protected _validator: ArgDefValidator; // Validator for argument constraints
+  protected _policy: AiPolicy = "eager"; // AI input generation policy: 'eager' or 'seed'
+  protected _disabledReason?: string; // Reason why AI generator was disabled for this run
 
   public constructor(
     fn: FunctionDef,
@@ -87,8 +95,12 @@ export class AiInputGenerator extends AbstractInputGenerator {
    * @returns 'now' if generator inputs are available, 'soon' if pending, false otherwise
    */
   public override nextable(): NextableStatus {
+    if (this._disabledReason || LlmAdapter.isAbandoned || this._exhausted) {
+      return false;
+    }
     if (this._inputQueue.length) {
       if (
+        this._policy === "eager" &&
         this._inputQueue.length < getChunkSize() &&
         !this._callsPending &&
         this._llm &&
@@ -98,11 +110,12 @@ export class AiInputGenerator extends AbstractInputGenerator {
         this._getMoreInputs();
       }
       return "now";
-    } else if (LlmAdapter.isAbandoned || this._exhausted) {
-      return false;
     } else if (this._callsPending) {
       return "soon";
-    } else if (this._llm) {
+    } else if (
+      this._llm &&
+      (this._policy === "eager" || this._stats.calls.sent === 0)
+    ) {
       this._getMoreInputs();
       return this._callsPending ? "soon" : false;
     } else {
@@ -115,6 +128,9 @@ export class AiInputGenerator extends AbstractInputGenerator {
    * or encounters configuration/execution errors.
    */
   public override getDiagnostics(): string[] {
+    if (this._disabledReason) {
+      return [this._disabledReason];
+    }
     if (!LlmAdapter.isConfigured()) {
       return [];
     }
@@ -165,12 +181,52 @@ export class AiInputGenerator extends AbstractInputGenerator {
    *
    * @param `active` indicates if inputs are expected this run
    */
-  public onRunStart(active: boolean): void {
+  public override onRunStart(
+    active: boolean,
+    _injectedInputs: (FuzzPinnedTest | Omit<InputAndSource, "tick">)[],
+    _transformRunner: AbstractRunner | undefined,
+    fuzzOptions: FuzzOptions,
+    _userGenRunner?: AbstractRunner
+  ): void {
     this._exhausted = false;
     this._targetAttempts = {};
     this._validator = new ArgDefValidator(this._specs);
     this._tokensPerInput = this._estimateTokensPerInput();
     this._requestedInputCount = this._getRequestedInputCount();
+    this._policy = Config.get<AiPolicy>("nanofuzz.ai.policy", "eager");
+
+    const suiteTimeout = fuzzOptions.suiteTimeout;
+    const maxTests = fuzzOptions.maxTests;
+    const cacheMode = Config.get<string>(
+      "nanofuzz.ai.cacheMode",
+      "passthrough"
+    );
+    const isMockOrCache = cacheMode !== "passthrough";
+    const isShortTime =
+      !isMockOrCache && suiteTimeout > 0 && suiteTimeout < 3000;
+    const isFewTests = !isMockOrCache && maxTests > 0 && maxTests < 1000;
+
+    if (isShortTime && isFewTests) {
+      this._disabledReason = "disabled for short runs (<3s, <1k tests)";
+      this._exhausted = true;
+      this._llm = undefined;
+      this._inputQueue = [];
+      return;
+    } else if (isShortTime) {
+      this._disabledReason = "disabled for short runs (<3s)";
+      this._exhausted = true;
+      this._llm = undefined;
+      this._inputQueue = [];
+      return;
+    } else if (isFewTests) {
+      this._disabledReason = "disabled for short runs (<1k tests)";
+      this._exhausted = true;
+      this._llm = undefined;
+      this._inputQueue = [];
+      return;
+    } else {
+      this._disabledReason = undefined;
+    }
 
     // Abandon back-end if stale or no longer configured
     if (
@@ -216,6 +272,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
       throw new Error(`next() not allowed when isAvailable()===false`);
     }
     if (
+      this._policy === "eager" &&
       this._inputQueue.length < getChunkSize() &&
       !this._callsPending &&
       this._llm &&
@@ -276,10 +333,12 @@ export class AiInputGenerator extends AbstractInputGenerator {
   protected _getMoreInputs(): void {
     // Let any prior calls finish before making a new one
     if (
+      this._disabledReason ||
       this._callsPending ||
       this._exhausted ||
       !this._llm ||
-      LlmAdapter.isAbandoned
+      LlmAdapter.isAbandoned ||
+      (this._policy === "seed" && this._stats.calls.sent >= 1)
     ) {
       return;
     }
@@ -831,6 +890,13 @@ export class AiInputGenerator extends AbstractInputGenerator {
   } // getter: stats
 
   /**
+   * Returns the configured AI generator policy ('eager' or 'seed')
+   */
+  public get policy(): AiPolicy {
+    return this._policy;
+  } // getter: policy
+
+  /**
    * Cleanup and flush in-flight LLM requests if in a recording cache mode
    */
   public override async onRunEnd(results?: FuzzTestResults): Promise<void> {
@@ -1211,3 +1277,10 @@ ${moduleContext}${directives.length ? `Important details about the program's inp
 ${coverageContext}${backfeedSection}`;
   },
 };
+
+/**
+ * Policy governing how the AI input generator expends requests:
+ * - "eager": continuous generation at maximum throughput
+ * - "seed": generates an initial batch of inputs and then stops
+ */
+export type AiPolicy = "eager" | "seed";
