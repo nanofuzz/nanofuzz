@@ -3,7 +3,7 @@ package runtime
 import "fmt"
 
 // Version of the nanofuzz runtime for Go.
-const Version = "0.5.0"
+const Version = "0.4.2"
 
 // FuzzTestResult represents the input and output of a single fuzz run.
 type FuzzTestResult struct {
