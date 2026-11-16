@@ -143,7 +143,7 @@ describe("FindBugs", () => {
     expect(result.instructions).toContain("nanofuzz_harness_encode.ts");
     expect(result.instructions).toContain("fuzz_encode");
     expect(result.instructions).toContain(
-      '"coverageScope": "project directimports"'
+      '"coverageScope": "project"'
     );
     expect(result.instructions).toContain("Anti-Suppression Rule");
     expect(result.instructions).toContain("Multi-Defect Rule");
