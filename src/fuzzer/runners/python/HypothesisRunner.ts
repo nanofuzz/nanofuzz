@@ -310,7 +310,7 @@ export class HypothesisRunner {
                 sendSignal(proc, "SIGINT");
                 setTimeout(() => {
                   if (!processExited && proc) {
-                    proc.kill("SIGKILL");
+                    sendSignal(proc, "SIGKILL");
                   }
                 }, 3000).unref();
                 return;
@@ -327,24 +327,33 @@ export class HypothesisRunner {
           sendSignal(proc, "SIGINT");
           setTimeout(() => {
             if (!processExited && proc) {
-              proc.kill("SIGKILL");
+              sendSignal(proc, "SIGKILL");
             }
           }, 3000).unref();
         }
       }, 200);
 
       await new Promise<void>((resolve) => {
+        let settled = false;
+        const finish = (code: number | null) => {
+          if (!settled) {
+            settled = true;
+            exitCode = code;
+            processExited = true;
+            clearInterval(watchdogInterval);
+            resolve();
+          }
+        };
+
         proc?.on("close", (code) => {
-          exitCode = code;
-          processExited = true;
-          clearInterval(watchdogInterval);
-          resolve();
+          finish(code);
+        });
+        proc?.on("exit", (code) => {
+          finish(code);
         });
         proc?.on("error", (err) => {
           stderrText += String(err);
-          processExited = true;
-          clearInterval(watchdogInterval);
-          resolve();
+          finish(null);
         });
       });
     } catch (err) {
@@ -758,16 +767,29 @@ function buildCliArgs(
 
 /**
  * Sends a signal safely to a child process.
+ * On Windows, forcefully terminates the entire process tree via taskkill.
  */
 function sendSignal(
   proc: child_process.ChildProcess | undefined,
   signal: NodeJS.Signals
 ): void {
-  if (proc && !proc.killed) {
-    try {
-      proc.kill(signal);
-    } catch {
-      // Ignore signal errors
+  if (proc) {
+    if (process.platform === "win32" && proc.pid !== undefined) {
+      try {
+        child_process.execSync(`taskkill /pid ${proc.pid} /T /F`, {
+          stdio: "ignore",
+        });
+        return;
+      } catch {
+        // Fall back to proc.kill
+      }
+    }
+    if (!proc.killed) {
+      try {
+        proc.kill(signal);
+      } catch {
+        // Ignore signal errors
+      }
     }
   }
 } // fn: sendSignal

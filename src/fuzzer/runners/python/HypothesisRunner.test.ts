@@ -151,7 +151,11 @@ def test_inject(x):
         inputs: [{ x: 9999 }, { x: 8888 }],
       });
       const executed = fs.existsSync(recordFile)
-        ? fs.readFileSync(recordFile, "utf8").split("\n").filter(Boolean)
+        ? fs
+            .readFileSync(recordFile, "utf8")
+            .split(/\r?\n/)
+            .map((s) => s.trim())
+            .filter(Boolean)
         : [];
       expect(executed).toContain("9999");
       expect(executed).toContain("8888");
