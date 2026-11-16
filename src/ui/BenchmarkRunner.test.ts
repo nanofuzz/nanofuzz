@@ -933,5 +933,88 @@ describe("Dynamic Defect Elicitation & Recursive Provenance Resolution", () => {
       "CustomGen[fuzz_TreeValueGenerator]->Transformer[fuzz_TreeValueTransformer]->Mutation[int_negate]->Mutation[byte_corrupt]"
     );
   });
+
+  it("parses elicited and detected bug entries from elicited_bugs.json correctly upgrading detection", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "nanofuzz-elicitation-test-"));
+    const logPath = path.join(tempDir, "elicited_bugs.json");
+
+    try {
+      // Event 1: TV_EQ_NONE elicited but undetected
+      // Event 2: NORM_ZERO_DIV elicited and detected
+      // Event 3: TV_EQ_NONE elicited again, this time detected
+      const lines = [
+        JSON.stringify({
+          bug_id: "TV_EQ_NONE",
+          elicited: 1,
+          detected: 0,
+          generator: "RandomInputGenerator",
+          args: ["1", "None"],
+        }),
+        JSON.stringify({
+          bug_id: "NORM_ZERO_DIV",
+          elicited: 1,
+          detected: 1,
+          detection_type: "ZeroDivisionError",
+          generator: "SeedInput",
+          args: [0, 0],
+        }),
+        JSON.stringify({
+          bug_id: "TV_EQ_NONE",
+          elicited: 1,
+          detected: 1,
+          detection_type: "TypeError",
+          generator: "Mutation[number-boundary]",
+          args: ["2", "None"],
+        }),
+      ];
+      fs.writeFileSync(logPath, lines.join("\n"), "utf8");
+
+      const elicitedMap = new Map<
+        string,
+        { bug_id: string; elicited: number; detected: number; detection_type?: string; generator: string; args: string[] }
+      >();
+
+      const rawLines = fs.readFileSync(logPath, "utf8").split("\n");
+      for (const line of rawLines) {
+        if (!line.trim()) continue;
+        const entry = JSON.parse(line);
+        if (entry.bug_id) {
+          const prev = elicitedMap.get(entry.bug_id);
+          const wasDetected = Number(entry.detected) === 1 ? 1 : 0;
+          if (!prev) {
+            elicitedMap.set(entry.bug_id, {
+              bug_id: entry.bug_id,
+              elicited: 1,
+              detected: wasDetected,
+              detection_type: entry.detection_type,
+              generator: entry.generator || "None",
+              args: entry.args || [],
+            });
+          } else if (wasDetected && !prev.detected) {
+            prev.detected = 1;
+            prev.detection_type = entry.detection_type;
+          }
+        }
+      }
+
+      // Check NORM_ZERO_DIV: elicited = 1, detected = 1
+      const normBug = elicitedMap.get("NORM_ZERO_DIV");
+      expect(normBug).toBeDefined();
+      expect(normBug?.elicited).toBe(1);
+      expect(normBug?.detected).toBe(1);
+      expect(normBug?.detection_type).toBe("ZeroDivisionError");
+      expect(normBug?.generator).toBe("SeedInput");
+
+      // Check TV_EQ_NONE: elicited = 1, upgraded detected from 0 to 1
+      const tvBug = elicitedMap.get("TV_EQ_NONE");
+      expect(tvBug).toBeDefined();
+      expect(tvBug?.elicited).toBe(1);
+      expect(tvBug?.detected).toBe(1);
+      expect(tvBug?.detection_type).toBe("TypeError");
+      expect(tvBug?.generator).toBe("RandomInputGenerator");
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
 });
 

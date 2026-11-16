@@ -988,6 +988,8 @@ export interface JurorScoreEntry {
 export interface BugEvaluationResult {
   bug: GroundTruthBug;
   elicited: number; // 1 or 0
+  detected?: number; // 1 or 0
+  detectionType?: string;
   reported: number; // 1 or 0
   generator: string;
   creditEarned?: number;
@@ -1558,20 +1560,20 @@ export function writeScoringSheet(
       "",
       `## Ground-Truth Defect Scoring Breakdown (LLM Judge Panel)`,
       "",
-      `| Bug ID | Defect Name | Elicited? | Reported? | Credit | Penalty | Net Score | Eliciting Generator |`,
+      `| Bug ID | Defect Name | Elicited? | Detected? | Credit | Penalty | Net Score | Eliciting Generator |`,
       `| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :--- |`
     );
 
     for (const r of evalResults) {
       const elIcon = r.elicited === 1 ? "1" : "0";
-      const repIcon = r.reported === 1 ? "1" : "0";
+      const detIcon = r.detected === 1 ? "1" : "0";
       const credit = (r.creditEarned ?? (r.reported === 1 ? 1.0 : 0.0)).toFixed(
         1
       );
       const deduction = (r.deduction ?? 0.0).toFixed(1);
       const net = (r.netScore ?? (r.reported === 1 ? 1.0 : 0.0)).toFixed(1);
       lines.push(
-        `| \`${r.bug.id}\` | ${r.bug.name} | ${elIcon} | ${repIcon} | ${credit} | ${deduction} | ${net} | \`${r.generator}\` |`
+        `| \`${r.bug.id}\` | ${r.bug.name} | ${elIcon} | ${detIcon} | ${credit} | ${deduction} | ${net} | \`${r.generator}\` |`
       );
     }
   }
@@ -2858,7 +2860,7 @@ export async function runSingleBenchmarkSession(
 
   const elicitedMap = new Map<
     string,
-    { bug_id: string; elicited: number; generator: string; args: string[] }
+    { bug_id: string; elicited: number; detected: number; detection_type?: string; generator: string; args: string[] }
   >();
 
   if (fs.existsSync(elicitationLogPath)) {
@@ -2867,8 +2869,22 @@ export async function runSingleBenchmarkSession(
       for (const line of rawLines) {
         if (!line.trim()) continue;
         const entry = JSON.parse(line);
-        if (entry.bug_id && !elicitedMap.has(entry.bug_id)) {
-          elicitedMap.set(entry.bug_id, entry);
+        if (entry.bug_id) {
+          const prev = elicitedMap.get(entry.bug_id);
+          const wasDetected = Number(entry.detected) === 1 ? 1 : 0;
+          if (!prev) {
+            elicitedMap.set(entry.bug_id, {
+              bug_id: entry.bug_id,
+              elicited: 1,
+              detected: wasDetected,
+              detection_type: entry.detection_type,
+              generator: entry.generator || "None",
+              args: entry.args || [],
+            });
+          } else if (wasDetected && !prev.detected) {
+            prev.detected = 1;
+            prev.detection_type = entry.detection_type;
+          }
         }
       }
     } catch (err) {
@@ -2881,10 +2897,13 @@ export async function runSingleBenchmarkSession(
   ).map((bug) => {
     const hit = elicitedMap.get(bug.id);
     const elicited = hit ? 1 : 0;
+    const detected = hit ? hit.detected : 0;
     const generator = hit ? hit.generator : "None";
     return {
       bug,
       elicited,
+      detected,
+      detectionType: hit?.detection_type,
       reported: 0,
       generator,
       creditEarned: elicited ? 1.0 : 0.0,
@@ -2892,7 +2911,7 @@ export async function runSingleBenchmarkSession(
       netScore: elicited ? 1.0 : 0.0,
       evidenceQuote: hit && hit.args ? `Trigger args: ${hit.args.join(", ")}` : "",
       rationale: hit
-        ? `[Dynamic Elicitation] Elicited via ${generator}`
+        ? `[Dynamic Elicitation] Elicited via ${generator}${hit.detected ? ` (Detected: ${hit.detection_type || "Yes"})` : " (Undetected)"}`
         : "No eliciting input generated.",
       jurorScores: {},
     };
