@@ -313,9 +313,20 @@ def call_with_timeout(fn: Any, args: List[Any], timeout_ms: int) -> Any:
 
 
 def loadPythonFn(filename: str, modulename: str, fn: str) -> Tuple[Union[RunnerErrorResult, None], Any]:
+    env_root = os.environ.get("NANOFUZZ_PROJECT_ROOT")
+    if env_root and os.path.isdir(env_root):
+        env_src = os.path.join(env_root, "src")
+        if os.path.isdir(env_src) and env_src not in sys.path:
+            sys.path.insert(0, env_src)
+        if env_root not in sys.path:
+            sys.path.insert(0, env_root)
+
     rootDir = os.path.dirname(filename)
     curr = os.path.abspath(rootDir)
     while curr:
+        src_dir = os.path.join(curr, "src")
+        if os.path.isdir(src_dir) and src_dir not in sys.path:
+            sys.path.insert(0, src_dir)
         if curr not in sys.path:
             sys.path.insert(0, curr)
         parent = os.path.dirname(curr)
@@ -585,6 +596,9 @@ VALID_COVERAGE_SCOPES = ("project", "project directimports")
 
 def find_project_root(path_str: str) -> str:
     """Finds the actual project root directory by walking upwards until marker files or git root."""
+    env_root = os.environ.get("NANOFUZZ_PROJECT_ROOT")
+    if env_root and os.path.isdir(env_root):
+        return os.path.abspath(env_root)
     curr = os.path.abspath(path_str)
     if os.path.isfile(curr):
         curr = os.path.dirname(curr)

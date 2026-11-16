@@ -325,10 +325,14 @@ export class PythonRunner extends AbstractRunner {
     // Build PYTHONPATH entries for resolving user project packages and nanofuzz_runtime
     const pyPaths: string[] = [];
 
-    // Target file's ancestor directories
+    // Target file's ancestor directories (and src/ layout directories)
     let currPyDir = path.resolve(path.dirname(filename));
     while (currPyDir) {
       pyPaths.push(currPyDir);
+      const srcSubdir = path.join(currPyDir, "src");
+      if (fs.existsSync(srcSubdir)) {
+        pyPaths.push(srcSubdir);
+      }
       const parent = path.dirname(currPyDir);
       if (parent === currPyDir) break;
       currPyDir = parent;
