@@ -8,6 +8,7 @@ const Config = require("../../src/Config");
 
 beforeEach(() => {
   Config.clearOverrides();
+  Config.override("nanofuzz.fuzzer.workers", 2);
 });
 
 afterEach(() => {
