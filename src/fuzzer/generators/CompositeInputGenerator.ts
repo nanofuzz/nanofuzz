@@ -801,10 +801,9 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
    */
   public override onRunStart(
     gen: boolean,
-    injectedInputs: (FuzzPinnedTest | Omit<InputAndSource, "tick">)[] = [],
-    transformRunner?: AbstractRunner,
-    fnTimeout: number = 0,
-    maxDupeInputs: number = 0,
+    injectedInputs: (FuzzPinnedTest | Omit<InputAndSource, "tick">)[],
+    transformRunner: AbstractRunner | undefined,
+    fuzzOptions: FuzzOptions,
     userGenRunner?: AbstractRunner
   ): void {
     this._dupesSequential = 0;
@@ -818,8 +817,8 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
       this._transformerName = newTransformerName;
     }
     this._transformRunner = transformRunner;
-    this._fnTimeout = fnTimeout;
-    this._maxDupeInputs = maxDupeInputs;
+    this._fnTimeout = fuzzOptions.fnTimeout;
+    this._maxDupeInputs = fuzzOptions.maxDupeInputs;
 
     this._loadConfig();
     this._scheduler.onRunStart();
@@ -829,8 +828,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
         gen && this._activeSubgens[subgen],
         injectedInputs,
         transformRunner,
-        fnTimeout,
-        maxDupeInputs,
+        fuzzOptions,
         userGenRunner
       );
     }

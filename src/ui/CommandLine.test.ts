@@ -865,6 +865,41 @@ describe("cli:", () => {
     expect(res.stdout).not.toContain("AI");
   });
 
+  it("accepts --ai-policy seed and configures nanofuzz.ai.policy", async () => {
+    const outputFile = path.join(tmpDir, "ai_policy_seed.json5");
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testCoverageOneFile";
+
+    const res = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--ai-policy",
+      "seed",
+      "--max-tests",
+      "1",
+    ]);
+
+    expect(res.status).toBe(0);
+    expect(Config.get("nanofuzz.ai.policy", "eager")).toBe("seed");
+  });
+
+  it("rejects invalid --ai-policy", async () => {
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testCoverageOneFile";
+
+    const res = await runCli([
+      targetFile,
+      targetFn,
+      "--ai-policy",
+      "invalid_policy",
+    ]);
+
+    expect(res.status).toBe(4);
+    expect(res.stderr).toContain("Invalid ai policy 'invalid_policy'");
+  });
+
   it("reflects disabled input generators in inputs line", async () => {
     const outputFile = path.join(tmpDir, "disabled_generators_online.json5");
     const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";

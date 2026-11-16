@@ -206,6 +206,12 @@ function createProgram(): Commander.Command {
       `--no-ai-coverage-guidance`,
       `Don't send uncovered code data to AI model`
     )
+    .option(
+      `--ai-policy <policy>`,
+      `AI input policy: eager, seed (default: eager)`,
+      parseAiPolicy,
+      "eager"
+    )
 
     // ------------------------ Composite Input Generator ------------------------ //
 
@@ -757,6 +763,9 @@ export async function runCliInProcess(
         options["aiCoverageGuidance"]
       );
     }
+    if (options["aiPolicy"] !== undefined) {
+      Config.override("nanofuzz.ai.policy", options["aiPolicy"]);
+    }
 
     // composite input generator config options
     if (options["cigScheduler"] !== undefined) {
@@ -1246,6 +1255,16 @@ function parseCoverageScopeOption(value: string, _previous: string): string {
     );
   }
 } // fn: parseCoverageScopeOption
+
+function parseAiPolicy(value: string, _previous: string): string {
+  const normalized = value.toLowerCase().trim();
+  if (normalized === "eager" || normalized === "seed") {
+    return normalized;
+  }
+  throw new Commander.InvalidArgumentError(
+    `Invalid ai policy '${value}'. Allowed: eager, seed`
+  );
+} // fn: parseAiPolicy
 
 function parseFloatArgZeroToOne(value: string, _previous: number): number {
   const parsedValue = parseFloatArgGeZero(value, _previous);

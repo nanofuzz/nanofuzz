@@ -657,6 +657,17 @@
               "telemetry"
             ]
           },
+          "nanofuzz.ai.policy": {
+            "title": "AI input generation policy",
+            "order": 68,
+            "type": "string",
+            "enum": [
+              "eager",
+              "seed"
+            ],
+            "default": "eager",
+            "description": "Policy for AI input generation: 'eager' generate inputs continuously; 'seed' generate an initial batch of inputs only."
+          },
           "nanofuzz.ai.cacheMode": {
             "title": "LLM response cache mode",
             "order": 70,
