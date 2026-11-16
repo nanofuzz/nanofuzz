@@ -1152,10 +1152,10 @@ def py_double(x: int) -> int:
     expect(summary).toContain("AI (copilot)");
   });
 
-  it("runFuzz: enableCopilotAi with custom vendor and model", async () => {
-    Config.override("nanofuzz.ai.provider", "anthropic");
-    Config.override("nanofuzz.ai.model", "claude-3-opus");
-    Config.override("nanofuzz.ai.vendor", "anthropic");
+  it("runFuzz: enableCopilotAi piggybacks when provider is disabled and restores config", async () => {
+    Config.override("nanofuzz.ai.provider", "disabled");
+    Config.override("nanofuzz.ai.model", "");
+    Config.override("nanofuzz.ai.vendor", "");
 
     const result = await runFuzz({
       filePath: tsFixture,
@@ -1168,9 +1168,9 @@ def py_double(x: int) -> int:
     });
 
     expect(result.status).toBe("success");
-    expect(Config.get("nanofuzz.ai.provider", "disabled")).toBe("anthropic");
-    expect(Config.get("nanofuzz.ai.model", "")).toBe("claude-3-opus");
-    expect(Config.get("nanofuzz.ai.vendor", "")).toBe("anthropic");
+    expect(Config.get("nanofuzz.ai.provider", "disabled")).toBe("disabled");
+    expect(Config.get("nanofuzz.ai.model", "")).toBe("");
+    expect(Config.get("nanofuzz.ai.vendor", "")).toBe("");
   });
 
   it("resolveFilePath: relative and file URI", () => {
