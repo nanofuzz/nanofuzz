@@ -1,5 +1,22 @@
 # autopep8: off
 import sys
+
+# Temporarily isolate sys.path during host startup so host dependencies
+# (logging, asyncio, coverage, etc.) resolve from standard library / site-packages
+# rather than being shadowed by user project files (e.g. a user logging.py in PYTHONPATH).
+_bootstrap_orig_sys_path = list(sys.path)
+_base_p = sys.base_prefix.replace("\\", "/").rstrip("/").lower()
+_pref_p = sys.prefix.replace("\\", "/").rstrip("/").lower()
+_script_dir = sys.path[0] if sys.path else ""
+
+_stdlib_paths = []
+for _p in sys.path[1:]:
+    _norm_p = _p.replace("\\", "/").rstrip("/").lower()
+    if _p and (_norm_p.startswith(_base_p) or _norm_p.startswith(_pref_p)):
+        _stdlib_paths.append(_p)
+
+sys.path = ([_script_dir] if _script_dir else []) + _stdlib_paths
+
 from typing import Any, Literal, List, Tuple, Union, TypedDict, NotRequired, Optional, cast
 import signal
 
@@ -93,6 +110,11 @@ finally:
     # Remove _VENDOR_DIR from sys.path so PUT (Program Under Test) cannot import from it
     sys.path = [p for p in sys.path if os.path.realpath(
         p) != os.path.realpath(_VENDOR_DIR)]
+
+# Restore original user sys.path (including PYTHONPATH entries) now that host dependencies are loaded
+_clean_user_paths = [p for p in _bootstrap_orig_sys_path if os.path.realpath(
+    p) != os.path.realpath(_VENDOR_DIR)]
+sys.path = _clean_user_paths
 
 _NANOFUZZ_VENDOR_MODULE_NAMES = set(sys.modules.keys()) - _sys_modules_before
 
@@ -323,13 +345,18 @@ class PutLoadHostError(Exception):
 
 def load_module_from_file(filename: str, modulename: str) -> Any:
     """Loads `filename` directly from the file, as module `modulename`"""
-    spec = importlib.util.spec_from_file_location(modulename, filename)
+    load_modulename = (
+        f"_nanofuzz_put_{modulename}"
+        if (hasattr(sys, "stdlib_module_names") and modulename in sys.stdlib_module_names) or modulename in sys.modules
+        else modulename
+    )
+    spec = importlib.util.spec_from_file_location(load_modulename, filename)
     if spec is None:
         raise PutLoadHostError(f"Could not import python module: {filename}")
     if spec.loader is None:
         raise PutLoadHostError(f"Could not load python module: {filename}")
     module = importlib.util.module_from_spec(spec)
-    sys.modules[modulename] = module
+    sys.modules[load_modulename] = module
     spec.loader.exec_module(module)
     return module
 
