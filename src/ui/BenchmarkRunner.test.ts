@@ -642,6 +642,14 @@ describe("BenchmarkRunner - Timestamped Directories & Recovery", () => {
   });
 
   it("Option 1: executes runSingleBenchmarkSession end-to-end integration smoketest", async () => {
+    const targetRepo = path.resolve(process.cwd(), "benchmark", "target");
+    if (!fs.existsSync(targetRepo)) {
+      pending(
+        "Skipping benchmark integration smoketest: benchmark/target not present in environment."
+      );
+      return;
+    }
+
     const runDir = path.join(tempBaseDir, "20261112_050505");
     const testContext = createRunContext(runDir);
     setActiveRunContext(testContext);

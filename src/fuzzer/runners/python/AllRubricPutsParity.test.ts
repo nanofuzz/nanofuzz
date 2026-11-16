@@ -13,6 +13,9 @@ const PYTHON_PATH = path.join(TARGET_DIR, ".venv", "bin", "python");
 
 describe("All 5 Rubric PUTs Cross-Tool Coverage Parity Suite", () => {
   beforeAll(() => {
+    if (!fs.existsSync(TARGET_DIR)) {
+      return;
+    }
     Config.override("python.defaultInterpreterPath", PYTHON_PATH);
     Config.override("nanofuzz.fuzzer.coverageScope", "project");
   });
@@ -72,6 +75,13 @@ describe("All 5 Rubric PUTs Cross-Tool Coverage Parity Suite", () => {
 
   for (const t of RUBRIC_TASKS) {
     it(`evaluates live coverage denominator parity for rubric task: ${t.task}`, async () => {
+      if (!fs.existsSync(TARGET_DIR)) {
+        pending(
+          "Skipping benchmark parity test: benchmark/target not present in environment."
+        );
+        return;
+      }
+
       console.log(`\n======================================================`);
       console.log(`[TESTING RUBRIC PUT]: ${t.task}`);
       console.log(`======================================================`);
