@@ -1881,6 +1881,7 @@ export function configureRunSettings(): void {
     "**/*": true,
   });
   Config.override("nanofuzz.benchmarkMode", true);
+  Config.override("nanofuzz.fuzzer.coverageScope", "project");
 }
 
 // ============================================================================
@@ -1928,14 +1929,25 @@ export async function runSingleBenchmarkSession(
     }
   }
 
+  const laneSrc = path.join(laneRepoPath, "src");
   const scriptsDir = path.join(WORKSPACE_ROOT, "benchmark", "scripts");
   const currentPyPath = process.env.PYTHONPATH
     ? process.env.PYTHONPATH.split(path.delimiter)
     : [];
-  if (!currentPyPath.includes(scriptsDir)) {
-    process.env.PYTHONPATH = [scriptsDir, ...currentPyPath].join(path.delimiter);
+  const neededPaths = [laneSrc, scriptsDir].filter(
+    (p) => fs.existsSync(p) && !currentPyPath.includes(p)
+  );
+  if (neededPaths.length > 0) {
+    process.env.PYTHONPATH = [...neededPaths, ...currentPyPath].join(path.delimiter);
   }
+  process.env.NANOFUZZ_PROJECT_ROOT = laneRepoPath;
   process.env.NANOFUZZ_DYNAMIC_BUG_ELICITATION = "1";
+  process.env.SKBUILD_EDITABLE_SKIP = path.join(
+    WORKSPACE_ROOT,
+    "benchmark",
+    "target",
+    "build"
+  );
 
   // Load target coverage files for this task if defined in target_coverage_files.json
   try {
@@ -2406,6 +2418,7 @@ export async function runSingleBenchmarkSession(
         log(`  ${tag(`${step} (${p})`)} State: ${p}${stage}${fn}`);
       } else if (toolName === "nanofuzz_fuzzFunction") {
         toolInput.sessionId = sessionId;
+        toolInput.coverageScope = "project";
         if (typeof toolInput.filePath === "string") {
           const raw = toolInput.filePath.trim();
           toolInput.filePath = path.isAbsolute(raw)
