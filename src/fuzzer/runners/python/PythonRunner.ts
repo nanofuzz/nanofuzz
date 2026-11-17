@@ -696,7 +696,7 @@ export class PythonRunner extends AbstractRunner {
 
     // a longer timeout tolerance for the host to pre-warm the coverage
     const rawOkBuf = await host.getResponseBuffer(hostStartupTimeout);
-    const okcode = JSONN.unpack<string>(rawOkBuf);
+    const okcode = JSONN.unpack<unknown>(rawOkBuf);
     if (okcode === "READY") {
       this._host = host;
 
@@ -729,6 +729,23 @@ export class PythonRunner extends AbstractRunner {
       return host;
     } else {
       host.kill();
+      if (
+        isRecord(okcode) &&
+        (okcode.tag === "error" || typeof okcode.message === "string")
+      ) {
+        const message =
+          typeof okcode.message === "string"
+            ? okcode.message
+            : "Python runner host failed to load";
+        const err = new Error(message);
+        if (typeof okcode.name === "string") {
+          err.name = okcode.name;
+        }
+        if (typeof okcode.stack === "string") {
+          err.stack = okcode.stack;
+        }
+        throw err;
+      }
       throw new Error(`PythonHost not ready (okcode: ${String(okcode)})`);
     }
   } // get: host

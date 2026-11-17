@@ -370,8 +370,17 @@ def loadPythonFn(filename: str, modulename: str, fn: str) -> Tuple[Union[RunnerE
                 ), None)
             with isolate_put_environment():
                 spec.loader.exec_module(module)
-        return (None, getattr(module, fn))
-    except Exception as e:
+        target = getattr(module, fn)
+        if not callable(target):
+            return (RunnerErrorResult(
+                tag="error",
+                name="PythonRunnerHostError",
+                message=f"'{fn}' is not callable in {filename}",
+                source="host",
+                seq=-1
+            ), None)
+        return (None, target)
+    except (Exception, SystemExit) as e:
         return (RunnerErrorResult(
             tag="error",
             name="PythonPutLoadError",
@@ -1165,13 +1174,6 @@ if __name__ == "__main__":
             logging.debug(
                 f"[{pid}] Loading function '{fnname}' in {filename} (respawn)")
             [loadError, fn] = loadPythonFn(filename, modulename, fnname)
-            if (loadError is not None):
-                logging.debug(f"[{pid}]  - Unable to load")
-            else:
-                logging.debug(f"[{pid}]  - Loaded function")
-
-            covInfo = {}
-            initialCoverage = {}
         elif collect_static:
             # Start temporary coverage tracer before loading module so static coverage is captured.
             init_cov = coverage.Coverage(branch=True, data_file=None)
@@ -1181,13 +1183,28 @@ if __name__ == "__main__":
             # or a callable function
             logging.debug(f"[{pid}] Loading function '{fnname}' in {filename}")
             [loadError, fn] = loadPythonFn(filename, modulename, fnname)
-            if (loadError is not None):
-                logging.debug(f"[{pid}]  - Unable to load")
-            else:
-                logging.debug(f"[{pid}]  - Loaded function")
-
             init_cov.stop()
+        else:
+            # Load function without enabling coverage tracer at startup
+            logging.debug(f"[{pid}] Loading function '{fnname}' in {filename}")
+            [loadError, fn] = loadPythonFn(filename, modulename, fnname)
 
+        if loadError is not None:
+            logging.debug(f"[{pid}]  - Unable to load: {loadError}")
+            _startup_hb.stop()
+            send_msg(loadError)
+            try:
+                sys.stdin.buffer.read()
+            except Exception:
+                pass
+            sys.exit(0)
+
+        logging.debug(f"[{pid}]  - Loaded function")
+
+        if is_respawn:
+            covInfo = {}
+            initialCoverage = {}
+        elif collect_static:
             pgm_files = program_files(
                 filename, coverage_scope, direct_packages)
             cov = coverage.Coverage(
@@ -1209,14 +1226,6 @@ if __name__ == "__main__":
                     info["arcs"] = arcs
                 initialCoverage[file] = info
         else:
-            # Load function without enabling coverage tracer at startup
-            logging.debug(f"[{pid}] Loading function '{fnname}' in {filename}")
-            [loadError, fn] = loadPythonFn(filename, modulename, fnname)
-            if (loadError is not None):
-                logging.debug(f"[{pid}]  - Unable to load")
-            else:
-                logging.debug(f"[{pid}]  - Loaded function")
-
             # Re-query program_files now that imports are loaded
             pgm_files = program_files(
                 filename, coverage_scope, direct_packages)
@@ -1246,6 +1255,22 @@ if __name__ == "__main__":
         cov.stop()
         cov.get_data().erase()
         logging.debug(f"[{pid}] Pre-warmed coverage tracer")
+    except Exception as e:
+        _startup_hb.stop()
+        err_res: RunnerErrorResult = {
+            "tag": "error",
+            "name": "PythonRunnerHostError",
+            "message": str(e),
+            "source": "host",
+            "stack": traceback.format_exc(),
+            "seq": -1
+        }
+        send_msg(err_res)
+        try:
+            sys.stdin.buffer.read()
+        except Exception:
+            pass
+        sys.exit(0)
     finally:
         _startup_hb.stop()
 
@@ -1261,9 +1286,5 @@ if __name__ == "__main__":
     # Start the run loop
     while True:
         logging.debug(f"[{pid}] Top of main loop")
-        if (loadError == None):
-            put_result(run_put(get_inputs(), filename, fnname, fn,
-                       cov, covInfo, pgm_files))  # Call the put
-        else:
-            get_inputs()
-            put_result(loadError)  # Return the load error
+        put_result(run_put(get_inputs(), filename, fnname, fn,
+                   cov, covInfo, pgm_files))  # Call the put
