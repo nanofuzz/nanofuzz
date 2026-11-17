@@ -2149,11 +2149,7 @@ export async function runSingleBenchmarkSession(
     return `${prefix} [Phase ${p}]`;
   };
 
-  // Select Chat Model: Strictly require Gemini 3.8 Flash under "Google (paid)" / vendor "gemini"
-  let model: vscode.LanguageModelChat;
-  if (customModel) {
-    model = customModel;
-  } else {
+  const selectChatModel = async (): Promise<vscode.LanguageModelChat> => {
     if (!vscode.lm || typeof vscode.lm.selectChatModels !== "function") {
       throw new Error(
         "vscode.lm API is not available. Please ensure VS Code with Copilot is active."
@@ -2191,7 +2187,15 @@ export async function runSingleBenchmarkSession(
       );
     }
 
-    model = models[0];
+    return models[0];
+  };
+
+  // Select Chat Model: Strictly require Gemini 3.8 Flash under "Google (paid)" / vendor "gemini"
+  let model: vscode.LanguageModelChat;
+  if (customModel) {
+    model = customModel;
+  } else {
+    model = await selectChatModel();
   }
   log(
     `${prefix} Using Chat Model: ${model.vendor} / ${model.name || model.family || model.id}`
@@ -2341,6 +2345,15 @@ export async function runSingleBenchmarkSession(
       allParts = [];
       const reqStart = Date.now();
 
+      // On retries, re-acquire model reference in case VS Code chat provider reloaded
+      if (attempt > 1 && !customModel && typeof vscode.lm?.selectChatModels === "function") {
+        try {
+          model = await selectChatModel();
+        } catch (reselectErr: unknown) {
+          log(`  ${tag()} [WARN] Model re-selection during retry failed: ${String(reselectErr)}`);
+        }
+      }
+
       try {
         const streamResult = await sendRequestWithTimeout(
           model,
@@ -2436,7 +2449,9 @@ export async function runSingleBenchmarkSession(
           errStr.includes("terminated") ||
           errStr.includes("fetch failed") ||
           errStr.includes("network") ||
-          errStr.includes("socket hang up");
+          errStr.includes("socket hang up") ||
+          errStr.includes("not registered") ||
+          errStr.includes("Chat provider");
 
         if (!isTransient || attempt >= maxRetries) {
           log(
