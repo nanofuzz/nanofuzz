@@ -273,6 +273,56 @@ function logRaw(msg: string): void {
   getOutput().appendLine(msg);
 } // fn: logRaw
 
+const DEFAULT_LLM_REQUEST_TIMEOUT_MS = 400_000; // 400 seconds timeout per LLM stream (well beyond max observed successful duration)
+
+/**
+ * Executes a Language Model sendRequest with streaming consumption wrapped in an abort timeout.
+ * If the connection stalls or drops without ending the stream within timeoutMs, the linked cancellation
+ * token source fires and the stream loop aborts with a transient timeout error.
+ */
+async function sendRequestWithTimeout<T>(
+  model: vscode.LanguageModelChat,
+  messages: vscode.LanguageModelChatMessage[],
+  options: vscode.LanguageModelChatRequestOptions,
+  consumeStream: (response: vscode.LanguageModelChatResponse) => Promise<T>,
+  token?: vscode.CancellationToken,
+  timeoutMs: number = DEFAULT_LLM_REQUEST_TIMEOUT_MS
+): Promise<T> {
+  const linkedCts = new vscode.CancellationTokenSource();
+  let timer: NodeJS.Timeout | undefined;
+  let unregisterParentCancel: vscode.Disposable | undefined;
+
+  if (token) {
+    if (token.isCancellationRequested) {
+      linkedCts.cancel();
+    } else {
+      unregisterParentCancel = token.onCancellationRequested(() => {
+        linkedCts.cancel();
+      });
+    }
+  }
+
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      linkedCts.cancel();
+      reject(new Error(`LLM stream timed out after ${Math.round(timeoutMs / 1000)}s with no completion (ETIMEDOUT)`));
+    }, timeoutMs);
+  });
+
+  try {
+    const responsePromise = (async () => {
+      const response = await model.sendRequest(messages, options, linkedCts.token);
+      return await consumeStream(response);
+    })();
+
+    return await Promise.race([responsePromise, timeoutPromise]);
+  } finally {
+    if (timer) clearTimeout(timer);
+    if (unregisterParentCancel) unregisterParentCancel.dispose();
+    linkedCts.dispose();
+  }
+} // fn: sendRequestWithTimeout
+
 /**
  * Cancels any actively running benchmark matrix session.
  */
@@ -829,17 +879,22 @@ export async function collectPostTaskSurvey(
     let surveyRawText = "";
 
     try {
-      const surveyResponse = await model.sendRequest(
+      surveyRawText = await sendRequestWithTimeout(
+        model,
         surveyMessages,
         { tools: [] },
-        token
+        async (surveyResponse) => {
+          let text = "";
+          for await (const chunk of surveyResponse.stream) {
+            if (chunk instanceof vscode.LanguageModelTextPart) {
+              text += chunk.value;
+            }
+          }
+          return text;
+        },
+        token,
+        400_000
       );
-
-      for await (const chunk of surveyResponse.stream) {
-        if (chunk instanceof vscode.LanguageModelTextPart) {
-          surveyRawText += chunk.value;
-        }
-      }
       rawSurveyOutputs.push(surveyRawText);
 
       // Verify we got non-empty content from the stream
@@ -1323,17 +1378,22 @@ async function querySingleJuror(
   let rationale = "";
 
   try {
-    const response = await model.sendRequest(
+    const rawText = await sendRequestWithTimeout(
+      model,
       [vscode.LanguageModelChatMessage.User(prompt)],
       { tools: [] },
-      token
+      async (response) => {
+        let text = "";
+        for await (const chunk of response.stream) {
+          if (chunk instanceof vscode.LanguageModelTextPart) {
+            text += chunk.value;
+          }
+        }
+        return text;
+      },
+      token,
+      400_000
     );
-    let rawText = "";
-    for await (const chunk of response.stream) {
-      if (chunk instanceof vscode.LanguageModelTextPart) {
-        rawText += chunk.value;
-      }
-    }
 
     const jsonMatch =
       rawText.match(/```(?:json)?\s*([\s\S]*?)\s*```/) ||
@@ -2282,20 +2342,32 @@ export async function runSingleBenchmarkSession(
       const reqStart = Date.now();
 
       try {
-        const response = await model.sendRequest(
+        const streamResult = await sendRequestWithTimeout(
+          model,
           messages,
           { tools: availableTools },
-          token
+          async (response) => {
+            const streamedParts: AssistantStreamPart[] = [];
+            let streamedText = "";
+            const streamedTools: vscode.LanguageModelToolCallPart[] = [];
+
+            for await (const part of response.stream) {
+              streamedParts.push(cast<AssistantStreamPart>(part));
+              if (part instanceof vscode.LanguageModelTextPart) {
+                streamedText += part.value;
+              } else if (part instanceof vscode.LanguageModelToolCallPart) {
+                streamedTools.push(part);
+              }
+            }
+            return { streamedParts, streamedText, streamedTools };
+          },
+          token,
+          400_000
         );
 
-        for await (const part of response.stream) {
-          allParts.push(cast<AssistantStreamPart>(part));
-          if (part instanceof vscode.LanguageModelTextPart) {
-            assistantText += part.value;
-          } else if (part instanceof vscode.LanguageModelToolCallPart) {
-            toolCalls.push(part);
-          }
-        }
+        allParts = streamResult.streamedParts;
+        assistantText = streamResult.streamedText;
+        toolCalls = streamResult.streamedTools;
 
         // Verify we got a non-empty turn (not a silent empty drop)
         if (toolCalls.length === 0 && !assistantText.trim()) {
@@ -2360,6 +2432,7 @@ export async function runSingleBenchmarkSession(
           errStr.includes("Empty response") ||
           errStr.includes("ECONNRESET") ||
           errStr.includes("ETIMEDOUT") ||
+          errStr.includes("timed out") ||
           errStr.includes("terminated") ||
           errStr.includes("fetch failed") ||
           errStr.includes("network") ||
