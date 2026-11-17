@@ -17,6 +17,7 @@ import * as Config from "../../../Config";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
+import vscode from "vscode";
 import { getDefaultFuzzExecutionOptions } from "../../FuzzerFactory";
 
 describe("fuzzer/runners/PythonRunner", () => {
@@ -50,6 +51,32 @@ describe("fuzzer/runners/PythonRunner", () => {
     // Case 4: neither works, returns candidate
     spy.and.callFake(() => false);
     expect(PythonRunner.resolveInterpreter("python3")).toBe("python3");
+  });
+
+  it("runs programs with the interpreter selected in VS Code", () => {
+    // A made-up interpreter, which `canExecute` accepts
+    const selected = path.resolve("venv", "bin", "python");
+    spyOn(PythonRunner, "canExecute").and.callFake((bin) => bin === selected);
+    spyOn(vscode.extensions, "getExtension")
+      .withArgs("ms-python.python")
+      .and.returnValue(
+        jasmine.createSpyObj<vscode.Extension<unknown>>("python", [], {
+          isActive: true,
+          exports: {
+            environments: {
+              getActiveEnvironmentPath: () => ({ path: selected }),
+            },
+          },
+        })
+      );
+    PythonRunner.clearCache();
+    try {
+      expect(PythonRunner.envFor(path.resolve("target.py")).interpreter).toBe(
+        selected
+      );
+    } finally {
+      PythonRunner.clearCache();
+    }
   });
 
   it("handles binary bytes inputs and outputs", async () => {

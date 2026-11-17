@@ -20,6 +20,7 @@ To use NaNofuzz in your own projects:
       - **yarn**: `yarn add @nanofuzz/runtime -D`
     - Python v3.13+ projects:
       - **pip**: `pip install nanofuzz-runtime`
+      - NaNofuzz runs your code with the interpreter that VS Code's Python extension uses for your workspace (shown in the status bar; change it with **Python: Select Interpreter**), or else with `python3` on your `PATH` (e.g., in the CLI, from an activated virtual environment), so make sure it has your project's dependencies.
     - Rust projects:
       - **cargo**: `cargo add nanofuzz-runtime`
     - Java projects (Java 17+ with Maven or Gradle):
