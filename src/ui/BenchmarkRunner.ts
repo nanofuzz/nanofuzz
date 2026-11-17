@@ -876,7 +876,7 @@ export async function collectPostTaskSurvey(
     }
 
     surveyAttempts++;
-    let surveyRawText = "";
+    let surveyRawText: string;
 
     try {
       surveyRawText = await sendRequestWithTimeout(
@@ -1700,7 +1700,7 @@ export function writeScoringSheet(
   } else {
     lines.push(
       "",
-      `## Ground-Truth Defect Scoring Breakdown (LLM Judge Panel)`,
+      `## Ground-Truth Defect Scoring Breakdown`,
       "",
       `| Bug ID | Defect Name | Elicited? | Detected? | Credit | Penalty | Net Score | Eliciting Generator |`,
       `| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :--- |`
