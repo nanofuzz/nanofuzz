@@ -1,4 +1,5 @@
 import { Logger, LoggerEntry } from "../telemetry/Logger";
+import * as Config from "../Config";
 import {
   FindBugsPhase,
   FindBugsTool,
@@ -371,7 +372,12 @@ class FindBugsSessionManager {
    */
   public isQualifyingDeepRun(r: FuzzRunStatsSnapshot): boolean {
     if (r.isPropertyTest === false) return false;
-    if ((r.suiteTimeout ?? 0) < 300000) return false;
+    const reqTimeout = Config.get<number>(
+      "nanofuzz.experimental.findBugs.deepTimeoutMs",
+      300000
+    );
+    const reqDuration = Math.floor(reqTimeout * 0.9);
+    if ((r.suiteTimeout ?? 0) < reqTimeout) return false;
     if (r.maxTests !== 0 && r.maxTests !== Number.MAX_SAFE_INTEGER) return false;
 
     // 100% branch coverage allows early completion
@@ -379,14 +385,14 @@ class FindBugsSessionManager {
       return true;
     }
 
-    // Must have actually executed for the deep fuzzing duration (>= 270,000 ms / 4.5 minutes)
-    return (r.durationMs ?? 0) >= 270000;
+    // Must have actually executed for the deep fuzzing duration
+    return (r.durationMs ?? 0) >= reqDuration;
   } // fn: isQualifyingDeepRun
 
   /**
    * Evaluates whether an entrypoint has satisfied stopping criteria:
-   * - Must have at least one deep run (suiteTimeout >= 300000, maxTests === 0, duration >= 270s or 100% cov).
-   * - Must achieve 100% branch coverage OR execute at least 4 exploration retries.
+   * - Must have at least one deep run (suiteTimeout >= deepTimeoutMs, maxTests === 0, duration >= 90% or 100% cov).
+   * - Must achieve 100% branch coverage OR execute at least maxRetries exploration retries.
    */
   public isEntrypointDeepCriteriaMet(
     session: WorkflowSession,
@@ -406,8 +412,11 @@ class FindBugsSessionManager {
     );
     if (reachedFullCoverage) return true;
 
-    // Otherwise must have executed at least 4 exploration attempts
-    return matchingDeepRuns.length >= 4;
+    const reqRetries = Config.get<number>(
+      "nanofuzz.experimental.findBugs.maxRetries",
+      4
+    );
+    return matchingDeepRuns.length >= reqRetries;
   } // fn: isEntrypointDeepCriteriaMet
 
   /**

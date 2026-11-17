@@ -484,6 +484,80 @@ export function loadCompletedParticipants(): Map<
     }
   }
 
+  // Ground-truth recovery from data.csv: populate exact scores, bugs, and durations
+  const csvPath = getDataCsvPath();
+  if (fs.existsSync(csvPath)) {
+    try {
+      const csvLines = fs.readFileSync(csvPath, "utf8").split("\n");
+      if (csvLines.length > 1) {
+        const header = csvLines[0].split(",").map((c) => c.trim());
+        const pIdx = header.indexOf("Participant");
+        const scoreIdx = header.indexOf("NormalizedScore");
+        const elicitedIdx = header.indexOf("BugsElicited");
+        const totalIdx = header.indexOf("TaskBugCount");
+        const elapsedIdx = header.indexOf("ElapsedSec");
+        const taskIdx = header.indexOf("Task");
+        const engineIdx = header.indexOf("Tool");
+        const sourceIdx = header.indexOf("InvariantSource");
+        const repIdx = header.indexOf("Replicate");
+        const seqIdx = header.indexOf("Sequence");
+
+        for (let i = 1; i < csvLines.length; i++) {
+          const line = csvLines[i].trim();
+          if (!line) continue;
+          const cols = line.split(",").map((c) => c.trim());
+          const pid = pIdx >= 0 ? cols[pIdx] : "";
+          if (!pid) continue;
+
+          const existing = completed.get(pid);
+          const score = scoreIdx >= 0 && cols[scoreIdx] !== "" && cols[scoreIdx] !== "N/A"
+            ? cols[scoreIdx]
+            : undefined;
+          const bugsElicited = elicitedIdx >= 0 && cols[elicitedIdx] !== ""
+            ? Number(cols[elicitedIdx])
+            : undefined;
+          const taskBugCount = totalIdx >= 0 && cols[totalIdx] !== ""
+            ? Number(cols[totalIdx])
+            : undefined;
+          const durationSec = elapsedIdx >= 0 && cols[elapsedIdx] !== ""
+            ? Number(cols[elapsedIdx])
+            : undefined;
+
+          if (existing) {
+            if (score !== undefined) existing.score = score;
+            if (bugsElicited !== undefined && !isNaN(bugsElicited)) existing.bugsElicited = bugsElicited;
+            if (taskBugCount !== undefined && !isNaN(taskBugCount)) existing.taskBugCount = taskBugCount;
+            if (durationSec !== undefined && !isNaN(durationSec)) existing.durationSec = durationSec;
+          } else {
+            completed.set(pid, {
+              participant: pid,
+              sequence: seqIdx >= 0 ? Number(cols[seqIdx]) : 0,
+              replicate: repIdx >= 0 ? Number(cols[repIdx]) : 1,
+              task: taskIdx >= 0 ? cols[taskIdx] : "",
+              engine: cast<(typeof ENGINES)[number]>(
+                engineIdx >= 0 ? cols[engineIdx] : "nanofuzz"
+              ),
+              source: cast<(typeof SOURCES)[number]>(
+                sourceIdx >= 0 ? cols[sourceIdx] : "all"
+              ),
+              reportFilename: `${pid}.md`,
+              status: "completed",
+              durationSec,
+              score,
+              bugsElicited,
+              taskBugCount,
+            });
+          }
+        }
+      }
+    } catch (err) {
+      throw new Error(
+        `Critical recovery error: Failed to parse ground-truth dataset '${csvPath}': ${String(err)}`,
+        { cause: err }
+      );
+    }
+  }
+
   return completed;
 } // fn: loadCompletedParticipants
 
@@ -1681,6 +1755,7 @@ function appendToDataCsv(
     "BranchesTotal",
     "TaskBugCount",
     "BugsElicited",
+    "BugsDetected",
     "NormalizedScore",
     "Accuracy",
     "Realistic",
@@ -1703,6 +1778,7 @@ function appendToDataCsv(
 
   const taskBugCount = evalResults.length;
   const bugsElicited = evalResults.filter((r) => r.elicited === 1).length;
+  const bugsDetected = evalResults.filter((r) => r.detected === 1).length;
   const score =
     taskBugCount > 0 ? (bugsElicited / taskBugCount).toFixed(3) : "0.000";
 
@@ -1778,6 +1854,7 @@ function appendToDataCsv(
     String(branchesTotal),
     String(taskBugCount),
     String(bugsElicited),
+    String(bugsDetected),
     score,
     accuracy,
     survey ? String(survey.realistic) : "",
@@ -1910,6 +1987,9 @@ export async function runSingleBenchmarkSession(
   success: boolean;
   incomplete?: boolean;
   durationSec: number;
+  score?: string;
+  bugsElicited?: number;
+  taskBugCount?: number;
   error?: string;
 }> {
   const t0 = Date.now();
@@ -2405,6 +2485,8 @@ export async function runSingleBenchmarkSession(
       // Log structured turn feedback to console and enforce lane isolation
       if (toolName === "nanofuzz_findBugs") {
         toolInput.targetPath = laneRepoPath;
+        toolInput.model = model.id;
+        toolInput.vendor = model.vendor;
         if (!isKeyedObject(toolInput.statePayload)) {
           toolInput.statePayload = {};
         }
@@ -2431,11 +2513,32 @@ export async function runSingleBenchmarkSession(
       } else if (toolName === "nanofuzz_fuzzFunction") {
         toolInput.sessionId = sessionId;
         toolInput.coverageScope = "project";
+        toolInput.model = model.id;
+        toolInput.vendor = model.vendor;
+        const canonicalLanePrefix = laneRepoPath.endsWith(path.sep)
+          ? laneRepoPath
+          : laneRepoPath + path.sep;
+
         if (typeof toolInput.filePath === "string") {
           const raw = toolInput.filePath.trim();
-          toolInput.filePath = path.isAbsolute(raw)
+          const resolved = path.isAbsolute(raw)
             ? path.resolve(raw)
             : path.resolve(laneRepoPath, raw);
+          toolInput.filePath =
+            resolved === laneRepoPath || resolved.startsWith(canonicalLanePrefix)
+              ? resolved
+              : path.resolve(laneRepoPath, path.basename(resolved));
+        }
+
+        if (typeof toolInput.exportFilePath === "string") {
+          const rawExport = toolInput.exportFilePath.trim();
+          const resolvedExport = path.isAbsolute(rawExport)
+            ? path.resolve(rawExport)
+            : path.resolve(laneRepoPath, rawExport);
+          toolInput.exportFilePath =
+            resolvedExport === laneRepoPath || resolvedExport.startsWith(canonicalLanePrefix)
+              ? resolvedExport
+              : path.resolve(laneRepoPath, path.basename(resolvedExport));
         }
 
         if (
@@ -2463,20 +2566,34 @@ export async function runSingleBenchmarkSession(
         log(`  ${tag()} Fuzzing: ${fn} (${maxTests}, timeout=${to}s)`);
       } else if (toolName === "nanofuzz_shrinkInputs") {
         toolInput.sessionId = sessionId;
+        const canonicalLanePrefix = laneRepoPath.endsWith(path.sep)
+          ? laneRepoPath
+          : laneRepoPath + path.sep;
         if (typeof toolInput.filePath === "string") {
           const raw = toolInput.filePath.trim();
-          toolInput.filePath = path.isAbsolute(raw)
+          const resolved = path.isAbsolute(raw)
             ? path.resolve(raw)
             : path.resolve(laneRepoPath, raw);
+          toolInput.filePath =
+            resolved === laneRepoPath || resolved.startsWith(canonicalLanePrefix)
+              ? resolved
+              : path.resolve(laneRepoPath, path.basename(resolved));
         }
         const fn = toolInput.functionName || "";
         log(`  ${tag()} Shrinking inputs for: ${fn}`);
       } else if (toolName === "nanofuzz_listTargets") {
+        const canonicalLanePrefix = laneRepoPath.endsWith(path.sep)
+          ? laneRepoPath
+          : laneRepoPath + path.sep;
         if (typeof toolInput.filePath === "string") {
           const raw = toolInput.filePath.trim();
-          toolInput.filePath = path.isAbsolute(raw)
+          const resolved = path.isAbsolute(raw)
             ? path.resolve(raw)
             : path.resolve(laneRepoPath, raw);
+          toolInput.filePath =
+            resolved === laneRepoPath || resolved.startsWith(canonicalLanePrefix)
+              ? resolved
+              : path.resolve(laneRepoPath, path.basename(resolved));
         }
         const rel = String(toolInput.filePath || "")
           .split("/")
@@ -2875,9 +2992,13 @@ export async function runSingleBenchmarkSession(
 
   if (fs.existsSync(elicitationLogPath)) {
     try {
-      const rawLines = fs.readFileSync(elicitationLogPath, "utf8").split("\n");
-      for (const line of rawLines) {
-        if (!line.trim()) continue;
+      const fd = fs.openSync(elicitationLogPath, "r");
+      const bufSize = 64 * 1024;
+      const buf = Buffer.alloc(bufSize);
+      let remainder = "";
+      let bytesRead = 0;
+      const processLine = (line: string) => {
+        if (!line.trim()) return;
         const entry = JSON.parse(line);
         if (entry.bug_id) {
           const prev = elicitedMap.get(entry.bug_id);
@@ -2896,7 +3017,20 @@ export async function runSingleBenchmarkSession(
             prev.detection_type = entry.detection_type;
           }
         }
+      };
+
+      while ((bytesRead = fs.readSync(fd, buf, 0, bufSize, null)) > 0) {
+        const chunk = remainder + buf.toString("utf8", 0, bytesRead);
+        const lines = chunk.split("\n");
+        remainder = lines.pop() ?? "";
+        for (const line of lines) {
+          processLine(line);
+        }
       }
+      if (remainder.trim()) {
+        processLine(remainder);
+      }
+      fs.closeSync(fd);
     } catch (err) {
       log(`[ELICITATION] [WARN] Could not parse ${elicitationLogPath}: ${String(err)}`);
     }
@@ -3103,7 +3237,15 @@ export async function runSingleBenchmarkSession(
     `[SUCCESS] ${prefix} Completed in ${mm}m ${ss}s! Score: ${score} (${run.reportFilename})\n`
   );
   await fileWriteChain;
-  return { success: true, durationSec };
+  sessionManager.clear(sessionId);
+  cleanLane(laneId);
+  return {
+    success: true,
+    durationSec,
+    score,
+    bugsElicited: evalResults.filter((r) => r.elicited === 1).length,
+    taskBugCount: evalResults.length,
+  };
 }
 
 // ============================================================================
@@ -3259,6 +3401,9 @@ export async function runBenchmarkMatrix(
             reportFilename: run.reportFilename,
             status: "completed",
             durationSec: res.durationSec,
+            score: res.score,
+            bugsElicited: res.bugsElicited,
+            taskBugCount: res.taskBugCount,
             completedAt: new Date().toISOString(),
           });
           saveBenchmarkState(schedule, completedMap);
@@ -3347,7 +3492,7 @@ export async function runBenchmarkMatrix(
 export async function recoverBenchmarkMatrix(
   concurrency: number = CONCURRENCY_LANES
 ): Promise<void> {
-  const unfinishedDir = findLatestUnfinishedRun();
+  const unfinishedDir = findLatestUnfinishedRun(BASE_RESULTS_DIR);
   if (!unfinishedDir) {
     const msg =
       "No unfinished benchmark run found in benchmark/results/. All runs are complete.";
@@ -3365,12 +3510,14 @@ export async function recoverBenchmarkMatrix(
   log(`[RECOVER] Resuming unfinished benchmark run: ${dirName}`);
 
   const statePath = path.join(unfinishedDir, "benchmark_state.json");
-  let replicates: 1 | 3 = 1;
+  let replicates: 1 | 2 | 3 = 1;
   if (fs.existsSync(statePath)) {
     try {
       const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
-      if (Array.isArray(state) && state.length > 45) {
+      if (Array.isArray(state) && state.length > 90) {
         replicates = 3;
+      } else if (Array.isArray(state) && state.length > 45) {
+        replicates = 2;
       }
     } catch {
       replicates = 1;
@@ -3381,26 +3528,19 @@ export async function recoverBenchmarkMatrix(
 } // fn: recoverBenchmarkMatrix
 
 export function generateSmoketestSchedule(): BenchmarkRunSpec[] {
-  const treatments: ("nanofuzz" | "hypothesis" | "hypofuzz")[] = [
-    "nanofuzz",
-    "hypothesis",
-    "hypofuzz",
-  ];
-  const puts = BENCHMARK_TASKS;
+  const puts = ["make_def", "TreeValue"];
   const runs: Omit<BenchmarkRunSpec, "sequence" | "participant">[] = [];
 
-  for (const eng of treatments) {
-    for (const task of puts) {
-      runs.push({
-        replicate: 1,
-        task,
-        engine: eng,
-        source: "tests",
-        targetScope: [task],
-        reportFilename: "",
-        reportPath: "",
-      });
-    }
+  for (const task of puts) {
+    runs.push({
+      replicate: 1,
+      task,
+      engine: "nanofuzz",
+      source: "all",
+      targetScope: [task],
+      reportFilename: "",
+      reportPath: "",
+    });
   }
 
   return runs.map((r, idx) => {
@@ -3418,12 +3558,16 @@ export function generateSmoketestSchedule(): BenchmarkRunSpec[] {
 }
 
 export async function runBenchmarkSmoketest(
-  concurrency: number = Math.max(4, Math.min(CONCURRENCY_LANES, 5))
+  concurrency: number = 2
 ): Promise<void> {
   activeRunContext = createRunContext();
   initializeConcurrentWorktrees(concurrency);
   updateLatestSymlink(activeRunContext.resultsDir);
   mirrorLatestResultsToRoot(activeRunContext);
+
+  // Fast smoketest overrides: 30s deep fuzzing timeout and max 2 retries
+  Config.override("nanofuzz.experimental.findBugs.deepTimeoutMs", 30000);
+  Config.override("nanofuzz.experimental.findBugs.maxRetries", 2);
 
   const schedule = generateSmoketestSchedule();
 
@@ -3442,7 +3586,7 @@ export async function runBenchmarkSmoketest(
     "================================================================================"
   );
   log(
-    `[SMOKETEST] Starting 15-Run Benchmark Smoketest: 3 Treatments x 5 PUTs (${concurrency} concurrency lanes)`
+    `[SMOKETEST] Starting Fast 2-Task Smoketest (30s deep timeout x 2 retries): make_def, TreeValue`
   );
   log(`Results Directory: ${getResultsDir()}`);
   log(

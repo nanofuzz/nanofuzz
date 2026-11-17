@@ -745,13 +745,20 @@ export async function runFuzz(
         : undefined,
     });
 
+    const isBenchRun =
+      Config.get<boolean>("nanofuzz.benchmarkMode", false) ||
+      Boolean(options.sessionId?.startsWith("bench-")) ||
+      Boolean(session?.sessionId?.startsWith("bench-"));
+
     const executionOptions: FuzzExecutionOptions = {
       engine: "auto",
       // Limit smoke tests (non-deep runs) to 1 worker process; budget deep runs across slots
       workers: !isDeepFuzzingRun
         ? 1
         : (options.workers ?? getWorkersPerDeepSlot()),
-      outputResults: options.outputResults ?? "all",
+      outputResults:
+        options.outputResults ??
+        (isBenchRun || isDeepFuzzingRun ? "failures" : "all"),
       precompile: false,
     };
 
@@ -824,8 +831,10 @@ export async function runFuzz(
 
     const generatorDiagnostics = tester.getInputGeneratorDiagnostics();
 
-    // Cache the raw results for immediate display via showResults / FuzzPanel
-    cacheRawResults(resolvedPath, options.functionName, rawResults);
+    // Cache the raw results for immediate display via showResults / FuzzPanel (suppressed in benchmark/deep runs)
+    if (!isBenchRun) {
+      cacheRawResults(resolvedPath, options.functionName, rawResults);
+    }
 
     const formatted = await formatFuzzResult(
       rawResults,
@@ -1654,8 +1663,19 @@ export function registerExcludedCoverageFiles(
 export function clearExcludedCoverageFiles(rootPath?: string): void {
   if (rootPath) {
     const root = path.resolve(rootPath);
+    const rootPrefix = root.endsWith(path.sep) ? root : root + path.sep;
     _targetCoverageFilesByRoot.delete(root);
     _excludedCoverageFilesByRoot.delete(root);
+    for (const fp of _defaultExcludedCoverageFiles) {
+      if (fp === root || fp.startsWith(rootPrefix)) {
+        _defaultExcludedCoverageFiles.delete(fp);
+      }
+    }
+    for (const fp of _defaultTargetCoverageFiles) {
+      if (fp === root || fp.startsWith(rootPrefix)) {
+        _defaultTargetCoverageFiles.delete(fp);
+      }
+    }
   } else {
     _defaultExcludedCoverageFiles.clear();
     _defaultTargetCoverageFiles.clear();

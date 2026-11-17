@@ -330,22 +330,27 @@ export async function findBugs(
         );
       }
 
-      // Gate 3 Check: All declared entrypoints must have completed Stage 2 Deep Fuzzing (300,000ms / maxTests: 0)
+      // Gate 3 Check: All declared entrypoints must have completed Stage 2 Deep Fuzzing (configurable, default 300,000ms / maxTests: 0)
       const hasCompletedFuzzing =
         session.fuzzRuns.length > 0 &&
         sessionManager.hasCompletedDeepRun(session.sessionId);
 
       if (!hasCompletedFuzzing) {
+        const reqTimeout = Config.get<number>(
+          "nanofuzz.experimental.findBugs.deepTimeoutMs",
+          300000
+        );
+        const reqSec = Math.round(reqTimeout / 1000);
         const pendingDeep = sessionManager.getPendingDeepEntrypoints(
           session.sessionId
         );
         const detail =
           pendingDeep.length > 0
             ? `Pending Stage 2 Deep Fuzzing for entrypoint(s): ${pendingDeep.join(", ")}.`
-            : "Stage 2 Deep Fuzzing (300,000ms / 5 minutes per attempt, maxTests: 0) was never executed.";
+            : `Stage 2 Deep Fuzzing (${reqTimeout}ms / ${reqSec}s per attempt, maxTests: 0) was never executed.`;
 
         throw new Error(
-          `Execution Gate Blocked (Gate 3: Deep Fuzzing Required): ${detail} You MUST execute Stage 2: Deep Fuzzing with timeoutMs: 300000 and maxTests: 0 for all declared entrypoints before advancing to contextualize_bugs.`
+          `Execution Gate Blocked (Gate 3: Deep Fuzzing Required): ${detail} You MUST execute Stage 2: Deep Fuzzing with timeoutMs: ${reqTimeout} and maxTests: 0 for all declared entrypoints before advancing to contextualize_bugs.`
         );
       }
 
@@ -391,16 +396,21 @@ export async function findBugs(
         sessionManager.hasCompletedDeepRun(session.sessionId);
 
       if (!hasCompletedFuzzing) {
+        const reqTimeout = Config.get<number>(
+          "nanofuzz.experimental.findBugs.deepTimeoutMs",
+          300000
+        );
+        const reqSec = Math.round(reqTimeout / 1000);
         const pendingDeep = sessionManager.getPendingDeepEntrypoints(
           session.sessionId
         );
         const detail =
           pendingDeep.length > 0
             ? `Pending Stage 2 Deep Fuzzing for entrypoint(s): ${pendingDeep.join(", ")}.`
-            : "Stage 2 Deep Fuzzing (300,000ms / 5 minutes per attempt, maxTests: 0) was never executed.";
+            : `Stage 2 Deep Fuzzing (${reqTimeout}ms / ${reqSec}s per attempt, maxTests: 0) was never executed.`;
 
         throw new Error(
-          `Execution Gate Blocked (Gate 3: Deep Fuzzing Required): ${detail} You MUST execute Stage 2: Deep Fuzzing with timeoutMs: 300000 and maxTests: 0 for all declared entrypoints before completing the workflow.`
+          `Execution Gate Blocked (Gate 3: Deep Fuzzing Required): ${detail} You MUST execute Stage 2: Deep Fuzzing with timeoutMs: ${reqTimeout} and maxTests: 0 for all declared entrypoints before completing the workflow.`
         );
       }
 
@@ -761,35 +771,35 @@ function buildInvariantsGuidance(
     `### Instructions for Phase 3: Harness & Validator Synthesis [Engine: nanofuzz | Source: ${invariantSource}]`,
     "",
     `1. **Create Isolated Harness Files**:`,
-    `   - For each entrypoint or coupled group, create a dedicated harness file **inside the project root/source tree** (e.g. \`<projectRoot>/nanofuzz_harness_<entrypoint>.<ext>\`).`,
-    `   - ⚠️ Do NOT place harness files in an external \`/tmp\` directory—language runners need project \`tsconfig.json\`, \`package.json\`, \`Cargo.toml\`, or virtualenvs to resolve imports.`,
+  `   - For each entrypoint or coupled group, create a dedicated harness file **inside the project root/source tree** (e.g. \`<projectRoot>/nanofuzz_harness_<entrypoint>.py\`).`,
+  `   - ⚠️ Do NOT place harness files in an external \`/tmp\` directory—language runners need project virtualenvs to resolve imports.`,
     `   - Define a typed function (e.g. \`fuzz_<entrypoint>\`) that takes typed arguments and calls the target entrypoint.`,
-    `   - ⚠️ **No Hardcoded Lookup Tables or Initial States**: NEVER pass an integer index into a hardcoded array of test inputs (e.g. \`INITIAL_DOCS[idx % len(INITIAL_DOCS)]\`) or hardcode initial states inside the harness body. Always pass the initial state/document/data directly as a typed parameter (e.g. \`raw_doc: str\` or \`initial_items: list[...]\`) and construct the initial state dynamically from those inputs so NaNofuzz can generate, mutate, and shrink the initial state itself.`,
+  `   - ⚠️ **No Hardcoded Lookup Tables or Initial States**: NEVER pass an integer index into a hardcoded array of test inputs. Pass initial data directly as typed parameters so NaNofuzz can generate, mutate, and shrink them.`,
     "",
-    `2. **Synthesize Skeletons with \`nanofuzz_listTargets\`**:`,
-    `   - Call \`nanofuzz_listTargets\` on your harness file to inspect the generated templates:`,
-    `     - \`validatorTemplate\` (e.g. \`<fn>Validator\` or \`<fn>_validator\`)`,
-    `     - \`transformerTemplate\` (e.g. \`<fn>Transformer\` or \`<fn>_transformer\`)`,
-    `     - \`generatorTemplate\` (e.g. \`<fn>Generator\` or \`<fn>_generator\`)`,
+  `2. **Formal Companion Function Interface Contracts (Python)**:`,
+  `   - **Target Harness Function**: \`def fuzz_<entrypoint>(param1: T1, param2: T2) -> ReturnType:\``,
+  `   - **Input Transformer**: \`def fuzz_<entrypoint>_transformer(param1: T1, param2: T2) -> tuple[T1, T2]:\``,
+  `     - Input: Same parameters and types as the harness function.`,
+  `     - Filtering: Use \`assume(condition)\` from \`nanofuzz_runtime\` to discard invalid inputs.`,
+  `     - Return: MUST return an argument tuple strictly matching the target parameter order: \`(param1, param2)\`. For 1 arg, use a 1-tuple with trailing comma: \`(param1,)\`.`,
+  `   - **Custom Generator**: \`def fuzz_<entrypoint>_generator(prng: Callable[[], float]) -> tuple[T1, T2] | None:\``,
+  `     - Input: \`prng: Callable[[], float]\` yielding uniform random floats in \`[0.0, 1.0)\`.`,
+  `     - Return: MUST return an argument tuple strictly matching the target parameter order: \`(param1, param2)\`, or \`None\` when exhausted.`,
+  `     - ⚠️ Never call \`assume()\` inside the generator (generators must only sample and return tuples or None).`,
+  `   - **Property Validator**: \`def fuzz_<entrypoint>_validator(r: FuzzTestResult) -> Literal["pass", "fail", "unknown"]:\``,
+  `     - Input: \`r: FuzzTestResult\` where \`r['in']\` is a list of inputs (\`r['in'][0]\`, \`r['in'][1]\`), \`r.get('out')\` is the return value, and \`r.get('exception')\` is any exception.`,
+  `     - Return: Return \`"fail"\` if an unhandled exception occurred or invariant violated, else \`"pass"\`.`,
     "",
-    `3. **Implement Property Validators (\`<fn>Validator\`)**:`,
-    `   - Place the validator in the same harness file. Assert that the specification invariants hold.`,
+  `3. **Runtime Imports**:`,
+  `   - Always import from runtime at the top of your harness file:`,
+  `     \`from nanofuzz_runtime import FuzzTestResult, UnsatisfiedAssumption, assume\``,
     "",
-    `4. **Implement Constructive Transformers (\`<fn>Transformer\`)**:`,
-    `   - **Construct/Repair rather than filter**: Normalize bounds, compute checksums, and repair relations.`,
-    `   - Avoid heavy \`assume()\` filtering to prevent starving the fuzzer.`,
-    `   - Note: Dual-Mode fuzzing is supported by toggling \`useTransformer: true\` (Semantic Mode) vs \`useTransformer: false\` (Adversarial/Robustness Mode).`,
-    "",
-    `5. **Implement Custom Generators (\`<fn>Generator\`)**:`,
-    `   - If inputs are structured (e.g. ASTs, grammar, XML, JSON), implement the PRNG generator template.`,
-    "",
-    `6. **Seed Properties with Harvested Inputs**:`,
+  `4. **Seed Properties with Harvested Inputs**:`,
     `   - Collect your concrete seed inputs extracted in Phase 1 and format them as an array of parameter objects (e.g. \`[{"<param1>": <val1>, "<param2>": <val2>}]\`).`,
     `   - Pass these seeds in \`"inputs": [...]\` when invoking \`nanofuzz_fuzzFunction\`.`,
     `   - Constrain all integer seed inputs to safe numeric bounds between \`-2**53 + 1\` and \`2**53 - 1\` (approximately \`-9e15\` to \`9e15\`).`,
-    `   - The engine executes these concrete seeds first to verify baseline contracts before randomized exploration begins.`,
     "",
-    `7. **Next Step**:`,
+  `5. **Next Step**:`,
     `   - Call \`${toolName.toLowerCase()}_findBugs\` for your first entrypoint to begin Stage 1 smoke testing:`,
     "   ```json",
     "   {",
@@ -797,14 +807,14 @@ function buildInvariantsGuidance(
     `     "model": "${options.model}",`,
     `     "vendor": "${options.vendor}",`,
     '     "statePayload": {',
-    `       "sessionId": "${sessionId}",`,
-    '       "stage": "smoke",',
-    '       "harnessFilePath": "<path>",',
-    '       "functionName": "fuzz_<entrypoint>",',
-    '       "inputs": [{"<param1>": "<seedVal>"}]',
-    "     }",
-    "   }",
-    "   ```",
+  `       "sessionId": "${sessionId}",`,
+  '       "stage": "smoke",',
+  '       "harnessFilePath": "<path>",',
+  '       "functionName": "fuzz_<entrypoint>",',
+  '       "inputs": [{"<param1>": "<seedVal>"}]',
+  "     }",
+  "   }",
+  "   ```",
   ].join("\n");
 } // fn: buildInvariantsGuidance
 
@@ -909,6 +919,16 @@ function buildFuzzEntrypointGuidance(
       ? "<fn>Transformer"
       : "parameter strategies or assume()";
 
+  const deepTimeoutMs = Config.get<number>(
+    "nanofuzz.experimental.findBugs.deepTimeoutMs",
+    300000
+  );
+  const maxRetries = Config.get<number>(
+    "nanofuzz.experimental.findBugs.maxRetries",
+    4
+  );
+  const deepTimeoutSec = Math.round(deepTimeoutMs / 1000);
+
   return [
     `### Instructions for Phase 5: Deep Fuzzing & Exploration Loop [Engine: ${tool} | Source: ${invariantSource}]`,
     "",
@@ -919,10 +939,10 @@ function buildFuzzEntrypointGuidance(
     `- ⚠️ **Anti-Suppression Rule**: NEVER weaken ${assertionNoun} or alter specification invariants to make a failure pass. The specification is fixed; input filtering controls which inputs reach the code.`,
     `- ⚠️ **Gate 3 Stopping Requirement**: Gate 3 will REJECT any attempt to advance to \`contextualize_bugs\` until either:`,
     `  1. Branch coverage across the target program reaches 100%, OR`,
-    `  2. You have completed all 4 deep fuzzing retry cycles.`,
+    `  2. You have completed all ${maxRetries} deep fuzzing retry cycles.`,
     "",
     `## 1. Deep Fuzzing Execution`,
-    `Call \`nanofuzz_fuzzFunction\` with \`maxTests: 0\` (unlimited tests up to the full 300,000ms / 5 minutes timeout per attempt):`,
+    `Call \`nanofuzz_fuzzFunction\` with \`maxTests: 0\` (unlimited tests up to the full ${deepTimeoutMs}ms / ${deepTimeoutSec}s timeout per attempt):`,
     `- Always include your harvested seed inputs from Phase 1 in \`"inputs": [...]\`.`,
     `- Constrain all integer seed inputs to safe numeric bounds between \`-2**53 + 1\` and \`2**53 - 1\` (approximately \`-9e15\` to \`9e15\`).`,
     `- The engine executes these concrete seeds first to verify baseline contracts before randomized exploration begins.`,
@@ -935,7 +955,7 @@ function buildFuzzEntrypointGuidance(
     '  "coverageScope": "project",',
     '  "fnTimeout": 500,',
     '  "maxTests": 0,',
-    '  "timeoutMs": 300000,',
+    `  "timeoutMs": ${deepTimeoutMs},`,
     '  "inputs": [{"<param1>": "<seedVal>"}]',
     "}",
     "```",
