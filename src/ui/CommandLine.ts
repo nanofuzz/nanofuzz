@@ -367,6 +367,10 @@ function createMcpProgram(): Commander.Command {
       "auto"
     )
     .option("--no-config-file", "Ignore .nano.json5 config")
+    .option(
+      "--no-attach",
+      "Run standalone even if VS Code has this workspace open"
+    )
     .option("--debug [scope]", "Debug logging: *, runners, ai (default: *)")
     .option("--log-file <path>", "Redirect debug logs to a file")
     .option("--clear-compile-cache", "Clear compiler cache before run");

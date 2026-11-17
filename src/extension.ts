@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import * as fp from "./ui/FuzzPanelController";
 import * as tm from "./telemetry/Telemetry";
+import * as ab from "./ui/AgentBridge";
 import * as Parser from "./fuzzer/adapters/ParserAdapter";
 import { registerLmTools } from "./fuzzer/adapters/VscodeLmAdapter";
 
@@ -23,7 +24,11 @@ export async function activate(
   /**
    * Push the commands to the VS Code command palette.
    */
-  for (const cmd of Object.values({ ...fp.commands, ...tm.commands })) {
+  for (const cmd of Object.values({
+    ...fp.commands,
+    ...tm.commands,
+    ...ab.commands,
+  })) {
     const reg = vscode.commands.registerCommand(cmd.name, cmd.fn);
     context.subscriptions.push(reg);
     disposables.push(reg);
@@ -77,6 +82,20 @@ export async function activate(
    */
   const lmDisposables = registerLmTools(context);
   disposables.push(...lmDisposables);
+
+  // ------------------------- Agent Bridge ------------------------- //
+
+  /**
+   * Start the bridge that lets agents outside VS Code's agent host
+   * (e.g., Claude Code, via `nanofuzz mcp`) use the tools in this window.
+   */
+  try {
+    const bridgeDisposables = await ab.registerAgentBridge();
+    context.subscriptions.push(...bridgeDisposables);
+    disposables.push(...bridgeDisposables);
+  } catch (e: unknown) {
+    console.error(`Unable to start the agent bridge: ${String(e)}`);
+  }
 } // fn: activate()
 
 /**

@@ -260,6 +260,92 @@ describe("McpServer", () => {
     await server.close();
   });
 
+  it("registers nanofuzz_showResults only when the host can show results", async () => {
+    const shown: string[] = [];
+    const server = await createMcpServer(undefined, {
+      showResults: async (options) => {
+        shown.push(`${options.functionName}:${options.focusCategory}`);
+        return { success: true, message: "Displayed in host" };
+      },
+    });
+    const client = new Client(
+      { name: "test-client", version: "1.0.0" },
+      { capabilities: {} }
+    );
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      server.connect(serverTransport),
+    ]);
+
+    const toolsResponse = await client.listTools();
+    expect(toolsResponse.tools.map((t) => t.name)).toContain(
+      "nanofuzz_showResults"
+    );
+
+    const result = await client.callTool({
+      name: "nanofuzz_showResults",
+      arguments: {
+        filePath: tsFixture,
+        functionName: "testStandardVoidReturnUndefined",
+        focusCategory: "runInfo",
+      },
+    });
+
+    expect(shown).toEqual(["testStandardVoidReturnUndefined:runInfo"]);
+    expect(Array.isArray(result.content)).toBeTrue();
+    if (Array.isArray(result.content)) {
+      const firstContent = result.content[0];
+      expect(isTextContent(firstContent)).toBeTrue();
+      if (isTextContent(firstContent)) {
+        expect(firstContent.text).toBe("Displayed in host");
+      }
+    }
+
+    await client.close();
+    await server.close();
+  });
+
+  it("does not ask the host to resolve a model unless the provider is copilot", async () => {
+    let resolveCalls = 0;
+    const server = await createMcpServer(undefined, {
+      resolveModel: async (vendor, model) => {
+        resolveCalls++;
+        return { vendor, model };
+      },
+    });
+    const client = new Client(
+      { name: "test-client", version: "1.0.0" },
+      { capabilities: {} }
+    );
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    await Promise.all([
+      client.connect(clientTransport),
+      server.connect(serverTransport),
+    ]);
+
+    await client.callTool({
+      name: "nanofuzz_fuzzFunction",
+      arguments: {
+        filePath: tsFixture,
+        functionName: "testStandardVoidReturnUndefined",
+        model: "claude-sonnet",
+        vendor: "anthropic",
+        maxTests: 5,
+        timeoutMs: 2000,
+      },
+    });
+
+    expect(resolveCalls).toBe(0);
+
+    await client.close();
+    await server.close();
+  });
+
   it("applies server configuration options", async () => {
     const server = await createMcpServer({
       modelProvider: "openai",
