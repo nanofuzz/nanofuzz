@@ -28,6 +28,14 @@ if os.path.exists(_VENDOR_DIR) and _VENDOR_DIR not in sys.path:
 REPORT_PATH = os.environ.get(
     "NANOFUZZ_PBT_OUT_FILE", ".nanofuzz_pbt_run.msgpack")
 
+# Hypofuzz compatibility bridge: Hypothesis 6.170 renamed slice_comments to span_comments
+from hypothesis.internal.conjecture.data import ConjectureResult
+
+if not hasattr(ConjectureResult, "slice_comments"):
+    ConjectureResult.slice_comments = property(
+        lambda self: getattr(self, "span_comments", {})
+    )
+
 # Path to optional file containing injected seed inputs to execute
 INJECTED_FILE = os.environ.get("NANOFUZZ_PBT_INJECTED_FILE")
 
@@ -285,6 +293,9 @@ def pytest_configure(config):
 
 def pytest_sessionfinish(session, exitstatus):
     """Called when the pytest session completes. Stops coverage collection and flushes final report."""
+    if getattr(session.config.option, "collectonly", False):
+        return
+
     global _cov
     if _cov is not None:
         try:
