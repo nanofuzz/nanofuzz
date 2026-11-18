@@ -2016,6 +2016,7 @@ export function cleanLane(laneId: number): void {
   // De-reference cached raw fuzz results to allow V8 garbage collection
   clearCachedRawResultsForPath(wtPath);
   clearExcludedCoverageFiles(wtPath);
+  delete process.env.NANOFUZZ_COVERAGE_INCLUDE_FILES;
 } // fn: cleanLane
 
 export function cleanTargetRepo(): void {
@@ -2113,6 +2114,8 @@ export async function runSingleBenchmarkSession(
       if (Array.isArray(mapData[run.task])) {
         const absTargets = mapData[run.task].map((rel: string) => path.join(laneRepoPath, rel));
         setTargetCoverageFiles(absTargets, laneRepoPath);
+        process.env.NANOFUZZ_COVERAGE_INCLUDE_FILES = JSON.stringify(absTargets);
+        process.env.NANOFUZZ_PROJECT_ROOT = laneRepoPath;
       }
     }
   } catch {
@@ -3620,16 +3623,23 @@ export async function recoverBenchmarkMatrix(
 } // fn: recoverBenchmarkMatrix
 
 export function generateSmoketestSchedule(): BenchmarkRunSpec[] {
-  const puts = ["make_def", "TreeValue"];
+  const specs: { task: BenchmarkTaskName; engine: (typeof ENGINES)[number] }[] = [
+    { task: "make_def", engine: "nanofuzz" },
+    { task: "TreeValue", engine: "nanofuzz" },
+    { task: "make_def", engine: "hypofuzz" },
+    { task: "TreeValue", engine: "hypofuzz" },
+    { task: "make_def", engine: "hypothesis" },
+    { task: "TreeValue", engine: "hypothesis" },
+  ];
   const runs: Omit<BenchmarkRunSpec, "sequence" | "participant">[] = [];
 
-  for (const task of puts) {
+  for (const s of specs) {
     runs.push({
       replicate: 1,
-      task,
-      engine: "nanofuzz",
+      task: s.task,
+      engine: s.engine,
       source: "all",
-      targetScope: [task],
+      targetScope: [s.task],
       reportFilename: "",
       reportPath: "",
     });
@@ -3650,7 +3660,7 @@ export function generateSmoketestSchedule(): BenchmarkRunSpec[] {
 }
 
 export async function runBenchmarkSmoketest(
-  concurrency: number = 2
+  concurrency: number = 6
 ): Promise<void> {
   activeRunContext = createRunContext();
   initializeConcurrentWorktrees(concurrency);
@@ -3678,7 +3688,7 @@ export async function runBenchmarkSmoketest(
     "================================================================================"
   );
   log(
-    `[SMOKETEST] Starting Fast 2-Task Smoketest (30s deep timeout x 2 retries): make_def, TreeValue`
+    `[SMOKETEST] Starting Fast 6-Task Smoketest (30s deep timeout x 2 retries): P01 (nanofuzz make_def), P02 (nanofuzz TreeValue), P03 (hypofuzz make_def), P04 (hypofuzz TreeValue), P05 (hypothesis make_def), P06 (hypothesis TreeValue)`
   );
   log(`Results Directory: ${getResultsDir()}`);
   log(

@@ -664,6 +664,19 @@ def program_files(
         raise ValueError(
             f"Invalid coverage_scope '{coverage_scope}'. Allowed values: {VALID_COVERAGE_SCOPES}"
         )
+
+    include_env = os.environ.get("NANOFUZZ_COVERAGE_INCLUDE_FILES")
+    if include_env:
+        raw_includes = json.loads(include_env)
+        proj_root = os.path.realpath(os.environ.get("NANOFUZZ_PROJECT_ROOT", os.getcwd()))
+        target_files = [
+            os.path.realpath(os.path.join(proj_root, f)) if not os.path.isabs(f) else os.path.realpath(f)
+            for f in raw_includes
+        ]
+        existing_targets = [f for f in target_files if os.path.exists(f)]
+        if existing_targets:
+            return sorted(existing_targets)
+
     root = find_project_root(filename)
     stdlib_path = os.path.normcase(
         os.path.realpath(sysconfig.get_path("stdlib")))

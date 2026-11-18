@@ -22,6 +22,7 @@ import { findInAncestor, isError } from "../../Util";
 import { PutTimeoutName } from "../AbstractHost";
 import { PythonHost, PythonEnv } from "./PythonHost";
 import * as ChildProcess from "node:child_process";
+import { getTargetCoverageFiles } from "../../../ui/Agent";
 
 /**
  * Python runner
@@ -680,10 +681,28 @@ export class PythonRunner extends AbstractRunner {
       isRespawn ? "respawn" : String(collectStaticCoverage),
     ];
 
+    const activeTargets = getTargetCoverageFiles(this._filename);
+    const hostEnv = { ...this._pythonEnv.env };
+    if (activeTargets && activeTargets.size > 0) {
+      hostEnv.NANOFUZZ_COVERAGE_INCLUDE_FILES = JSON.stringify(
+        Array.from(activeTargets)
+      );
+    } else if (process.env.NANOFUZZ_COVERAGE_INCLUDE_FILES) {
+      hostEnv.NANOFUZZ_COVERAGE_INCLUDE_FILES =
+        process.env.NANOFUZZ_COVERAGE_INCLUDE_FILES;
+    }
+    if (process.env.NANOFUZZ_PROJECT_ROOT) {
+      hostEnv.NANOFUZZ_PROJECT_ROOT = process.env.NANOFUZZ_PROJECT_ROOT;
+    }
+    const resolvedPythonEnv: PythonEnv = {
+      ...this._pythonEnv,
+      env: hostEnv,
+    };
+
     const host = new PythonHost(
       args,
       path.dirname(module.filename),
-      this._pythonEnv
+      resolvedPythonEnv
     );
 
     const hostStartupTimeout = Config.get<number>(
