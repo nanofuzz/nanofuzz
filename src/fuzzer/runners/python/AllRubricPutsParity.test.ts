@@ -177,4 +177,44 @@ describe("All 5 Rubric PUTs Cross-Tool Coverage Parity Suite", () => {
       }
     }, 180000);
   }
+
+  it("evaluates live coverage denominator for TreeValue in an isolated worktree lane without harness exclusion", async () => {
+    const wtDir = path.resolve(process.cwd(), "benchmark", "worktrees", "w2");
+    if (!fs.existsSync(wtDir)) {
+      pending("Skipping worktree parity test: benchmark/worktrees/w2 not present.");
+      return;
+    }
+    const wtHarnessPath = path.join(wtDir, "nanofuzz_harness_TreeValue.py");
+    const targetFile = path.join(wtDir, "src", "fandango", "language", "tree_value.py");
+    fs.writeFileSync(
+      wtHarnessPath,
+      `from fandango.language.tree_value import TreeValue\ndef fuzz_target():\n    try:\n        TreeValue.empty()\n    except Exception:\n        pass\n`,
+      "utf8"
+    );
+    try {
+      clearExcludedCoverageFiles(wtDir);
+      setTargetCoverageFiles([targetFile], wtDir);
+      process.env.NANOFUZZ_PROJECT_ROOT = wtDir;
+      process.env.NANOFUZZ_COVERAGE_INCLUDE_FILES = JSON.stringify([targetFile]);
+      Config.override("nanofuzz.experimental.findBugs.tool", "nanofuzz");
+
+      const res = await runFuzz({
+        filePath: wtHarnessPath,
+        functionName: "fuzz_target",
+        maxTests: 5,
+        suiteTimeout: 3000,
+        coverageScope: "project",
+      });
+
+      console.log(`  - Worktree NaNofuzz (TreeValue) : Denominator = ${res.coverage?.branchesTotal}`);
+      expect(res.coverage?.branchesTotal).toBe(124);
+    } finally {
+      if (fs.existsSync(wtHarnessPath)) {
+        fs.unlinkSync(wtHarnessPath);
+      }
+      clearExcludedCoverageFiles(wtDir);
+      delete process.env.NANOFUZZ_COVERAGE_INCLUDE_FILES;
+      delete process.env.NANOFUZZ_PROJECT_ROOT;
+    }
+  }, 60000);
 });
