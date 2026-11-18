@@ -42,6 +42,9 @@ import {
 } from "../analysis/CoverageFrontierSampler";
 import { Leaderboard } from "./Leaderboard";
 
+// Maximum model calls allowed when policy is 'seed'
+const MAX_SEED_CALLS = 3;
+
 /**
  * Generates new inputs using a large language model
  */
@@ -99,8 +102,11 @@ export class AiInputGenerator extends AbstractInputGenerator {
       return false;
     }
     if (this._inputQueue.length) {
+      const canRefill =
+        this._policy === "eager" ||
+        (this._policy === "seed" && this._stats.calls.sent < MAX_SEED_CALLS);
       if (
-        this._policy === "eager" &&
+        canRefill &&
         this._inputQueue.length < getChunkSize() &&
         !this._callsPending &&
         this._llm &&
@@ -114,7 +120,8 @@ export class AiInputGenerator extends AbstractInputGenerator {
       return "soon";
     } else if (
       this._llm &&
-      (this._policy === "eager" || this._stats.calls.sent === 0)
+      (this._policy === "eager" ||
+        (this._policy === "seed" && this._stats.calls.sent < MAX_SEED_CALLS))
     ) {
       this._getMoreInputs();
       return this._callsPending ? "soon" : false;
@@ -271,8 +278,11 @@ export class AiInputGenerator extends AbstractInputGenerator {
     if (inputToReturn === undefined) {
       throw new Error(`next() not allowed when isAvailable()===false`);
     }
+    const canRefill =
+      this._policy === "eager" ||
+      (this._policy === "seed" && this._stats.calls.sent < MAX_SEED_CALLS);
     if (
-      this._policy === "eager" &&
+      canRefill &&
       this._inputQueue.length < getChunkSize() &&
       !this._callsPending &&
       this._llm &&
@@ -338,7 +348,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
       this._exhausted ||
       !this._llm ||
       LlmAdapter.isAbandoned ||
-      (this._policy === "seed" && this._stats.calls.sent >= 1)
+      (this._policy === "seed" && this._stats.calls.sent >= MAX_SEED_CALLS)
     ) {
       return;
     }
