@@ -62,10 +62,10 @@ describe("FindBugs", () => {
     expect(result.instructions).toContain(
       "Do NOT place harness files in an external `/tmp`"
     );
-    expect(result.instructions).toContain("nanofuzz_listTargets");
-    expect(result.instructions).toContain("validatorTemplate");
-    expect(result.instructions).toContain("transformerTemplate");
-    expect(result.instructions).toContain("generatorTemplate");
+    expect(result.instructions).toContain("Target Harness Function");
+    expect(result.instructions).toContain("fuzz_<entrypoint>_transformer");
+    expect(result.instructions).toContain("fuzz_<entrypoint>_generator");
+    expect(result.instructions).toContain("fuzz_<entrypoint>_validator");
     expect(result.instructions).toContain(
       "No Hardcoded Lookup Tables or Initial States"
     );
