@@ -2094,6 +2094,10 @@ export async function runSingleBenchmarkSession(
   }
   process.env.NANOFUZZ_PROJECT_ROOT = laneRepoPath;
   process.env.NANOFUZZ_DYNAMIC_BUG_ELICITATION = "1";
+  const laneVenv = path.join(laneRepoPath, ".venv");
+  if (fs.existsSync(laneVenv)) {
+    process.env.VIRTUAL_ENV = laneVenv;
+  }
   process.env.SKBUILD_EDITABLE_SKIP = path.join(
     WORKSPACE_ROOT,
     "benchmark",
