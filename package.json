@@ -54,6 +54,11 @@
         "category": "NaNofuzz"
       },
       {
+        "command": "nanofuzz.SetupMcpServer",
+        "title": "Set Up MCP Server for Coding Agents",
+        "category": "NaNofuzz"
+      },
+      {
         "command": "nanofuzz.telemetry.FlushLog",
         "title": "Flush Telemetry Log to storage",
         "category": "NaNofuzz"
@@ -704,6 +709,13 @@
             "tags": [
               "experimental"
             ]
+          },
+          "nanofuzz.agent.bridge.enabled": {
+            "title": "Let external agents use this window?",
+            "order": 90,
+            "type": "boolean",
+            "default": true,
+            "description": "Lets coding agents running outside VS Code's own agent mode (any agent that launches `nanofuzz mcp`) run NaNofuzz in this window through a private local connection, so they share its settings and can show results in the NaNofuzz panel. Takes effect after reloading the window."
           }
         }
       },

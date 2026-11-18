@@ -7,7 +7,14 @@ import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { z } from "zod";
 import * as Config from "../Config";
 import * as JSONN from "../Jsonn";
-import { listTargets, runFuzz, shrinkInputs } from "./Agent";
+import {
+  listTargets,
+  runFuzz,
+  shrinkInputs,
+  ShowResultsOptions,
+  ShowResultsResult,
+} from "./Agent";
+import { attachToBridge } from "./McpBridgeClient";
 import { findBugs } from "./FindBugs";
 import { LlmAdapter } from "../fuzzer/adapters/LlmAdapter";
 import * as CompilerFactory from "../fuzzer/compilers/CompilerFactory";
@@ -35,7 +42,8 @@ const jsonValueSchema: z.ZodType<unknown> = z.lazy(() =>
  * @returns Configured McpServer instance
  */
 export async function createMcpServer(
-  options?: McpServerOptions
+  options?: McpServerOptions,
+  host?: McpHostHooks
 ): Promise<McpServer> {
   if (options) {
     applyServerOptions(options);
@@ -57,6 +65,7 @@ export async function createMcpServer(
           "Absolute or workspace-relative path to the source file (e.g. src/math.ts, test.py, src/lib.rs, src/Math.java, src/app.ml, or math.go)."
         ),
     },
+    { readOnlyHint: true },
     async ({ filePath }) => {
       const targets = await listTargets(filePath);
       return {
@@ -202,6 +211,14 @@ export async function createMcpServer(
         (Boolean(args.model) &&
           Config.get("nanofuzz.ai.provider", "disabled") !== "disabled");
 
+      // When the host supplies editor language models (provider "copilot"),
+      // map the calling agent's model onto one the host actually offers.
+      const resolved =
+        host?.resolveModel &&
+        Config.get<string>("nanofuzz.ai.provider", "disabled") === "copilot"
+          ? await host.resolveModel(args.vendor, args.model)
+          : { vendor: args.vendor, model: args.model };
+
       const result = await runFuzz(
         {
           filePath: args.filePath,
@@ -211,8 +228,8 @@ export async function createMcpServer(
           suiteTimeout: args.timeoutMs,
           maxFailures: args.maxFailures,
           seed: args.seed,
-          model: args.model,
-          vendor: args.vendor,
+          model: resolved.model,
+          vendor: resolved.vendor,
           inputs: args.inputs,
           tests: args.tests,
           exportSuite: args.exportSuite,
@@ -283,6 +300,7 @@ export async function createMcpServer(
           "Structured JSON state payload when transitioning phases (e.g. extracted invariants, entrypoint name, or final findings)."
         ),
     },
+    { readOnlyHint: true },
     async (args) => {
       const result = await findBugs({
         phase: args.phase,
@@ -379,6 +397,57 @@ export async function createMcpServer(
     }
   );
 
+  // Only hosts with a UI (i.e., the VS Code extension host) can show results
+  const hostShowResults = host?.showResults;
+  if (hostShowResults) {
+    server.tool(
+      "nanofuzz_showResults",
+      "Opens or reveals the NaNofuzz FuzzPanel Webview beside the active editor and directly displays the latest fuzz test results, counterexamples, and code coverage heatmap for a target function to the user. Optionally focuses on a specific result category ('ok', 'badValue', 'exception', 'timeout', 'failure', 'disagree', or 'runInfo').",
+      {
+        filePath: z
+          .string()
+          .describe(
+            "Absolute or workspace-relative path to the source file containing the target function."
+          ),
+        functionName: z
+          .string()
+          .describe(
+            "The exact name of the function whose fuzzing results should be displayed."
+          ),
+        focusCategory: z
+          .enum([
+            "ok",
+            "badValue",
+            "exception",
+            "timeout",
+            "failure",
+            "disagree",
+            "runInfo",
+          ])
+          .optional()
+          .describe(
+            "Optional result category tab to focus initially in FuzzPanel (e.g. 'badValue', 'exception', 'timeout', or 'runInfo')."
+          ),
+      },
+      async (args) => {
+        const result = await hostShowResults({
+          filePath: args.filePath,
+          functionName: args.functionName,
+          focusCategory: args.focusCategory,
+        });
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: result.message,
+            },
+          ],
+        };
+      }
+    );
+  }
+
   return server;
 } // fn: createMcpServer
 
@@ -390,6 +459,27 @@ export async function createMcpServer(
 export async function runMcpServer(options?: McpServerOptions): Promise<void> {
   const server = await createMcpServer(options);
   const transportType = options?.transport ?? "stdio";
+
+  // Prefer a NaNofuzz VS Code window that has this workspace open: tools
+  // then run in the extension host (FuzzPanel, VS Code settings).
+  if (transportType === "stdio" && options?.attach !== false) {
+    const attached = await attachToBridge(process.cwd());
+    if (attached) {
+      process.stderr.write(
+        `NaNofuzz MCP server attached to VS Code (pid ${attached.info.pid})\n`
+      );
+      const transport = new StdioServerTransport();
+      await attached.server.connect(transport);
+      await new Promise<void>((resolve) => {
+        transport.onclose = () => {
+          resolve();
+        };
+      });
+      await attached.close();
+      return;
+    }
+    process.stderr.write("NaNofuzz MCP server running standalone\n");
+  }
 
   if (transportType === "sse") {
     const port = options?.port ?? 3000;
@@ -556,4 +646,19 @@ export type McpServerOptions = {
   debug?: string | boolean;
   logFile?: string;
   clearCompileCache?: boolean;
+  attach?: boolean; // false: never attach to a VS Code window (--no-attach)
+};
+
+/**
+ * Capabilities supplied by the process hosting the MCP server. The VS Code
+ * extension host provides these; the standalone CLI does not.
+ */
+export type McpHostHooks = {
+  /** Displays fuzz results to the user (e.g., in FuzzPanel) */
+  showResults?: (options: ShowResultsOptions) => Promise<ShowResultsResult>;
+  /** Maps the calling agent's vendor/model onto a model the host offers */
+  resolveModel?: (
+    vendor?: string,
+    model?: string
+  ) => Promise<{ vendor?: string; model?: string }>;
 };
