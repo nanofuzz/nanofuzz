@@ -358,31 +358,64 @@ export class LlmAdapter {
             let matched: vscode.LanguageModelChat | undefined;
             if (modelName) {
               const mNorm = modelName.toLowerCase().replace(/[^a-z0-9]/g, "");
-              const vNorm = (cfg.vendor || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+              const vNorm = (cfg.vendor || "")
+                .toLowerCase()
+                .replace(/[^a-z0-9]/g, "");
 
               matched = allModels.find((m) => {
-                const f = (m.family || "").toLowerCase().replace(/[^a-z0-9]/g, "");
-                const n = (m.name || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+                const f = (m.family || "")
+                  .toLowerCase()
+                  .replace(/[^a-z0-9]/g, "");
+                const n = (m.name || "")
+                  .toLowerCase()
+                  .replace(/[^a-z0-9]/g, "");
                 const id = (m.id || "").toLowerCase().replace(/[^a-z0-9]/g, "");
-                const v = (m.vendor || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+                const v = (m.vendor || "")
+                  .toLowerCase()
+                  .replace(/[^a-z0-9]/g, "");
 
-                const vendorMatches = !vNorm || v === vNorm || v.includes(vNorm) || vNorm.includes(v);
-                const modelMatches = id === mNorm || f === mNorm || n === mNorm || id.includes(mNorm) || f.includes(mNorm) || n.includes(mNorm);
+                const vendorMatches =
+                  !vNorm ||
+                  v === vNorm ||
+                  v.includes(vNorm) ||
+                  vNorm.includes(v);
+                const modelMatches =
+                  id === mNorm ||
+                  f === mNorm ||
+                  n === mNorm ||
+                  id.includes(mNorm) ||
+                  f.includes(mNorm) ||
+                  n.includes(mNorm);
                 return vendorMatches && modelMatches;
               });
 
               if (!matched) {
                 matched = allModels.find((m) => {
-                  const f = (m.family || "").toLowerCase().replace(/[^a-z0-9]/g, "");
-                  const n = (m.name || "").toLowerCase().replace(/[^a-z0-9]/g, "");
-                  const id = (m.id || "").toLowerCase().replace(/[^a-z0-9]/g, "");
-                  return id === mNorm || f === mNorm || n === mNorm || id.includes(mNorm) || f.includes(mNorm) || n.includes(mNorm);
+                  const f = (m.family || "")
+                    .toLowerCase()
+                    .replace(/[^a-z0-9]/g, "");
+                  const n = (m.name || "")
+                    .toLowerCase()
+                    .replace(/[^a-z0-9]/g, "");
+                  const id = (m.id || "")
+                    .toLowerCase()
+                    .replace(/[^a-z0-9]/g, "");
+                  return (
+                    id === mNorm ||
+                    f === mNorm ||
+                    n === mNorm ||
+                    id.includes(mNorm) ||
+                    f.includes(mNorm) ||
+                    n.includes(mNorm)
+                  );
                 });
               }
             }
 
             if (!matched) {
-              const available = allModels.map((m) => `${m.vendor}:${m.id}`).join(", ");
+              const available = allModels
+                .map((m) => `${m.vendor}:${m.id}`)
+                .join(", ");
               throw new Error(
                 `Requested model '${modelName}' (vendor: '${cfg.vendor}') not found in VS Code. Available models: [${available}]. Refusing to substitute an arbitrary fallback.`
               );
@@ -673,10 +706,12 @@ export class LlmAdapter {
     cacheFile: string;
     cacheDelay: string;
   } {
+    const provider = LlmAdapter._getConfigValue<string>("provider", "disabled");
     return {
-      provider: LlmAdapter._getConfigValue("provider", "disabled"),
+      provider,
       modelName: LlmAdapter._getConfigValue("model", ""),
-      vendor: LlmAdapter._getConfigValue("vendor", ""),
+      vendor:
+        provider === "copilot" ? LlmAdapter._getConfigValue("vendor", "") : "",
       apiKey: LlmAdapter._getConfigValue("apiKey", ""),
       endpoint: LlmAdapter._getConfigValue("endpoint", ""),
       requestTimeout: LlmAdapter._getConfigValue<number>(
