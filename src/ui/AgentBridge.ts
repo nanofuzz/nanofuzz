@@ -27,10 +27,11 @@ const MCP_SERVER_CONFIG = {
 // -------------------------------------------------------------------------- //
 
 /**
- * Starts the agent bridge: a loopback MCP endpoint that lets agents running
- * outside VS Code's own agent host (e.g., Claude Code) call the NaNofuzz tools
- * inside this process. `nanofuzz mcp` finds the endpoint through a discovery
- * file and proxies to it.
+ * Starts the agent bridge: a loopback MCP endpoint that lets coding agents
+ * running outside VS Code's own agent host call the NaNofuzz tools (including
+ * nanofuzz_showResults) inside this process. Any MCP client that launches
+ * `nanofuzz mcp` over stdio finds the endpoint through a discovery file and
+ * proxies to it.
  *
  * @param options Host hooks, workspace folders, and discovery directory
  * @returns Handle for the running bridge
@@ -178,12 +179,13 @@ export async function registerAgentBridge(): Promise<vscode.Disposable[]> {
 } // fn: registerAgentBridge
 
 // -------------------------------------------------------------------------- //
-// Claude Code Setup
+// Coding Agent Setup
 // -------------------------------------------------------------------------- //
 
 /**
  * Adds the NaNofuzz MCP server to a project-scoped MCP configuration
- * (`.mcp.json`), preserving any servers already configured.
+ * (`.mcp.json`, using the common `mcpServers` format), preserving any servers
+ * already configured.
  *
  * @param existing Current file contents, or undefined if the file does not exist
  * @returns The new file contents, or undefined if NaNofuzz is already configured
@@ -221,38 +223,52 @@ export function addNanofuzzToMcpConfig(
 } // fn: addNanofuzzToMcpConfig
 
 /**
- * Command handler: configures Claude Code to use NaNofuzz in a workspace folder.
+ * Returns the NaNofuzz MCP server entry in the common `mcpServers` format, for
+ * coding agents that read their MCP configuration from somewhere other than
+ * `.mcp.json`.
  */
-async function handleSetupClaudeCodeCommand(): Promise<void> {
+export function getMcpConfigSnippet(): string {
+  return JSON.stringify(
+    { mcpServers: { [MCP_SERVER_NAME]: MCP_SERVER_CONFIG } },
+    null,
+    2
+  );
+} // fn: getMcpConfigSnippet
+
+/**
+ * Command handler: configures coding agents to use NaNofuzz in a workspace
+ * folder by adding it to the folder's `.mcp.json`.
+ */
+async function handleSetupMcpServerCommand(): Promise<void> {
   const toolName = getToolName();
   const folders = vscode.workspace.workspaceFolders ?? [];
   const folder =
     folders.length > 1
       ? await vscode.window.showWorkspaceFolderPick({
-          placeHolder: `Folder to set up ${toolName} for Claude Code`,
+          placeHolder: `Folder to set up the ${toolName} MCP server for`,
         })
       : folders[0];
   if (!folder) {
     if (folders.length === 0) {
       vscode.window.showErrorMessage(
-        `Open a folder before setting up ${toolName} for Claude Code.`
+        `Open a folder before setting up the ${toolName} MCP server.`
       );
     }
     return;
   }
 
   const file = path.join(folder.uri.fsPath, MCP_CONFIG_FILE);
+  let message: string;
   try {
     const updated = addNanofuzzToMcpConfig(
       fs.existsSync(file) ? fs.readFileSync(file, "utf8") : undefined
     );
     if (updated === undefined) {
-      vscode.window.showInformationMessage(
-        `${toolName} is already configured for Claude Code in ${MCP_CONFIG_FILE}.`
-      );
-      return;
+      message = `${toolName} is already configured in ${MCP_CONFIG_FILE}.`;
+    } else {
+      fs.writeFileSync(file, updated, "utf8");
+      message = `Added ${toolName} to ${MCP_CONFIG_FILE}. Restart your coding agent in this folder and approve the "${MCP_SERVER_NAME}" MCP server if asked.`;
     }
-    fs.writeFileSync(file, updated, "utf8");
   } catch (e: unknown) {
     vscode.window.showErrorMessage(
       `Unable to update ${file}: ${e instanceof Error ? e.message : String(e)}`
@@ -260,18 +276,23 @@ async function handleSetupClaudeCodeCommand(): Promise<void> {
     return;
   }
 
-  vscode.window.showInformationMessage(
-    `Added ${toolName} to ${MCP_CONFIG_FILE}. Restart Claude Code in this folder and approve the "${MCP_SERVER_NAME}" MCP server when asked.`
+  const copyAction = "Copy Configuration";
+  const choice = await vscode.window.showInformationMessage(
+    `${message} If your agent reads MCP servers from a different file, copy the configuration into it.`,
+    copyAction
   );
-} // fn: handleSetupClaudeCodeCommand
+  if (choice === copyAction) {
+    await vscode.env.clipboard.writeText(getMcpConfigSnippet());
+  }
+} // fn: handleSetupMcpServerCommand
 
 /**
  * Commands contributed by this module
  */
 export const commands = {
-  setupClaudeCode: {
-    name: "nanofuzz.SetupClaudeCode",
-    fn: handleSetupClaudeCodeCommand,
+  setupMcpServer: {
+    name: "nanofuzz.SetupMcpServer",
+    fn: handleSetupMcpServerCommand,
   },
 };
 

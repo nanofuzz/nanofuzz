@@ -87,7 +87,8 @@ export async function activate(
 
   /**
    * Start the bridge that lets agents outside VS Code's agent host
-   * (e.g., Claude Code, via `nanofuzz mcp`) use the tools in this window.
+   * (any coding agent that launches `nanofuzz mcp`) use the tools in this
+   * window, including showing results in the NaNofuzz panel.
    */
   try {
     const bridgeDisposables = await ab.registerAgentBridge();

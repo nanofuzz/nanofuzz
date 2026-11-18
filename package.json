@@ -54,8 +54,8 @@
         "category": "NaNofuzz"
       },
       {
-        "command": "nanofuzz.SetupClaudeCode",
-        "title": "Set Up Claude Code",
+        "command": "nanofuzz.SetupMcpServer",
+        "title": "Set Up MCP Server for Coding Agents",
         "category": "NaNofuzz"
       },
       {
@@ -715,7 +715,7 @@
             "order": 90,
             "type": "boolean",
             "default": true,
-            "description": "Lets agents running outside VS Code's own agent mode (e.g., Claude Code, via `nanofuzz mcp`) run NaNofuzz in this window through a private local connection, so they share its settings and can show results in the NaNofuzz panel. Takes effect after reloading the window."
+            "description": "Lets coding agents running outside VS Code's own agent mode (any agent that launches `nanofuzz mcp`) run NaNofuzz in this window through a private local connection, so they share its settings and can show results in the NaNofuzz panel. Takes effect after reloading the window."
           }
         }
       },

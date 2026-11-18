@@ -333,8 +333,8 @@ describe("McpServer", () => {
       arguments: {
         filePath: tsFixture,
         functionName: "testStandardVoidReturnUndefined",
-        model: "claude-sonnet",
-        vendor: "anthropic",
+        model: "example-model",
+        vendor: "example-vendor",
         maxTests: 5,
         timeoutMs: 2000,
       },
