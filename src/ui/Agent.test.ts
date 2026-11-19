@@ -1339,6 +1339,21 @@ def py_double(x: int) -> int:
     expect(summary).toContain("line(s) 14 (unreached)");
   });
 
+  it("listTargets on tree_value.py parses functions with 'type' and 'Optional[type]' annotations without error", async () => {
+    const treeValuePath = path.resolve(process.cwd(), "benchmark/target/src/fandango/language/tree_value.py");
+    if (!fs.existsSync(treeValuePath)) {
+      pending("Skipping: benchmark target tree_value.py not present in environment.");
+      return;
+    }
+    const result = await listTargets(treeValuePath);
+    expect(result.language).toBe("python");
+    expect(result.functions.length).toBeGreaterThan(0);
+    const names = result.functions.map((f) => f.name);
+    expect(names).toContain("_str_to_bytes");
+    expect(names).toContain("_get_exclusive_base_type_method_is_implemented_for");
+    expect(names).toContain("decorator");
+  });
+
   it("runFuzz: captures coverage frontier functions and generator diagnostics", async () => {
     const result = await runFuzz({
       filePath: tsFixture,

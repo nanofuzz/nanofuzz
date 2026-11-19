@@ -336,11 +336,19 @@ export async function findBugs(
         sessionManager.hasCompletedDeepRun(session.sessionId);
 
       if (!hasCompletedFuzzing) {
+        const reqRetries = Config.get<number>(
+          "nanofuzz.experimental.findBugs.maxRetries",
+          4
+        );
         const reqTimeout = Config.get<number>(
           "nanofuzz.experimental.findBugs.deepTimeoutMs",
           300000
         );
         const reqSec = Math.round(reqTimeout / 1000);
+        const reqMinStr =
+          reqSec >= 60
+            ? `${Math.round(reqSec / 60)} minute${Math.round(reqSec / 60) > 1 ? "s" : ""}`
+            : `${reqSec} seconds`;
         const pendingDeep = sessionManager.getPendingDeepEntrypoints(
           session.sessionId
         );
@@ -360,8 +368,8 @@ export async function findBugs(
 
         throw new Error(
           `Execution Gate Blocked (Gate 3: Deep Fuzzing Required - Incomplete): ${detail}\n` +
-          `Stopping Requirement: Gate 3 requires either 100% branch coverage or all 4 exploration retries completed.\n` +
-          `To proceed, invoke nanofuzz_fuzzFunction with timeoutMs: ${reqTimeout} (5 minutes) and maxTests: 0 (continuous mode).\n\n` +
+          `Stopping Requirement: Gate 3 requires either 100% branch coverage or all ${reqRetries} exploration retries completed.\n` +
+          `To proceed, invoke nanofuzz_fuzzFunction with timeoutMs: ${reqTimeout} (${reqMinStr}) and maxTests: 0 (continuous mode).\n\n` +
           deepPrompt
         );
       }
@@ -408,11 +416,19 @@ export async function findBugs(
         sessionManager.hasCompletedDeepRun(session.sessionId);
 
       if (!hasCompletedFuzzing) {
+        const reqRetries = Config.get<number>(
+          "nanofuzz.experimental.findBugs.maxRetries",
+          4
+        );
         const reqTimeout = Config.get<number>(
           "nanofuzz.experimental.findBugs.deepTimeoutMs",
           300000
         );
         const reqSec = Math.round(reqTimeout / 1000);
+        const reqMinStr =
+          reqSec >= 60
+            ? `${Math.round(reqSec / 60)} minute${Math.round(reqSec / 60) > 1 ? "s" : ""}`
+            : `${reqSec} seconds`;
         const pendingDeep = sessionManager.getPendingDeepEntrypoints(
           session.sessionId
         );
@@ -432,8 +448,8 @@ export async function findBugs(
 
         throw new Error(
           `Execution Gate Blocked (Gate 3: Deep Fuzzing Required - Incomplete): ${detail}\n` +
-          `Stopping Requirement: Gate 3 requires either 100% branch coverage or all 4 exploration retries completed.\n` +
-          `To proceed, invoke nanofuzz_fuzzFunction with timeoutMs: ${reqTimeout} (5 minutes) and maxTests: 0 (continuous mode).\n\n` +
+          `Stopping Requirement: Gate 3 requires either 100% branch coverage or all ${reqRetries} exploration retries completed.\n` +
+          `To proceed, invoke nanofuzz_fuzzFunction with timeoutMs: ${reqTimeout} (${reqMinStr}) and maxTests: 0 (continuous mode).\n\n` +
           deepPrompt
         );
       }

@@ -49,6 +49,7 @@ import {
   recoverBenchmarkMatrix,
   runBenchmarkMatrix,
   runBenchmarkSmoketest,
+  runBenchmarkAbTest,
 } from "./BenchmarkRunner";
 
 /**
@@ -4067,6 +4068,12 @@ export const commands = {
     name: "nanofuzz.RunBenchmarkFull",
     fn: () => {
       void runBenchmarkMatrix(3);
+    },
+  },
+  runBenchmarkAbTest: {
+    name: "nanofuzz.RunBenchmarkAbTest",
+    fn: () => {
+      void runBenchmarkAbTest();
     },
   },
   recoverBenchmark: {

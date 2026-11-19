@@ -429,6 +429,11 @@ class FindBugsSessionManager {
     const s = this.getSession(sessionId, filePath);
     if (!s || !s.entrypoints) return [];
 
+    const reqRetries = Config.get<number>(
+      "nanofuzz.experimental.findBugs.maxRetries",
+      4
+    );
+
     return s.entrypoints
       .filter((e) => !this.isEntrypointDeepCriteriaMet(s, e))
       .map((e) => {
@@ -445,7 +450,7 @@ class FindBugsSessionManager {
           lastCov !== undefined
             ? `${lastCov}% branch coverage`
             : "no coverage reported";
-        return `${e.name} (${deepRuns.length}/4 retries, ${covStr})`;
+        return `${e.name} (${deepRuns.length}/${reqRetries} retries, ${covStr})`;
       });
   } // fn: getPendingDeepEntrypoints
 
@@ -484,10 +489,14 @@ class FindBugsSessionManager {
   public getDeepEntrypointsCount(sessionId?: string): number {
     const s = this.getSession(sessionId);
     if (!s || s.fuzzRuns.length === 0) return 0;
+    const reqTimeout = Config.get<number>(
+      "nanofuzz.experimental.findBugs.deepTimeoutMs",
+      300000
+    );
     if (s.entrypoints && s.entrypoints.length > 0) {
       const deepRuns = s.fuzzRuns.filter(
         (r) =>
-          (r.suiteTimeout ?? 0) >= 300000 &&
+          (r.suiteTimeout ?? 0) >= reqTimeout &&
           (r.maxTests === 0 || r.maxTests === Number.MAX_SAFE_INTEGER)
       );
       return s.entrypoints.filter((e) =>
@@ -498,7 +507,7 @@ class FindBugsSessionManager {
       s.fuzzRuns
         .filter(
           (r) =>
-            (r.suiteTimeout ?? 0) >= 300000 &&
+            (r.suiteTimeout ?? 0) >= reqTimeout &&
             (r.maxTests === 0 || r.maxTests === Number.MAX_SAFE_INTEGER)
         )
         .map((r) => r.functionName)

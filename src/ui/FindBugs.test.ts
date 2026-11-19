@@ -1485,5 +1485,74 @@ describe("FindBugs", () => {
       }
       expect(threw).toBe(true);
     });
+
+    it("Gate 3 dynamically reflects custom deepTimeoutMs (e.g. 60s) and maxRetries in rejection message", async () => {
+      Config.override("nanofuzz.experimental.findBugs.tool", "nanofuzz");
+      Config.override("nanofuzz.experimental.findBugs.deepTimeoutMs", 60000);
+      Config.override("nanofuzz.experimental.findBugs.maxRetries", 4);
+
+      await findBugs({
+        phase: "invariants_extracted",
+        model,
+        vendor,
+        statePayload: {
+          sessionId: "gate3-custom-session",
+          entrypoints: [
+            {
+              name: "TreeValue",
+              filePath: "src/fandango/language/tree_value.py",
+              invariants: ["Equality contract"],
+            },
+          ],
+        },
+      });
+
+      // Record 2 deep runs of 1-minute (>= 54s)
+      for (let i = 0; i < 2; i++) {
+        sessionManager.recordFuzzRun(
+          {
+            functionName: "fuzz_TreeValue",
+            filePath: "nanofuzz_harness_TreeValue.py",
+            timestamp: Date.now(),
+            totalTests: 500,
+            passedTests: 480,
+            failedTests: 20,
+            erroredTests: 0,
+            skippedTests: 0,
+            timeouts: 0,
+            exceptions: 0,
+            durationMs: 56000,
+            suiteTimeout: 60000,
+            maxTests: 0,
+            branchCoveragePct: 40.0,
+          },
+          "gate3-custom-session"
+        );
+      }
+
+      let threw = false;
+      try {
+        await findBugs({
+          phase: "contextualize_bugs",
+          model,
+          vendor,
+          statePayload: {
+            sessionId: "gate3-custom-session",
+            bugs: [{ entrypoint: "TreeValue", error: "contract violation" }],
+          },
+        });
+      } catch (err: unknown) {
+        threw = true;
+        if (err instanceof Error) {
+          expect(err.message).toContain("Gate 3: Deep Fuzzing Required - Incomplete");
+          expect(err.message).toContain("TreeValue (2/4 retries, 40% branch coverage)");
+          expect(err.message).toContain("Stopping Requirement: Gate 3 requires either 100% branch coverage or all 4 exploration retries completed.");
+          expect(err.message).toContain("timeoutMs: 60000 (1 minute) and maxTests: 0 (continuous mode)");
+        } else {
+          fail("Expected error to be an instance of Error");
+        }
+      }
+      expect(threw).toBe(true);
+    });
   });
 });

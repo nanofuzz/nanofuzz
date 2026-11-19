@@ -3843,6 +3843,179 @@ export async function runBenchmarkSmoketest(
   runAnalysisPipeline(activeRunContext);
 } // fn: runBenchmarkSmoketest
 
+export function generateAbTestSchedule(
+  task: BenchmarkTaskName = "TreeValue",
+  totalTasks: number = 7
+): BenchmarkRunSpec[] {
+  const runs: Omit<BenchmarkRunSpec, "sequence" | "participant">[] = [];
+
+  for (let i = 0; i < totalTasks; i++) {
+    runs.push({
+      replicate: 1,
+      task,
+      engine: "nanofuzz",
+      source: "all",
+      targetScope: [task],
+      reportFilename: "",
+      reportPath: "",
+    });
+  }
+
+  return runs.map((r, idx) => {
+    const seq = idx + 1;
+    const participant = `P${String(seq).padStart(2, "0")}`;
+    const reportFilename = `${participant}.md`;
+    return {
+      ...r,
+      sequence: seq,
+      participant,
+      reportFilename,
+      reportPath: path.join(getArtifactsDir(), participant, reportFilename),
+    };
+  });
+}
+
+export async function runBenchmarkAbTest(
+  concurrency: number = CONCURRENCY_LANES
+): Promise<void> {
+  activeRunContext = createRunContext();
+  initializeConcurrentWorktrees(concurrency);
+  updateLatestSymlink(activeRunContext.resultsDir);
+  mirrorLatestResultsToRoot(activeRunContext);
+
+  // Overrides: 60s (1m) deep fuzzing timeout and 4 retries
+  Config.override("nanofuzz.experimental.findBugs.deepTimeoutMs", 60000);
+  Config.override("nanofuzz.experimental.findBugs.maxRetries", 4);
+
+  const schedule = generateAbTestSchedule("TreeValue", 7);
+
+  if (activeCts) {
+    activeCts.cancel();
+    activeCts.dispose();
+  }
+  activeCts = new vscode.CancellationTokenSource();
+  const token = activeCts.token;
+
+  const totalRuns = schedule.length;
+  dashboardTracker.startMatrix(totalRuns, []);
+  getOutput().show(true);
+
+  log(
+    "================================================================================"
+  );
+  log(
+    `[BENCHMARK] Starting 7-Participant NaNofuzz Smoketest (TreeValue, all source, 1m deep x 4 retries, 1 counterexample, ${concurrency} concurrent lanes)`
+  );
+  log(`Results Directory: ${getResultsDir()}`);
+  log(
+    "================================================================================\n"
+  );
+
+  let nextQueueIndex = 0;
+  const results: {
+    participant: string;
+    lane: number;
+    task: string;
+    engine: string;
+    source: string;
+    replicate: number;
+    durationSec: number;
+    success: boolean;
+  }[] = [];
+
+  async function laneWorker(laneId: number): Promise<void> {
+    while (nextQueueIndex < schedule.length) {
+      if (token.isCancellationRequested) break;
+      const runIndex = nextQueueIndex++;
+      const run = schedule[runIndex];
+      const sessionStart = Date.now();
+      try {
+        const res = await runSingleBenchmarkSession(
+          run,
+          totalRuns,
+          laneId,
+          token
+        );
+        results.push({
+          participant: run.participant,
+          lane: laneId,
+          task: run.task,
+          engine: run.engine,
+          source: run.source,
+          replicate: run.replicate,
+          durationSec: res.durationSec,
+          success: res.success,
+        });
+      } catch (err: unknown) {
+        const crashDurationSec = Math.floor((Date.now() - sessionStart) / 1000);
+        log(
+          `[FAILED] [Lane ${laneId}] Participant ${run.participant} crashed after ${crashDurationSec}s with error: ${String(err)}`
+        );
+        cleanLane(laneId);
+        dashboardTracker.sessionFinished(laneId, {
+          participant: run.participant,
+          lane: laneId,
+          task: run.task,
+          engine: run.engine,
+          source: run.source,
+          replicate: run.replicate,
+          durationSec: crashDurationSec,
+          success: false,
+          error: String(err),
+        });
+        results.push({
+          participant: run.participant,
+          lane: laneId,
+          task: run.task,
+          engine: run.engine,
+          source: run.source,
+          replicate: run.replicate,
+          durationSec: crashDurationSec,
+          success: false,
+        });
+      }
+    }
+  }
+
+  try {
+    const laneWorkers: Promise<void>[] = [];
+    for (let l = 1; l <= concurrency; l++) {
+      laneWorkers.push(laneWorker(l));
+    }
+    await Promise.all(laneWorkers);
+  } finally {
+    dashboardTracker.dispose();
+    if (activeCts?.token === token) {
+      activeCts.dispose();
+      activeCts = undefined;
+    }
+  }
+
+  // Print final summary table
+  results.sort((a, b) => a.participant.localeCompare(b.participant));
+  log(
+    "\n================================================================================"
+  );
+  log("A/B STUDY COMPLETE: SUMMARY OF ALL PARTICIPANTS");
+  log(
+    "================================================================================"
+  );
+  log("| ID | Lane | Task | Engine | Source | Duration | Status |");
+  log("| :-: | :--: | :--- | :----: | :----: | :------: | :----: |");
+  for (const r of results) {
+    const dur = `${Math.floor(r.durationSec / 60)}m ${r.durationSec % 60}s`;
+    const st = r.success ? "[PASS]" : "[FAIL]";
+    log(
+      `| ${r.participant} | Lane ${r.lane} | ${r.task} | ${r.engine} | ${r.source} | ${dur} | ${st} |`
+    );
+  }
+  log(
+    "================================================================================\n"
+  );
+
+  runAnalysisPipeline(activeRunContext);
+} // fn: runBenchmarkAbTest
+
 export function runAnalysisPipeline(
   runContext: BenchmarkRunContext = activeRunContext
 ): void {
