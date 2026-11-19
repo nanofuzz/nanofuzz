@@ -3231,6 +3231,22 @@ export class PythonProgram extends AbstractProgram {
       );
     }
 
+    if (
+      typeRef.name === "prng" ||
+      typeRef.typeRefName === "FuzzTestResult" ||
+      typeRef.typeRefName === "Callable" ||
+      typeRef.typeRefName === "collections.abc.Callable" ||
+      typeRef.typeRefName === "typing.Callable"
+    ) {
+      typeRef.type = {
+        type: ArgTag.OBJECT,
+        dims: 0,
+        children: [],
+        resolved: true,
+      };
+      return typeRef;
+    }
+
     // Resolve standard builtin types
     switch (typeRef.typeRefName) {
       case "int":
