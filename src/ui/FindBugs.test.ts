@@ -1416,8 +1416,8 @@ describe("FindBugs", () => {
       });
 
       expect(res.instructions).toContain("def fuzz_distance_norm(...)");
-      expect(res.instructions).toContain("Union[float, int, object, ...]");
-      expect(res.instructions).toContain("datetime.date");
+      expect(res.instructions).toContain("For unconstrained or generic parameters");
+      expect(res.instructions).toContain("For classes, complex types, or domain objects");
     });
 
     it("formats Gate 3 rejection with clear retry status and appends Phase 5 deep guidance", async () => {
