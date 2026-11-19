@@ -1023,6 +1023,76 @@ def calculate(x: int) -> int:
     }
   }, 30000);
 
+  it("fails immediately on startup if Python module import fails", async () => {
+    const tmpDir = getTmpDir("nanofuzz-import-fail-");
+    const pyPath = path.join(tmpDir, "bad_import.py");
+    const pyCode = `import non_existent_dummy_module_987654321
+
+def fn(x: int) -> int:
+    return x + 1
+`;
+    fs.writeFileSync(pyPath, pyCode);
+
+    try {
+      const program = ProgramFactory.fromSource(
+        () => pyCode,
+        "python",
+        pyPath
+      );
+      const fnDef = program.functionsExported["fn"];
+      const env = createFuzzEnv(fnDef);
+
+      const runner = new PythonRunner(pyPath, "fn", env);
+      await expectAsync(runner.onRunStart()).toBeRejectedWithError(
+        /non_existent_dummy_module_987654321/
+      );
+    } finally {
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // Ignore
+      }
+    }
+  }, 30000);
+
+  it("fails immediately on startup if target function is not callable or not found", async () => {
+    const tmpDir = getTmpDir("nanofuzz-noncallable-");
+    const pyPath = path.join(tmpDir, "non_callable.py");
+    const pyCode = `fn = 42\n`;
+    fs.writeFileSync(pyPath, pyCode);
+
+    try {
+      const program = ProgramFactory.fromSource(
+        () => pyCode,
+        "python",
+        pyPath
+      );
+      const fnDef = program.functionsExported["fn"];
+      const env = createFuzzEnv(fnDef);
+
+      const runner = new PythonRunner(pyPath, "fn", env);
+      await expectAsync(runner.onRunStart()).toBeRejectedWithError(
+        /'fn' is not callable/
+      );
+    } finally {
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // Ignore
+      }
+    }
+  }, 30000);
+
   it("static coverage: retains static coverage structure across test runs, timeouts, and errors", async () => {
     const tmpDir = getTmpDir("nanofuzz-static-py-");
     const pyPath = path.join(tmpDir, "static_test.py");
