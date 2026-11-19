@@ -1393,4 +1393,97 @@ describe("FindBugs", () => {
       expect(sessionManager.isQualifyingDeepRun(fullCoverageRun)).toBe(true);
     });
   });
+
+  describe("Prompt formatting and gate rejection verification", () => {
+    it("formats Phase 3 NaNofuzz prompt with underscore stripping rule and Union typing guidance", async () => {
+      Config.override("nanofuzz.experimental.findBugs.tool", "nanofuzz");
+      Config.override("nanofuzz.experimental.findBugs.invariantSource", "docs");
+
+      const res = await findBugs({
+        phase: "invariants_extracted",
+        model,
+        vendor,
+        statePayload: {
+          sessionId: "prompt-format-session",
+          entrypoints: [
+            {
+              name: "_distance_norm",
+              filePath: "src/fandango/constraints/comparison.py",
+              invariants: ["Output in [0.0, 1.0]"],
+            },
+          ],
+        },
+      });
+
+      expect(res.instructions).toContain("def fuzz_distance_norm(...)");
+      expect(res.instructions).toContain("Union[float, int, object, ...]");
+      expect(res.instructions).toContain("datetime.date");
+    });
+
+    it("formats Gate 3 rejection with clear retry status and appends Phase 5 deep guidance", async () => {
+      Config.override("nanofuzz.experimental.findBugs.tool", "nanofuzz");
+
+      await findBugs({
+        phase: "invariants_extracted",
+        model,
+        vendor,
+        statePayload: {
+          sessionId: "gate3-rejection-session",
+          entrypoints: [
+            {
+              name: "TreeValue",
+              filePath: "src/fandango/language/tree_value.py",
+              invariants: ["Equality contract"],
+            },
+          ],
+        },
+      });
+
+      // Record 1 deep run with < 100% coverage
+      sessionManager.recordFuzzRun(
+        {
+          functionName: "fuzz_TreeValue",
+          filePath: "nanofuzz_harness_TreeValue.py",
+          timestamp: Date.now(),
+          totalTests: 500,
+          passedTests: 480,
+          failedTests: 20,
+          erroredTests: 0,
+          skippedTests: 0,
+          timeouts: 0,
+          exceptions: 0,
+          durationMs: 280000,
+          suiteTimeout: 300000,
+          maxTests: 0,
+          branchCoveragePct: 33.87,
+        },
+        "gate3-rejection-session"
+      );
+
+      let threw = false;
+      try {
+        await findBugs({
+          phase: "contextualize_bugs",
+          model,
+          vendor,
+          statePayload: {
+            sessionId: "gate3-rejection-session",
+            bugs: [{ entrypoint: "TreeValue", error: "contract violation" }],
+          },
+        });
+      } catch (err: unknown) {
+        threw = true;
+        if (err instanceof Error) {
+          expect(err.message).toContain("Gate 3: Deep Fuzzing Required - Incomplete");
+          expect(err.message).toContain("TreeValue (1/4 retries, 33.87% branch coverage)");
+          expect(err.message).toContain("Stopping Requirement: Gate 3 requires either 100% branch coverage or all 4 exploration retries completed.");
+          expect(err.message).toContain("timeoutMs: 300000 (5 minutes) and maxTests: 0 (continuous mode)");
+          expect(err.message).toContain("### Instructions for Phase 5: Deep Fuzzing");
+        } else {
+          fail("Expected error to be an instance of Error");
+        }
+      }
+      expect(threw).toBe(true);
+    });
+  });
 });

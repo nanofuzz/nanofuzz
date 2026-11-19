@@ -346,11 +346,23 @@ export async function findBugs(
         );
         const detail =
           pendingDeep.length > 0
-            ? `Pending Stage 2 Deep Fuzzing for entrypoint(s): ${pendingDeep.join(", ")}.`
+            ? `Pending Stage 2 Deep Fuzzing for: ${pendingDeep.join(", ")}.`
             : `Stage 2 Deep Fuzzing (${reqTimeout}ms / ${reqSec}s per attempt, maxTests: 0) was never executed.`;
 
+        const deepPrompt = buildFuzzEntrypointGuidance(
+          options,
+          toolName,
+          tool,
+          invariantSource,
+          1,
+          session.sessionId
+        );
+
         throw new Error(
-          `Execution Gate Blocked (Gate 3: Deep Fuzzing Required): ${detail} You MUST execute Stage 2: Deep Fuzzing with timeoutMs: ${reqTimeout} and maxTests: 0 for all declared entrypoints before advancing to contextualize_bugs.`
+          `Execution Gate Blocked (Gate 3: Deep Fuzzing Required - Incomplete): ${detail}\n` +
+          `Stopping Requirement: Gate 3 requires either 100% branch coverage or all 4 exploration retries completed.\n` +
+          `To proceed, invoke nanofuzz_fuzzFunction with timeoutMs: ${reqTimeout} (5 minutes) and maxTests: 0 (continuous mode).\n\n` +
+          deepPrompt
         );
       }
 
@@ -406,11 +418,23 @@ export async function findBugs(
         );
         const detail =
           pendingDeep.length > 0
-            ? `Pending Stage 2 Deep Fuzzing for entrypoint(s): ${pendingDeep.join(", ")}.`
+            ? `Pending Stage 2 Deep Fuzzing for: ${pendingDeep.join(", ")}.`
             : `Stage 2 Deep Fuzzing (${reqTimeout}ms / ${reqSec}s per attempt, maxTests: 0) was never executed.`;
 
+        const deepPrompt = buildFuzzEntrypointGuidance(
+          options,
+          toolName,
+          tool,
+          invariantSource,
+          1,
+          session.sessionId
+        );
+
         throw new Error(
-          `Execution Gate Blocked (Gate 3: Deep Fuzzing Required): ${detail} You MUST execute Stage 2: Deep Fuzzing with timeoutMs: ${reqTimeout} and maxTests: 0 for all declared entrypoints before completing the workflow.`
+          `Execution Gate Blocked (Gate 3: Deep Fuzzing Required - Incomplete): ${detail}\n` +
+          `Stopping Requirement: Gate 3 requires either 100% branch coverage or all 4 exploration retries completed.\n` +
+          `To proceed, invoke nanofuzz_fuzzFunction with timeoutMs: ${reqTimeout} (5 minutes) and maxTests: 0 (continuous mode).\n\n` +
+          deepPrompt
         );
       }
 
@@ -774,10 +798,12 @@ function buildInvariantsGuidance(
   `   - For each entrypoint or coupled group, create a dedicated harness file **inside the project root/source tree** (e.g. \`<projectRoot>/nanofuzz_harness_<entrypoint>.py\`).`,
   `   - ⚠️ Do NOT place harness files in an external \`/tmp\` directory—language runners need project virtualenvs to resolve imports.`,
     `   - Define a typed function (e.g. \`fuzz_<entrypoint>\`) that takes typed arguments and calls the target entrypoint.`,
+    `   - ⚠️ **Naming for leading underscores**: For functions starting with underscores (e.g. \`_distance_norm\`), strip the leading underscore in the harness function name: define \`def fuzz_distance_norm(...)\` (not \`fuzz__distance_norm\`).`,
   `   - ⚠️ **No Hardcoded Lookup Tables or Initial States**: NEVER pass an integer index into a hardcoded array of test inputs. Pass initial data directly as typed parameters so NaNofuzz can generate, mutate, and shrink them.`,
     "",
   `2. **Formal Companion Function Interface Contracts (Python)**:`,
   `   - **Target Harness Function**: \`def fuzz_<entrypoint>(param1: T1, param2: T2) -> ReturnType:\``,
+  `     - For functions that accept generic inputs, type your harness parameters as \`Union[float, int, object, ...]\` or test non-primitive types by constructing composite objects (such as \`datetime.date\`) from primitive integer components (\`year: int, month: int, day: int\`) inside the harness.`,
   `   - **Input Transformer**: \`def fuzz_<entrypoint>_transformer(param1: T1, param2: T2) -> tuple[T1, T2]:\``,
   `     - Input: Same parameters and types as the harness function.`,
   `     - Filtering: Use \`assume(condition)\` from \`nanofuzz_runtime\` to discard invalid inputs.`,

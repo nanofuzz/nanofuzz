@@ -2365,4 +2365,24 @@ def greeting_transformer(*args: MyTuple):
       ["args_1", "int"],
     ]);
   });
+
+  it("resolves prng, Callable, and FuzzTestResult in companion functions without error", () => {
+    const fns = ProgramFactory.fromSource(
+      () => `from typing import Callable, Literal
+from nanofuzz_runtime import FuzzTestResult
+
+def fuzz_test_generator(prng: Callable[[], float]) -> tuple[float]:
+    return (prng(),)
+
+def fuzz_test_validator(r: FuzzTestResult) -> Literal["pass", "fail"]:
+    return "pass"
+`,
+      "python"
+    ).functionsExported;
+
+    expect(fns["fuzz_test_generator"]).toBeDefined();
+    expect(fns["fuzz_test_generator"].getArgDefs()[0].getName()).toEqual("prng");
+    expect(fns["fuzz_test_validator"]).toBeDefined();
+    expect(fns["fuzz_test_validator"].getArgDefs()[0].getName()).toEqual("r");
+  });
 });

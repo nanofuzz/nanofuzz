@@ -2123,6 +2123,7 @@ export async function runSingleBenchmarkSession(
   }
 
   sessionManager.clear(sessionId);
+  const sessionCreatedFiles = new Set<string>();
   sessionManager.getOrCreateSession(
     sessionId,
     run.engine,
@@ -2625,6 +2626,31 @@ export async function runSingleBenchmarkSession(
               : path.resolve(laneRepoPath, path.basename(resolved));
         }
 
+        const expectedHarnessRel =
+          run.engine === "nanofuzz"
+            ? `nanofuzz_harness_${run.task}.py`
+            : path.join("tests", `test_pbt_${run.task}.py`);
+        const cleanTask = run.task.replace(/^_+/, "");
+        const expectedHarnessFn =
+          run.engine === "nanofuzz"
+            ? `fuzz_${cleanTask}`
+            : `test_${cleanTask}`;
+
+        if (
+          typeof toolInput.filePath === "string" &&
+          fs.existsSync(toolInput.filePath) &&
+          !sessionCreatedFiles.has(path.resolve(toolInput.filePath))
+        ) {
+          resultText = `Execution Blocked: '${toolInput.filePath}' is a pre-existing repository file, not a test harness. You should be testing '${expectedHarnessRel}' (function '${expectedHarnessFn}') instead.`;
+          eventRecord.result = resultText;
+          toolResults.push(
+            new vscode.LanguageModelToolResultPart(call.callId, [
+              new vscode.LanguageModelTextPart(resultText),
+            ])
+          );
+          continue;
+        }
+
         if (typeof toolInput.exportFilePath === "string") {
           const rawExport = toolInput.exportFilePath.trim();
           const resolvedExport = path.isAbsolute(rawExport)
@@ -2806,13 +2832,20 @@ export async function runSingleBenchmarkSession(
           const targetFile = path.isAbsolute(rawPath)
             ? rawPath
             : path.join(laneRepoPath, rawPath);
-          const content =
-            typeof toolInput.content === "string" ? toolInput.content : "";
-          fs.mkdirSync(path.dirname(targetFile), { recursive: true });
-          fs.writeFileSync(targetFile, content, "utf8");
-          registerExcludedCoverageFiles([targetFile], laneRepoPath);
-          resultText = `File created successfully at ${targetFile}`;
-          toolSucceeded = true;
+          const resolvedTarget = path.resolve(targetFile);
+          if (fs.existsSync(resolvedTarget) && !sessionCreatedFiles.has(resolvedTarget)) {
+            resultText = `Permission Denied: Modifying pre-existing repository file '${targetFile}' is prohibited. You can only create new files or edit files created in this session.`;
+            toolSucceeded = false;
+          } else {
+            const content =
+              typeof toolInput.content === "string" ? toolInput.content : "";
+            fs.mkdirSync(path.dirname(targetFile), { recursive: true });
+            fs.writeFileSync(targetFile, content, "utf8");
+            sessionCreatedFiles.add(resolvedTarget);
+            registerExcludedCoverageFiles([targetFile], laneRepoPath);
+            resultText = `File created successfully at ${targetFile}`;
+            toolSucceeded = true;
+          }
         } catch (err: unknown) {
           dashboardTracker.incrementToolError(laneId);
           resultText = `File creation error: ${String(err)}`;
@@ -2825,33 +2858,41 @@ export async function runSingleBenchmarkSession(
         typeof toolInput.filePath === "string"
       ) {
         try {
-          const targetFile = toolInput.filePath;
-          const oldStr =
-            typeof toolInput.oldString === "string"
-              ? toolInput.oldString
-              : typeof toolInput.existingString === "string"
-                ? toolInput.existingString
-                : "";
-          const newStr =
-            typeof toolInput.newString === "string"
-              ? toolInput.newString
-              : typeof toolInput.replacement === "string"
-                ? toolInput.replacement
-                : "";
-
-          if (!fs.existsSync(targetFile)) {
+          const targetFile = path.isAbsolute(toolInput.filePath)
+            ? toolInput.filePath
+            : path.join(laneRepoPath, toolInput.filePath);
+          const resolvedTarget = path.resolve(targetFile);
+          if (!fs.existsSync(resolvedTarget)) {
             resultText = `File not found: ${targetFile}`;
-          } else if (!oldStr) {
-            resultText = "No oldString specified to replace.";
+          } else if (!sessionCreatedFiles.has(resolvedTarget)) {
+            resultText = `Permission Denied: Modifying pre-existing repository file '${targetFile}' is prohibited. You can only edit files created in this session.`;
+            toolSucceeded = false;
           } else {
-            const originalContent = fs.readFileSync(targetFile, "utf8");
-            if (!originalContent.includes(oldStr)) {
-              resultText = `Could not find exact oldString in ${targetFile}`;
+            const oldStr =
+              typeof toolInput.oldString === "string"
+                ? toolInput.oldString
+                : typeof toolInput.existingString === "string"
+                  ? toolInput.existingString
+                  : "";
+            const newStr =
+              typeof toolInput.newString === "string"
+                ? toolInput.newString
+                : typeof toolInput.replacement === "string"
+                  ? toolInput.replacement
+                  : "";
+
+            if (!oldStr) {
+              resultText = "No oldString specified to replace.";
             } else {
-              const updatedContent = originalContent.replace(oldStr, newStr);
-              fs.writeFileSync(targetFile, updatedContent, "utf8");
-              resultText = `Successfully replaced string in ${targetFile}`;
-              toolSucceeded = true;
+              const originalContent = fs.readFileSync(targetFile, "utf8");
+              if (!originalContent.includes(oldStr)) {
+                resultText = `Could not find exact oldString in ${targetFile}`;
+              } else {
+                const updatedContent = originalContent.replace(oldStr, newStr);
+                fs.writeFileSync(targetFile, updatedContent, "utf8");
+                resultText = `Successfully replaced string in ${targetFile}`;
+                toolSucceeded = true;
+              }
             }
           }
         } catch (err: unknown) {
