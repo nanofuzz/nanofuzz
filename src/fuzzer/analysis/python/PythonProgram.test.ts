@@ -6,6 +6,7 @@ import { PythonProgram } from "./PythonProgram";
 import seedrandom from "seedrandom";
 import * as fs from "fs";
 import * as path from "path";
+import * as os from "os";
 import * as Parser from "../../adapters/ParserAdapter";
 
 class InspectablePythonProgram extends PythonProgram {
@@ -62,6 +63,7 @@ def greeting(name: a) -> a:
         optional: false,
         dims: 0,
         module: "",
+        name: "a",
         type: {
           dims: 0,
           type: ArgTag.STRING,
@@ -763,6 +765,48 @@ def test_something(x: int):
     expect(console.debug).not.toHaveBeenCalled();
   });
 
+  describe("type annotations written as `mod.Type`", () => {
+    // `shapes.py` defines `Size`; each user module annotates a parameter with
+    // `shapes.Size` after importing `shapes` in a different way.
+    const files: Record<string, string> = {
+      "__init__.py": "",
+      "shapes.py": "type Size = int | str\n",
+      "relative_user.py":
+        "from . import shapes\n\n\ndef area(size: shapes.Size) -> int:\n    return 0\n",
+      "absolute_user.py":
+        "import shapes\n\n\ndef area(size: shapes.Size) -> int:\n    return 0\n",
+    };
+    let dir = "";
+    beforeAll(() => {
+      dir = fs.mkdtempSync(path.join(os.tmpdir(), "nanofuzz-"));
+      for (const [name, source] of Object.entries(files)) {
+        fs.writeFileSync(path.join(dir, name), source);
+      }
+    });
+    afterAll(() => {
+      fs.rmSync(dir, { recursive: true, force: true });
+    });
+
+    for (const [statement, user] of [
+      ["from . import shapes", "relative_user.py"],
+      ["import shapes", "absolute_user.py"],
+    ]) {
+      it(`resolves \`shapes.Size\` after \`${statement}\``, () => {
+        const file = path.join(dir, user);
+        const size = new PythonProgram(
+          () => fs.readFileSync(file, "utf8"),
+          file
+        ).functionsExported["area"]?.getArgDefs()[0];
+
+        expect(size?.getType()).toEqual(ArgTag.UNION);
+        expect(size?.getChildren().map((child) => child.getType())).toEqual([
+          ArgTag.NUMBER,
+          ArgTag.STRING,
+        ]);
+      });
+    }
+  });
+
   it("keeps PEP 604 union members as function argument children", () => {
     const fn = ProgramFactory.fromSource(
       () => `def parse(value: int | str) -> int | str:
@@ -894,6 +938,7 @@ def func(tdclass: TypedDictClass, tdFunc: TypedDictFunc):
       dims: 0,
       optional: false,
       isExported: true,
+      name: "TypedDictClass",
       type: {
         type: ArgTag.OBJECT,
         dims: 0,
@@ -957,9 +1002,10 @@ def func(tdclass: TypedDictClass, tdFunc: TypedDictFunc):
       },
     });
 
-    expect(program.types["TypedDictFunc"]).toEqual(
-      program.types["TypedDictClass"]
-    );
+    expect(program.types["TypedDictFunc"]).toEqual({
+      ...program.types["TypedDictClass"],
+      name: "TypedDictFunc",
+    });
   });
 
   it("hypothesis @given primitives with options", () => {
