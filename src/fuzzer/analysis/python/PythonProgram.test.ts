@@ -2385,4 +2385,28 @@ def fuzz_test_validator(r: FuzzTestResult) -> Literal["pass", "fail"]:
     expect(fns["fuzz_test_validator"]).toBeDefined();
     expect(fns["fuzz_test_validator"].getArgDefs()[0].getName()).toEqual("r");
   });
+
+  it("resolves built-in type annotations (type, Optional[type], type[T]) without throwing unresolved TypeRef", () => {
+    const pgm = ProgramFactory.fromSource(
+      () => `from typing import Optional, Type
+
+def fn_with_type(target_cls: type, opt_cls: Optional[type] = None) -> type:
+    return target_cls
+
+def fn_with_generic_type(cls: Type[int]) -> None:
+    pass
+`,
+      "python"
+    );
+
+    const fns = pgm.functionsExported;
+    expect(fns["fn_with_type"]).toBeDefined();
+    expect(fns["fn_with_type"].getArgDefs()[0].getName()).toEqual("target_cls");
+    expect(fns["fn_with_type"].getArgDefs()[0].getType()).toEqual(ArgTag.OBJECT);
+    expect(fns["fn_with_type"].getArgDefs()[1].getName()).toEqual("opt_cls");
+    expect(fns["fn_with_type"].getArgDefs()[1].getType()).toEqual(ArgTag.UNION);
+
+    expect(fns["fn_with_generic_type"]).toBeDefined();
+    expect(fns["fn_with_generic_type"].getArgDefs()[0].getType()).toEqual(ArgTag.OBJECT);
+  });
 });
