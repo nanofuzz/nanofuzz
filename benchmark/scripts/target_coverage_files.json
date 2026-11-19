@@ -1,0 +1,17 @@
+{
+  "_distance_norm": [
+    "src/fandango/constraints/comparison.py"
+  ],
+  "TreeValue": [
+    "src/fandango/language/tree_value.py"
+  ],
+  "DerivationTree": [
+    "src/fandango/language/tree.py"
+  ],
+  "parse": [
+    "src/fandango/language/parse/parse.py"
+  ],
+  "make_def": [
+    "src/fandango/language/stdlib.py"
+  ]
+}
