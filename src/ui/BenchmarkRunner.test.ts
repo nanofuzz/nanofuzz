@@ -19,6 +19,7 @@ import {
   updateLatestSymlink,
   runSingleBenchmarkSession,
   setActiveRunContext,
+  generateBenchmarkSchedule,
   BenchmarkRunSpec,
 } from "./BenchmarkRunner";
 import { resolveFullProvenance } from "../fuzzer/FuzzerV3";
@@ -886,6 +887,23 @@ describe("BenchmarkRunner - Timestamped Directories & Recovery", () => {
     );
     expect(fs.existsSync(savedHarness)).toBe(true);
     expect(fs.readFileSync(savedHarness, "utf8")).toContain("fuzz_TreeValue");
+  });
+
+  it("generates exactly 150 tasks with 15 replicates, 5 tasks, 2 engines, and 1 source (all)", () => {
+    const schedule = generateBenchmarkSchedule(15);
+    expect(schedule.length).toBe(150);
+
+    const engines = new Set(schedule.map((s) => s.engine));
+    expect(Array.from(engines).sort()).toEqual(["hypothesis", "nanofuzz"]);
+
+    const sources = new Set(schedule.map((s) => s.source));
+    expect(Array.from(sources)).toEqual(["all"]);
+
+    const tasks = new Set(schedule.map((s) => s.task));
+    expect(tasks.size).toBe(5);
+
+    expect(schedule[0].participant).toBe("P001");
+    expect(schedule[149].participant).toBe("P150");
   });
 });
 

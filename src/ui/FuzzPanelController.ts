@@ -4049,7 +4049,7 @@ export const commands = {
   runBenchmark: {
     name: "nanofuzz.RunBenchmark",
     fn: () => {
-      void runBenchmarkMatrix(1);
+      void runBenchmarkMatrix(15);
     },
   },
   runBenchmark90: {

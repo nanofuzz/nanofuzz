@@ -38,7 +38,7 @@ describe("All 5 Rubric PUTs Cross-Tool Coverage Parity Suite", () => {
     {
       task: "parse",
       putFile: "src/fandango/language/parse/parse.py",
-      putFn: "parse",
+      putFn: "parse_string",
       isFunction: true,
       harnessRoot: "nanofuzz_harness_parse.py",
       harnessTests: "tests/test_pbt_parse.py",

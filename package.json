@@ -60,7 +60,7 @@
       },
       {
         "command": "nanofuzz.RunBenchmark",
-        "title": "Run Benchmark Matrix",
+        "title": "Run Benchmark Matrix (150 tasks: 5 PUTs x 2 Tools x 15 Reps)",
         "category": "NaNofuzz"
       },
       {
@@ -76,6 +76,11 @@
       {
         "command": "nanofuzz.RunBenchmarkFull",
         "title": "Run Full Benchmark Matrix",
+        "category": "NaNofuzz"
+      },
+      {
+        "command": "nanofuzz.RunBenchmarkAbTest",
+        "title": "Run Benchmark Test (7 tasks: NaNofuzz, TreeValue, 1m Deep)",
         "category": "NaNofuzz"
       },
       {

@@ -216,16 +216,19 @@ export const ALL_GROUND_TRUTH_BUG_IDS = rubricData.allGroundTruthBugIds;
 export const CONCURRENCY_LANES = getAutoConcurrencyLanes();
 export const MAX_DEEP_FUZZ_SLOTS = getAutoDeepFuzzSlots();
 
-const ENGINES = ["nanofuzz", "hypothesis", "hypofuzz"] as const;
-const SOURCES = ["tests", "docs", "all"] as const;
+const ALL_ENGINES = ["nanofuzz", "hypothesis", "hypofuzz"] as const;
+const ALL_SOURCES = ["tests", "docs", "all"] as const;
+
+const ENGINES = ["nanofuzz", "hypothesis"] as const;
+const SOURCES = ["all"] as const;
 
 export interface BenchmarkRunSpec {
   participant: string; // e.g. "P01", "P02", ...
   sequence: number;
   replicate: number;
   task: BenchmarkTaskName;
-  engine: (typeof ENGINES)[number];
-  source: (typeof SOURCES)[number];
+  engine: (typeof ALL_ENGINES)[number];
+  source: (typeof ALL_SOURCES)[number];
   targetScope: string[];
   reportFilename: string;
   reportPath: string;
@@ -367,7 +370,7 @@ function seededShuffle<T>(arr: T[], seedStr: string): T[] {
 }
 
 export function generateBenchmarkSchedule(
-  replicates: 1 | 2 | 3 = 1
+  replicates: number = 15
 ): BenchmarkRunSpec[] {
   const reps = Array.from({ length: replicates }, (_, i) => i + 1);
   const runs: Omit<BenchmarkRunSpec, "sequence" | "participant">[] = [];
@@ -393,7 +396,7 @@ export function generateBenchmarkSchedule(
   const shuffled = seededShuffle(runs, SEED);
   return shuffled.map((r, idx) => {
     const seq = idx + 1;
-    const participant = `P${String(seq).padStart(2, "0")}`;
+    const participant = `P${String(seq).padStart(3, "0")}`;
     const reportFilename = `${participant}.md`;
     return {
       ...r,
@@ -414,8 +417,8 @@ export interface BenchmarkScheduleItemState {
   sequence: number;
   replicate: number;
   task: BenchmarkTaskName;
-  engine: (typeof ENGINES)[number];
-  source: (typeof SOURCES)[number];
+  engine: (typeof ALL_ENGINES)[number];
+  source: (typeof ALL_SOURCES)[number];
   reportFilename: string;
   status: "pending" | "running" | "completed" | "failed";
   completedAt?: string;
@@ -2032,6 +2035,8 @@ export function configureRunSettings(): void {
   });
   Config.override("nanofuzz.benchmarkMode", true);
   Config.override("nanofuzz.fuzzer.coverageScope", "project");
+  Config.override("nanofuzz.experimental.findBugs.deepTimeoutMs", 60000);
+  Config.override("nanofuzz.experimental.findBugs.maxRetries", 4);
 }
 
 // ============================================================================
@@ -3389,7 +3394,7 @@ export async function runSingleBenchmarkSession(
 // ============================================================================
 
 export async function runBenchmarkMatrix(
-  replicates: 1 | 2 | 3 = 1,
+  replicates: number = 15,
   concurrency: number = CONCURRENCY_LANES,
   recoverDir?: string
 ): Promise<void> {
@@ -3664,7 +3669,7 @@ export async function recoverBenchmarkMatrix(
 } // fn: recoverBenchmarkMatrix
 
 export function generateSmoketestSchedule(): BenchmarkRunSpec[] {
-  const specs: { task: BenchmarkTaskName; engine: (typeof ENGINES)[number] }[] = [
+  const specs: { task: BenchmarkTaskName; engine: (typeof ALL_ENGINES)[number] }[] = [
     { task: "make_def", engine: "nanofuzz" },
     { task: "TreeValue", engine: "nanofuzz" },
     { task: "make_def", engine: "hypofuzz" },

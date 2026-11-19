@@ -309,6 +309,13 @@ def install_interceptors(log_path: Optional[str] = None) -> bool:
 
             wrapped_parse._is_interceptor = True
             parse_module.parse = wrapped_parse
+            if hasattr(parse_module, "parse_string"):
+                parse_module.parse_string = lambda *args, **kwargs: wrapped_parse(
+                    kwargs.get("spec", args[0] if args else ""),
+                    kwargs.get("constraints", args[1] if len(args) > 1 else None),
+                    use_stdlib=kwargs.get("use_stdlib", True),
+                    check=kwargs.get("check", True)
+                )
     except Exception:
         pass
 
