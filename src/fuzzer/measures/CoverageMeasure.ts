@@ -499,13 +499,24 @@ export class CoverageMeasure extends AbstractMeasure {
       const fileCov = finalMap.fileCoverageFor(filePath);
       const fileSummary = fileCov.toSummary();
       const raw = fileCov.data;
-      const data =
+      const data: FileCoverageData =
         typeof raw === "object" && raw !== null && "data" in raw && isFileCoverageData(raw.data)
           ? raw.data
           : isFileCoverageData(raw)
             ? raw
             : createFileCoverage(filePath).data;
-      const fileMap = createFileCoverage(structuredClone(data));
+
+      // Shallow copy the maps so deleting unhit entries doesn't mutate shared template,
+      // while all Range objects ({start, end, line, col}) are preserved BY REFERENCE without structuredClone!
+      const fileMap = createFileCoverage({
+        path: filePath,
+        statementMap: Object.assign({}, data.statementMap),
+        fnMap: Object.assign({}, data.fnMap),
+        branchMap: Object.assign({}, data.branchMap),
+        s: Object.assign({}, data.s),
+        f: Object.assign({}, data.f),
+        b: Object.assign({}, data.b),
+      });
 
       // Omit functions and branches with no hits
       for (const k of Object.keys(fileMap.f)) {
@@ -1152,11 +1163,15 @@ export class CoverageMeasure extends AbstractMeasure {
 
   protected _snapshot(): CoverageMapData {
     if (this._coverageData) {
-      return structuredClone(this._coverageData);
+      const snapshot: CoverageMapData = {};
+      for (const [k, v] of Object.entries(this._coverageData)) {
+        snapshot[k] = CoverageMeasure.file_snapshot(v);
+      }
+      return snapshot;
     }
     const snapshot: CoverageMapData = {};
     for (const entry of this._files.values()) {
-      snapshot[entry.path] = structuredClone(entry.template);
+      snapshot[entry.path] = this._createEmptyFileCoverage(entry);
     }
     return snapshot;
   } // fn: _snapshot
