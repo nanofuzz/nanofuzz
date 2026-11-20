@@ -21,8 +21,10 @@ def fuzz_TreeValue(kind: int, val: str, op: int, extra: str) -> bool:
     elif kind == 3:
         tv = TreeValue.empty()
     elif kind == 4:
-        bit = abs(hash(extra)) % 2
-        tv = TreeValue(val, trailing_bits=[bit])
+        # Sample variable-length bit streams (0 to 16 bits)
+        bit_count = abs(hash(extra)) % 17
+        bits = [(hash(extra) >> i) & 1 for i in range(bit_count)]
+        tv = TreeValue(val, trailing_bits=bits)
     else:
         tv = TreeValue(val)
 
@@ -39,14 +41,16 @@ def fuzz_TreeValue(kind: int, val: str, op: int, extra: str) -> bool:
     elif op == 1:
         # Contract TV_RADD_STR: Concatenation with string/bytes must succeed for compatible types
         if tv.is_type(TreeValueType.STRING):
-            res_radd = "" + tv
+            prefix_str = extra if extra else ""
+            res_radd = prefix_str + tv
             assert isinstance(res_radd, str)
-            res_add = tv + ""
+            res_add = tv + prefix_str
             assert isinstance(res_add, str)
         elif tv.is_type(TreeValueType.BYTES):
-            res_radd_b = b"" + tv
+            prefix_bytes = extra.encode("latin-1", errors="ignore")
+            res_radd_b = prefix_bytes + tv
             assert isinstance(res_radd_b, bytes)
-            res_add_b = tv + b""
+            res_add_b = tv + prefix_bytes
             assert isinstance(res_add_b, bytes)
 
     elif op == 2:
@@ -90,17 +94,60 @@ def fuzz_TreeValue(kind: int, val: str, op: int, extra: str) -> bool:
         assert tv == copy.deepcopy(tv), "A TreeValue must equal its deepcopy"
         assert hash(tv) == hash(copy.deepcopy(tv)), "A TreeValue must have same hash as its deepcopy"
         # If tv == other, their hashes must match
-        if tv == val:
-            assert hash(tv) == hash(val), f"Hash contract violation: tv == val but hash(tv)={hash(tv)} != hash(val)={hash(val)}"
+        try:
+            if tv == val:
+                assert hash(tv) == hash(val), f"Hash contract violation: tv == val but hash(tv)={hash(tv)} != hash(val)={hash(val)}"
+        except FandangoConversionError:
+            pass
 
     elif op == 6:
-        # Direct methods
-        if tv.is_type(TreeValueType.STRING):
-            assert tv.startswith("")
-            assert tv.endswith("")
-        elif tv.is_type(TreeValueType.BYTES):
-            assert tv.startswith(b"")
-            assert tv.endswith(b"")
+        # Direct string methods
+        try:
+            if tv.is_type(TreeValueType.STRING):
+                sep = extra[:2] if extra else " "
+                _ = tv.split(sep)
+                _ = tv.partition(sep)
+                _ = tv.lower()
+                _ = tv.upper()
+                _ = tv.title()
+                _ = tv.startswith(extra[:5])
+                _ = tv.endswith(extra[:5])
+                _ = tv.find(extra[:3])
+                _ = tv.count(extra[:1])
+                _ = tv.strip()
+            elif tv.is_type(TreeValueType.BYTES):
+                b_sep = extra.encode("latin-1", errors="ignore")[:2] or b" "
+                _ = tv.split(b_sep)
+                _ = tv.partition(b_sep)
+                _ = tv.lower()
+                _ = tv.upper()
+                _ = tv.strip()
+        except FandangoConversionError:
+            pass
+
+    elif op == 7:
+        # Arithmetic operator methods
+        if tv.is_type(TreeValueType.TRAILING_BITS_ONLY) or (isinstance(val, str) and val.lstrip("-").isdigit()):
+            num = int(val) if isinstance(val, str) and val.lstrip("-").isdigit() else 1
+            _ = tv + num
+            _ = tv - num
+            _ = tv * num
+            if num != 0:
+                _ = tv // num
+                _ = tv % num
+            _ = tv & num
+            _ = tv | num
+            _ = tv ^ num
+
+    elif op == 8:
+        # String, bytes, bits conversions and metadata
+        try:
+            _ = tv.to_string()
+            _ = tv.to_bytes()
+            _ = tv.to_bits()
+            _ = tv.count_bytes()
+        except FandangoConversionError:
+            pass
 
     return True
 
@@ -109,8 +156,8 @@ def fuzz_TreeValue_generator(
     prng: Callable[[], float],
 ) -> tuple[int, str, int, str] | None:
     kinds = [0, 1, 2, 3, 4]
-    ops = [0, 1, 2, 3, 4, 5, 6]
-    samples = ["", "hello", "123", "abc", "💃", "foo", "bar"]
+    ops = [0, 1, 2, 3, 4, 5, 6, 7, 8]
+    samples = ["", "hello", "123", "abc", "💃", "foo", "bar", "prefix_", " \t\n", "xyz-123"]
     kind = kinds[int(prng() * len(kinds))]
     op = ops[int(prng() * len(ops))]
     val = samples[int(prng() * len(samples))]

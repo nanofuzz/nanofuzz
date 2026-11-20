@@ -9,11 +9,12 @@
     "_distance_norm",
     "make_def"
   ],
+  "repetitions": 10,
   "replicates": 10,
   "runtimeMs": 180000,
   "warmup": {
     "enabled": true,
-    "runsPerLane": 3,
+    "runsPerLane": 5,
     "runtimeMs": 15000
   },
   "randomSeed": "qwertonyuiop",

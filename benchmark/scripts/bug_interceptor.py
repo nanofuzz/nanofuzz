@@ -7,6 +7,7 @@ import sys
 import json
 import math
 import codecs
+import signal
 import atexit
 from typing import Any, Tuple, Dict, Optional
 
@@ -16,22 +17,34 @@ _INTERCEPTED_BUGS = set()
 _TOTAL_CALLS = 0
 
 
+def _record_call():
+    global _TOTAL_CALLS
+    _TOTAL_CALLS += 1
+
+
 def _dump_total_calls():
     global _TOTAL_CALLS
-    log_path = (
-        _INTERCEPTOR_LOG
-        or os.environ.get("NANOFUZZ_ELICITATION_LOG")
-        or os.path.abspath("elicited_bugs.json")
-    )
-    try:
-        dir_name = os.path.dirname(os.path.abspath(log_path))
-        if dir_name and not os.path.exists(dir_name):
-            os.makedirs(dir_name, exist_ok=True)
-        with open(log_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps({"summary": True, "total_calls": _TOTAL_CALLS}) + "\n")
-    except Exception:
-        pass
+    if _TOTAL_CALLS == 0:
+        return
+    log_path = _INTERCEPTOR_LOG or os.environ.get("NANOFUZZ_ELICITATION_LOG")
+    if not log_path:
+        return
+    dir_name = os.path.dirname(os.path.abspath(log_path))
+    if dir_name and not os.path.exists(dir_name):
+        os.makedirs(dir_name, exist_ok=True)
+    with open(log_path, "a", encoding="utf-8") as f:
+        f.write(json.dumps({"summary": True, "total_calls": _TOTAL_CALLS}) + "\n")
 
+
+def _sigterm_handler(signum, frame):
+    _dump_total_calls()
+    sys.exit(0)
+
+
+try:
+    signal.signal(signal.SIGTERM, _sigterm_handler)
+except Exception:
+    pass
 
 atexit.register(_dump_total_calls)
 
@@ -105,24 +118,18 @@ def _record_event(entry: Dict[str, Any]) -> None:
     else:
         _recorded_events[bug_id] = (detected, steps)
 
-    log_path = (
-        _INTERCEPTOR_LOG
-        or os.environ.get("NANOFUZZ_ELICITATION_LOG")
-        or os.path.abspath("elicited_bugs.json")
-    )
-    try:
-        dir_name = os.path.dirname(os.path.abspath(log_path))
-        if dir_name and not os.path.exists(dir_name):
-            os.makedirs(dir_name, exist_ok=True)
-        with open(log_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(entry) + "\n")
-    except Exception:
-        pass
+    log_path = _INTERCEPTOR_LOG or os.environ.get("NANOFUZZ_ELICITATION_LOG")
+    if not log_path:
+        return
+    dir_name = os.path.dirname(os.path.abspath(log_path))
+    if dir_name and not os.path.exists(dir_name):
+        os.makedirs(dir_name, exist_ok=True)
+    with open(log_path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(entry) + "\n")
 
 
 def _execute_with_elicitation(bug_id: str, args: Tuple[Any, ...], kwargs: Dict[str, Any], fn, *call_args, **call_kwargs):
-    global _active_elicitation, _TOTAL_CALLS
-    _TOTAL_CALLS += 1
+    global _active_elicitation
 
     provenance = (
         os.environ.get("NANOFUZZ_PROVENANCE")
@@ -134,8 +141,11 @@ def _execute_with_elicitation(bug_id: str, args: Tuple[Any, ...], kwargs: Dict[s
     repr_args = []
     for a in args:
         try:
-            r = repr(a)
-            repr_args.append(r[:200] if len(r) > 200 else r)
+            if hasattr(a, "_children") and _has_cycle(a):
+                repr_args.append(f"DerivationTree(<cyclic id={id(a)}>)"[:200])
+            else:
+                r = repr(a)
+                repr_args.append(r[:200] if len(r) > 200 else r)
         except Exception:
             repr_args.append("<repr-error>")
 
@@ -181,213 +191,225 @@ def install_interceptors(log_path: Optional[str] = None) -> bool:
     # Install global exception tracer for detecting assertions in calling harness frames
     sys.settrace(_trace_exceptions)
 
-    # 1. Task: _distance_norm / _sigmoid
-    try:
-        from fandango.constraints import comparison
-        if hasattr(comparison, "_distance_norm") and not getattr(comparison._distance_norm, "_is_interceptor", False):
-            orig_dist = comparison._distance_norm
-            orig_sig = comparison._sigmoid
+    # Task: _distance_norm / _sigmoid
+    from fandango.constraints import comparison
+    if hasattr(comparison, "_distance_norm") and not getattr(comparison._distance_norm, "_is_interceptor", False):
+        orig_dist = comparison._distance_norm
+        orig_sig = comparison._sigmoid
 
-            def wrapped_dist(left: Any, right: Any) -> Optional[float]:
-                bug_id = None
-                if (isinstance(left, float) and math.isnan(left)) or (isinstance(right, float) and math.isnan(right)):
-                    bug_id = "NORM_NAN_PROPAGATE"
-                elif left == right:
-                    bug_id = "NORM_ZERO_DIV"
+        def wrapped_dist(left: Any, right: Any) -> Optional[float]:
+            _record_call()
+            bug_id = None
+            if (isinstance(left, float) and math.isnan(left)) or (isinstance(right, float) and math.isnan(right)):
+                bug_id = "NORM_NAN_PROPAGATE"
+            elif left == right:
+                bug_id = "NORM_ZERO_DIV"
 
-                if bug_id:
-                    return _execute_with_elicitation(bug_id, (left, right), {}, orig_dist, left, right)
-                return orig_dist(left, right)
+            if bug_id:
+                return _execute_with_elicitation(bug_id, (left, right), {}, orig_dist, left, right)
+            return orig_dist(left, right)
 
-            def wrapped_sig(x: float | int) -> float:
-                if isinstance(x, (int, float)) and x <= -709.782712893384:
-                    return _execute_with_elicitation("SIGMOID_OVERFLOW", (x,), {}, orig_sig, x)
-                return orig_sig(x)
+        def wrapped_sig(x: float | int) -> float:
+            _record_call()
+            if isinstance(x, (int, float)) and x <= -709.782712893384:
+                return _execute_with_elicitation("SIGMOID_OVERFLOW", (x,), {}, orig_sig, x)
+            return orig_sig(x)
 
-            wrapped_dist._is_interceptor = True
-            wrapped_sig._is_interceptor = True
-            comparison._distance_norm = wrapped_dist
-            comparison._sigmoid = wrapped_sig
-    except Exception:
-        pass
+        wrapped_dist._is_interceptor = True
+        wrapped_sig._is_interceptor = True
+        comparison._distance_norm = wrapped_dist
+        comparison._sigmoid = wrapped_sig
 
-    # 2. Task: make_def
-    try:
-        from fandango.language import stdlib
-        if hasattr(stdlib, "make_def") and not getattr(stdlib.make_def, "_is_interceptor", False):
-            orig_make_def = stdlib.make_def
+    # Task: make_def
+    from fandango.language import stdlib
+    if hasattr(stdlib, "make_def") and not getattr(stdlib.make_def, "_is_interceptor", False):
+        orig_make_def = stdlib.make_def
 
-            def wrapped_make_def(symbol: str, chars: str, force_binary: bool = False) -> str:
-                bug_id = None
-                if not chars or str(chars).strip() == "":
-                    bug_id = "DEF_EMPTY_RHS"
-                elif any(ord(c) > 255 for c in str(chars)):
-                    bug_id = "DEF_HEX_OVERFLOW"
-                elif any(ord(c) > 127 and c.isalpha() for c in str(symbol)):
-                    bug_id = "DEF_UNICODE_CORRUPT"
+        def wrapped_make_def(symbol: str, chars: str, force_binary: bool = False) -> str:
+            _record_call()
+            bug_id = None
+            if not chars or str(chars).strip() == "":
+                bug_id = "DEF_EMPTY_RHS"
+            elif any(ord(c) > 255 for c in str(chars)):
+                bug_id = "DEF_HEX_OVERFLOW"
+            elif any(ord(c) > 127 and c.isalpha() for c in str(symbol)):
+                bug_id = "DEF_UNICODE_CORRUPT"
 
-                if bug_id:
-                    return _execute_with_elicitation(bug_id, (symbol, chars, force_binary), {}, orig_make_def, symbol, chars, force_binary=force_binary)
-                return orig_make_def(symbol, chars, force_binary=force_binary)
+            if bug_id:
+                return _execute_with_elicitation(bug_id, (symbol, chars, force_binary), {}, orig_make_def, symbol, chars, force_binary=force_binary)
+            return orig_make_def(symbol, chars, force_binary=force_binary)
 
-            wrapped_make_def._is_interceptor = True
-            stdlib.make_def = wrapped_make_def
-    except Exception:
-        pass
+        wrapped_make_def._is_interceptor = True
+        stdlib.make_def = wrapped_make_def
 
-    # 3. Task: TreeValue
-    try:
-        from fandango.language import tree_value
-        TV = tree_value.TreeValue
-        if not getattr(TV.__eq__, "_is_interceptor", False):
-            orig_eq = TV.__eq__
-            orig_to_int = TV.to_int
-            orig_deepcopy = TV.__deepcopy__
-            orig_hash = TV.__hash__
-            orig_str_to_bytes = tree_value._str_to_bytes
+    # Task: TreeValue
+    from fandango.language import tree_value
+    TV = tree_value.TreeValue
+    if not getattr(TV.__eq__, "_is_interceptor", False):
+        orig_eq = TV.__eq__
+        orig_to_int = TV.to_int
+        orig_deepcopy = TV.__deepcopy__
+        orig_hash = TV.__hash__
+        orig_str_to_bytes = tree_value._str_to_bytes
 
-            def wrapped_eq(self: Any, other: object) -> bool:
-                if other is None or not isinstance(other, (int, str, bytes, type(self))):
-                    return _execute_with_elicitation("TV_EQ_NONE", (self, other), {}, orig_eq, self, other)
-                return orig_eq(self, other)
+        def wrapped_eq(self: Any, other: object) -> bool:
+            _record_call()
+            if other is None or not isinstance(other, (int, str, bytes, type(self))):
+                return _execute_with_elicitation("TV_EQ_NONE", (self, other), {}, orig_eq, self, other)
+            return orig_eq(self, other)
 
-            def wrapped_to_int(self: Any, *args, **kwargs) -> int:
-                val = getattr(self, "_value", None)
-                is_numeric = False
-                if val is not None:
-                    if isinstance(val, int):
-                        is_numeric = True
-                    elif isinstance(val, str):
-                        is_numeric = val.lstrip("-").isdigit()
-                    elif isinstance(val, bytes):
-                        try:
-                            is_numeric = val.decode("latin-1").lstrip("-").isdigit()
-                        except Exception:
-                            is_numeric = False
-                if val is not None and not is_numeric:
-                    return _execute_with_elicitation("TV_TO_INT_VAL", (self,) + args, kwargs, orig_to_int, self, *args, **kwargs)
-                return orig_to_int(self, *args, **kwargs)
+        def wrapped_to_int(self: Any, *args, **kwargs) -> int:
+            _record_call()
+            val = getattr(self, "_value", None)
+            is_numeric = False
+            if val is not None:
+                if isinstance(val, int):
+                    is_numeric = True
+                elif isinstance(val, str):
+                    is_numeric = val.lstrip("-").isdigit()
+                elif isinstance(val, bytes):
+                    try:
+                        is_numeric = val.decode("latin-1").lstrip("-").isdigit()
+                    except Exception:
+                        is_numeric = False
+            if val is not None and not is_numeric:
+                return _execute_with_elicitation("TV_TO_INT_VAL", (self,) + args, kwargs, orig_to_int, self, *args, **kwargs)
+            return orig_to_int(self, *args, **kwargs)
 
-            def wrapped_deepcopy(self: Any, *args, **kwargs) -> Any:
-                tb = getattr(self, "_trailing_bits", None)
-                if tb and len(tb) > 0:
-                    return _execute_with_elicitation("TV_DEEPCOPY_SHARED", (self,) + args, kwargs, orig_deepcopy, self, *args, **kwargs)
-                return orig_deepcopy(self, *args, **kwargs)
+        def wrapped_deepcopy(self: Any, *args, **kwargs) -> Any:
+            _record_call()
+            tb = getattr(self, "_trailing_bits", None)
+            if tb and len(tb) > 0:
+                return _execute_with_elicitation("TV_DEEPCOPY_SHARED", (self,) + args, kwargs, orig_deepcopy, self, *args, **kwargs)
+            return orig_deepcopy(self, *args, **kwargs)
 
-            def wrapped_hash(self: Any) -> int:
-                val = getattr(self, "_value", None)
-                tb = getattr(self, "_trailing_bits", None)
-                if val is not None and not tb and isinstance(val, (int, str, bytes)):
-                    return _execute_with_elicitation("TV_HASH_CONTRACT", (self,), {}, orig_hash, self)
-                return orig_hash(self)
+        def wrapped_hash(self: Any) -> int:
+            _record_call()
+            val = getattr(self, "_value", None)
+            tb = getattr(self, "_trailing_bits", None)
+            if val is not None and not tb and isinstance(val, (int, str, bytes)):
+                return _execute_with_elicitation("TV_HASH_CONTRACT", (self,), {}, orig_hash, self)
+            return orig_hash(self)
 
-            def wrapped_str_to_bytes(*args, **kwargs) -> bytes:
-                val = args[0] if len(args) > 0 else kwargs.get("value")
-                enc = args[1] if len(args) > 1 else kwargs.get("encoding", kwargs.get("enc"))
-                if enc is not None and not _is_valid_codec(enc):
-                    return _execute_with_elicitation("TV_ENCODING", (val, enc), kwargs, orig_str_to_bytes, *args, **kwargs)
-                return orig_str_to_bytes(*args, **kwargs)
+        def wrapped_str_to_bytes(*args, **kwargs) -> bytes:
+            _record_call()
+            val = args[0] if len(args) > 0 else kwargs.get("value")
+            enc = args[1] if len(args) > 1 else kwargs.get("encoding", kwargs.get("enc"))
+            if enc is not None and not _is_valid_codec(enc):
+                return _execute_with_elicitation("TV_ENCODING", (val, enc), kwargs, orig_str_to_bytes, *args, **kwargs)
+            return orig_str_to_bytes(*args, **kwargs)
 
-            def wrapped_radd(self: Any, other: Any) -> Any:
-                val = getattr(self, "_value", None)
-                if isinstance(other, (str, bytes)):
-                    if val is None or not str(val).lstrip("b'\"-").rstrip("'\"").isdigit():
-                        return _execute_with_elicitation("TV_RADD_STR", (self, other), {}, lambda: None)
-                raise TypeError(f"unsupported operand type(s) for +: '{type(other).__name__}' and 'TreeValue'")
+        def wrapped_radd(self: Any, other: Any) -> Any:
+            _record_call()
+            val = getattr(self, "_value", None)
+            if isinstance(other, (str, bytes)):
+                if val is None or not str(val).lstrip("b'\"-").rstrip("'\"").isdigit():
+                    return _execute_with_elicitation("TV_RADD_STR", (self, other), {}, lambda: None)
+            raise TypeError(f"unsupported operand type(s) for +: '{type(other).__name__}' and 'TreeValue'")
 
-            wrapped_eq._is_interceptor = True
-            TV.__eq__ = wrapped_eq
-            TV.to_int = wrapped_to_int
-            TV.__deepcopy__ = wrapped_deepcopy
-            TV.__hash__ = wrapped_hash
-            TV.__radd__ = wrapped_radd
-            tree_value._str_to_bytes = wrapped_str_to_bytes
-    except Exception:
-        pass
+        wrapped_eq._is_interceptor = True
+        TV.__eq__ = wrapped_eq
+        TV.to_int = wrapped_to_int
+        TV.__deepcopy__ = wrapped_deepcopy
+        TV.__hash__ = wrapped_hash
+        TV.__radd__ = wrapped_radd
+        tree_value._str_to_bytes = wrapped_str_to_bytes
 
-    # 4. Task: parse
-    try:
-        from fandango.language.parse import parse as parse_module
-        if hasattr(parse_module, "parse") and not getattr(parse_module.parse, "_is_interceptor", False):
-            orig_parse = parse_module.parse
+    # Task: parse
+    from fandango.language.parse import parse as parse_module
+    if hasattr(parse_module, "parse") and not getattr(parse_module.parse, "_is_interceptor", False):
+        orig_parse = parse_module.parse
 
-            def wrapped_parse(*args, **kwargs) -> Any:
-                constraints = kwargs.get("constraints") or (args[1] if len(args) > 1 else ())
-                fan_files = kwargs.get("fan_files") or (args[0] if args else [])
-                use_stdlib = kwargs.get("use_stdlib", True)
+        def wrapped_parse(*args, **kwargs) -> Any:
+            _record_call()
+            constraints = kwargs.get("constraints") or (args[1] if len(args) > 1 else ())
+            fan_files = kwargs.get("fan_files") or (args[0] if args else [])
+            use_stdlib = kwargs.get("use_stdlib", True)
 
-                bug_id = None
-                if any(isinstance(c, str) and c.strip() == "" for c in (constraints or [])):
-                    bug_id = "PARSE_EMPTY_CONSTRAINT"
-                elif len(fan_files or []) == 0 and not use_stdlib and bool(constraints):
-                    bug_id = "PARSE_EMPTY_FAN_FILES"
-                elif any(isinstance(c, str) and "#" in c for c in (constraints or [])):
-                    bug_id = "PARSE_SILENT_DROP"
-                elif any(r"\|" in str(x) for x in (fan_files or [])):
-                    bug_id = "PARSE_LEXER_STALL"
+            bug_id = None
+            if any(isinstance(c, str) and c.strip() == "" for c in (constraints or [])):
+                bug_id = "PARSE_EMPTY_CONSTRAINT"
+            elif len(fan_files or []) == 0 and not use_stdlib and bool(constraints):
+                bug_id = "PARSE_EMPTY_FAN_FILES"
+            elif any(isinstance(c, str) and "#" in c for c in (constraints or [])):
+                bug_id = "PARSE_SILENT_DROP"
+            elif r"\|" in str(fan_files) or any(r"\|" in str(x) for x in (fan_files if isinstance(fan_files, (list, tuple)) else [])):
+                bug_id = "PARSE_LEXER_STALL"
 
-                if bug_id:
-                    return _execute_with_elicitation(bug_id, args, kwargs, orig_parse, *args, **kwargs)
-                return orig_parse(*args, **kwargs)
+            if bug_id:
+                return _execute_with_elicitation(bug_id, args, kwargs, orig_parse, *args, **kwargs)
+            return orig_parse(*args, **kwargs)
 
-            wrapped_parse._is_interceptor = True
-            parse_module.parse = wrapped_parse
-            if hasattr(parse_module, "parse_string"):
-                parse_module.parse_string = lambda *args, **kwargs: wrapped_parse(
-                    kwargs.get("spec", args[0] if args else ""),
-                    kwargs.get("constraints", args[1] if len(args) > 1 else None),
-                    use_stdlib=kwargs.get("use_stdlib", True),
-                    check=kwargs.get("check", True)
-                )
-    except Exception:
-        pass
+        wrapped_parse._is_interceptor = True
+        parse_module.parse = wrapped_parse
+        if hasattr(parse_module, "parse_string"):
+            parse_module.parse_string = lambda *args, **kwargs: wrapped_parse(
+                kwargs.get("spec", args[0] if args else ""),
+                kwargs.get("constraints", args[1] if len(args) > 1 else None),
+                use_stdlib=kwargs.get("use_stdlib", True),
+                check=kwargs.get("check", True)
+            )
 
-    # 5. Task: DerivationTree
-    try:
-        from fandango.language import tree
-        DT = tree.DerivationTree
-        if not getattr(DT.prefix, "_is_interceptor", False):
-            orig_prefix = DT.prefix
-            orig_getitem = DT.__getitem__
-            orig_to_grammar = DT.to_grammar
-            orig_repr = DT.__repr__
+    # Task: DerivationTree
+    from fandango.language import tree
+    DT = tree.DerivationTree
+    if not getattr(DT.prefix, "_is_interceptor", False):
+        orig_prefix = DT.prefix
+        orig_getitem = DT.__getitem__
+        orig_to_grammar = DT.to_grammar
+        orig_repr = DT.__repr__
 
-            def wrapped_prefix(self: Any, copy_tree: bool = True) -> Any:
-                if getattr(self, "parent", None) is None:
-                    return _execute_with_elicitation("DT_PREFIX_SLICE", (self, copy_tree), {}, orig_prefix, self, copy_tree=copy_tree)
-                return orig_prefix(self, copy_tree=copy_tree)
+        def wrapped_prefix(self: Any, copy_tree: bool = True) -> Any:
+            _record_call()
+            if getattr(self, "parent", None) is None:
+                return _execute_with_elicitation("DT_PREFIX_SLICE", (self, copy_tree), {}, orig_prefix, self, copy_tree=copy_tree)
+            return orig_prefix(self, copy_tree=copy_tree)
 
-            def wrapped_getitem(self: Any, item: Any) -> Any:
-                bug_id = None
-                if isinstance(item, slice):
-                    bug_id = "DT_SLICE_PARENT_HIJACK"
-                elif isinstance(item, int):
-                    children = getattr(self, "_children", [])
-                    if len(children) == 0:
-                        bug_id = "DT_CHILD_SLICE"
-
-                if bug_id:
-                    return _execute_with_elicitation(bug_id, (self, item), {}, orig_getitem, self, item)
-                return orig_getitem(self, item)
-
-            def wrapped_to_grammar(self: Any, *args, **kwargs) -> Any:
+        def wrapped_getitem(self: Any, item: Any) -> Any:
+            _record_call()
+            bug_id = None
+            if isinstance(item, slice):
+                bug_id = "DT_SLICE_PARENT_HIJACK"
+            elif isinstance(item, int):
                 children = getattr(self, "_children", [])
                 if len(children) == 0:
-                    return _execute_with_elicitation("DT_TO_GRAMMAR_ASSERT", (self,) + args, kwargs, orig_to_grammar, self, *args, **kwargs)
-                return orig_to_grammar(self, *args, **kwargs)
+                    bug_id = "DT_CHILD_SLICE"
 
-            def wrapped_repr(self: Any) -> str:
-                if _has_cycle(self):
-                    return _execute_with_elicitation("DT_REPR_CRASH", (self,), {}, orig_repr, self)
-                return orig_repr(self)
+            if bug_id:
+                return _execute_with_elicitation(bug_id, (self, item), {}, orig_getitem, self, item)
+            return orig_getitem(self, item)
 
-            wrapped_prefix._is_interceptor = True
-            DT.prefix = wrapped_prefix
-            DT.__getitem__ = wrapped_getitem
-            DT.to_grammar = wrapped_to_grammar
-            DT.__repr__ = wrapped_repr
-    except Exception:
-        pass
+        def wrapped_to_grammar(self: Any, *args, **kwargs) -> Any:
+            _record_call()
+            children = getattr(self, "_children", [])
+            if len(children) == 0:
+                return _execute_with_elicitation("DT_TO_GRAMMAR_ASSERT", (self,) + args, kwargs, orig_to_grammar, self, *args, **kwargs)
+            return orig_to_grammar(self, *args, **kwargs)
+
+        def wrapped_repr(self: Any) -> str:
+            _record_call()
+            if _has_cycle(self):
+                return _execute_with_elicitation("DT_REPR_CRASH", (self,), {}, orig_repr, self)
+            return orig_repr(self)
+
+        def wrapped_from_tree(tree_tuple: Any) -> Any:
+            _record_call()
+            return _execute_with_elicitation("DT_ROUNDTRIP", (tree_tuple,), {}, orig_from_tree, tree_tuple)
+
+        orig_from_tree = DT.from_tree
+        wrapped_prefix._is_interceptor = True
+        DT.prefix = wrapped_prefix
+        DT.__getitem__ = wrapped_getitem
+        DT.to_grammar = wrapped_to_grammar
+        DT.__repr__ = wrapped_repr
+        DT.from_tree = staticmethod(wrapped_from_tree)
+
+    # Strict assertion: all 5 target functions must be patched
+    assert getattr(comparison._distance_norm, "_is_interceptor", False), "CRITICAL: _distance_norm interceptor failed to install!"
+    assert getattr(stdlib.make_def, "_is_interceptor", False), "CRITICAL: make_def interceptor failed to install!"
+    assert getattr(tree_value.TreeValue.__eq__, "_is_interceptor", False), "CRITICAL: TreeValue.__eq__ interceptor failed to install!"
+    assert getattr(parse_module.parse, "_is_interceptor", False), "CRITICAL: parse interceptor failed to install!"
+    assert getattr(tree.DerivationTree.prefix, "_is_interceptor", False), "CRITICAL: DerivationTree.prefix interceptor failed to install!"
 
     _INSTALLED = True
     return True

@@ -58,68 +58,18 @@ TREATMENT_SHORT_MACROS = {
 }
 TREATMENT_SHORT_TEXT = ["Hypt", "Hfuz", "QtN"]
 
-
-def pvalrange(p: float) -> str:
-    if p is None or np.isnan(p):
-        return r"$p\!>\!0.10$"
-    if p < 0.001:
-        return r"$p\!<\!0.001$"
-    if p < 0.01:
-        return r"$p\!<\!0.01$"
-    if p < 0.05:
-        return r"$p\!<\!0.05$"
-    if p < 0.10:
-        return r"$p\!<\!0.10$"
-    return r"$p\!>\!0.10$"
-
-
-def pvalstars(p: float) -> str:
-    if p is None or np.isnan(p):
-        return ""
-    if p < 0.01:
-        return r"$\ast\ast$"
-    if p < 0.05:
-        return r"$\ast$"
-    return ""
-
-
-def format_delta_pct(val: float) -> str:
-    if val is None or np.isnan(val):
-        return "0\\%"
-    if abs(val) < 1e-6:
-        val = 0.0
-    return f"{val:.1%}".replace("%", "\\%")
-
-
-def compute_ttest(sample_int, sample_ctl):
-    if len(sample_int) >= 2 and len(sample_ctl) >= 2:
-        try:
-            res = st.ttest_ind(sample_int, sample_ctl, equal_var=False)
-            return res.pvalue
-        except Exception:
-            return 1.0
-    return 1.0
-
-
-def compute_fisher_exact(el1, tot1, el2, tot2):
-    try:
-        missed1 = max(0, int(tot1) - int(el1))
-        missed2 = max(0, int(tot2) - int(el2))
-        table = [[int(el1), missed1], [int(el2), missed2]]
-        res = st.fisher_exact(table)
-        return float(res.pvalue)
-    except Exception:
-        return 1.0
-
-
-def compute_mann_whitney(sample_int, sample_ctl):
-    if len(sample_int) >= 2 and len(sample_ctl) >= 2:
-        try:
-            res = st.mannwhitneyu(sample_int, sample_ctl, alternative="two-sided")
-            return float(res.pvalue), float(res.statistic)
-        except Exception:
-            return 1.0, 0.0
-    return 1.0, 0.0
+from analysis_common import (
+    pvalrange,
+    pvalstars,
+    star_alignment,
+    format_delta_pct,
+    compute_ttest,
+    compute_fisher_exact,
+    compute_mann_whitney,
+    format_sig_cell,
+    parse_generator_chain,
+    put_mathtt,
+)
 
 
 def generate_pyplots(df: pd.DataFrame, pdf_paths: list[str]):
@@ -349,31 +299,6 @@ def generate_participants_table(df: pd.DataFrame, out_path: str):
     with open(out_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
     print(f"[TABLE] Generated Table 5.3: {out_path}")
-
-
-def star_alignment(p):
-    if p is not None and not np.isnan(p) and p < 0.01:
-        return r"$\ast\ast$"
-    elif p is not None and not np.isnan(p) and p < 0.05:
-        return r"$\ast$\phantom{$\ast$}"
-    else:
-        return r"\phantom{$\ast\ast$}"
-
-
-def format_sig_cell(tool, col, m_val, sd_val, ctl_m, p, dec, base_tool="hypothesis"):
-    higher_is_better = (col != "ElapsedSec")
-    num_str = f"{m_val:.{dec}f}" if dec > 0 else f"{m_val:.0f}"
-    sd_str = f"{sd_val:.{dec}f}" if dec > 0 else f"{sd_val:.0f}"
-    s = star_alignment(p if tool != base_tool else None)
-
-    if tool == base_tool or p is None or np.isnan(p) or p >= 0.05:
-        return f"{num_str}{s} & {sd_str}"
-
-    is_better = (m_val > ctl_m) if higher_is_better else (m_val < ctl_m)
-    if is_better:
-        return f"\\cellcolor{{bettergreen}}\\textbf{{{num_str}}}{s} & \\cellcolor{{bettergreen}}{sd_str}"
-    else:
-        return f"\\cellcolor{{worsered}}{num_str}{s} & \\cellcolor{{worsered}}{sd_str}"
 
 
 def generate_results_table(df: pd.DataFrame, out_path: str, stats: dict):
@@ -908,38 +833,6 @@ def generate_bugs_elicited_table(run_dir: str, out_path: str):
     with open(out_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
     print(f"[TABLE] Generated Bugs Elicited Table: {out_path}")
-
-
-def parse_generator_chain(chain_str: str) -> tuple[str, str]:
-    """
-    Parses a provenance chain (e.g. 'CustomGen[foo]->Mutation[bar]->Transformer[baz]').
-    Returns (eliciting_generator, originating_generator).
-    Transformer is treated as an intermediate filter/projection, not an input generator.
-    """
-    if not chain_str or chain_str == "None":
-        return ("unknown", "unknown")
-
-    steps = [s.strip() for s in chain_str.split("->")]
-    non_trans = [s for s in steps if not s.startswith("Transformer")]
-    if not non_trans:
-        non_trans = steps
-
-    def categorize_gen(s: str) -> str:
-        if s.startswith("SeedInput") or "Seed" in s:
-            return "seed"
-        elif s.startswith("RandomInputGenerator") or "Random" in s:
-            return "random"
-        elif s.startswith("CustomGen") or s.startswith("UserInputGenerator") or "Custom" in s:
-            return "custom"
-        elif s.startswith("AI") or s.startswith("AiInputGenerator") or "Ai" in s:
-            return "ai"
-        elif s.startswith("Mutation") or "Mutat" in s:
-            return "mutation"
-        return "seed"
-
-    originating = categorize_gen(non_trans[0])
-    eliciting = categorize_gen(non_trans[-1])
-    return (eliciting, originating)
 
 
 def generate_generator_table(run_dir: str, out_path: str):

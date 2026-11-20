@@ -6,7 +6,7 @@
       "argOverrides": [
         { "number": { "min": 0, "max": 4, "numInteger": true } },
         { "string": { "minStrLen": 0, "maxStrLen": 200 } },
-        { "number": { "min": 0, "max": 6, "numInteger": true } },
+        { "number": { "min": 0, "max": 8, "numInteger": true } },
         { "string": { "minStrLen": 0, "maxStrLen": 100 } }
       ],
       "validators": [

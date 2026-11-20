@@ -122,6 +122,38 @@ def seeded_shuffle(items: list, seed_val: str) -> list:
     return shuffled
 
 
+def format_time_duration(seconds: float) -> str:
+    s = int(round(seconds))
+    m, s = divmod(s, 60)
+    h, m = divmod(m, 60)
+    if h > 0:
+        return f"{h}h {m:02d}m {s:02d}s"
+    return f"{m}m {s:02d}s"
+
+
+def tprint(msg: str, **kwargs):
+    ts = datetime.datetime.now().strftime("%H:%M:%S")
+    flush = kwargs.pop("flush", True)
+    print(f"[{ts}] {msg}", flush=flush, **kwargs)
+
+
+def sanitize_command_for_log(cmd: List[str], worktree_dir: str) -> str:
+    home_dir = os.path.expanduser("~")
+    parts = []
+    for arg in cmd:
+        val = str(arg)
+        if worktree_dir in val:
+            val = val.replace(worktree_dir, "<worktree>")
+        if WORKSPACE_ROOT in val:
+            val = val.replace(WORKSPACE_ROOT, "<nanofuzz-root>")
+        if home_dir in val:
+            val = val.replace(home_dir, "~")
+        if " " in val:
+            val = f'"{val}"'
+        parts.append(val)
+    return " ".join(parts)
+
+
 def setup_lane_worktree(lane_idx: int) -> str:
     wt_dir = os.path.join(WORKTREES_DIR, f"w{lane_idx}")
     if not os.path.exists(wt_dir):
@@ -160,9 +192,11 @@ def execute_nanofuzz_run(
         "--max-tests", "0",
         "--max-dupe-inputs", "100000",
         "--max-failures", "0",
+        "--fn-timeout", "1500",
         "--host-startup-timeout", "60000",
         "--no-shrink",
         "--no-progress-bar",
+        "--no-failed-test-measure",
         "--coverage-scope", "project",
         "--cig-stats-checkpoints",
         "--workers", str(workers),
@@ -192,8 +226,9 @@ def execute_nanofuzz_run(
     env["NANOFUZZ_ELICITATION_LOG"] = interceptor_log_path
 
     # Nanofuzz tracks suite runtime from generation start.
-    # Provide a 60-second grace period for Python host startup, AST analysis, and coverage finalization.
-    timeout_sec = (runtime_ms / 1000.0) + 60.0
+    # Provide a generous 120-second grace period for Python host startup (16 workers),
+    # AST analysis, Gemini API network calls (up to 30s timeout), and final coverage serialization.
+    timeout_sec = (runtime_ms / 1000.0) + 120.0
     start_time = time.time()
 
     proc = subprocess.Popen(
@@ -210,30 +245,49 @@ def execute_nanofuzz_run(
         stdout, stderr = proc.communicate(timeout=timeout_sec)
         retcode = proc.returncode
     except subprocess.TimeoutExpired:
+        # Graceful timeout handling: send SIGINT first so NaNofuzz can stop runners and write .mpk
+        tprint(f"[Lane {lane_idx}] Process exceeded {timeout_sec:.0f}s. Sending SIGINT for graceful teardown...")
         if sys.platform != "win32":
-            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGINT)
+            except ProcessLookupError:
+                pass
         else:
-            proc.kill()
-        stdout, stderr = proc.communicate()
-        retcode = -9
+            proc.send_signal(signal.CTRL_C_EVENT)
+
+        try:
+            stdout, stderr = proc.communicate(timeout=30.0)
+            retcode = proc.returncode
+        except subprocess.TimeoutExpired:
+            # Force kill with SIGKILL if still hung after 30s grace period
+            tprint(f"[Lane {lane_idx}] Process failed to exit after 30s of SIGINT. Escalating to SIGKILL.")
+            if sys.platform != "win32":
+                try:
+                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            else:
+                proc.kill()
+            stdout, stderr = proc.communicate()
+            retcode = -9
 
     elapsed = time.time() - start_time
-    return retcode, elapsed, stdout, stderr
+    cmd_str = sanitize_command_for_log(cmd, worktree_dir)
+    stdout_with_cmd = f"COMMAND: {cmd_str}\n{'=' * 80}\n{stdout}"
+    return retcode, elapsed, stdout_with_cmd, stderr
 
 
 def run_warmup_lane(lane_idx: int, worktree_dir: str, workers: int, warmup_cfg: dict, tasks_list: list):
     if not warmup_cfg.get("enabled", True):
         return
 
-    runs_count = warmup_cfg.get("runsPerLane", 3)
     runtime_ms = warmup_cfg.get("runtimeMs", 15000)
-    rng = random.Random(f"warmup_lane_{lane_idx}")
-    selected_tasks = rng.sample(tasks_list, min(runs_count, len(tasks_list)))
+    all_tasks = list(tasks_list)
 
-    print(
-        f"[Lane {lane_idx}] Warming up with {len(selected_tasks)} tasks ({runtime_ms//1000}s each)...")
+    tprint(
+        f"[Lane {lane_idx}] Warming up all {len(all_tasks)} tasks ({runtime_ms//1000}s each)...")
 
-    for task_name in selected_tasks:
+    for task_name in all_tasks:
         task_meta = TASKS_MAP[task_name]
         src_harness = os.path.join(HARNESSES_DIR, task_meta["harness"])
         src_nano_cfg = os.path.join(
@@ -269,7 +323,7 @@ def run_warmup_lane(lane_idx: int, worktree_dir: str, workers: int, warmup_cfg: 
                 except Exception:
                     pass
 
-    print(f"[Lane {lane_idx}] Warmup completed.")
+    tprint(f"[Lane {lane_idx}] Warmup completed.")
 
 
 def process_trial_result(
@@ -282,8 +336,15 @@ def process_trial_result(
     stderr: str,
     retcode: int,
     elapsed_sec: float,
-    rubric: dict
+    rubric: dict,
+    attempts: int = 1
 ) -> dict:
+    if retcode not in (0, 1):
+        raise RuntimeError(
+            f"STRICT POLICY VIOLATION: Trial {run_id} ({trial['Task']} under {trial['Treatment']}) "
+            f"failed with exit code {retcode} (valid: 0=clean, 1=defects found). Stderr: {stderr[:500]}"
+        )
+
     if not os.path.exists(output_mpk_path):
         raise RuntimeError(
             f"STRICT POLICY VIOLATION: Output file {output_mpk_path} not found for trial {run_id} "
@@ -302,6 +363,7 @@ def process_trial_result(
     dupes_generated = counters.get("dupesGenerated", 0)
     inputs_skipped = counters.get("inputsSkipped", 0)
     stop_reason = str(data.get("stopReason", "unknown"))
+    tool_version = str(data.get("toolVersion", "unknown"))
 
     task_name = trial["Task"]
     task_meta = TASKS_MAP[task_name]
@@ -364,14 +426,15 @@ def process_trial_result(
                     continue
                 try:
                     entry = json.loads(line)
-                    if entry.get("summary") and "total_calls" in entry:
-                        interceptor_total_calls += int(entry["total_calls"])
-                        continue
-                    bid = entry.get("bug_id")
-                    if bid in task_rubric_bugs:
-                        interceptor_hits[bid] = entry
-                except Exception:
-                    pass
+                except Exception as e:
+                    raise RuntimeError(f"CRITICAL: Corrupted JSON line in {interceptor_log_path}: {line}") from e
+
+                if entry.get("summary") and "total_calls" in entry:
+                    interceptor_total_calls += int(entry["total_calls"])
+                    continue
+                bid = entry.get("bug_id")
+                if bid in task_rubric_bugs:
+                    interceptor_hits[bid] = entry
 
     # Extract validator outcomes and input sources from results
     validator_detected_bugs = set()
@@ -419,12 +482,15 @@ def process_trial_result(
         "Replicate": trial["Replicate"],
         "Sequence": trial["Sequence"],
         "Date": datetime.date.today().isoformat(),
+        "ToolVersion": tool_version,
         "ElapsedSec": int(round(elapsed_sec)),
+        "ExitCode": retcode,
+        "StopReason": stop_reason,
+        "Attempts": attempts,
         "TotalTestsExecuted": total_tests,
         "TotalTestsInterceptor": interceptor_total_calls,
         "DupesGenerated": dupes_generated,
         "InputsSkipped": inputs_skipped,
-        "StopReason": stop_reason,
         "BranchCoveragePct": branch_cov_pct,
         "BranchesCovered": branches_covered,
         "BranchesTotal": branches_total,
@@ -484,6 +550,43 @@ def process_trial_result(
     return row
 
 
+def create_failed_trial_row(trial: dict, run_id: str, attempts: int, last_error: str, rubric: dict) -> dict:
+    task_name = trial["Task"]
+    task_rubric_bugs = rubric.get("tasks", {}).get(task_name, {}).get("bugs", {})
+    row = {
+        "RunID": run_id,
+        "Task": task_name,
+        "Treatment": trial["Treatment"],
+        "Replicate": trial["Replicate"],
+        "Sequence": trial["Sequence"],
+        "Date": datetime.date.today().isoformat(),
+        "ToolVersion": "NaNofuzz",
+        "ElapsedSec": 0,
+        "ExitCode": -1,
+        "StopReason": "FAILED",
+        "Attempts": attempts,
+        "TotalTestsExecuted": 0,
+        "TotalTestsInterceptor": 0,
+        "DupesGenerated": 0,
+        "InputsSkipped": 0,
+        "BranchCoveragePct": 0.0,
+        "BranchesCovered": 0,
+        "BranchesTotal": TASKS_MAP[task_name]["branches_total"],
+        "TaskBugCount": len(task_rubric_bugs),
+        "BugsElicited": 0,
+        "BugsDetected": 0,
+        "BugElicitationRate": 0.0,
+        "ElicitingGenerators": "None",
+        "ElicitingGeneratorsValidator": "None",
+        "Status": "FAILED",
+        "Error": str(last_error)[:300],
+    }
+    for b in ALL_DEFECT_COLUMNS:
+        row[b] = "#N/A"
+        row[f"{b}_Validator"] = "#N/A"
+    return row
+
+
 def lane_worker_loop(
     lane_idx: int,
     task_queue: multiprocessing.Queue,
@@ -511,6 +614,8 @@ def lane_worker_loop(
 
             treatment_info = treatments_cfg["treatments"][treatment_name]
             cli_args = list(treatment_info.get("cliArgs", []))
+            if treatments_cfg.get("noFailedTestMeasure"):
+                cli_args.append("--no-failed-test-measure")
 
             trial_artifact_dir = os.path.join(run_dir, "artifacts", run_id)
             os.makedirs(trial_artifact_dir, exist_ok=True)
@@ -532,8 +637,10 @@ def lane_worker_loop(
 
             seed_str = f"{item['Sequence']}_{run_id}_{task_name}_{treatment_name}"
 
+            ts_start = datetime.datetime.now().strftime("%H:%M:%S")
             print(
-                f"[Lane {lane_idx}] Starting {run_id}: {task_name} under {treatment_name} (Replicate {item['Replicate']})...")
+                f"[{ts_start}] [Lane {lane_idx}] Starting {run_id}: {task_name} under {treatment_name} (Repetition {item['Replicate']})...",
+                flush=True)
 
             retcode, elapsed, stdout, stderr = execute_nanofuzz_run(
                 lane_idx=lane_idx,
@@ -569,7 +676,10 @@ def lane_worker_loop(
             )
 
             result_queue.put(processed_row)
-            print(f"[Lane {lane_idx}] Finished {run_id} in {elapsed:.1f}s | Cov: {processed_row['BranchCoveragePct']}% | Elicited: {processed_row['BugsElicited']}/{processed_row['TaskBugCount']}")
+            ts_end = datetime.datetime.now().strftime("%H:%M:%S")
+            print(
+                f"[{ts_end}] [Lane {lane_idx}] Finished {run_id}: {task_name} under {treatment_name} in {elapsed:.1f}s | Cov: {processed_row['BranchCoveragePct']}% | Elicited: {processed_row['BugsElicited']}/{processed_row['TaskBugCount']}",
+                flush=True)
 
     except Exception as exc:
         print(f"[Lane {lane_idx} ERROR]: {exc}", file=sys.stderr)
@@ -631,9 +741,9 @@ def update_latest_symlink(run_dir: str):
             os.remove(latest_symlink)
         rel_target = os.path.basename(run_dir)
         os.symlink(rel_target, latest_symlink)
-        print(f"[SYMLINK] Updated {latest_symlink} -> {rel_target}")
+        tprint(f"[SYMLINK] Updated {latest_symlink} -> {rel_target}")
     except Exception as e:
-        print(f"[WARN] Failed to update latest symlink: {e}")
+        tprint(f"[WARN] Failed to update latest symlink: {e}")
 
 
 def main():
@@ -645,12 +755,14 @@ def main():
                         help="Number of host CPUs reserved (default: 2)")
     parser.add_argument("--workers", type=int, default=None,
                         help="Explicit workers per lane (default: computed)")
-    parser.add_argument("--replicates", type=int, default=10,
-                        help="Replicates per condition (default: 10)")
+    parser.add_argument("--repetitions", "--replicates", type=int, default=10, dest="repetitions",
+                        help="Repetitions per condition (default: 10)")
     parser.add_argument("--runtime-ms", type=int, default=None,
                         help="Override runtimeMs per trial (ms)")
     parser.add_argument("--smoke", action="store_true",
-                        help="Run quick 6-trial smoke test covering all treatments and PUTs")
+                        help="Run fast smoke test with 1 full factorial repetition (30 trials) covering all treatments and PUTs")
+    parser.add_argument("--no-failed-test-measure", action="store_true",
+                        help="Disable FailedTestMeasure in NaNofuzz CLI")
     parser.add_argument("--no-warmup", action="store_true",
                         help="Disable warmup runs")
     parser.add_argument("--resume", type=str, default=None,
@@ -659,15 +771,15 @@ def main():
 
     workers_per_lane = calculate_workers(
         args.lanes, args.unused_cpus, args.workers)
-    print(
+    tprint(
         f"[HARDWARE] Total Host CPUs: {os.cpu_count()}, Unused CPUs: {args.unused_cpus}")
-    print(
+    tprint(
         f"[ALLOCATION] Concurrency: {args.lanes} lanes x {workers_per_lane} workers/lane = {args.lanes * workers_per_lane} active worker processes")
 
     treatments_cfg = load_json(TREATMENTS_CONFIG_PATH)
     rubric = load_json(RUBRIC_PATH)
 
-    replicates = args.replicates
+    repetitions = args.repetitions
     canonical_treatments = list(treatments_cfg["treatments"].keys())
     tasks_list = treatments_cfg.get("tasks", list(TASKS_MAP.keys()))
 
@@ -675,12 +787,12 @@ def main():
         run_dir = os.path.abspath(args.resume)
         if not os.path.isdir(run_dir):
             raise FileNotFoundError(f"Resume directory not found: {run_dir}")
-        print(f"[RESUME] Resuming benchmark in: {run_dir}")
+        tprint(f"[RESUME] Resuming benchmark in: {run_dir}")
     else:
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         run_dir = os.path.join(CLI_BASE_DIR, timestamp)
         os.makedirs(os.path.join(run_dir, "artifacts"), exist_ok=True)
-        print(f"[START] Starting new benchmark in: {run_dir}")
+        tprint(f"[START] Starting new benchmark in: {run_dir}")
 
     update_latest_symlink(run_dir)
 
@@ -692,37 +804,30 @@ def main():
         for _, r in existing_df.iterrows():
             if r.get("Status") == "COMPLETED":
                 completed_runs[r["RunID"]] = r.to_dict()
-        print(
+        tprint(
             f"[RESUME] Found {len(completed_runs)} already completed trials in {data_csv_path}")
 
     if args.runtime_ms is not None:
         treatments_cfg["runtimeMs"] = args.runtime_ms
     if args.no_warmup or args.smoke:
         treatments_cfg["warmup"]["enabled"] = False
+    if args.smoke:
+        repetitions = 1
+    if args.no_failed_test_measure:
+        treatments_cfg["noFailedTestMeasure"] = True
 
     # Build schedule
-    if args.smoke:
-        smoke_tasks = [
-            {"Task": "TreeValue", "Treatment": "SCRAM", "Replicate": 1},
-            {"Task": "DerivationTree", "Treatment": "CR", "Replicate": 1},
-            {"Task": "parse", "Treatment": "R", "Replicate": 1},
-            {"Task": "_distance_norm", "Treatment": "RA", "Replicate": 1},
-            {"Task": "make_def", "Treatment": "RM", "Replicate": 1},
-            {"Task": "TreeValue", "Treatment": "SR", "Replicate": 1},
-        ]
-        shuffled_schedule = smoke_tasks
-    else:
-        schedule_items = []
-        for rep in range(1, replicates + 1):
-            for tr in canonical_treatments:
-                for tsk in tasks_list:
-                    schedule_items.append({
-                        "Task": tsk,
-                        "Treatment": tr,
-                        "Replicate": rep,
-                    })
-        shuffled_schedule = seeded_shuffle(
-            schedule_items, treatments_cfg.get("randomSeed", "qwertonyuiop"))
+    schedule_items = []
+    for rep in range(1, repetitions + 1):
+        for tr in canonical_treatments:
+            for tsk in tasks_list:
+                schedule_items.append({
+                    "Task": tsk,
+                    "Treatment": tr,
+                    "Replicate": rep,
+                })
+    shuffled_schedule = seeded_shuffle(
+        schedule_items, treatments_cfg.get("randomSeed", "qwertonyuiop"))
 
     full_trial_list = []
     for idx, item in enumerate(shuffled_schedule):
@@ -733,11 +838,11 @@ def main():
 
     pending_trials = [
         t for t in full_trial_list if t["RunID"] not in completed_runs]
-    print(
+    tprint(
         f"[SCHEDULE] Total Factorial Matrix: {len(full_trial_list)} trials. Remaining to execute: {len(pending_trials)}")
 
     if not pending_trials:
-        print("[COMPLETE] All trials have already been executed!")
+        tprint("[COMPLETE] All trials have already been executed!")
         sys.exit(0)
 
     # Initialize worktrees for each lane
@@ -775,6 +880,7 @@ def main():
 
     results_rows = list(completed_runs.values())
     pending_count = len(pending_trials)
+    benchmark_start_time = time.time()
 
     def write_csv():
         if results_rows:
@@ -795,8 +901,46 @@ def main():
             results_rows.append(res)
             write_csv()
             pending_count -= 1
+
+            completed_count = len(results_rows)
+            total_count = len(full_trial_list)
+            elapsed_sec = time.time() - benchmark_start_time
+            time_per_trial = elapsed_sec / completed_count
+            remaining_sec = time_per_trial * pending_count
+
+            elapsed_str = format_time_duration(elapsed_sec)
+            eta_str = format_time_duration(remaining_sec)
+            pct = (completed_count / total_count) * 100.0
+
+            # Live scores across treatments
+            df_curr = pd.DataFrame(results_rows)
+            bugs_parts = []
+            bcov_parts = []
+            for tr in canonical_treatments:
+                sub = df_curr[df_curr["Treatment"] == tr]
+                if not sub.empty and "BugElicitationRate" in sub.columns:
+                    mean_rate = sub["BugElicitationRate"].mean()
+                    bugs_parts.append(f"{tr}: {mean_rate:.1%}")
+                else:
+                    bugs_parts.append(f"{tr}: --")
+
+                if not sub.empty and "BranchCoveragePct" in sub.columns:
+                    mean_cov = sub["BranchCoveragePct"].mean()
+                    bcov_parts.append(f"{tr}: {mean_cov:.1f}%")
+                else:
+                    bcov_parts.append(f"{tr}: --")
+
+            bugs_str = " | ".join(bugs_parts)
+            bcov_str = " | ".join(bcov_parts)
+
+            ts_prog = datetime.datetime.now().strftime("%H:%M:%S")
             print(
-                f"[PROGRESS] Completed {len(results_rows)} / {len(full_trial_list)} trials.")
+                f"[{ts_prog}] [UPDATE] {completed_count}/{total_count} ({pct:.1f}%) | "
+                f"Left: {pending_count} | Elapsed: {elapsed_str} | ETA: ~{eta_str}\n"
+                f"[{ts_prog}] [ BUGS ] {bugs_str}\n"
+                f"[{ts_prog}] [ BCOV ] {bcov_str}",
+                flush=True
+            )
 
     finally:
         for p in workers_processes:
@@ -807,6 +951,15 @@ def main():
         f"\n[DONE] Experiment run successfully completed. Dataset written to:\n  {data_csv_path}")
 
     print_post_check_summary(results_rows, rubric)
+
+    # Run analysis pipeline at the end of experiment
+    analyze_script = os.path.join(SCRIPT_DIR, "analyze_cig.py")
+    if os.path.exists(analyze_script):
+        print(f"\n[ANALYSIS] Running CIG analysis pipeline on {data_csv_path}...")
+        cmd_analyze = [sys.executable, analyze_script, "--data", data_csv_path]
+        if args.smoke:
+            cmd_analyze.append("--smoke")
+        subprocess.run(cmd_analyze, check=True)
 
 
 if __name__ == "__main__":
