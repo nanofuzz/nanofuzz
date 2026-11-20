@@ -1122,7 +1122,7 @@ export async function runCliInProcess(
           k === "CodeCoverageMeasure"
             ? covStats
             : k === "coverageMeasure" && isKeyedObject(v)
-              ? { current: v.current }
+              ? { globalDelta: v.globalDelta, accumDelta: v.accumDelta }
               : v
         );
       }
