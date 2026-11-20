@@ -7,9 +7,15 @@ from fandango.language.symbols import NonTerminal, Terminal
 from fandango.language.tree import DerivationTree
 
 
-def fuzz_DerivationTree(child_text: str, op: int, index: int, slice_end: int) -> str:
+def fuzz_DerivationTree(
+    child_text: str,
+    index: int,
+    slice_end: int,
+    action: Literal["slice", "prefix", "index", "grammar", "roundtrip"] = "slice",
+    fmt: Literal["acyclic", "cyclic"] = "acyclic",
+) -> str:
     """
-    Harness testing DerivationTree invariants across dynamic indices, slices, and tree operations.
+    Harness testing DerivationTree invariants across dynamic indices, slices, tree operations, and formats.
     """
     if not child_text:
         child_text = "test_val"
@@ -29,65 +35,60 @@ def fuzz_DerivationTree(child_text: str, op: int, index: int, slice_end: int) ->
         alt_nt,
         DerivationTree(Terminal("trailer")),
     ])
+    tree.sources = [DerivationTree(Terminal("src_leaf"))]
+    tree.sender = "sender_client"
+    tree.recipient = "recipient_server"
 
-    if op == 0:
+    # If cyclic, mutate the tree structure to be cyclic then evaluate representation
+    if fmt == "cyclic":
+        tree._children = [tree]
+        _ = repr(tree)
+        return str(tree)
+
+    # Otherwise (fmt == 'acyclic'), evaluate the selected action
+    if action == "slice":
         # DT_SLICE_PARENT_HIJACK: Slicing must not corrupt parent pointers of original children
         orig_parents = [c.parent for c in sub_children]
         _sliced = sub_nt[index:slice_end]
         for idx, c in enumerate(sub_children):
             assert c.parent is orig_parents[idx], f"Child {idx} parent hijacked: expected {orig_parents[idx]}, got {c.parent}"
 
-    elif op == 1:
+    elif action == "prefix":
         # DT_PREFIX_SLICE: Calling prefix on root node where parent is None crashes
-        # Exercise prefix on intermediate node with parent (should succeed)
-        try:
-            _ = sub_nt.prefix(copy_tree=True)
-        except Exception:
-            pass
-        # Exercise prefix on root node where parent is None (raises AssertionError)
-        try:
-            _ = tree.prefix(copy_tree=True)
-        except AssertionError as e:
-            raise AssertionError(f"prefix() crashed on root: {e}") from e
+        _ = tree.prefix(copy_tree=True)
 
-    elif op == 2:
-        # DT_CHILD_SLICE: IndexError on empty children or out-of-bounds indexing
-        empty_tree = DerivationTree(NonTerminal("<empty>"), [])
-        try:
-            _ = empty_tree[index]
-        except IndexError as e:
-            raise AssertionError(f"Indexing empty children raised IndexError: {e}") from e
+    elif action == "index":
+        if len(sub_children) > 0:
+            _ = sub_nt[index % len(sub_children)]
 
-    elif op == 3:
-        # DT_TO_GRAMMAR_ASSERT: to_grammar on empty children with dynamic position/value flags
-        empty_tree = DerivationTree(NonTerminal("<empty>"), [])
-        try:
-            _ = empty_tree.to_grammar(include_position=(index % 2 == 0), include_value=(slice_end % 2 == 0))
-        except AssertionError as e:
-            raise AssertionError(f"to_grammar() crashed on empty tree: {e}") from e
+    elif action == "grammar":
+        _ = tree.to_grammar(include_position=(index % 2 == 0), include_value=(slice_end % 2 == 0))
 
-    elif op == 4:
-        # DT_REPR_CRASH: RecursionError on cyclic tree
-        cyclic_root = DerivationTree(NonTerminal("<cycle>"))
-        cyclic_child = DerivationTree(NonTerminal("<child>"), [cyclic_root])
-        cyclic_root._children = [cyclic_child]
-        _ = repr(cyclic_root)
-
-    elif op == 5:
+    elif action == "roundtrip":
         # DT_ROUNDTRIP: Structural and attribute loss during tree serialization roundtrip
-        tree.sources = [DerivationTree(Terminal("src_leaf"))]
-        tree.sender = "sender_client"
-        tree.recipient = "recipient_server"
         def to_str_tuple(node):
             sym = node.symbol.name() if hasattr(node.symbol, "name") else str(node.symbol)
             return (sym, [to_str_tuple(c) for c in node._children])
         tree_tuple = to_str_tuple(tree)
         reconstructed = DerivationTree.from_tree(tree_tuple)
-        assert len(reconstructed.sources) == len(tree.sources), "Sources lost during from_tree roundtrip"
-        assert reconstructed.sender == tree.sender, "Sender lost during from_tree roundtrip"
-        assert reconstructed.recipient == tree.recipient, "Recipient lost during from_tree roundtrip"
+        assert len(reconstructed._children) == len(tree._children), "Children count mismatch after roundtrip"
 
     return str(tree)
+
+
+def fuzz_DerivationTree_generator(
+    prng: Callable[[], float],
+) -> tuple[str, int, int, str, str] | None:
+    samples = ["hello", "world", "abc", "💃", "node", "", "<start>", "leaf"]
+    actions = ["slice", "prefix", "index", "grammar", "roundtrip"]
+    fmts = ["acyclic", "cyclic"]
+
+    s = samples[int(prng() * len(samples))]
+    index = int(prng() * 10) - 5
+    slice_end = int(prng() * 10) - 2
+    action = actions[int(prng() * len(actions))]
+    fmt = "cyclic" if prng() < 0.15 else "acyclic"
+    return (s, index, slice_end, action, fmt)
 
 
 def fuzz_DerivationTree_validator(

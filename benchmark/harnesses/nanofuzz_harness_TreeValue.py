@@ -10,7 +10,7 @@ from fandango.errors import FandangoConversionError
 from fandango.language.tree_value import TreeValue, TreeValueType
 
 
-def fuzz_TreeValue(kind: int, val: str, op: int, extra: str) -> bool:
+def fuzz_TreeValue(kind: int, val: str, extra: str, action: str) -> bool:
     # 1. Construct TreeValue based on kind
     if kind == 0:
         tv = TreeValue(val)
@@ -28,8 +28,10 @@ def fuzz_TreeValue(kind: int, val: str, op: int, extra: str) -> bool:
     else:
         tv = TreeValue(val)
 
-    # 2. Test operation/contract based on op selector
-    if op == 0:
+    # 2. State-machine / Action dispatcher
+    action_key = (action or "").lower().strip()
+
+    if action_key in ("eq_none", "compare_none", "0"):
         # Contract TV_EQ_NONE: Comparing TreeValue with None must return False and not raise TypeError
         is_eq = (tv == None)
         assert is_eq is False, f"tv == None must be False, got {is_eq}"
@@ -38,7 +40,7 @@ def fuzz_TreeValue(kind: int, val: str, op: int, extra: str) -> bool:
         is_eq_rev = (None == tv)
         assert is_eq_rev is False, f"None == tv must be False, got {is_eq_rev}"
 
-    elif op == 1:
+    elif action_key in ("radd", "concat", "1"):
         # Contract TV_RADD_STR: Concatenation with string/bytes must succeed for compatible types
         if tv.is_type(TreeValueType.STRING):
             prefix_str = extra if extra else ""
@@ -53,7 +55,7 @@ def fuzz_TreeValue(kind: int, val: str, op: int, extra: str) -> bool:
             res_add_b = tv + prefix_bytes
             assert isinstance(res_add_b, bytes)
 
-    elif op == 2:
+    elif action_key in ("to_int", "int", "2"):
         # Contract TV_TO_INT_VAL: to_int() must raise FandangoConversionError on non-numeric data, not unhandled ValueError
         try:
             res_int = tv.to_int()
@@ -65,7 +67,7 @@ def fuzz_TreeValue(kind: int, val: str, op: int, extra: str) -> bool:
                 f"to_int() raised raw ValueError instead of FandangoConversionError: {e}"
             ) from e
 
-    elif op == 3:
+    elif action_key in ("encoding", "codec", "3"):
         # Contract TV_ENCODING: Invalid encoding must raise FandangoConversionError, not raw LookupError
         from fandango.language.tree_value import _str_to_bytes
         codec = extra if extra else "utf-8"
@@ -78,7 +80,7 @@ def fuzz_TreeValue(kind: int, val: str, op: int, extra: str) -> bool:
                 f"_str_to_bytes raised raw LookupError instead of FandangoConversionError: {e}"
             ) from e
 
-    elif op == 4:
+    elif action_key in ("deepcopy", "copy", "4"):
         # Contract TV_DEEPCOPY_SHARED: Deepcopy must create independent mutable structures
         tv_copy = copy.deepcopy(tv)
         if hasattr(tv, "_trailing_bits") and hasattr(tv_copy, "_trailing_bits"):
@@ -86,21 +88,19 @@ def fuzz_TreeValue(kind: int, val: str, op: int, extra: str) -> bool:
                 tv_copy._trailing_bits is not tv._trailing_bits
             ), "deepcopy shared the _trailing_bits list reference between original and copy"
 
-    elif op == 5:
+    elif action_key in ("hash", "5"):
         # Contract TV_HASH_CONTRACT: Hash contract consistency
         h = hash(tv)
         assert isinstance(h, int)
-        # Equality reflexivity
         assert tv == copy.deepcopy(tv), "A TreeValue must equal its deepcopy"
         assert hash(tv) == hash(copy.deepcopy(tv)), "A TreeValue must have same hash as its deepcopy"
-        # If tv == other, their hashes must match
         try:
             if tv == val:
                 assert hash(tv) == hash(val), f"Hash contract violation: tv == val but hash(tv)={hash(tv)} != hash(val)={hash(val)}"
         except FandangoConversionError:
             pass
 
-    elif op == 6:
+    elif action_key in ("methods", "string_methods", "6"):
         # Direct string methods
         try:
             if tv.is_type(TreeValueType.STRING):
@@ -125,7 +125,7 @@ def fuzz_TreeValue(kind: int, val: str, op: int, extra: str) -> bool:
         except FandangoConversionError:
             pass
 
-    elif op == 7:
+    elif action_key in ("arithmetic", "math", "7"):
         # Arithmetic operator methods
         if tv.is_type(TreeValueType.TRAILING_BITS_ONLY) or (isinstance(val, str) and val.lstrip("-").isdigit()):
             num = int(val) if isinstance(val, str) and val.lstrip("-").isdigit() else 1
@@ -139,7 +139,7 @@ def fuzz_TreeValue(kind: int, val: str, op: int, extra: str) -> bool:
             _ = tv | num
             _ = tv ^ num
 
-    elif op == 8:
+    elif action_key in ("conversions", "8"):
         # String, bytes, bits conversions and metadata
         try:
             _ = tv.to_string()
@@ -154,15 +154,15 @@ def fuzz_TreeValue(kind: int, val: str, op: int, extra: str) -> bool:
 
 def fuzz_TreeValue_generator(
     prng: Callable[[], float],
-) -> tuple[int, str, int, str] | None:
+) -> tuple[int, str, str, str] | None:
     kinds = [0, 1, 2, 3, 4]
-    ops = [0, 1, 2, 3, 4, 5, 6, 7, 8]
+    actions = ["eq_none", "radd", "to_int", "encoding", "deepcopy", "hash", "methods", "arithmetic", "conversions"]
     samples = ["", "hello", "123", "abc", "💃", "foo", "bar", "prefix_", " \t\n", "xyz-123"]
     kind = kinds[int(prng() * len(kinds))]
-    op = ops[int(prng() * len(ops))]
+    action = actions[int(prng() * len(actions))]
     val = samples[int(prng() * len(samples))]
     extra = samples[int(prng() * len(samples))]
-    return (kind, val, op, extra)
+    return (kind, val, extra, action)
 
 
 def fuzz_TreeValue_validator(
