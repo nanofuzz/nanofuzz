@@ -335,6 +335,10 @@ def install_interceptors(log_path: Optional[str] = None) -> bool:
                 bug_id = "PARSE_SILENT_DROP"
             elif r"\|" in str(fan_files) or any(r"\|" in str(x) for x in (fan_files if isinstance(fan_files, (list, tuple)) else [])):
                 bug_id = "PARSE_LEXER_STALL"
+            elif any("<undefined>" in str(f) or "<unknown>" in str(f) for f in (fan_files if isinstance(fan_files, (list, tuple)) else [fan_files])):
+                bug_id = "PARSE_NAME_ERROR"
+            elif any(".." in str(c) for c in (constraints or [])):
+                bug_id = "PARSE_DESC_RECUR"
 
             if bug_id:
                 return _execute_with_elicitation(bug_id, args, kwargs, orig_parse, *args, **kwargs)

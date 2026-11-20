@@ -505,7 +505,7 @@ def process_trial_result(
 
     for b in ALL_DEFECT_COLUMNS:
         if b in task_rubric_bugs:
-            elicited_val = 1 if b in interceptor_hits else 0
+            elicited_val = 1 if (b in interceptor_hits and interceptor_hits[b].get("detected") == 1) else 0
             row[b] = elicited_val
             row[f"{b}_Validator"] = 1 if (b in interceptor_hits and (
                 b in validator_detected_bugs or interceptor_hits[b].get("detected") == 1)) else 0
@@ -537,14 +537,13 @@ def process_trial_result(
                     f"CROSS-CHECK FAILED: SeedInput recorded for non-seed treatment {treatment_name} on {run_id}"
                 )
 
-    # Dual defect validation match check:
+    # Dual defect validation two-way match check: Both MUST agree!
     for b in task_rubric_bugs:
         elicited_interceptor = row[b]
         validator_val = row[f"{b}_Validator"]
-        # If bug was detected as failing in the harness, validator must be 1
-        if interceptor_hits.get(b, {}).get("detected") == 1 and validator_val != 1:
+        if elicited_interceptor != validator_val:
             raise ValueError(
-                f"CROSS-CHECK FAILED: Defect {b} was detected by harness but {b}_Validator is {validator_val} on {run_id}"
+                f"CROSS-CHECK FAILED: Defect {b} mismatch on {run_id}: Interceptor elicited={elicited_interceptor} vs Validator={validator_val}. Both must agree!"
             )
 
     return row
