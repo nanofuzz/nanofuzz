@@ -64,8 +64,9 @@ def fuzz_TreeValue(kind: int, val: str, op: int, extra: str) -> bool:
     elif op == 3:
         # Contract TV_ENCODING: Invalid encoding must raise FandangoConversionError, not raw LookupError
         from fandango.language.tree_value import _str_to_bytes
+        codec = extra if extra else "utf-8"
         try:
-            _str_to_bytes("hello", "invalid_encoding_xyz_123")
+            _str_to_bytes(val if val else "hello", codec)
         except FandangoConversionError:
             pass
         except LookupError as e:
@@ -102,16 +103,6 @@ def fuzz_TreeValue(kind: int, val: str, op: int, extra: str) -> bool:
             assert tv.endswith(b"")
 
     return True
-
-
-def fuzz_TreeValue_transformer(
-    kind: int, val: str, op: int, extra: str
-) -> tuple[int, str, int, str]:
-    assume(0 <= kind <= 4)
-    assume(0 <= op <= 6)
-    assume(len(val) <= 100)
-    assume(len(extra) <= 100)
-    return (kind, val, op, extra)
 
 
 def fuzz_TreeValue_generator(

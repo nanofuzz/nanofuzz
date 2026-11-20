@@ -7,11 +7,33 @@ import sys
 import json
 import math
 import codecs
+import atexit
 from typing import Any, Tuple, Dict, Optional
 
 _INSTALLED = False
 _INTERCEPTOR_LOG: Optional[str] = None
 _INTERCEPTED_BUGS = set()
+_TOTAL_CALLS = 0
+
+
+def _dump_total_calls():
+    global _TOTAL_CALLS
+    log_path = (
+        _INTERCEPTOR_LOG
+        or os.environ.get("NANOFUZZ_ELICITATION_LOG")
+        or os.path.abspath("elicited_bugs.json")
+    )
+    try:
+        dir_name = os.path.dirname(os.path.abspath(log_path))
+        if dir_name and not os.path.exists(dir_name):
+            os.makedirs(dir_name, exist_ok=True)
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"summary": True, "total_calls": _TOTAL_CALLS}) + "\n")
+    except Exception:
+        pass
+
+
+atexit.register(_dump_total_calls)
 
 # Active elicitation context for detecting whether the test harness asserts or catches failures
 _active_elicitation: Optional[Dict[str, Any]] = None
@@ -99,7 +121,8 @@ def _record_event(entry: Dict[str, Any]) -> None:
 
 
 def _execute_with_elicitation(bug_id: str, args: Tuple[Any, ...], kwargs: Dict[str, Any], fn, *call_args, **call_kwargs):
-    global _active_elicitation
+    global _active_elicitation, _TOTAL_CALLS
+    _TOTAL_CALLS += 1
 
     provenance = (
         os.environ.get("NANOFUZZ_PROVENANCE")

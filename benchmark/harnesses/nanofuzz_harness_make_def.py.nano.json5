@@ -1,37 +1,4752 @@
 {
-  version: "0.4.0",
-  functions: {
-    fuzz_make_def: {
-      options: {},
-      validators: ["fuzz_make_def_validator"],
-      isVoid: false,
-      tests: {
-        "empty_rhs": {
-          input: [
-            { name: "symbol", offset: 0, value: "rule", origin: { type: "user" } },
-            { name: "chars", offset: 1, value: "", origin: { type: "user" } },
-            { name: "force_binary", offset: 2, value: false, origin: { type: "user" } }
+  "version": "0.4.0",
+  "functions": {
+    "fuzz_make_def": {
+      "options": {},
+      "validators": [
+        "fuzz_make_def_validator"
+      ],
+      "isVoid": false,
+      "tests": {
+        "make_def_P02_1": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "digit",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "0123456789",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
           ],
-          output: [],
-          pinned: true
+          "output": [],
+          "pinned": true
         },
-        "unicode_symbol": {
-          input: [
-            { name: "symbol", offset: 0, value: "тест", origin: { type: "user" } },
-            { name: "chars", offset: 1, value: "abc", origin: { type: "user" } },
-            { name: "force_binary", offset: 2, value: false, origin: { type: "user" } }
+        "make_def_P02_2": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "NUL",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            }
           ],
-          output: [],
-          pinned: true
+          "output": [],
+          "pinned": true
         },
-        "hex_overflow": {
-          input: [
-            { name: "symbol", offset: 0, value: "euro", origin: { type: "user" } },
-            { name: "chars", offset: 1, value: "€", origin: { type: "user" } },
-            { name: "force_binary", offset: 2, value: true, origin: { type: "user" } }
+        "make_def_P02_3": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "whitespace",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": " \t\n \f",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
           ],
-          output: [],
-          pinned: true
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P02_4": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "char",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "a",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P02_5": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "latin1",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\u00f8",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P02_6": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "quotes",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "'\"",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P02_7": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "empty",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P02_8": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "dancer",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\ud83d\udc83",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P02_9": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "ctrl",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\\x00\\x01\\x02",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P02_10": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "alphanum",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "azAZ09_",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P07_11": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "DEL",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\\x7f",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P07_12": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "NUL",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\\x00",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P07_13": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "letters",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "abc",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P07_14": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "euro",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\u20ac",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P07_15": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "\u0442\u0435\u0441\u0442",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "xyz",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P07_16": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "special_chars",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "'\"\\\\\\n\\t",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P07_17": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "ctrl",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\\x01\\x02\\x03\\x04\\x05",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P103_18": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "alpha",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "abc",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P103_19": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "specials",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\\n\\t'\\\"\\\\",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P103_20": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "bytes",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\\x00\\x80\\xff",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P103_21": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "T",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "tJ~,5",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P103_22": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "T",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "tJ~,5",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P105_23": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "letter",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "abc",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P105_24": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "caf\u00e9",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "abc",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P105_25": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "\u0442\u0435\u0441\u0442",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "abc",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P105_26": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "is",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "abc",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P106_27": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "\u0440\u0443\u0441\u0441\u043a\u0438\u0439",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "abc",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P106_28": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "letters",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "abc",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P106_29": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "py",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "._\u00a51\u00e9Z<,|\u00bf\\x0e ",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P106_30": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "rule_digit",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "0123456789",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P106_31": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "rule_letters",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "abc",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P115_32": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "DEL",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": " ",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P115_33": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "quotes",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "'\\\"\\",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P115_34": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "valid",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "abc",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P124_35": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "ESC",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\\x1b",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P124_36": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "dancer",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\ud83d\udc83",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P124_37": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "mixed",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "a\\x00b\\xffc",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P124_38": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "quotes",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "'\\\"\\\\",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P124_39": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "highlatin",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\\x80\\x90\\xa0\\xff",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P126_40": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "control",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\\x00\\x01\\x1f",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P126_41": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "O0OhOsuG",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "jFbkkQPtZv",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P126_42": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "O0OhOsuG",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P126_43": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "latin_a",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\\u0100",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P126_44": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "accents",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\u00e9\u00e8\u00ea",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P126_45": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "py",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "abc",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P126_46": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "as",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "abc",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P130_47": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "control",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\\x00\\x1f",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P130_48": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "empty_chars",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P130_49": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "\u043f\u0440\u0438\u0432\u0435\u0442",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "xyz",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P130_50": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "sym1",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "a",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P130_51": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "sym2",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "a",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P130_52": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "sym3",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\\x01",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P130_53": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "sym4",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\\x01",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P130_54": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "alpha",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "abcdef",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P130_55": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "ws",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\\t\\n\\r",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P18_56": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "empty_rhs",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P18_57": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "latin_ext",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\\u0100",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P18_58": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "single_quote",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P18_59": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "double_quote",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\"",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P18_60": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "backslash",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\\",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P18_61": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "newlines",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\\n\\r\\t",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P18_62": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "latin1",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\\x80\\xff",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P18_63": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "a",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "a",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P18_64": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "b",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "b",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P18_65": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "ctrl",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\\x00\\x01\\x02\\x03",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P18_66": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "punct",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "~`!@#$%^&*()_+-={}[]:\";'<>?,./",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P18_67": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "edge_bytes",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\\x7f\\x80\\xfe\\xff",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P20_68": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "token",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\\u20ac",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P20_69": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "\\u0430",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "a",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P20_70": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "control",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\\x00\\x01",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P20_71": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "binary_ascii",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "abc",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P20_72": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "py",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "?R\u00f6\u00fd\u00d0",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P21_73": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "ascii_control",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\\x00\\x01\\x1f",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P21_74": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "ascii_letter",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "abc",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P21_75": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "currency",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\u20ac$\u00a3",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P21_76": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "\u0441\u0438\u043c\u0432\u043e\u043b",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "abc",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P21_77": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "\ud83c\udf1f",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "abc",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P21_78": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "\u00e9",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "abc",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P21_79": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "latin1_high",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\\x80\\xff",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P21_80": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "symbols",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "~!@#$%^&*()_+-=",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P26_81": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "unicode",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\\u0100",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P26_82": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "test_all_bytes",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\\n\\r\\t\\x00\\x7f\\x80\\xff",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P26_83": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "test_symbols_binary",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "!@#$%^&*()",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P26_84": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "test_alpha",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "abcdefghijklmnopqrstuvwxyz",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P26_85": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "test_digits_binary",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "0123456789",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P26_86": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "test_binary_mixed",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\\x00\\x01\\x02\\x1f\\x20\\x7f\\x80\\xff",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P26_87": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "test_whitespace_binary",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\\t\\n\\r",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P26_88": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "test_quotes_delims",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\"'\\\\][{}()",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P26_89": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "test_ascii_binary",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "abc",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P33_90": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "alpha",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "abcABC",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P33_91": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "unicode_chars",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "hello\u20ac\u00e9",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P33_92": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "sym_\u0430\u0431",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "xyz",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P33_93": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "control",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\\x00\\x01\\x1f\\x7f",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P33_94": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "alpha",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "abc",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P33_95": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "alpha",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "abcABC",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P33_96": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "alpha_bin",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "abcABC",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P33_97": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "control_chars",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\\x00\\x01\\x1f\\x7f",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P33_98": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "digits",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "0123456789",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P33_99": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "empty_rule",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P40_100": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "SOH",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": " ",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P43_101": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "SP",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": " ",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P43_102": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "unicode_char",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\u0100",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P43_103": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "f69Jt0sp_4S",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\\x01\\x92",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P43_104": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "A",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\u0100",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P43_105": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "def",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "a",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P43_106": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "123",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "a",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P43_107": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "mixed",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "a\\x01\\x80\\xff",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P43_108": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "binary_seq",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\\x10\\x20",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P43_109": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "punct",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "!\\\"#$%&'()*+,-./:;<=>?@[\\\\]^_`{|}~",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P50_110": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "unicode_id",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "abc",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P50_111": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "rule_1",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\u20ac",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P50_112": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "ascii_letter",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "abcXYZ",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P50_113": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "latin1",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\\xa0\\xff",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P54_114": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "single",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "a",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P54_115": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "unicode",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\u20ac",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P54_116": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "mysymbol",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\u0160",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P54_117": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "specialchars",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "'\\n\\r\\t\"\\\\",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P58_118": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "controls",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\\x00\\x01\\x02",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P62_119": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "def",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "abc",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P62_120": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "if",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "xyz",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P62_121": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "bytes_sym",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\\x00\\x01\\xff",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P62_122": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "nonprintable",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\\x00\\x01\\x1f\\x7f\\x80\\xff",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P62_123": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "whitespace",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\\n\\r\\t \\x0b\\x0c",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P62_124": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "quotes_and_slash",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "'\"\\\\",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P62_125": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "single_a",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "a",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P62_126": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "nul_byte",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\\x00",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P62_127": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "del_byte",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\\x7f",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P62_128": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "all_punctuation",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "!@#$%^&*()_+-=[]{}|;':\",./<>?`~",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P62_129": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "latin1_high",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\\x80\\x90\\xa0\\xb0\\xc0\\xd0\\xe0\\xf0\\xff",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P62_130": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "single_b_binary",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "b",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P62_131": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "lowercase",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "abcdefghijklmnopqrstuvwxyz",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P62_132": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "uppercase_bin",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P67_133": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "euro",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\u20ac",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P67_134": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "\u0442\u0435\u0441\u0442",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "1",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P67_135": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "caf\u00e9",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "a",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P67_136": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "\u5909\u6570",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "a",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P67_137": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "DEL",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "DEL",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P72_138": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "else",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "False",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P72_139": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "test",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\u0100",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P72_140": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "test",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "A",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P72_141": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "test",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P72_142": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "specials",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "'\"\\",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P84_143": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "letters",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "abcdef",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P84_144": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "ctrl",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\\x01\\x02\\x03",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P84_145": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "letters",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "xyz",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P84_146": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "letters",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "qwerty",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P90_147": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "euro_rule",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\u20ac",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P90_148": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "\u0431\u0443\u043a\u0432\u0430",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "abc",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P90_149": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "punctuation_chars",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "!@#$%^&*()",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P90_150": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "binary_ws",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\\t\\n\\r",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P90_151": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "all_letters",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P91_152": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "unicode_char",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\u20ac",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P91_153": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "latin1",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\\xff\\xfe\\xc0",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P91_154": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "latin1_bin",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\\xff\\xfe\\xc0",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P92_155": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "euro_sign",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\u20ac",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P92_156": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "\u00fcber",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "abc",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P92_157": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "alphanum",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "abcXYZ123",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "make_def_P92_158": {
+          "input": [
+            {
+              "name": "symbol",
+              "offset": 0,
+              "value": "high_latin1",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "chars",
+              "offset": 1,
+              "value": "\\x80\\xff",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "force_binary",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
         }
       }
     }

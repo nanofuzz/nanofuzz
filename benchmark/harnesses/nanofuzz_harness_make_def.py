@@ -43,24 +43,9 @@ def fuzz_make_def(symbol: str, chars: str, force_binary: bool) -> str:
     return result
 
 def fuzz_make_def_transformer(symbol: str, chars: str, force_binary: bool) -> tuple[str, str, bool]:
-    if not isinstance(symbol, str) or not symbol:
-        symbol = "sym"
-    # Ensure valid ASCII identifier avoiding keywords and special tokens
-    clean_sym = "".join(c for c in symbol if c.isascii() and (c.isalnum() or c == "_"))
-    if not clean_sym or clean_sym[0].isdigit():
-        clean_sym = "rule_" + clean_sym
-    if keyword.iskeyword(clean_sym) or clean_sym in ("py", "start"):
-        clean_sym = clean_sym + "_sym"
-    symbol = clean_sym[:20]
-
-    if not isinstance(chars, str) or not chars:
-        chars = "a"
-    # Filter known Bug 3 (ord > 255) by mapping to Latin-1 range
-    chars = "".join(c if ord(c) <= 255 else chr(ord(c) % 256) for c in chars[:20])
-    if not chars:
-        chars = "a"
-
-    force_binary = bool(force_binary)
+    assume(isinstance(symbol, str) and len(symbol) > 0 and len(symbol) <= 100)
+    assume(isinstance(chars, str) and len(chars) <= 100)
+    assume(isinstance(force_binary, bool))
     return (symbol, chars, force_binary)
 
 def fuzz_make_def_validator(r: FuzzTestResult) -> Literal["pass", "fail", "unknown"]:

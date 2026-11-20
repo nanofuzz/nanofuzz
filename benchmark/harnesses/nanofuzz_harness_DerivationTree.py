@@ -58,12 +58,6 @@ def fuzz_DerivationTree(child_text: str, op: int) -> str:
     return str(tree)
 
 
-def fuzz_DerivationTree_transformer(child_text: str, op: int) -> tuple[str, int]:
-    assume(0 <= op <= 4)
-    assume(len(child_text) <= 50)
-    return (child_text, op)
-
-
 def fuzz_DerivationTree_generator(
     prng: Callable[[], float],
 ) -> tuple[str, int] | None:

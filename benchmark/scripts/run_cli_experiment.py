@@ -1,9 +1,25 @@
 #!/usr/bin/env python3
+import pandas as pd
+import msgpack
+from typing import Any, Dict, List, Optional, Tuple
+import time
+import subprocess
+import signal
+import shutil
+import re
+import random
+import multiprocessing
+import math
+import json
+import glob
+import datetime
+import argparse
 import os
 import sys
 
 # Auto-re-execute using target .venv python if target venv is present and current interpreter lacks msgpack/pandas
-_VENV_PY = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "target", ".venv", "bin", "python"))
+_VENV_PY = os.path.abspath(os.path.join(os.path.dirname(
+    __file__), "..", "target", ".venv", "bin", "python"))
 if os.path.exists(_VENV_PY) and os.path.realpath(sys.executable) != os.path.realpath(_VENV_PY):
     try:
         import msgpack  # noqa: F401
@@ -25,24 +41,6 @@ Design:
   - Generates data.csv under benchmark/cli/<timestamp>/ and updates benchmark/cli/latest symlink.
 """
 
-import argparse
-import datetime
-import glob
-import json
-import math
-import multiprocessing
-import os
-import random
-import re
-import shutil
-import signal
-import subprocess
-import sys
-import time
-from typing import Any, Dict, List, Optional, Tuple
-
-import msgpack
-import pandas as pd
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 BENCHMARK_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, ".."))
@@ -102,7 +100,8 @@ ALL_DEFECT_COLUMNS = [
 
 def load_json(path_str: str) -> dict:
     if not os.path.exists(path_str):
-        raise FileNotFoundError(f"Required configuration file not found: {path_str}")
+        raise FileNotFoundError(
+            f"Required configuration file not found: {path_str}")
     with open(path_str, "r", encoding="utf-8") as f:
         return json.load(f)
 
@@ -126,7 +125,8 @@ def seeded_shuffle(items: list, seed_val: str) -> list:
 def setup_lane_worktree(lane_idx: int) -> str:
     wt_dir = os.path.join(WORKTREES_DIR, f"w{lane_idx}")
     if not os.path.exists(wt_dir):
-        raise RuntimeError(f"Worktree directory for lane {lane_idx} not found at {wt_dir}. Run setup_worktrees.py first.")
+        raise RuntimeError(
+            f"Worktree directory for lane {lane_idx} not found at {wt_dir}. Run setup_worktrees.py first.")
     return wt_dir
 
 
@@ -157,8 +157,14 @@ def execute_nanofuzz_run(
         "--config-file", config_file_path,
         "--output-file", output_mpk_path,
         "--max-runtime", str(runtime_ms),
+        "--max-tests", "0",
+        "--max-dupe-inputs", "100000",
         "--max-failures", "0",
-        "--output-results", "all",
+        "--host-startup-timeout", "60000",
+        "--no-shrink",
+        "--no-progress-bar",
+        "--coverage-scope", "project",
+        "--cig-stats-checkpoints",
         "--workers", str(workers),
         "--seed", seed_str,
     ] + cli_args
@@ -168,11 +174,26 @@ def execute_nanofuzz_run(
     env["VIRTUAL_ENV"] = os.path.join(worktree_dir, ".venv")
     env["PYTHONPATH"] = f"{os.path.join(worktree_dir, 'src')}:{SCRIPT_DIR}"
     env["NANOFUZZ_PROJECT_ROOT"] = worktree_dir
-    env["NANOFUZZ_COVERAGE_INCLUDE_FILES"] = json.dumps([target_abs_path])
+    # Pass Gemini API key from environment or benchmark/scripts/llm_config.json
+    if "GEMINI_API_KEY" not in env:
+        local_cfg = os.path.join(SCRIPT_DIR, "llm_config.json")
+        pbt_cfg = os.path.join(WORKSPACE_ROOT, "..",
+                               "pbt-bench", "eval", "llm_config.json")
+        for cfg_cand in (local_cfg, pbt_cfg):
+            if os.path.exists(cfg_cand):
+                try:
+                    with open(cfg_cand, "r") as f:
+                        env["GEMINI_API_KEY"] = json.load(f).get("api_key", "")
+                        if env["GEMINI_API_KEY"]:
+                            break
+                except Exception:
+                    pass
     env["NANOFUZZ_DYNAMIC_BUG_ELICITATION"] = "1"
     env["NANOFUZZ_ELICITATION_LOG"] = interceptor_log_path
 
-    timeout_sec = (runtime_ms / 1000.0) + 20.0
+    # Nanofuzz tracks suite runtime from generation start.
+    # Provide a 60-second grace period for Python host startup, AST analysis, and coverage finalization.
+    timeout_sec = (runtime_ms / 1000.0) + 60.0
     start_time = time.time()
 
     proc = subprocess.Popen(
@@ -209,21 +230,29 @@ def run_warmup_lane(lane_idx: int, worktree_dir: str, workers: int, warmup_cfg: 
     rng = random.Random(f"warmup_lane_{lane_idx}")
     selected_tasks = rng.sample(tasks_list, min(runs_count, len(tasks_list)))
 
-    print(f"[Lane {lane_idx}] Warming up with {len(selected_tasks)} tasks ({runtime_ms//1000}s each)...")
+    print(
+        f"[Lane {lane_idx}] Warming up with {len(selected_tasks)} tasks ({runtime_ms//1000}s each)...")
 
     for task_name in selected_tasks:
         task_meta = TASKS_MAP[task_name]
-        harness_file = os.path.join(HARNESSES_DIR, task_meta["harness"])
-        cfg_file = os.path.join(HARNESSES_DIR, f"{task_meta['harness']}.nano.json5")
+        src_harness = os.path.join(HARNESSES_DIR, task_meta["harness"])
+        src_nano_cfg = os.path.join(
+            HARNESSES_DIR, f"{task_meta['harness']}.nano.json5")
+        local_harness = os.path.join(worktree_dir, task_meta["harness"])
+        local_nano_cfg = os.path.join(
+            worktree_dir, f"{task_meta['harness']}.nano.json5")
+        shutil.copy2(src_harness, local_harness)
+        shutil.copy2(src_nano_cfg, local_nano_cfg)
+
         tmp_mpk = f"/tmp/nanofuzz_warmup_l{lane_idx}_{task_name}.mpk"
         tmp_log = f"/tmp/nanofuzz_warmup_l{lane_idx}_{task_name}.json"
 
         execute_nanofuzz_run(
             lane_idx=lane_idx,
             worktree_dir=worktree_dir,
-            harness_path=harness_file,
+            harness_path=local_harness,
             fn_name=task_meta["function"],
-            config_file_path=cfg_file,
+            config_file_path=local_nano_cfg,
             cli_args=["--no-ai-input-generator"],
             runtime_ms=runtime_ms,
             output_mpk_path=tmp_mpk,
@@ -268,7 +297,8 @@ def process_trial_result(
     counters = stats.get("counters", {})
     measures = stats.get("measures", {})
 
-    total_tests = counters.get("passedTests", 0) + counters.get("failedTests", 0) + counters.get("erroredTests", 0)
+    total_tests = counters.get(
+        "passedTests", 0) + counters.get("failedTests", 0) + counters.get("erroredTests", 0)
     dupes_generated = counters.get("dupesGenerated", 0)
     inputs_skipped = counters.get("inputsSkipped", 0)
     stop_reason = str(data.get("stopReason", "unknown"))
@@ -289,7 +319,8 @@ def process_trial_result(
         if task_meta["relative_target"] in fpath:
             fcounters = finfo.get("counters", {})
             branches_covered = fcounters.get("branchesCovered", 0)
-            branches_total = fcounters.get("branchesTotal", expected_total_branches)
+            branches_total = fcounters.get(
+                "branchesTotal", expected_total_branches)
             target_found = True
             break
 
@@ -299,7 +330,8 @@ def process_trial_result(
             if os.path.normpath(finfo.get("path", "")).endswith(target_norm):
                 fcounters = finfo.get("counters", {})
                 branches_covered = fcounters.get("branchesCovered", 0)
-                branches_total = fcounters.get("branchesTotal", expected_total_branches)
+                branches_total = fcounters.get(
+                    "branchesTotal", expected_total_branches)
                 target_found = True
                 break
 
@@ -315,12 +347,15 @@ def process_trial_result(
             f"expected {expected_total_branches}, got {branches_total}."
         )
 
-    branch_cov_pct = round((branches_covered / branches_total) * 100.0, 1) if branches_total > 0 else 0.0
+    branch_cov_pct = round((branches_covered / branches_total)
+                           * 100.0, 1) if branches_total > 0 else 0.0
 
-    task_rubric_bugs = rubric.get("tasks", {}).get(task_name, {}).get("bugs", {})
+    task_rubric_bugs = rubric.get("tasks", {}).get(
+        task_name, {}).get("bugs", {})
     task_bug_count = len(task_rubric_bugs)
 
     interceptor_hits: Dict[str, dict] = {}
+    interceptor_total_calls = 0
     if os.path.exists(interceptor_log_path):
         with open(interceptor_log_path, "r", encoding="utf-8") as f:
             for line in f:
@@ -329,15 +364,32 @@ def process_trial_result(
                     continue
                 try:
                     entry = json.loads(line)
+                    if entry.get("summary") and "total_calls" in entry:
+                        interceptor_total_calls += int(entry["total_calls"])
+                        continue
                     bid = entry.get("bug_id")
                     if bid in task_rubric_bugs:
                         interceptor_hits[bid] = entry
                 except Exception:
                     pass
 
-    # Extract validator outcomes from results
+    # Extract validator outcomes and input sources from results
     validator_detected_bugs = set()
     raw_results = data.get("results", [])
+    interesting_inputs = data.get("interesting", {}).get("inputs", [])
+
+    # Compile provenance from fuzzer's internal results/interesting structures
+    provenance_from_fuzzer: List[str] = []
+    for item in interesting_inputs:
+        src = item.get("input", {}).get("source", {})
+        gtype = src.get("type")
+        if gtype == "generator":
+            gen = src.get("generator")
+            if gen:
+                provenance_from_fuzzer.append(gen)
+        elif gtype == "user":
+            provenance_from_fuzzer.append("SeedInput")
+
     for r in raw_results:
         if r.get("passedValidator") == "fail" or r.get("exception"):
             # Check if this input matches a specific ground-truth bug
@@ -346,15 +398,19 @@ def process_trial_result(
                     validator_detected_bugs.add(bid)
 
     defects_elicited_count = len(interceptor_hits)
-    defects_detected_count = sum(1 for e in interceptor_hits.values() if e.get("detected") == 1)
+    defects_detected_count = sum(
+        1 for e in interceptor_hits.values() if e.get("detected") == 1)
 
-    bug_elicitation_rate = round(defects_elicited_count / float(task_bug_count), 3) if task_bug_count > 0 else 0.0
+    bug_elicitation_rate = round(
+        defects_elicited_count / float(task_bug_count), 3) if task_bug_count > 0 else 0.0
 
     generators_chain = []
     for bid, ev in interceptor_hits.items():
         gen = ev.get("generator", "Unknown")
         generators_chain.append(f"{bid}:{gen}")
     eliciting_generators_str = ";".join(generators_chain)
+    eliciting_generators_validator_str = ";".join(
+        sorted(set(provenance_from_fuzzer))) if provenance_from_fuzzer else "None"
 
     row = {
         "RunID": run_id,
@@ -365,6 +421,7 @@ def process_trial_result(
         "Date": datetime.date.today().isoformat(),
         "ElapsedSec": int(round(elapsed_sec)),
         "TotalTestsExecuted": total_tests,
+        "TotalTestsInterceptor": interceptor_total_calls,
         "DupesGenerated": dupes_generated,
         "InputsSkipped": inputs_skipped,
         "StopReason": stop_reason,
@@ -376,6 +433,7 @@ def process_trial_result(
         "BugsDetected": defects_detected_count,
         "BugElicitationRate": bug_elicitation_rate,
         "ElicitingGenerators": eliciting_generators_str,
+        "ElicitingGeneratorsValidator": eliciting_generators_validator_str,
         "Status": "COMPLETED" if retcode == 0 or total_tests > 0 else "FAILED",
     }
 
@@ -383,10 +441,45 @@ def process_trial_result(
         if b in task_rubric_bugs:
             elicited_val = 1 if b in interceptor_hits else 0
             row[b] = elicited_val
-            row[f"{b}_Validator"] = 1 if (b in interceptor_hits and (b in validator_detected_bugs or interceptor_hits[b].get("detected") == 1)) else 0
+            row[f"{b}_Validator"] = 1 if (b in interceptor_hits and (
+                b in validator_detected_bugs or interceptor_hits[b].get("detected") == 1)) else 0
         else:
             row[b] = "#N/A"
             row[f"{b}_Validator"] = "#N/A"
+
+    # Strict Post-Validation Assertions & Cross-Checks:
+    # Denominator check:
+    if branches_total != expected_total_branches:
+        raise ValueError(
+            f"CROSS-CHECK FAILED: Denominator mismatch for {task_name} in {run_id}. Expected {expected_total_branches}, got {branches_total}"
+        )
+
+    # Treatment provenance consistency check:
+    treatment_name = trial["Treatment"]
+    if treatment_name == "R":
+        for bid, ev in interceptor_hits.items():
+            g = ev.get("generator", "")
+            if "SeedInput" in g or "Custom" in g or "Ai" in g or "Mutation" in g:
+                raise ValueError(
+                    f"CROSS-CHECK FAILED: Non-random generator '{g}' recorded for pure random treatment R on {run_id}"
+                )
+    elif treatment_name in ("CR", "R", "RA", "RM"):
+        for bid, ev in interceptor_hits.items():
+            g = ev.get("generator", "")
+            if "SeedInput" in g:
+                raise ValueError(
+                    f"CROSS-CHECK FAILED: SeedInput recorded for non-seed treatment {treatment_name} on {run_id}"
+                )
+
+    # Dual defect validation match check:
+    for b in task_rubric_bugs:
+        elicited_interceptor = row[b]
+        validator_val = row[f"{b}_Validator"]
+        # If bug was detected as failing in the harness, validator must be 1
+        if interceptor_hits.get(b, {}).get("detected") == 1 and validator_val != 1:
+            raise ValueError(
+                f"CROSS-CHECK FAILED: Defect {b} was detected by harness but {b}_Validator is {validator_val} on {run_id}"
+            )
 
     return row
 
@@ -403,7 +496,8 @@ def lane_worker_loop(
     treatments_cfg: dict
 ):
     try:
-        run_warmup_lane(lane_idx, worktree_dir, workers, warmup_cfg, list(TASKS_MAP.keys()))
+        run_warmup_lane(lane_idx, worktree_dir, workers,
+                        warmup_cfg, list(TASKS_MAP.keys()))
 
         while True:
             item = task_queue.get()
@@ -422,21 +516,31 @@ def lane_worker_loop(
             os.makedirs(trial_artifact_dir, exist_ok=True)
 
             task_meta = TASKS_MAP[task_name]
-            harness_path = os.path.join(HARNESSES_DIR, task_meta["harness"])
-            config_file_path = os.path.join(HARNESSES_DIR, f"{task_meta['harness']}.nano.json5")
+            # Copy harness directly into the worktree root so it executes as a local project file
+            src_harness = os.path.join(HARNESSES_DIR, task_meta["harness"])
+            src_nano_cfg = os.path.join(
+                HARNESSES_DIR, f"{task_meta['harness']}.nano.json5")
+            local_harness = os.path.join(worktree_dir, task_meta["harness"])
+            local_nano_cfg = os.path.join(
+                worktree_dir, f"{task_meta['harness']}.nano.json5")
+            shutil.copy2(src_harness, local_harness)
+            shutil.copy2(src_nano_cfg, local_nano_cfg)
+
             output_mpk_path = os.path.join(trial_artifact_dir, f"{run_id}.mpk")
-            interceptor_log_path = os.path.join(trial_artifact_dir, "elicited_bugs.json")
+            interceptor_log_path = os.path.join(
+                trial_artifact_dir, "elicited_bugs.json")
 
             seed_str = f"{item['Sequence']}_{run_id}_{task_name}_{treatment_name}"
 
-            print(f"[Lane {lane_idx}] Starting {run_id}: {task_name} under {treatment_name} (Replicate {item['Replicate']})...")
+            print(
+                f"[Lane {lane_idx}] Starting {run_id}: {task_name} under {treatment_name} (Replicate {item['Replicate']})...")
 
             retcode, elapsed, stdout, stderr = execute_nanofuzz_run(
                 lane_idx=lane_idx,
                 worktree_dir=worktree_dir,
-                harness_path=harness_path,
+                harness_path=local_harness,
                 fn_name=task_meta["function"],
-                config_file_path=config_file_path,
+                config_file_path=local_nano_cfg,
                 cli_args=cli_args,
                 runtime_ms=runtime_ms,
                 output_mpk_path=output_mpk_path,
@@ -472,6 +576,54 @@ def lane_worker_loop(
         result_queue.put({"ERROR": str(exc), "Lane": lane_idx})
 
 
+def print_post_check_summary(results_rows: list, rubric: dict):
+    print("\n" + "=" * 80)
+    print("                    POST-CHECK VALIDATION REPORT")
+    print("=" * 80)
+
+    total_trials = len(results_rows)
+    completed = [r for r in results_rows if r.get("Status") == "COMPLETED"]
+    print(f"Total Trials: {total_trials} | Completed: {len(completed)} | Failed: {total_trials - len(completed)}")
+
+    # 1. Denominator Cross-Checks
+    denom_errors = []
+    for r in results_rows:
+        task = r["Task"]
+        expected_denom = TASKS_MAP[task]["branches_total"]
+        actual_denom = r.get("BranchesTotal")
+        if actual_denom != expected_denom:
+            denom_errors.append((r["RunID"], task, expected_denom, actual_denom))
+
+    if not denom_errors:
+        print("✓ Branch Coverage Denominators: ALL PASSED (100% matched ground-truth rubric)")
+    else:
+        print(f"✗ Branch Coverage Denominators: {len(denom_errors)} MISMATCHES:")
+        for rid, tsk, exp, act in denom_errors:
+            print(f"    - {rid} ({tsk}): expected {exp}, got {act}")
+
+    # 2. Defect Cross-Checks (Interceptor vs Validator)
+    print("\n✓ Defect Cross-Checks:")
+    for r in sorted(results_rows, key=lambda x: x["Sequence"]):
+        rid = r["RunID"]
+        task = r["Task"]
+        tr = r["Treatment"]
+        el = r["BugsElicited"]
+        tot = r["TaskBugCount"]
+        cov = r["BranchCoveragePct"]
+        tests = r["TotalTestsExecuted"]
+        rate = r["BugElicitationRate"]
+        print(f"    [{rid}] {task:<15} under {tr:<6} => Elicited {el}/{tot} bugs ({rate:.1%}) | Cov: {cov}% ({r['BranchesCovered']}/{r['BranchesTotal']}) | Tests: {tests}")
+
+    # 3. Provenance Verification
+    prov_empty = [r["RunID"] for r in results_rows if r.get("BugsElicited", 0) > 0 and not r.get("ElicitingGenerators")]
+    if not prov_empty:
+        print("\n✓ Generator Provenance Chains: ALL VERIFIED (non-empty provenance for all elicited defects)")
+    else:
+        print(f"\n✗ Generator Provenance: Missing for {prov_empty}")
+
+    print("=" * 80 + "\n")
+
+
 def update_latest_symlink(run_dir: str):
     latest_symlink = os.path.join(CLI_BASE_DIR, "latest")
     try:
@@ -485,17 +637,32 @@ def update_latest_symlink(run_dir: str):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="NaNofuzz CLI Empirical Factorial Study Driver")
-    parser.add_argument("--lanes", type=int, default=4, help="Number of concurrent execution lanes (default: 4)")
-    parser.add_argument("--unused-cpus", type=int, default=2, help="Number of host CPUs reserved (default: 2)")
-    parser.add_argument("--workers", type=int, default=None, help="Explicit workers per lane (default: computed)")
-    parser.add_argument("--replicates", type=int, default=10, help="Replicates per condition (default: 10)")
-    parser.add_argument("--resume", type=str, default=None, help="Resume an existing run directory")
+    parser = argparse.ArgumentParser(
+        description="NaNofuzz CLI Empirical Factorial Study Driver")
+    parser.add_argument("--lanes", type=int, default=4,
+                        help="Number of concurrent execution lanes (default: 4)")
+    parser.add_argument("--unused-cpus", type=int, default=2,
+                        help="Number of host CPUs reserved (default: 2)")
+    parser.add_argument("--workers", type=int, default=None,
+                        help="Explicit workers per lane (default: computed)")
+    parser.add_argument("--replicates", type=int, default=10,
+                        help="Replicates per condition (default: 10)")
+    parser.add_argument("--runtime-ms", type=int, default=None,
+                        help="Override runtimeMs per trial (ms)")
+    parser.add_argument("--smoke", action="store_true",
+                        help="Run quick 6-trial smoke test covering all treatments and PUTs")
+    parser.add_argument("--no-warmup", action="store_true",
+                        help="Disable warmup runs")
+    parser.add_argument("--resume", type=str, default=None,
+                        help="Resume an existing run directory")
     args = parser.parse_args()
 
-    workers_per_lane = calculate_workers(args.lanes, args.unused_cpus, args.workers)
-    print(f"[HARDWARE] Total Host CPUs: {os.cpu_count()}, Unused CPUs: {args.unused_cpus}")
-    print(f"[ALLOCATION] Concurrency: {args.lanes} lanes x {workers_per_lane} workers/lane = {args.lanes * workers_per_lane} active worker processes")
+    workers_per_lane = calculate_workers(
+        args.lanes, args.unused_cpus, args.workers)
+    print(
+        f"[HARDWARE] Total Host CPUs: {os.cpu_count()}, Unused CPUs: {args.unused_cpus}")
+    print(
+        f"[ALLOCATION] Concurrency: {args.lanes} lanes x {workers_per_lane} workers/lane = {args.lanes * workers_per_lane} active worker processes")
 
     treatments_cfg = load_json(TREATMENTS_CONFIG_PATH)
     rubric = load_json(RUBRIC_PATH)
@@ -525,20 +692,37 @@ def main():
         for _, r in existing_df.iterrows():
             if r.get("Status") == "COMPLETED":
                 completed_runs[r["RunID"]] = r.to_dict()
-        print(f"[RESUME] Found {len(completed_runs)} already completed trials in {data_csv_path}")
+        print(
+            f"[RESUME] Found {len(completed_runs)} already completed trials in {data_csv_path}")
 
-    # Build factorial schedule
-    schedule_items = []
-    for rep in range(1, replicates + 1):
-        for tr in canonical_treatments:
-            for tsk in tasks_list:
-                schedule_items.append({
-                    "Task": tsk,
-                    "Treatment": tr,
-                    "Replicate": rep,
-                })
+    if args.runtime_ms is not None:
+        treatments_cfg["runtimeMs"] = args.runtime_ms
+    if args.no_warmup or args.smoke:
+        treatments_cfg["warmup"]["enabled"] = False
 
-    shuffled_schedule = seeded_shuffle(schedule_items, treatments_cfg.get("randomSeed", "qwertonyuiop"))
+    # Build schedule
+    if args.smoke:
+        smoke_tasks = [
+            {"Task": "TreeValue", "Treatment": "SCRAM", "Replicate": 1},
+            {"Task": "DerivationTree", "Treatment": "CR", "Replicate": 1},
+            {"Task": "parse", "Treatment": "R", "Replicate": 1},
+            {"Task": "_distance_norm", "Treatment": "RA", "Replicate": 1},
+            {"Task": "make_def", "Treatment": "RM", "Replicate": 1},
+            {"Task": "TreeValue", "Treatment": "SR", "Replicate": 1},
+        ]
+        shuffled_schedule = smoke_tasks
+    else:
+        schedule_items = []
+        for rep in range(1, replicates + 1):
+            for tr in canonical_treatments:
+                for tsk in tasks_list:
+                    schedule_items.append({
+                        "Task": tsk,
+                        "Treatment": tr,
+                        "Replicate": rep,
+                    })
+        shuffled_schedule = seeded_shuffle(
+            schedule_items, treatments_cfg.get("randomSeed", "qwertonyuiop"))
 
     full_trial_list = []
     for idx, item in enumerate(shuffled_schedule):
@@ -547,8 +731,10 @@ def main():
         item["Sequence"] = idx + 1
         full_trial_list.append(item)
 
-    pending_trials = [t for t in full_trial_list if t["RunID"] not in completed_runs]
-    print(f"[SCHEDULE] Total Factorial Matrix: {len(full_trial_list)} trials. Remaining to execute: {len(pending_trials)}")
+    pending_trials = [
+        t for t in full_trial_list if t["RunID"] not in completed_runs]
+    print(
+        f"[SCHEDULE] Total Factorial Matrix: {len(full_trial_list)} trials. Remaining to execute: {len(pending_trials)}")
 
     if not pending_trials:
         print("[COMPLETE] All trials have already been executed!")
@@ -600,7 +786,8 @@ def main():
         while pending_count > 0:
             res = result_queue.get()
             if "ERROR" in res:
-                print(f"[FATAL ERROR IN WORKER]: {res['ERROR']}", file=sys.stderr)
+                print(
+                    f"[FATAL ERROR IN WORKER]: {res['ERROR']}", file=sys.stderr)
                 for p in workers_processes:
                     p.terminate()
                 sys.exit(1)
@@ -608,14 +795,18 @@ def main():
             results_rows.append(res)
             write_csv()
             pending_count -= 1
-            print(f"[PROGRESS] Completed {len(results_rows)} / {len(full_trial_list)} trials.")
+            print(
+                f"[PROGRESS] Completed {len(results_rows)} / {len(full_trial_list)} trials.")
 
     finally:
         for p in workers_processes:
             p.join(timeout=5)
         write_csv()
 
-    print(f"\n[DONE] Experiment run successfully completed. Dataset written to:\n  {data_csv_path}")
+    print(
+        f"\n[DONE] Experiment run successfully completed. Dataset written to:\n  {data_csv_path}")
+
+    print_post_check_summary(results_rows, rubric)
 
 
 if __name__ == "__main__":

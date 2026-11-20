@@ -13,10 +13,6 @@ def fuzz__distance_norm(left: Any, right: Any) -> Optional[float]:
     return target_distance_norm(left, right)
 
 
-def fuzz__distance_norm_transformer(left: Any, right: Any) -> tuple[Any, Any]:
-    return (left, right)
-
-
 def fuzz__distance_norm_generator(
     prng: Callable[[], float],
 ) -> tuple[Any, Any] | None:
