@@ -2367,7 +2367,7 @@ def greeting_transformer(*args: MyTuple):
   });
 
   it("resolves prng, Callable, and FuzzTestResult in companion functions without error", () => {
-    const fns = ProgramFactory.fromSource(
+    const pgm = ProgramFactory.fromSource(
       () => `from typing import Callable, Literal
 from nanofuzz_runtime import FuzzTestResult
 
@@ -2378,12 +2378,16 @@ def fuzz_test_validator(r: FuzzTestResult) -> Literal["pass", "fail"]:
     return "pass"
 `,
       "python"
-    ).functionsExported;
+    );
 
-    expect(fns["fuzz_test_generator"]).toBeDefined();
-    expect(fns["fuzz_test_generator"].getArgDefs()[0].getName()).toEqual("prng");
-    expect(fns["fuzz_test_validator"]).toBeDefined();
-    expect(fns["fuzz_test_validator"].getArgDefs()[0].getName()).toEqual("r");
+    expect(pgm.functionsNotSupported["fuzz_test_generator"]).toBeDefined();
+    expect(pgm.functionsNotSupported["fuzz_test_generator"].argument).toEqual(
+      "prng"
+    );
+    expect(pgm.functionsExported["fuzz_test_validator"]).toBeDefined();
+    expect(
+      pgm.functionsExported["fuzz_test_validator"].getArgDefs()[0].getName()
+    ).toEqual("r");
   });
 
   it("resolves built-in type annotations (type, Optional[type], type[T]) without throwing unresolved TypeRef", () => {
@@ -2402,11 +2406,15 @@ def fn_with_generic_type(cls: Type[int]) -> None:
     const fns = pgm.functionsExported;
     expect(fns["fn_with_type"]).toBeDefined();
     expect(fns["fn_with_type"].getArgDefs()[0].getName()).toEqual("target_cls");
-    expect(fns["fn_with_type"].getArgDefs()[0].getType()).toEqual(ArgTag.OBJECT);
+    expect(fns["fn_with_type"].getArgDefs()[0].getType()).toEqual(
+      ArgTag.OBJECT
+    );
     expect(fns["fn_with_type"].getArgDefs()[1].getName()).toEqual("opt_cls");
     expect(fns["fn_with_type"].getArgDefs()[1].getType()).toEqual(ArgTag.UNION);
 
     expect(fns["fn_with_generic_type"]).toBeDefined();
-    expect(fns["fn_with_generic_type"].getArgDefs()[0].getType()).toEqual(ArgTag.OBJECT);
+    expect(fns["fn_with_generic_type"].getArgDefs()[0].getType()).toEqual(
+      ArgTag.OBJECT
+    );
   });
 });
