@@ -341,13 +341,13 @@ def process_trial_result(
 ) -> dict:
     if retcode not in (0, 1):
         raise RuntimeError(
-            f"STRICT POLICY VIOLATION: Trial {run_id} ({trial['Task']} under {trial['Treatment']}) "
-            f"failed with exit code {retcode} (valid: 0=clean, 1=defects found). Stderr: {stderr[:500]}"
+            f"Trial execution error: Trial {run_id} ({trial['Task']} under {trial['Treatment']}) "
+            f"exited with code {retcode} (valid: 0=clean, 1=defects found). Stderr: {stderr[:500]}"
         )
 
     if not os.path.exists(output_mpk_path):
         raise RuntimeError(
-            f"STRICT POLICY VIOLATION: Output file {output_mpk_path} not found for trial {run_id} "
+            f"Missing output file: {output_mpk_path} was not created for trial {run_id} "
             f"({trial['Task']} under {trial['Treatment']}). CLI exit code: {retcode}. Stderr: {stderr[:500]}"
         )
 
@@ -399,13 +399,13 @@ def process_trial_result(
 
     if not target_found:
         raise RuntimeError(
-            f"STRICT POLICY VIOLATION: Target file {task_meta['relative_target']} not present in coverage files "
+            f"Coverage error: Target file {task_meta['relative_target']} not present in coverage files "
             f"for trial {run_id}. Files measured: {[f.get('path') for f in cov_files]}"
         )
 
     if branches_total != expected_total_branches:
         raise ValueError(
-            f"STRICT POLICY VIOLATION: Branch denominator mismatch for {task_name} in {run_id}: "
+            f"Denominator mismatch: Branch denominator mismatch for {task_name} in {run_id}: "
             f"expected {expected_total_branches}, got {branches_total}."
         )
 
@@ -596,11 +596,18 @@ def lane_worker_loop(
     run_dir: str,
     rubric: dict,
     warmup_cfg: dict,
-    treatments_cfg: dict
+    treatments_cfg: dict,
+    warmup_barrier: Optional[Any] = None
 ):
     try:
         run_warmup_lane(lane_idx, worktree_dir, workers,
                         warmup_cfg, list(TASKS_MAP.keys()))
+
+        if warmup_barrier is not None and warmup_cfg.get("enabled", True):
+            tprint(f"[Lane {lane_idx}] Finished warmup. Waiting for all other lanes to finish warmup...", flush=True)
+            warmup_barrier.wait()
+            if lane_idx == 1:
+                tprint("[WARMUP] All lanes have completed warmup. Commencing live experimental trials.", flush=True)
 
         while True:
             item = task_queue.get()
@@ -637,43 +644,79 @@ def lane_worker_loop(
 
             seed_str = f"{item['Sequence']}_{run_id}_{task_name}_{treatment_name}"
 
-            ts_start = datetime.datetime.now().strftime("%H:%M:%S")
-            print(
-                f"[{ts_start}] [Lane {lane_idx}] Starting {run_id}: {task_name} under {treatment_name} (Repetition {item['Replicate']})...",
-                flush=True)
+            MAX_TRIAL_ATTEMPTS = 3
+            processed_row = None
+            last_err = None
 
-            retcode, elapsed, stdout, stderr = execute_nanofuzz_run(
-                lane_idx=lane_idx,
-                worktree_dir=worktree_dir,
-                harness_path=local_harness,
-                fn_name=task_meta["function"],
-                config_file_path=local_nano_cfg,
-                cli_args=cli_args,
-                runtime_ms=runtime_ms,
-                output_mpk_path=output_mpk_path,
-                workers=workers,
-                interceptor_log_path=interceptor_log_path,
-                target_rel_path=task_meta["relative_target"],
-                seed_str=seed_str
-            )
+            for attempt in range(1, MAX_TRIAL_ATTEMPTS + 1):
+                attempt_suffix = f" (Attempt {attempt}/{MAX_TRIAL_ATTEMPTS})" if attempt > 1 else ""
+                ts_start = datetime.datetime.now().strftime("%H:%M:%S")
+                print(
+                    f"[{ts_start}] [Lane {lane_idx}] Starting {run_id}: {task_name} under {treatment_name} (Repetition {item['Replicate']}){attempt_suffix}...",
+                    flush=True)
 
-            with open(os.path.join(trial_artifact_dir, "stdout.txt"), "w", encoding="utf-8") as f:
-                f.write(stdout)
-            with open(os.path.join(trial_artifact_dir, "stderr.txt"), "w", encoding="utf-8") as f:
-                f.write(stderr)
+                retcode, elapsed, stdout, stderr = execute_nanofuzz_run(
+                    lane_idx=lane_idx,
+                    worktree_dir=worktree_dir,
+                    harness_path=local_harness,
+                    fn_name=task_meta["function"],
+                    config_file_path=local_nano_cfg,
+                    cli_args=cli_args,
+                    runtime_ms=runtime_ms,
+                    output_mpk_path=output_mpk_path,
+                    workers=workers,
+                    interceptor_log_path=interceptor_log_path,
+                    target_rel_path=task_meta["relative_target"],
+                    seed_str=seed_str
+                )
 
-            processed_row = process_trial_result(
-                trial=item,
-                run_id=run_id,
-                artifacts_dir=trial_artifact_dir,
-                output_mpk_path=output_mpk_path,
-                interceptor_log_path=interceptor_log_path,
-                stdout=stdout,
-                stderr=stderr,
-                retcode=retcode,
-                elapsed_sec=elapsed,
-                rubric=rubric
-            )
+                with open(os.path.join(trial_artifact_dir, "stdout.txt"), "w", encoding="utf-8") as f:
+                    f.write(stdout)
+                with open(os.path.join(trial_artifact_dir, "stderr.txt"), "w", encoding="utf-8") as f:
+                    f.write(stderr)
+
+                try:
+                    processed_row = process_trial_result(
+                        trial=item,
+                        run_id=run_id,
+                        artifacts_dir=trial_artifact_dir,
+                        output_mpk_path=output_mpk_path,
+                        interceptor_log_path=interceptor_log_path,
+                        stdout=stdout,
+                        stderr=stderr,
+                        retcode=retcode,
+                        elapsed_sec=elapsed,
+                        rubric=rubric,
+                        attempts=attempt
+                    )
+                    break
+                except Exception as exc:
+                    last_err = exc
+                    err_file = os.path.join(trial_artifact_dir, f"attempt_{attempt}_error.txt")
+                    with open(err_file, "w", encoding="utf-8") as ef:
+                        ef.write(f"Timestamp: {datetime.datetime.now().isoformat()}\n")
+                        ef.write(f"Attempt: {attempt} of {MAX_TRIAL_ATTEMPTS}\n")
+                        ef.write(f"ExitCode: {retcode}\n")
+                        ef.write(f"Elapsed: {elapsed:.2f}s\n")
+                        ef.write(f"Error: {exc}\n\n")
+                        ef.write(f"Stderr:\n{stderr}\n\n")
+                        ef.write(f"Stdout:\n{stdout}\n")
+
+                    ts_err = datetime.datetime.now().strftime("%H:%M:%S")
+                    if attempt < MAX_TRIAL_ATTEMPTS:
+                        print(f"[{ts_err}] [Lane {lane_idx}] Trial {run_id} failed on attempt {attempt}: {exc}. Retrying...", flush=True)
+                        time.sleep(2)
+                    else:
+                        print(f"[{ts_err}] [Lane {lane_idx} ERROR] Trial {run_id} failed after {MAX_TRIAL_ATTEMPTS} attempts: {exc}. Logging as FAILED and continuing remaining tasks.", flush=True)
+
+            if processed_row is None:
+                processed_row = create_failed_trial_row(
+                    trial=item,
+                    run_id=run_id,
+                    attempts=MAX_TRIAL_ATTEMPTS,
+                    last_error=str(last_err),
+                    rubric=rubric
+                )
 
             result_queue.put(processed_row)
             ts_end = datetime.datetime.now().strftime("%H:%M:%S")
@@ -858,6 +901,8 @@ def main():
     for _ in range(args.lanes):
         task_queue.put(None)
 
+    warmup_barrier = multiprocessing.Barrier(args.lanes) if treatments_cfg.get("warmup", {}).get("enabled", True) else None
+
     workers_processes = []
     for lane in range(1, args.lanes + 1):
         wt_dir = os.path.join(WORKTREES_DIR, f"w{lane}")
@@ -872,7 +917,8 @@ def main():
                 run_dir,
                 rubric,
                 treatments_cfg.get("warmup", {}),
-                treatments_cfg
+                treatments_cfg,
+                warmup_barrier
             )
         )
         p.start()
@@ -901,6 +947,9 @@ def main():
             results_rows.append(res)
             write_csv()
             pending_count -= 1
+
+            if res.get("Status") == "FAILED":
+                tprint(f"[WARN] Trial {res['RunID']} failed after {res.get('Attempts', 1)} attempts ({res.get('Error')}). Logged to data.csv. Continuing remaining tasks.")
 
             completed_count = len(results_rows)
             total_count = len(full_trial_list)

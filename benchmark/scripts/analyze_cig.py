@@ -95,7 +95,7 @@ def sanitize_dataset(df: pd.DataFrame):
         "ToolVersion",
         "BranchCoveragePct", "BranchesCovered", "BranchesTotal",
         "BugsElicited", "TaskBugCount", "BugElicitationRate",
-        "TotalTestsExecuted", "ElapsedSec", "ExitCode", "StopReason", "Status"
+        "TotalTestsExecuted", "ElapsedSec", "ExitCode", "StopReason", "Attempts", "Status"
     ]
     missing = [c for c in required_cols if c not in df.columns]
     if missing:
@@ -879,11 +879,29 @@ def generate_cig_generator_table(run_dir: str, out_path: str):
     print(f"[TABLE] Generated CIG Generator Breakdown Table: {out_path}")
 
 
-def generate_provenance_listing(run_dir: str, out_path: str):
-    """Generates representative multi-step mutation lineage listing for thesis integration."""
+def generate_provenance_listing(run_dir: str, out_path: str, df: Optional[pd.DataFrame] = None):
+    """
+    Generates representative multi-step mutation lineage listing for thesis integration.
+    Selection hierarchy:
+      1. Longest chain for a defect found by SCRAM but not by any other treatment.
+      2. If none, longest chain for a defect not elicited by SR.
+      3. If none, longest chain for a defect not elicited by R.
+      4. Fallback to longest overall chain.
+    Caption mentions the treatments that did not elicit it, with no bold, and uses 'Task Program'.
+    """
+    bug_treatments = defaultdict(set)
+    run_tasks = {}
+    if df is not None and not df.empty:
+        for b in [c for c in df.columns if not c.endswith("_Validator") and c.isupper()]:
+            for tr in TREATMENTS:
+                sub = df[df["Treatment"] == tr]
+                if not sub.empty and b in sub.columns and (sub[b] == 1).any():
+                    bug_treatments[b].add(tr)
+        for _, r in df.iterrows():
+            run_tasks[r["RunID"]] = r["Task"]
+
     artifact_pattern = os.path.join(run_dir, "artifacts", "*", "elicited_bugs.json")
-    longest_chain = None
-    max_steps = 0
+    all_candidates = []
 
     log_files = glob.glob(artifact_pattern)
     for logf in log_files:
@@ -895,31 +913,56 @@ def generate_provenance_listing(run_dir: str, out_path: str):
                 entry = json.loads(line)
                 if entry.get("summary"):
                     continue
+                bid = entry.get("bug_id")
                 chain = entry.get("generator", "")
-                steps = len(chain.split("->"))
-                if steps > max_steps:
-                    max_steps = steps
-                    longest_chain = {
+                if bid and chain:
+                    steps = len(chain.split("->"))
+                    all_candidates.append({
                         "run_id": rid,
-                        "bug_id": entry.get("bug_id", ""),
+                        "bug_id": bid,
+                        "task": run_tasks.get(rid, "unknown"),
                         "chain": chain,
+                        "steps": steps,
                         "args": entry.get("args", []),
-                    }
+                    })
 
-    if not longest_chain:
+    if not all_candidates:
         return
 
-    chain_parts = longest_chain["chain"].split("->")
+    # Bucket candidates according to selection hierarchy
+    p1 = [c for c in all_candidates if len(bug_treatments.get(c["bug_id"], set())) == 1 and "SCRAM" in bug_treatments.get(c["bug_id"], set())]
+    p2 = [c for c in all_candidates if "SR" not in bug_treatments.get(c["bug_id"], set())]
+    p3 = [c for c in all_candidates if "R" not in bug_treatments.get(c["bug_id"], set())]
+
+    if p1:
+        selected_pool = p1
+    elif p2:
+        selected_pool = p2
+    elif p3:
+        selected_pool = p3
+    else:
+        selected_pool = all_candidates
+
+    selected = max(selected_pool, key=lambda x: x["steps"])
+    max_steps = selected["steps"]
+
+    chain_parts = selected["chain"].split("->")
     formatted_lines = []
     for i, p in enumerate(chain_parts):
         prefix = "Origin:  " if i == 0 else ("Elicit:  " if i == len(chain_parts) - 1 else "Mutate:  ")
         formatted_lines.append(f"{prefix}{p.strip()}")
 
-    bid_tex = longest_chain["bug_id"].replace("_", r"\_")
+    bid_tex = selected["bug_id"].replace("_", r"\_")
+    task_tex = TASK_LABELS.get(selected["task"], selected["task"])
+
+    not_elicited_by = [tr for tr in TREATMENTS if tr not in bug_treatments.get(selected["bug_id"], set())]
+    unelicited_str = ", ".join(not_elicited_by) if not_elicited_by else "none"
+
     caption_text = (
-        f"Multi-step generator lineage for defect \\texttt{{{bid_tex}}}. "
-        f"Trial Run: \\texttt{{{longest_chain['run_id']}}}. "
-        f"Total mutation steps: {max_steps}."
+        f"Multi-step generator lineage for defect \\texttt{{{bid_tex}}} in Task Program {task_tex}. "
+        f"Trial Run: \\texttt{{{selected['run_id']}}}. "
+        f"Total mutation steps: {max_steps}. "
+        f"This defect was not elicited by: {unelicited_str}."
     )
 
     lines = [
@@ -929,10 +972,10 @@ def generate_provenance_listing(run_dir: str, out_path: str):
         r"  \begin{verbatim}",
         "\n".join(formatted_lines),
         "",
-        f"Eliciting Input Args: {longest_chain['args']}",
+        f"Eliciting Input Args: {selected['args']}",
         r"  \end{verbatim}",
         f"  \\caption{{{caption_text}}}",
-        f"  \\label{{fig:cig-provenance-{longest_chain['bug_id'].lower().replace('_', '-')}}}",
+        f"  \\label{{fig:cig-provenance-{selected['bug_id'].lower().replace('_', '-')}}}",
         r"\end{figure}",
     ]
 
@@ -1051,7 +1094,7 @@ def main():
     generate_cig_generator_table(run_dir, tab_gen)
 
     lst_prov = os.path.join(parts_dir, "provenance-cig.tex")
-    generate_provenance_listing(run_dir, lst_prov)
+    generate_provenance_listing(run_dir, lst_prov, df)
 
     tex_vars = os.path.join(parts_dir, "data-cig.tex")
     generate_data_cig_tex(df, tex_vars, stats)
