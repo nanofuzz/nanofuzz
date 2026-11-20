@@ -170,7 +170,7 @@
     "parse": {
       "file": "src/fandango/language/parse/parse.py",
       "target_symbols": [
-        "parse"
+        "parse_string"
       ],
       "bugs": {
         "PARSE_EMPTY_CONSTRAINT": {

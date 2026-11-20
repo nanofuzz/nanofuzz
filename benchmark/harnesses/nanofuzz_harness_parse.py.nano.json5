@@ -1,0 +1,45 @@
+{
+  version: "0.4.0",
+  functions: {
+    fuzz_parse: {
+      options: {},
+      validators: ["fuzz_parse_validator"],
+      isVoid: false,
+      tests: {
+        "empty_constraint": {
+          input: [
+            { name: "spec", offset: 0, value: "<start> ::= 'a'", origin: { type: "user" } },
+            { name: "constraint_str", offset: 1, value: "__EMPTY_STR__", origin: { type: "user" } },
+            { name: "use_stdlib", offset: 2, value: true, origin: { type: "user" } },
+            { name: "check", offset: 3, value: true, origin: { type: "user" } },
+            { name: "start_symbol", offset: 4, value: "<start>", origin: { type: "user" } }
+          ],
+          output: [],
+          pinned: true
+        },
+        "empty_fan_files": {
+          input: [
+            { name: "spec", offset: 0, value: "__EMPTY_LIST__", origin: { type: "user" } },
+            { name: "constraint_str", offset: 1, value: "<start> == 'a'", origin: { type: "user" } },
+            { name: "use_stdlib", offset: 2, value: false, origin: { type: "user" } },
+            { name: "check", offset: 3, value: true, origin: { type: "user" } },
+            { name: "start_symbol", offset: 4, value: "<start>", origin: { type: "user" } }
+          ],
+          output: [],
+          pinned: true
+        },
+        "silent_drop": {
+          input: [
+            { name: "spec", offset: 0, value: "<start> ::= 'a'", origin: { type: "user" } },
+            { name: "constraint_str", offset: 1, value: "<start> == 'a' # trailing comment", origin: { type: "user" } },
+            { name: "use_stdlib", offset: 2, value: true, origin: { type: "user" } },
+            { name: "check", offset: 3, value: true, origin: { type: "user" } },
+            { name: "start_symbol", offset: 4, value: "<start>", origin: { type: "user" } }
+          ],
+          output: [],
+          pinned: true
+        }
+      }
+    }
+  }
+}

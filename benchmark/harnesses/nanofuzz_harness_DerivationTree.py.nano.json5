@@ -1,0 +1,52 @@
+{
+  version: "0.4.0",
+  functions: {
+    fuzz_DerivationTree: {
+      options: {},
+      validators: ["fuzz_DerivationTree_validator"],
+      isVoid: false,
+      tests: {
+        "dt_slice_parent_hijack": {
+          input: [
+            { name: "child_text", offset: 0, value: "hello", origin: { type: "user" } },
+            { name: "op", offset: 1, value: 0, origin: { type: "user" } }
+          ],
+          output: [],
+          pinned: true
+        },
+        "dt_prefix_slice": {
+          input: [
+            { name: "child_text", offset: 0, value: "hello", origin: { type: "user" } },
+            { name: "op", offset: 1, value: 1, origin: { type: "user" } }
+          ],
+          output: [],
+          pinned: true
+        },
+        "dt_child_slice": {
+          input: [
+            { name: "child_text", offset: 0, value: "hello", origin: { type: "user" } },
+            { name: "op", offset: 1, value: 2, origin: { type: "user" } }
+          ],
+          output: [],
+          pinned: true
+        },
+        "dt_to_grammar_assert": {
+          input: [
+            { name: "child_text", offset: 0, value: "hello", origin: { type: "user" } },
+            { name: "op", offset: 1, value: 3, origin: { type: "user" } }
+          ],
+          output: [],
+          pinned: true
+        },
+        "dt_repr_crash": {
+          input: [
+            { name: "child_text", offset: 0, value: "hello", origin: { type: "user" } },
+            { name: "op", offset: 1, value: 4, origin: { type: "user" } }
+          ],
+          output: [],
+          pinned: true
+        }
+      }
+    }
+  }
+}

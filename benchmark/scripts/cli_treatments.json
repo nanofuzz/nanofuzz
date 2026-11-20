@@ -1,0 +1,79 @@
+{
+  "description": "Factorial generator configuration benchmark for NaNofuzz CLI empirical study",
+  "version": "1.0.0",
+  "control": "R",
+  "tasks": [
+    "TreeValue",
+    "DerivationTree",
+    "parse",
+    "_distance_norm",
+    "make_def"
+  ],
+  "replicates": 10,
+  "runtimeMs": 180000,
+  "warmup": {
+    "enabled": true,
+    "runsPerLane": 3,
+    "runtimeMs": 15000
+  },
+  "randomSeed": "qwertonyuiop",
+  "treatments": {
+    "SCRAM": {
+      "name": "SCRAM",
+      "description": "All generators active: Seed, Custom (User), Random, AI, Mutation",
+      "generators": ["S", "C", "R", "A", "M"],
+      "cliArgs": []
+    },
+    "CR": {
+      "name": "CR",
+      "description": "Custom (User) and Random generators active",
+      "generators": ["C", "R"],
+      "cliArgs": [
+        "--no-ai-input-generator",
+        "--no-mutation-input-generator",
+        "--no-seed-input-generator"
+      ]
+    },
+    "R": {
+      "name": "R",
+      "description": "Random generator only",
+      "generators": ["R"],
+      "cliArgs": [
+        "--no-ai-input-generator",
+        "--no-mutation-input-generator",
+        "--no-user-input-generator",
+        "--no-seed-input-generator"
+      ]
+    },
+    "RA": {
+      "name": "RA",
+      "description": "Random and AI generators active",
+      "generators": ["R", "A"],
+      "cliArgs": [
+        "--no-mutation-input-generator",
+        "--no-user-input-generator",
+        "--no-seed-input-generator"
+      ]
+    },
+    "RM": {
+      "name": "RM",
+      "description": "Random and Mutation generators active",
+      "generators": ["R", "M"],
+      "cliArgs": [
+        "--no-ai-input-generator",
+        "--no-user-input-generator",
+        "--no-seed-input-generator"
+      ]
+    },
+    "SR": {
+      "name": "SR",
+      "description": "Seed and Random generators active",
+      "generators": ["S", "R"],
+      "cliArgs": [
+        "--no-ai-input-generator",
+        "--no-mutation-input-generator",
+        "--no-user-input-generator"
+      ]
+    }
+  }
+}

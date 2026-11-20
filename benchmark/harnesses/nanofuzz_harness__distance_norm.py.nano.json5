@@ -1,0 +1,36 @@
+{
+  version: "0.4.0",
+  functions: {
+    fuzz__distance_norm: {
+      options: {},
+      validators: ["fuzz__distance_norm_validator"],
+      isVoid: false,
+      tests: {
+        "sigmoid_overflow": {
+          input: [
+            { name: "left", offset: 0, value: -750.0, origin: { type: "user" } },
+            { name: "right", offset: 1, value: 1.0, origin: { type: "user" } }
+          ],
+          output: [],
+          pinned: true
+        },
+        "zero_div": {
+          input: [
+            { name: "left", offset: 0, value: 5.0, origin: { type: "user" } },
+            { name: "right", offset: 1, value: 5.0, origin: { type: "user" } }
+          ],
+          output: [],
+          pinned: true
+        },
+        "nan_propagate": {
+          input: [
+            { name: "left", offset: 0, value: null, origin: { type: "user" } },
+            { name: "right", offset: 1, value: 1.0, origin: { type: "user" } }
+          ],
+          output: [],
+          pinned: true
+        }
+      }
+    }
+  }
+}

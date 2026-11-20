@@ -1,0 +1,72 @@
+{
+  version: "0.4.0",
+  functions: {
+    fuzz_TreeValue: {
+      options: {},
+      validators: ["fuzz_TreeValue_validator"],
+      isVoid: false,
+      tests: {
+        "tv_eq_none": {
+          input: [
+            { name: "kind", offset: 0, value: 0, origin: { type: "user" } },
+            { name: "val", offset: 1, value: "test", origin: { type: "user" } },
+            { name: "op", offset: 2, value: 0, origin: { type: "user" } },
+            { name: "extra", offset: 3, value: "", origin: { type: "user" } }
+          ],
+          output: [],
+          pinned: true
+        },
+        "tv_radd_str": {
+          input: [
+            { name: "kind", offset: 0, value: 0, origin: { type: "user" } },
+            { name: "val", offset: 1, value: "abc", origin: { type: "user" } },
+            { name: "op", offset: 2, value: 1, origin: { type: "user" } },
+            { name: "extra", offset: 3, value: "", origin: { type: "user" } }
+          ],
+          output: [],
+          pinned: true
+        },
+        "tv_to_int_val": {
+          input: [
+            { name: "kind", offset: 0, value: 0, origin: { type: "user" } },
+            { name: "val", offset: 1, value: "not_a_number", origin: { type: "user" } },
+            { name: "op", offset: 2, value: 2, origin: { type: "user" } },
+            { name: "extra", offset: 3, value: "", origin: { type: "user" } }
+          ],
+          output: [],
+          pinned: true
+        },
+        "tv_encoding": {
+          input: [
+            { name: "kind", offset: 0, value: 0, origin: { type: "user" } },
+            { name: "val", offset: 1, value: "test", origin: { type: "user" } },
+            { name: "op", offset: 2, value: 3, origin: { type: "user" } },
+            { name: "extra", offset: 3, value: "", origin: { type: "user" } }
+          ],
+          output: [],
+          pinned: true
+        },
+        "tv_deepcopy": {
+          input: [
+            { name: "kind", offset: 0, value: 4, origin: { type: "user" } },
+            { name: "val", offset: 1, value: "bits", origin: { type: "user" } },
+            { name: "op", offset: 2, value: 4, origin: { type: "user" } },
+            { name: "extra", offset: 3, value: "1", origin: { type: "user" } }
+          ],
+          output: [],
+          pinned: true
+        },
+        "tv_hash_contract": {
+          input: [
+            { name: "kind", offset: 0, value: 2, origin: { type: "user" } },
+            { name: "val", offset: 1, value: "1", origin: { type: "user" } },
+            { name: "op", offset: 2, value: 5, origin: { type: "user" } },
+            { name: "extra", offset: 3, value: "", origin: { type: "user" } }
+          ],
+          output: [],
+          pinned: true
+        }
+      }
+    }
+  }
+}

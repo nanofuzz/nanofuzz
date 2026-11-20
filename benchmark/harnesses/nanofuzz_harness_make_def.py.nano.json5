@@ -1,0 +1,39 @@
+{
+  version: "0.4.0",
+  functions: {
+    fuzz_make_def: {
+      options: {},
+      validators: ["fuzz_make_def_validator"],
+      isVoid: false,
+      tests: {
+        "empty_rhs": {
+          input: [
+            { name: "symbol", offset: 0, value: "rule", origin: { type: "user" } },
+            { name: "chars", offset: 1, value: "", origin: { type: "user" } },
+            { name: "force_binary", offset: 2, value: false, origin: { type: "user" } }
+          ],
+          output: [],
+          pinned: true
+        },
+        "unicode_symbol": {
+          input: [
+            { name: "symbol", offset: 0, value: "тест", origin: { type: "user" } },
+            { name: "chars", offset: 1, value: "abc", origin: { type: "user" } },
+            { name: "force_binary", offset: 2, value: false, origin: { type: "user" } }
+          ],
+          output: [],
+          pinned: true
+        },
+        "hex_overflow": {
+          input: [
+            { name: "symbol", offset: 0, value: "euro", origin: { type: "user" } },
+            { name: "chars", offset: 1, value: "€", origin: { type: "user" } },
+            { name: "force_binary", offset: 2, value: true, origin: { type: "user" } }
+          ],
+          output: [],
+          pinned: true
+        }
+      }
+    }
+  }
+}

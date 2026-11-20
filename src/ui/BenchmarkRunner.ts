@@ -216,8 +216,8 @@ export const ALL_GROUND_TRUTH_BUG_IDS = rubricData.allGroundTruthBugIds;
 export const CONCURRENCY_LANES = getAutoConcurrencyLanes();
 export const MAX_DEEP_FUZZ_SLOTS = getAutoDeepFuzzSlots();
 
-const ALL_ENGINES = ["nanofuzz", "hypothesis", "hypofuzz"] as const;
-const ALL_SOURCES = ["tests", "docs", "all"] as const;
+type AllEngines = "nanofuzz" | "hypothesis" | "hypofuzz";
+type AllSources = "tests" | "docs" | "all";
 
 const ENGINES = ["nanofuzz", "hypothesis"] as const;
 const SOURCES = ["all"] as const;
@@ -227,8 +227,8 @@ export interface BenchmarkRunSpec {
   sequence: number;
   replicate: number;
   task: BenchmarkTaskName;
-  engine: (typeof ALL_ENGINES)[number];
-  source: (typeof ALL_SOURCES)[number];
+  engine: AllEngines;
+  source: AllSources;
   targetScope: string[];
   reportFilename: string;
   reportPath: string;
@@ -417,8 +417,8 @@ export interface BenchmarkScheduleItemState {
   sequence: number;
   replicate: number;
   task: BenchmarkTaskName;
-  engine: (typeof ALL_ENGINES)[number];
-  source: (typeof ALL_SOURCES)[number];
+  engine: AllEngines;
+  source: AllSources;
   reportFilename: string;
   status: "pending" | "running" | "completed" | "failed";
   completedAt?: string;
@@ -3669,7 +3669,7 @@ export async function recoverBenchmarkMatrix(
 } // fn: recoverBenchmarkMatrix
 
 export function generateSmoketestSchedule(): BenchmarkRunSpec[] {
-  const specs: { task: BenchmarkTaskName; engine: (typeof ALL_ENGINES)[number] }[] = [
+  const specs: { task: BenchmarkTaskName; engine: AllEngines }[] = [
     { task: "make_def", engine: "nanofuzz" },
     { task: "TreeValue", engine: "nanofuzz" },
     { task: "make_def", engine: "hypofuzz" },
