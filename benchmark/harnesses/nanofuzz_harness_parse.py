@@ -19,13 +19,13 @@ def fuzz_parse(
 
     if spec == "__EMPTY_LIST__":
         fan_files = []
+    elif spec.startswith("__MULTI_SPEC__\n"):
+        fan_files = [s for s in spec[len("__MULTI_SPEC__\n"):].split("\n---\n") if s.strip()]
     else:
         fan_files = spec
 
-    if constraint_str == "__EMPTY_STR__" or constraint_str == "":
-        constraints = [""]
-    elif constraint_str and constraint_str.strip():
-        constraints = [constraint_str]
+    if constraint_str is not None:
+        constraints = ["" if constraint_str == "__EMPTY_STR__" else constraint_str]
     else:
         constraints = None
 
@@ -49,11 +49,12 @@ def fuzz_parse_generator(
     prng: Callable[[], float],
 ) -> tuple[str, str, bool, bool, str] | None:
     """
-    Grammar-aware BNF production generator that constructs arbitrary grammar specifications,
-    rules, alternatives, repetitions, and constraints from syntax primitives.
+    Grammar-aware BNF production generator constructing arbitrary grammar specifications,
+    character classes, regexes, boolean constraints, multi-spec files, and repetitions.
     """
     nonterminals = ["<start>", "<a>", "<b>", "<c>", "<expr>", "<digit>", "<id>"]
-    terminals = ["'a'", "'b'", "'0'", "'1'", "'hello'", "' '", "'\\n'"]
+    # Option A: Terminals including regexes and character classes
+    terminals = ["'a'", "'b'", "'0'", "'1'", "'hello'", "' '", "'\\n'", "r'[0-9]+'", "r'[a-z]+'", "[a-zA-Z]", "~['a']"]
 
     # Generate 1 to 3 production rules
     num_rules = int(prng() * 3) + 1
@@ -66,37 +67,52 @@ def fuzz_parse_generator(
             seq_len = int(prng() * 2) + 1
             elements = []
             for _ in range(seq_len):
-                if prng() < 0.5:
+                if prng() < 0.4:
                     elements.append(nonterminals[int(prng() * len(nonterminals))])
                 else:
                     t = terminals[int(prng() * len(terminals))]
                     r = prng()
-                    if r < 0.2:
+                    if r < 0.15:
                         t = f"({t})+"
-                    elif r < 0.4:
+                    elif r < 0.30:
                         t = f"({t})*"
+                    elif r < 0.40:
+                        count = int(prng() * 3) + 1
+                        t = f"{t}{{{count}}}"
                     elements.append(t)
             alts.append(" ".join(elements))
         rules.append(f"{lhs} ::= " + " | ".join(alts))
 
     fan_spec = "\n".join(rules) + "\n"
 
-    # Edge cases: occasionally sample empty list or comment
+    # Option C: Multi-spec list generation
     p_edge = prng()
     if p_edge < 0.05:
         fan_spec = "__EMPTY_LIST__"
     elif p_edge < 0.10:
         fan_spec = ""
+    elif p_edge < 0.20:
+        # Multi-file grammar specification
+        spec_2 = f"<aux> ::= 'token' | {nonterminals[int(prng() * len(nonterminals))]}\n"
+        fan_spec = f"__MULTI_SPEC__\n{fan_spec}\n---\n{spec_2}"
 
-    # Generate arbitrary constraint expressions
+    # Option B: Compound constraint expressions (boolean logic, arithmetic, maximizing)
+    nt1 = nonterminals[int(prng() * len(nonterminals))]
+    nt2 = nonterminals[int(prng() * len(nonterminals))]
+    t1 = terminals[int(prng() * len(terminals))]
     constraint_patterns = [
         "",
         "   ",
-        f"where {nonterminals[int(prng() * len(nonterminals))]} == {terminals[int(prng() * len(terminals))]}",
-        f"where len({nonterminals[int(prng() * len(nonterminals))]}) > {int(prng() * 5)}",
-        f"where {nonterminals[int(prng() * len(nonterminals))]}..{nonterminals[int(prng() * len(nonterminals))]} == 1",
-        f"minimizing len({nonterminals[int(prng() * len(nonterminals))]})",
-        f"str({nonterminals[int(prng() * len(nonterminals))]}) != {terminals[int(prng() * len(terminals))]}",
+        f"where {nt1} == {t1}",
+        f"where len({nt1}) > {int(prng() * 5)}",
+        f"where {nt1}..{nt2} == 1",
+        f"where len({nt1}) > 0 and {nt1} != {t1}",
+        f"where {nt1} == {t1} or {nt2} == '0'",
+        f"where not (len({nt1}) == 0)",
+        f"where 2 * len({nt1}) > 1",
+        f"minimizing len({nt1})",
+        f"maximizing len({nt1})",
+        f"str({nt1}) != {t1}",
     ]
     constraint_str = constraint_patterns[int(prng() * len(constraint_patterns))]
 

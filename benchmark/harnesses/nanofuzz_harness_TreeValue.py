@@ -10,8 +10,15 @@ from fandango.errors import FandangoConversionError
 from fandango.language.tree_value import TreeValue, TreeValueType
 
 
-def fuzz_TreeValue(kind: int, val: str, extra: str, action: str) -> bool:
-    # 1. Construct TreeValue based on kind
+def fuzz_TreeValue(
+    kind: int,
+    val: str,
+    extra: str,
+    action: str,
+    left_val: str = "",
+    right_val: str = "",
+) -> bool:
+    # Construct TreeValue based on kind (heterogeneous types: str, bytes, int, empty, bits, float, bool, None)
     if kind == 0:
         tv = TreeValue(val)
     elif kind == 1:
@@ -25,10 +32,34 @@ def fuzz_TreeValue(kind: int, val: str, extra: str, action: str) -> bool:
         bit_count = abs(hash(extra)) % 17
         bits = [(hash(extra) >> i) & 1 for i in range(bit_count)]
         tv = TreeValue(val, trailing_bits=bits)
+    elif kind == 5:
+        # Float value
+        try:
+            tv = TreeValue(float(val) if val and val.replace(
+                ".", "", 1).lstrip("-").isdigit() else 3.14)
+        except Exception:
+            tv = TreeValue(val)
+    elif kind == 6:
+        # Boolean value
+        tv = TreeValue(val.lower() in ("true", "1", "yes"))
+    elif kind == 7:
+        # None value / null representation
+        tv = TreeValue(None) if hasattr(
+            TreeValue, "_allow_none") else TreeValue("")
     else:
         tv = TreeValue(val)
 
-    # 2. State-machine / Action dispatcher
+    # Option A: Composite/Nested tree values
+    if left_val or right_val:
+        left_child = TreeValue(left_val) if left_val else TreeValue.empty()
+        right_child = TreeValue(right_val) if right_val else TreeValue.empty()
+        # Exercise compound equality and representations
+        _ = (tv == left_child)
+        _ = (tv == right_child)
+        _ = hash(left_child)
+        _ = hash(right_child)
+
+    # State-machine / Action dispatcher
     action_key = (action or "").lower().strip()
 
     if action_key in ("eq_none", "compare_none", "0"):
@@ -93,10 +124,12 @@ def fuzz_TreeValue(kind: int, val: str, extra: str, action: str) -> bool:
         h = hash(tv)
         assert isinstance(h, int)
         assert tv == copy.deepcopy(tv), "A TreeValue must equal its deepcopy"
-        assert hash(tv) == hash(copy.deepcopy(tv)), "A TreeValue must have same hash as its deepcopy"
+        assert hash(tv) == hash(copy.deepcopy(
+            tv)), "A TreeValue must have same hash as its deepcopy"
         try:
             if tv == val:
-                assert hash(tv) == hash(val), f"Hash contract violation: tv == val but hash(tv)={hash(tv)} != hash(val)={hash(val)}"
+                assert hash(tv) == hash(
+                    val), f"Hash contract violation: tv == val but hash(tv)={hash(tv)} != hash(val)={hash(val)}"
         except FandangoConversionError:
             pass
 
@@ -126,18 +159,20 @@ def fuzz_TreeValue(kind: int, val: str, extra: str, action: str) -> bool:
             pass
 
     elif action_key in ("arithmetic", "math", "7"):
-        # Arithmetic operator methods
+        # Arithmetic operator methods and bitwise masks with offsets
         if tv.is_type(TreeValueType.TRAILING_BITS_ONLY) or (isinstance(val, str) and val.lstrip("-").isdigit()):
-            num = int(val) if isinstance(val, str) and val.lstrip("-").isdigit() else 1
+            num = int(val) if isinstance(
+                val, str) and val.lstrip("-").isdigit() else 1
             _ = tv + num
             _ = tv - num
             _ = tv * num
             if num != 0:
                 _ = tv // num
                 _ = tv % num
-            _ = tv & num
-            _ = tv | num
-            _ = tv ^ num
+            mask = abs(hash(extra)) & 0xFF
+            _ = tv & mask
+            _ = tv | mask
+            _ = tv ^ mask
 
     elif action_key in ("conversions", "8"):
         # String, bytes, bits conversions and metadata
@@ -149,20 +184,56 @@ def fuzz_TreeValue(kind: int, val: str, extra: str, action: str) -> bool:
         except FandangoConversionError:
             pass
 
+    # In-place augmented operators
+    elif action_key in ("inplace", "augmented"):
+        if tv.is_type(TreeValueType.TRAILING_BITS_ONLY) or (isinstance(val, str) and val.lstrip("-").isdigit()):
+            num = int(val) if isinstance(
+                val, str) and val.lstrip("-").isdigit() else 1
+            tv_mut = copy.deepcopy(tv)
+            tv_mut += num
+            tv_mut *= num
+
+    # Option B: Expanded actions (bool, cmp_primitive, shift, format)
+    elif action_key in ("bool", "boolean"):
+        _ = bool(tv)
+
+    elif action_key in ("cmp_primitive", "compare_primitive"):
+        _ = (tv == val)
+        _ = (tv == 42)
+        _ = (tv == "foo")
+        _ = (tv != 100)
+
+    elif action_key in ("shift", "bit_shift"):
+        try:
+            _ = tv >> 1
+            _ = tv << 1
+        except Exception:
+            pass
+
+    elif action_key in ("format", "formatting"):
+        _ = f"{tv}"
+        _ = format(tv, "")
+
     return True
 
 
 def fuzz_TreeValue_generator(
     prng: Callable[[], float],
-) -> tuple[int, str, str, str] | None:
-    kinds = [0, 1, 2, 3, 4]
-    actions = ["eq_none", "radd", "to_int", "encoding", "deepcopy", "hash", "methods", "arithmetic", "conversions"]
-    samples = ["", "hello", "123", "abc", "💃", "foo", "bar", "prefix_", " \t\n", "xyz-123"]
+) -> tuple[int, str, str, str, str, str] | None:
+    kinds = [0, 1, 2, 3, 4, 5, 6, 7]
+    actions = [
+        "eq_none", "radd", "to_int", "encoding", "deepcopy", "hash",
+        "methods", "arithmetic", "conversions", "bool", "cmp_primitive", "shift", "format", "inplace"
+    ]
+    samples = ["", "hello", "123", "abc", "💃", "foo",
+               "bar", "prefix_", " \t\n", "xyz-123", "0.5", "True"]
     kind = kinds[int(prng() * len(kinds))]
     action = actions[int(prng() * len(actions))]
     val = samples[int(prng() * len(samples))]
     extra = samples[int(prng() * len(samples))]
-    return (kind, val, extra, action)
+    left_val = samples[int(prng() * len(samples))] if prng() < 0.3 else ""
+    right_val = samples[int(prng() * len(samples))] if prng() < 0.3 else ""
+    return (kind, val, extra, action, left_val, right_val)
 
 
 def fuzz_TreeValue_validator(

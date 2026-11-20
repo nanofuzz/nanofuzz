@@ -73,6 +73,31 @@ def fuzz_DerivationTree(
         reconstructed = DerivationTree.from_tree(tree_tuple)
         assert len(reconstructed._children) == len(tree._children), "Children count mismatch after roundtrip"
 
+    # Option B: AST Mutation Actions
+    elif action == "add_child":
+        new_child = DerivationTree(Terminal(f"new_{child_text}"))
+        tree.add_child(new_child)
+        assert new_child._parent is tree
+        _ = str(tree)
+
+    elif action == "remove_child":
+        if len(sub_nt._children) > 0:
+            removed = sub_nt.remove_child(index=index % len(sub_nt._children))
+            assert removed._parent is None
+
+    elif action == "search_subtree":
+        found = list(tree.find_subtrees("<sub>"))
+        assert len(found) >= 1
+
+    elif action == "get_root":
+        root = sub_nt.get_root(stop_at_argument_begin=True)
+        assert root is tree
+
+    elif action == "compare":
+        tree_copy = copy.deepcopy(tree)
+        assert tree == tree_copy
+        assert hash(tree) == hash(tree_copy)
+
     return str(tree)
 
 
@@ -80,7 +105,10 @@ def fuzz_DerivationTree_generator(
     prng: Callable[[], float],
 ) -> tuple[str, int, int, str, str] | None:
     samples = ["hello", "world", "abc", "💃", "node", "", "<start>", "leaf"]
-    actions = ["slice", "prefix", "index", "grammar", "roundtrip"]
+    actions = [
+        "slice", "prefix", "index", "grammar", "roundtrip",
+        "add_child", "remove_child", "search_subtree", "get_root", "compare"
+    ]
     fmts = ["acyclic", "cyclic"]
 
     s = samples[int(prng() * len(samples))]
