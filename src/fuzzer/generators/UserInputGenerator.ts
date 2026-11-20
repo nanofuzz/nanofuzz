@@ -189,7 +189,7 @@ export class UserInputGenerator extends AbstractInputGenerator {
     });
 
     const runner = this._userGenRunner;
-    const effectiveTimeout = Math.max(this._fnTimeout * 5, 5000);
+    const effectiveTimeout = Math.max(this._fnTimeout * 10, 30000);
     const runnerPromise = runner.run([prngArg], effectiveTimeout);
 
     runnerPromise
