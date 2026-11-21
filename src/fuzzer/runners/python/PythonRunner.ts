@@ -22,6 +22,7 @@ import { findInAncestor, isError } from "../../Util";
 import { PutTimeoutName } from "../AbstractHost";
 import { PythonHost, PythonEnv } from "./PythonHost";
 import * as ChildProcess from "node:child_process";
+import { getTargetCoverageFiles } from "../../../ui/Agent";
 
 /**
  * Python runner
@@ -101,7 +102,8 @@ export class PythonRunner extends AbstractRunner {
   public async run(
     inputs: unknown[],
     timeout: number | undefined = 0,
-    validators: string[] = []
+    validators: string[] = [],
+    env?: Record<string, string>
   ): Promise<RunnerResult> {
     const thisSeq = this._seq++;
     if (this._runDepth++ > 0) {
@@ -125,6 +127,7 @@ export class PythonRunner extends AbstractRunner {
         typeHints,
         timeout: timeout ?? 0,
         validators: validators.length > 0 ? validators : undefined,
+        env,
         collect: {
           coverageData: this._coverageEnabled ? true : undefined,
           debugData: debugEnabled ? true : undefined,
@@ -320,21 +323,17 @@ export class PythonRunner extends AbstractRunner {
       }
     }
 
-    // Append own own modules to PYTHONPATH if needed
-    if (pythonEnv.libs && !pythonEnv.env.PYTHONPATH?.includes(pythonEnv.libs)) {
-      pythonEnv.env.PYTHONPATH =
-        (pythonEnv.env.PYTHONPATH ?? "") +
-        (process.platform === "win32" ? ";" : ":") +
-        pythonEnv.libs;
-    }
-
     // Build PYTHONPATH entries for resolving user project packages and nanofuzz_runtime
     const pyPaths: string[] = [];
 
-    // Target file's ancestor directories
+    // Target file's ancestor directories (and src/ layout directories)
     let currPyDir = path.resolve(path.dirname(filename));
     while (currPyDir) {
       pyPaths.push(currPyDir);
+      const srcSubdir = path.join(currPyDir, "src");
+      if (fs.existsSync(srcSubdir)) {
+        pyPaths.push(srcSubdir);
+      }
       const parent = path.dirname(currPyDir);
       if (parent === currPyDir) break;
       currPyDir = parent;
@@ -354,10 +353,6 @@ export class PythonRunner extends AbstractRunner {
       }
     } catch {
       // ignore
-    }
-
-    if (pythonEnv.libs) {
-      pyPaths.push(pythonEnv.libs);
     }
 
     const currModuleDir = path.dirname(path.resolve(module.filename));
@@ -631,18 +626,25 @@ export class PythonRunner extends AbstractRunner {
     //  2. Executing within Node as /build/cli/cli.cjs
     //  3. Executing within Jasmine as /src/fuzzer/runners/PythonRunner.ts
     const currModuleDir = path.dirname(path.resolve(module.filename));
-    const projectRoot = findInAncestor(currModuleDir, "package.json");
-    if (projectRoot === undefined) {
-      throw new Error(`Unable to find project root from: ${currModuleDir}`);
+    let runnerHost = path.join(currModuleDir, "PythonRunnerHost.py");
+    if (!fs.existsSync(runnerHost)) {
+      const projectRoot = findInAncestor(currModuleDir, "package.json");
+      if (projectRoot !== undefined) {
+        runnerHost = path.resolve(
+          path.join(
+            path.dirname(projectRoot),
+            "build",
+            "extension",
+            "PythonRunnerHost.py"
+          )
+        );
+      }
     }
-    const runnerHost = path.resolve(
-      path.join(
-        path.dirname(projectRoot),
-        "build",
-        "extension",
-        "PythonRunnerHost.py"
-      )
-    );
+    if (!fs.existsSync(runnerHost)) {
+      throw new Error(
+        `Unable to find PythonRunnerHost.py from: ${currModuleDir}`
+      );
+    }
 
     const filenameBase = path.basename(this._filename);
     const coverageScopeRaw = Config.get<unknown>(
@@ -662,12 +664,8 @@ export class PythonRunner extends AbstractRunner {
       scopeConfig.target.includes("directimports") &&
       fs.existsSync(this._filename)
     ) {
-      try {
-        const program = ProgramFactory.fromFile(this._filename);
-        directPkgs = extractDirectPackages(program.imports);
-      } catch {
-        // Fall back gracefully if file resolution or parsing fails
-      }
+      const program = ProgramFactory.fromFile(this._filename);
+      directPkgs = extractDirectPackages(program.imports);
     }
 
     const args = [
@@ -683,10 +681,28 @@ export class PythonRunner extends AbstractRunner {
       isRespawn ? "respawn" : String(collectStaticCoverage),
     ];
 
+    const activeTargets = getTargetCoverageFiles(this._filename);
+    const hostEnv = { ...this._pythonEnv.env };
+    if (activeTargets && activeTargets.size > 0) {
+      hostEnv.NANOFUZZ_COVERAGE_INCLUDE_FILES = JSON.stringify(
+        Array.from(activeTargets)
+      );
+    } else if (process.env.NANOFUZZ_COVERAGE_INCLUDE_FILES) {
+      hostEnv.NANOFUZZ_COVERAGE_INCLUDE_FILES =
+        process.env.NANOFUZZ_COVERAGE_INCLUDE_FILES;
+    }
+    if (process.env.NANOFUZZ_PROJECT_ROOT) {
+      hostEnv.NANOFUZZ_PROJECT_ROOT = process.env.NANOFUZZ_PROJECT_ROOT;
+    }
+    const resolvedPythonEnv: PythonEnv = {
+      ...this._pythonEnv,
+      env: hostEnv,
+    };
+
     const host = new PythonHost(
       args,
       path.dirname(module.filename),
-      this._pythonEnv
+      resolvedPythonEnv
     );
 
     const hostStartupTimeout = Config.get<number>(

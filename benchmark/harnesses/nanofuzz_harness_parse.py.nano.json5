@@ -1,0 +1,7006 @@
+{
+  "version": "0.4.0",
+  "functions": {
+    "fuzz_parse": {
+      "options": {},
+      "validators": [
+        "fuzz_parse_validator"
+      ],
+      "isVoid": false,
+      "tests": {
+        "parse_P04_1": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= \"a\"\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P04_2": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= <b> | <a>\n<b> ::= \"0\"\n<a> ::= \"0\"\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P04_3": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= <digit>+\n<digit> ::= \"0\" | \"1\"\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P04_4": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= <a>*\\n<a> ::= \"x\"\\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P04_5": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= <x>\\n<x> ::= \"1\" | \"2\"\\nwhere int(<x>) > 0",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P04_6": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "where <x> > 0",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P04_7": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= <a>\n<a> ::= <start>\n<x> ::= \"x\"\nwhere <start>..<x> == \"x\"\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P04_8": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "where <x> > 0\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P04_9": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "where int(<x>) > 0\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P04_10": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= [[ <a> <b> ]]\n<a> ::= \"a\"\n<b> ::= \"b\"\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P04_11": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= <a>\n<a> ::= \"a\"\nwhere <start>.<a> == \"a\"\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P08_13": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'a'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P08_14": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= <expr>\n<expr> ::= <expr> '+' '1' | '1'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "<expr>..<other> == '1'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P08_15": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= <expr>\n<expr> ::= <expr> '+' '1' | '1'\n<leaf> ::= '1'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "<expr>..<leaf> == '1'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P101_21": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= \"0\"\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P101_22": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= <b> | <a>\n<b> ::= \"0\"\n<a> ::= \"0\"\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P101_23": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= <x>\n<x> ::= \"x\"\nwhere str(<x>) == \"x\"\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P101_24": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= <digit>+\n<digit> ::= \"0\" | \"1\"\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P101_25": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= <a>*\n<a> ::= \"x\"\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P101_26": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "\u00d2",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P101_27": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= \"0\"\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P101_28": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= \"0\"\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "   ",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P102_32": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'a'\\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P102_33": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'a'\\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P102_34": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'a'\\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P131_95": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'a' | 'b'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "str(<start>) != 'd'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P131_96": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'a'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P131_97": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= <a>\\n<a> ::= 'x'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "<start> != 'c'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P131_99": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'a' | 'b'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P131_100": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'a'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "<start> != 'x'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P131_101": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= <a> | <b>\\n<a> ::= <a> 'x' | 'y'\\n<b> ::= 'z'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "<start> != 'y'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P131_102": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= <a> | <c>\n<a> ::= <a> 'x' | 'y'\n<c> ::= 'z'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "where <a>.<c> == 'z'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P131_103": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= <a> | <c>\n<a> ::= <a> 'x' | 'y'\n<c> ::= 'z'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "where <a>..c == 'z'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P131_104": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= <a> | <c>\n<a> ::= <a> 'x' | 'y'\n<c> ::= 'z'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "where <a>[0].<c> == 'z'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P131_105": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= <a> | <c>\n<a> ::= <a> 'x' | 'y'\n<c> ::= 'z'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "where <a>..<c> == 'z'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P131_107": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<empty_list>",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "where <start> == 'a'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P131_108": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= <a> | <b>\\n<a> ::= 'x' | 'y'\\n<b> ::= 'z'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "<start> != 'y'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P131_109": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'a' | 'b'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "<start> != 'd'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P131_110": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= '0' | '1'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "where <start> == '0'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P131_111": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= <a>\\n<a> ::= 'x'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "<start> != 'x'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P131_112": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'x' | 'y'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "where <start> != 'y'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P134_126": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "\u00b5",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P134_127": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "\u0e01 \u0e33\u0e01\u0e33",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P134_128": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "0/0",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P134_129": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= \"a\"\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P134_130": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= \"a\"\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P16_132": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= '0'\\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P16_133": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= <b> | <a>\\n<b> ::= '0'\\n<a> ::= '0'\\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P16_134": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'a'+\\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P16_135": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= <a>*\\n<a> ::= 'x'\\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P16_136": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= <x>\\n<x> ::= \"x\"\\nwhere f'{<x>}' == 'x'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P16_137": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'a' | 'b'\\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P16_138": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= <x>\\n<x> ::= 'x'\\nwhere <missing> == 1\\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P16_139": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= <x>\\n<x> ::= 'x'\\nwhere <x> > 0 and <missing1> == 1 and <missing2> == 2\\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P16_141": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= <undefined>\\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P17_161": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'a'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P17_162": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'a' | 'b'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "<start> != 'b'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P17_163": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "<undefined> == 1",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P17_164": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "<undefined> == 1",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P17_165": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "<x> == 1",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P17_166": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'a'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "<start> != 'a'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P17_167": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'a' | 'b'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "<start> != 'b'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P17_168": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'b'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "<start> != 'b'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P17_169": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'a'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "<start> != 'a'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P23_170": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'a'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P23_171": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'a' | 'b'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P23_172": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= <a>\n<a> ::= 'x'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P23_173": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'a'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P23_175": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= <start> 'a' | 'b'\n<item> ::= 'c'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P23_178": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= <start> 'a' | 'b'\n<item> ::= 'c'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "len(<start>..<item>) > 0",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P23_179": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'a' | 'b'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "where str(<start>) != 'x'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P23_181": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "client: <start> ::= 'ping'\nserver: <start> ::= 'pong'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P28_182": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'a' | 'b'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "str(<start>) != 'd'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P28_186": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'a' | 'b'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P28_190": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "x = 1",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "where <foo> == 1",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P28_191": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "x = 1",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "where 1 == 1",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P28_192": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'a' | 'b'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "where 1 == 1",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P28_193": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'a'\\n<unused> ::= 'b'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "where <missing> == 1",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P28_194": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'a' | 0",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "where <missing_only> == 1",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P28_195": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'a'* | 'b'+",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "where str(<start>) != 'd'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P30_196": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'a' | 'b'\\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P30_197": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= ('a' | 'b')+\\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "str(<start>) != 'd'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P30_199": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'a'\\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P30_200": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "__EMPTY_LIST__",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "where len(<start>) > 0",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P30_202": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'a'\\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "where len(<start>) > 0",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<stat>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P30_203": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "# comment\\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "where <unknown> == 1",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<custom>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P42_205": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'a'\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P42_206": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'a'\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "1 == 1",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P42_207": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'a'\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P42_208": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "[StdOut] <packet> ::= 'a'\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P42_210": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= <rec>\n<rec> ::= '(' <rec> ')' | '1'\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "<start>..<missing> == '1'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P42_211": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "[StdOut] <packet> ::= 'a'\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "1 == 1",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<packet>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P42_213": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= <rec>\n<rec> ::= '(' <rec> ')' | '1'\n<b> ::= '2'\nwhere <start>..<b> == '2'\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P42_215": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'a'\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P42_216": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'a'\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P42_217": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= <a>\\n<a> ::= 'x'\\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P49_218": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'a' | 'b' | 'c'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "str(<start>) != 'd'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P49_219": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= ('a' | 'b')+",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P49_220": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= '0' | '1'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P49_221": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= <b> | <a>\\n<b> ::= '0'\\n<a> ::= '0'\\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P49_222": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= '220 ' <rest> '\\\\r\\\\n'\\n<rest> ::= r'.*'\\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P49_223": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= <a>*\\n<a> ::= 'x'\\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P49_224": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= <bit>+\\n<bit> ::= 0 | 1\\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P49_226": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'hello'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "<start> == 'hello'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P55_234": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'a'\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P55_235": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= <b> | <a>\n<b> ::= '0'\n<a> ::= '0'\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P55_236": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= <digit>+\n<digit> ::= '0' | '1'\nwhere int(<start>) > 0\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P55_237": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "UtI",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P55_238": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "__empty__",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "1 == 1",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P55_239": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'a'\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P55_240": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= <a>\n<a> ::= '0' | <a> '1'\n<b> ::= '2'\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "<start>..<b> == '2'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P55_241": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'a'\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "__none__",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P55_242": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= <b> | <a>\n<b> ::= '0'\n<a> ::= '0'\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "__none__",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P55_243": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= <digit>+\n<digit> ::= '0' | '1'\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "int(<start>) > 0",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P55_244": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= <b> | <a>\n<b> ::= '0'\n<a> ::= '0'\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "__none__",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P55_245": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'a'\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "len(str(<start>)) > 0",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P55_246": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'a'\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "int(<start>) > 0",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P55_247": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= <digit>+\n<digit> ::= '0' | '1'\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "__none__",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P61_248": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'a' | 'b'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P61_249": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= ('a' | 'b')+",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P61_250": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'a' 'b' 'c'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P61_251": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= <a> | <b>\n<a> ::= 'a'\n<b> ::= 'a'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P61_252": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'a' | 'b'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P61_253": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= ('a' | 'b')+",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P61_254": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'a' 'b' 'c'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P61_255": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= <bit>+\\n<bit> ::= 0 | 1",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P95_305": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'a' | 'b'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P97_312": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'a' | 'b'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P97_313": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'a' 'b' 'c'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P97_314": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= ('a' | 'b')+",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P97_315": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= <a> <b>\\n<a> ::= 'x'\\n<b> ::= 'y'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P97_316": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 0 | 1",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P97_319": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= <a>\\n<a> ::= <b>\\n<b> ::= <a> | 'b'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "<a>.<nonexistent> == 'x'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P97_320": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= <a>\\n<a> ::= <b>\\n<b> ::= <a> | <c>\\n<c> ::= 'c'\\n<other> ::= 'x'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "where <a>..<other> == 'x'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P97_321": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= <a>\\n<a> ::= <b>\\n<b> ::= <a> | <c>\\n<c> ::= 'c'\\n<other> ::= 'x'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "where str(<a>..<other>) == 'x'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P97_322": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= <a>\\n<a> ::= <b>\\n<b> ::= <a> | <c>\\n<c> ::= 'c'\\n<other> ::= 'x'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "str(<start>.<other>) == 'x';",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P97_323": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= <ab>\\n<ab> ::= \"a\" <ab> | <ab> \"b\" | \"\"\\n<other> ::= \"x\"",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "str(<start>.<other>) == 'a';",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P97_324": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= <number>\\n<number> ::= <digit> | <digit><number>\\n<digit> ::= \"1\" | \"2\"\\n<other> ::= \"x\"",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "where int(<start>..<other>) == 0",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P97_325": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= <number>\\n<number> ::= <digit> | <digit><number>\\n<digit> ::= '1' | '2'\\n<other> ::= 'x'\\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "where int(<start>..<other>) == 0\\n",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P97_327": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'a' 'b' 'c'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P97_328": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= ('a' | 'b')+",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P97_329": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= <a> <b>\\n<a> ::= 'x'\\n<b> ::= 'y'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P97_330": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 0 | 1",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P99_343": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'a' | 'b' | 'c'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P99_344": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'a' | 'b' | 'c'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P99_345": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'x'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P99_349": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'a' | 'b' | 'c'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P99_350": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= ('a' | 'b' | 'c')+\\nwhere str(<start>) != 'd'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P99_351": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= '0' | '1'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P99_355": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 'a'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P99_356": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= 0 | 1",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": false,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "parse_P99_357": {
+          "input": [
+            {
+              "name": "spec",
+              "offset": 0,
+              "value": "<start> ::= <_hidden>\\n<_hidden> ::= <inner>\\n<inner> ::= 'a'",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "constraint_str",
+              "offset": 1,
+              "value": "",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "use_stdlib",
+              "offset": 2,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "check",
+              "offset": 3,
+              "value": true,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "start_symbol",
+              "offset": 4,
+              "value": "<start>",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        }
+      }
+    }
+  }
+}

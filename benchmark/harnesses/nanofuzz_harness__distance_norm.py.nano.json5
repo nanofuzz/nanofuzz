@@ -1,0 +1,1378 @@
+{
+  "version": "0.4.0",
+  "functions": {
+    "fuzz__distance_norm": {
+      "options": {},
+      "validators": [
+        "fuzz__distance_norm_validator"
+      ],
+      "isVoid": false,
+      "tests": {
+        "_distance_norm_P05_1": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": 2,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": 0,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P05_2": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": 0,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": 0,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P05_3": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": 100,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": -100,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P113_4": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": 10,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": 5,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P113_5": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": 1e+308,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": -1e+308,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P113_6": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": 1000,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": -1000,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P113_7": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": "str",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": "str",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P113_8": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": 10,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": 0,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P113_9": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": "a",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": "b",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P114_10": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": 1,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": 2,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P121_11": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": 0,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": 1,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P121_12": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": 0,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": 1000000,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P121_13": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": 100,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": 100,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P121_14": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": 0.5,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": 0.5,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P125_15": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": -10,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": 10,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P125_16": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": 1e+308,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": 1e+308,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P125_17": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": -1e+308,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": -1e+308,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P125_18": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": 1e-308,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": 1e-308,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P125_19": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": 10,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": 20,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P125_20": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": -100,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": 100,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P125_21": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": -5.5,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": 5.5,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P125_22": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": 12345.67,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": 76543.21,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P127_23": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": 100,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": 0,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P127_24": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": 0,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": 10000000000,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P129_25": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": 1,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": 1,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P129_26": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": 0,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": 10,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P129_27": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": -5,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": 5,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P129_28": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": "Infinity",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": 0,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P13_29": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": 1000,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": 0,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P14_30": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": 0.5,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": 0,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P24_31": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": 1000000,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": 0,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P24_32": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": 1e-05,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": 0.0001,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P24_33": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": -50,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": 50,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P24_34": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": 20,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": 10,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P24_35": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": 50,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": -50,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P25_36": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": 1.5,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": 3.5,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P27_37": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": 5,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": 10,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P27_38": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": -3.5,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": 4.5,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P35_39": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": 1,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": 0,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P41_40": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": 1.5,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": -2.5,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P41_41": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": 100,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": "-Infinity",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P45_42": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": 10000000000,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": -10000000000,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P45_43": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": -750,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": 0,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P45_44": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": null,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": 0,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P45_47": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": 100,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": 200,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P45_48": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": 5,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": 5,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P52_49": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": 1e+300,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": 1e+300,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P52_50": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": 9007199254740991,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": 0,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P52_51": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": 9007199254740990,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": 0,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P64_52": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": 1000000000000,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": 0,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P65_53": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": "10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": 0,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P70_54": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": 0,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": 1000000000,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P75_55": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": "foo",
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": "bar",
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P76_56": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": 1.5,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": 3.7,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P77_57": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": 100,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": 50,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P77_58": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": 0,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": null,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P80_59": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": 0,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": 100,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P96_60": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": 10,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": -10,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P96_61": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": 1000000000000000,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": 0,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P96_62": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": 101,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": 0,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P96_63": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": 400,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": 0,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        },
+        "_distance_norm_P96_64": {
+          "input": [
+            {
+              "name": "left",
+              "offset": 0,
+              "value": 1000000000000000,
+              "origin": {
+                "type": "user"
+              }
+            },
+            {
+              "name": "right",
+              "offset": 1,
+              "value": -1000000000000000,
+              "origin": {
+                "type": "user"
+              }
+            }
+          ],
+          "output": [],
+          "pinned": true
+        }
+      }
+    }
+  }
+}

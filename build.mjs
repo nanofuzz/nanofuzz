@@ -23,9 +23,19 @@ console.log("copied svg assets");
 
 // Copy Python assets
 copyfiles(
+  ["./src/fuzzer/runners/python/PythonIpc.py", "./build/extension"],
+  true,
+  () => console.log("copied .py ipc")
+);
+copyfiles(
   ["./src/fuzzer/runners/python/PythonRunnerHost.py", "./build/extension"],
   true,
   () => console.log("copied .py runner")
+);
+copyfiles(
+  ["./src/fuzzer/runners/python/HypothesisRunnerHost.py", "./build/extension"],
+  true,
+  () => console.log("copied .py hypothesis runner host")
 );
 copyfiles(
   ["./src/fuzzer/oracles/ImplicitOracle.py", "./build/extension"],
@@ -174,7 +184,35 @@ if (fs.existsSync(javaRuntimeDir)) {
   };
 
   let javaTargetJar = findJar();
-  if (!javaTargetJar) {
+
+  // Rebuild the JAR if pom.xml or any Java source file under src/
+  // has a modification time newer than the existing compiled JAR.
+  const isJarStale = (jarPath) => {
+    if (!jarPath || !fs.existsSync(jarPath)) return true;
+    const jarMtime = fs.statSync(jarPath).mtimeMs;
+    const pomPath = path.join(javaRuntimeDir, "pom.xml");
+    if (fs.existsSync(pomPath) && fs.statSync(pomPath).mtimeMs > jarMtime) {
+      return true;
+    }
+    const srcDir = path.join(javaRuntimeDir, "src");
+    if (fs.existsSync(srcDir)) {
+      const checkMtime = (dir) => {
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+          const full = path.join(dir, entry.name);
+          if (entry.isDirectory()) {
+            if (checkMtime(full)) return true;
+          } else if (fs.statSync(full).mtimeMs > jarMtime) {
+            return true;
+          }
+        }
+        return false;
+      };
+      return checkMtime(srcDir);
+    }
+    return false;
+  };
+
+  if (!javaTargetJar || isJarStale(javaTargetJar)) {
     const mvnBin = resolveMaven();
     if (mvnBin) {
       ChildProcess.execFileSync(mvnBin, ["clean", "package", "-DskipTests"], {

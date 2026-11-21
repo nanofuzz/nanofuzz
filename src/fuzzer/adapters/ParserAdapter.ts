@@ -64,9 +64,7 @@ export async function init(): Promise<void> {
         for (const g of grammarsToLoad) {
           const url = `${modulesUrl}${g}${sep}${g}.wasm`;
           const grammar = await TSWeb.Language.load(url);
-          const parser = new TSWeb.Parser();
-          parser.setLanguage(grammar);
-          grammars[g] = { parser, grammar };
+          grammars[g] = { grammar };
         }
         loaded = "yes";
         resolve();
@@ -99,7 +97,18 @@ export function parse(lang: ProgramLanguage, text: string): Tree | null {
         : `init() must complete prior to calling getParser()`
     );
   }
-  return _getGrammarOrThrow(_langToGrammarName(lang)).parser.parse(text);
+  const entry = _getGrammarOrThrow(_langToGrammarName(lang));
+  const parser = new TSWeb.Parser();
+  parser.setLanguage(entry.grammar);
+  try {
+    return parser.parse(text);
+  } finally {
+    try {
+      parser.delete();
+    } catch {
+      // Ignore deletion failure if parser was unallocated
+    }
+  }
 } // fn: parse()
 
 /**
@@ -223,10 +232,8 @@ function _langToGrammarName(lang: ProgramLanguage): string {
   }
 } // fn: _langToGrammarName()
 
-type Parser = TSWeb.Parser;
 type Language = TSWeb.Language;
 type GrammarData = {
-  parser: Parser;
   grammar: Language;
 };
 

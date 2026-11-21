@@ -31,7 +31,7 @@ import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
 import { parseCoverageScope } from "../fuzzer/measures/Util";
 import path from "node:path";
 import * as JSONN from "../Jsonn";
-import { isError, CpuSampler } from "../fuzzer/Util";
+import { isError, getDisplayPath, CpuSampler } from "../fuzzer/Util";
 import { isKeyedObject } from "../Util";
 import { LlmAdapter } from "../fuzzer/adapters/LlmAdapter";
 import { LlmDelayCalculator } from "../fuzzer/adapters/LlmDelayCalculator";
@@ -131,11 +131,12 @@ function createProgram(): Commander.Command {
     )
     .option(
       `--output-results <mode>`,
-      `Return test results: all, failures, none`,
+      `Return test results: all, interesting, failures, none`,
       parseOutputResults,
       "failures"
     )
     .option(`--no-progress-bar`, `Disable progress bar`)
+    .option(`--config-file <filename>`, `Path to .json5 config file`)
     .option(`--no-config-file`, `Ignore .nano.json5 config`)
     .option(
       `--engine <v1|v2|v3|auto>`,
@@ -177,6 +178,7 @@ function createProgram(): Commander.Command {
     .option(`--no-mutation-input-generator`, `Disable mutation generator`)
     .option(`--no-random-input-generator`, `Disable random generator`)
     .option(`--no-user-input-generator`, `Disable user generator`)
+    .option(`--no-seed-input-generator`, `Disable seed generator (saved tests)`)
 
     .option(`--model-provider <string>`, `AI provider (e.g. openai, copilot)`)
     .option(`--model-name <string>`, `AI model name`)
@@ -902,10 +904,23 @@ export async function runCliInProcess(
 
       // Load companion .nano.json5 configuration and pinned tests (with version upgrade and migration)
       const useConfigFile = options["configFile"] !== false;
+      const explicitConfigFile =
+        typeof options["configFile"] === "string"
+          ? options["configFile"]
+          : undefined;
       const fnConfig = useConfigFile
-        ? FuzzConfigStore.loadForFunction(filename, fnname, undefined, false)
+        ? FuzzConfigStore.loadForFunction(
+            filename,
+            fnname,
+            undefined,
+            false,
+            explicitConfigFile
+          )
         : FuzzConfigStore.createDefaultFunctionConfig(fnname);
-      const injectTests: FuzzPinnedTest[] = Object.values(fnConfig.tests ?? {});
+      const allowSeedInputs = options["seedInputGenerator"] !== false;
+      const injectTests: FuzzPinnedTest[] = allowSeedInputs
+        ? Object.values(fnConfig.tests ?? {})
+        : [];
 
       function getEffectiveOption<K extends keyof FuzzOptions>(
         cliOptionName: string,
@@ -1024,10 +1039,7 @@ export async function runCliInProcess(
       const workerWord =
         workersCount === 1 ? "1 worker" : `${workersCount} workers`;
 
-      const relPath = path.relative(process.cwd(), filename);
-      const displayPath = (
-        relPath && relPath.length < filename.length ? relPath : filename
-      ).replace(/\\/g, "/");
+      const displayPath = getDisplayPath(filename);
 
       const activeGenerators: string[] = [];
       if (injectTests.length > 0) {
@@ -1110,7 +1122,7 @@ export async function runCliInProcess(
           k === "CodeCoverageMeasure"
             ? covStats
             : k === "coverageMeasure" && isKeyedObject(v)
-              ? { current: v.current }
+              ? { globalDelta: v.globalDelta, accumDelta: v.accumDelta }
               : v
         );
       }
@@ -1208,7 +1220,7 @@ function parseCigScheduler(
 } // fn: parseCigScheduler
 
 function parseOutputResults(value: string, _previous: string): string {
-  const allowed = ["all", "failures", "none"];
+  const allowed = ["all", "interesting", "failures", "none"];
   if (!allowed.includes(value)) {
     throw new Commander.InvalidArgumentError(
       `Invalid output results mode '${value}'. Allowed: ${allowed.join(", ")}`

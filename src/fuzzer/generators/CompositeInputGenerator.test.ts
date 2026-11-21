@@ -1300,12 +1300,12 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
           allInputs,
           src
         );
-        // Replace autonomous generator with MockAutonomousGen while keeping HumanInputGenerator
-        const humanGen = this._subgens.find(
-          (g) => g.name === "HumanInputGenerator"
+        // Replace autonomous generator with MockAutonomousGen while keeping SeedInputGenerator
+        const seedGen = this._subgens.find(
+          (g) => g.name === "SeedInputGenerator"
         )!;
         this._subgens = [
-          humanGen,
+          seedGen,
           new MockAutonomousGen(this._specs, this._rngSeed),
         ];
         this._activeSubgens = [true, true];
@@ -1428,11 +1428,11 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
           allInputs,
           src
         );
-        const humanGen = this._subgens.find(
-          (g) => g.name === "HumanInputGenerator"
+        const seedGen = this._subgens.find(
+          (g) => g.name === "SeedInputGenerator"
         )!;
         this._subgens = [
-          humanGen,
+          seedGen,
           new MockRawNumberGen(this._specs, this._rngSeed),
         ];
         this._activeSubgens = [true, true];

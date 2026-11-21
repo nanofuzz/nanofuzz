@@ -24,6 +24,7 @@ import {
   FuzzTestResult,
   FuzzTestResults,
   FuzzerFocus,
+  FuzzValueOrigin,
   InputAndSource,
   TransformedInputAndSource,
 } from "./Types";
@@ -83,6 +84,8 @@ export class FuzzerV3 {
   protected _slotSeq = 0;
   protected _stage1InjectedCount = 0;
   protected _injectedInFlight = 0;
+  protected _trackProvenance = false;
+  protected _leaderboardProvenance: Map<number, string> = new Map();
 
   // Cooperative Shrink State
   protected _interruptedQueue: TransformedInputAndSource[] = [];
@@ -767,10 +770,16 @@ export class FuzzerV3 {
       typeof currentStopCondition === "number" ? currentStopCondition : 100;
     this._notify(candidate, currentPct, update, cancelFn, stillInjecting);
 
+    const provenance =
+      this._trackProvenance && candidate
+        ? resolveFullProvenance(candidate.source, this._leaderboardProvenance)
+        : undefined;
+
     return {
       id: this._slotSeq++,
       tick: candidate.tick,
       candidate,
+      provenance,
       genTime,
       injected: Boolean(candidate.injected),
       transformTime: 0,
@@ -797,7 +806,8 @@ export class FuzzerV3 {
       worker,
       slot.genTime,
       slot.transformTime,
-      cancelFn
+      cancelFn,
+      slot.provenance ? { NANOFUZZ_PROVENANCE: slot.provenance } : undefined
     );
 
     if (!exec) {
@@ -834,6 +844,16 @@ export class FuzzerV3 {
       slot.coverageHits
     );
     slot.measureTime = measureTime;
+
+    // Track provenance only if input is interesting and admitted to Leaderboard
+    if (
+      this._trackProvenance &&
+      result.interestingReasons &&
+      result.interestingReasons.length > 0 &&
+      slot.provenance
+    ) {
+      this._leaderboardProvenance.set(slot.tick, slot.provenance);
+    }
 
     // Record stats and outcomes
     this._stats.record(
@@ -875,6 +895,10 @@ export class FuzzerV3 {
     mode: FuzzMode,
     update: FuzzStatusUpdater
   ): Promise<void> {
+    this._trackProvenance = Boolean(
+      process.env.NANOFUZZ_DYNAMIC_BUG_ELICITATION
+    );
+
     if (mode.gen) {
       this._compositeInputGenerator.permitGenerators();
     } else {
@@ -1162,10 +1186,50 @@ export class FuzzerV3 {
       stats: this._stats.currentRun,
     });
 
+    this._leaderboardProvenance.clear();
+    this._trackProvenance = false;
     this._state = "paused";
     return results;
   } // fn: _finalizeRun
 } // class: FuzzerV3
+
+/**
+ * Unwinds the recursive input provenance lineage without altering FuzzValueOrigin.
+ */
+export function resolveFullProvenance(
+  origin: FuzzValueOrigin,
+  leaderboardProvenance?: Map<number, string>
+): string {
+  const steps: string[] = [];
+
+  function walk(curr: FuzzValueOrigin): void {
+    if (curr.type === "generator") {
+      if (curr.generator === "MutationInputGenerator") {
+        if (curr.tick !== undefined && leaderboardProvenance && leaderboardProvenance.has(curr.tick)) {
+          steps.push(leaderboardProvenance.get(curr.tick)!);
+        }
+        const muts = curr.steps?.mutators?.join(",") || "mutate";
+        steps.push(`Mutation[${muts}]`);
+      } else if (curr.generator === "UserInputGenerator") {
+        steps.push(`CustomGen[${curr.fnName}]`);
+      } else if (curr.generator === "AiInputGenerator") {
+        steps.push(`AI[${curr.model}]`);
+      } else {
+        steps.push(curr.generator);
+      }
+    } else if (curr.type === "transformer") {
+      walk(curr.basis.source);
+      steps.push(`Transformer[${curr.transformer}]`);
+    } else if (curr.type === "user") {
+      steps.push("SeedInput");
+    } else {
+      steps.push(curr.type);
+    }
+  }
+
+  walk(origin);
+  return steps.join("->");
+}
 
 /**
  * Represents a single test candidate transitioning through pipeline stages.
@@ -1176,6 +1240,7 @@ interface PipelineSlot {
 
   // Generated Input
   candidate?: TransformedInputAndSource;
+  provenance?: string;
   genTime: number;
   injected: boolean;
   transformTime: number;

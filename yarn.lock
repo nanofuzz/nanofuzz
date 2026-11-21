@@ -5654,10 +5654,10 @@ tree-sitter-python@^0.25.0:
     node-addon-api "^8.5.0"
     node-gyp-build "^4.8.4"
 
-tree-sitter-rust@^0.23.2:
-  version "0.23.3"
-  resolved "https://registry.yarnpkg.com/tree-sitter-rust/-/tree-sitter-rust-0.23.3.tgz#0ecd49788ba673dd01033204968cf1b1ecc429ab"
-  integrity sha512-uLdZJ1K26EuJTBMJlz1ltTlg7nJyAYThfouXgigf5ixKOasOL5wNrRCpuWTsl6rDcKlZK9UX+annFLqP/kchwQ==
+tree-sitter-rust@^0.24.0:
+  version "0.24.0"
+  resolved "https://registry.yarnpkg.com/tree-sitter-rust/-/tree-sitter-rust-0.24.0.tgz#efe9104052ae022e98d2cd30018587bd05ce01f3"
+  integrity sha512-NWemUDf629Tfc90Y0Z55zuwPCAHkLxWnMf2RznYu4iBkkrQl2o/CHGB7Cr52TyN5F1DAx8FmUnDtCy9iUkXZEQ==
   dependencies:
     node-addon-api "^8.2.2"
     node-gyp-build "^4.8.4"
@@ -5893,10 +5893,10 @@ walker@^1.0.8:
   dependencies:
     makeerror "1.0.12"
 
-web-tree-sitter@^0.26.11:
-  version "0.26.11"
-  resolved "https://registry.yarnpkg.com/web-tree-sitter/-/web-tree-sitter-0.26.11.tgz#4cf91d060f4203b9975bf7f8f66008b1466457d6"
-  integrity sha512-Q5Dm3YTIXSXuH6FxX6RuzX2Qwpc4DPGiYMU87Wg5Z8OIStiQFiUex4zMDc0vBTw78EphaYJacncJghCHzbZptg==
+web-tree-sitter@^0.27.2:
+  version "0.27.2"
+  resolved "https://registry.yarnpkg.com/web-tree-sitter/-/web-tree-sitter-0.27.2.tgz#2c47540b8929ac0d3f930bc22930989bef06b028"
+  integrity sha512-ZRo86GKI4aOSBAqOrPmCtriExI3xIzu1sNw/V6v3b4QGxrEmO19FGwbMNdyhw3MJLAZIw0xAV0oSpqX361eAyQ==
 
 whatwg-encoding@^3.1.1:
   version "3.1.1"

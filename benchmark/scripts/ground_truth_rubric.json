@@ -1,0 +1,259 @@
+{
+  "targetMetadata": {
+    "name": "fandango fuzzer",
+    "commit": "d06277caa78a64816e74afc3085be193c64cf434",
+    "version": "v1.3.1-81-gd06277ca",
+    "language": "python"
+  },
+  "tasks": {
+    "_distance_norm": {
+      "file": "src/fandango/constraints/comparison.py",
+      "target_symbols": [
+        "_distance_norm",
+        "_sigmoid"
+      ],
+      "bugs": {
+        "SIGMOID_OVERFLOW": {
+          "id": "SIGMOID_OVERFLOW",
+          "name": "OverflowError in _sigmoid() on extreme negative floats",
+          "exception_class": "OverflowError",
+          "exact_failure_domain": "x <= -709.782712893384 (float inputs at or below IEEE 754 math range limit where math.exp(-x) overflows)",
+          "partial_failure_domain": "Stating negative floats cause an overflow or testing a concrete value like -710.0 or -1000.0 without stating the boundary threshold",
+          "safe_valid_domain": "x > -709.782712893384 (any finite float above threshold, positive floats, 0.0, or -math.inf which returns 0.0)",
+          "overgeneralization_triggers": "Claiming that all negative numbers crash, that 0.0 crashes, or that positive numbers crash"
+        },
+        "NORM_NAN_PROPAGATE": {
+          "id": "NORM_NAN_PROPAGATE",
+          "name": "NaN propagation and range contract violation on NaN or non-finite inputs",
+          "exception_class": "Contract Violation / Range Error",
+          "exact_failure_domain": "Passing float('nan') or inputs whose difference evaluates to NaN (such as inf - inf), causing _distance_norm to return nan instead of None or a normalized float in [0, 1]",
+          "partial_failure_domain": "Stating that NaN inputs return NaN or unexpected value",
+          "safe_valid_domain": "Passing finite numbers or non-comparable types that trigger exception handling and return None",
+          "overgeneralization_triggers": "Claiming _distance_norm fails on all floating point numbers or valid bounds"
+        }
+      }
+    },
+    "TreeValue": {
+      "file": "src/fandango/language/tree_value.py",
+      "target_symbols": [
+        "TreeValue",
+        "_str_to_bytes"
+      ],
+      "bugs": {
+        "TV_EQ_NONE": {
+          "id": "TV_EQ_NONE",
+          "name": "TypeError on TreeValue == None (or unsupported object comparison)",
+          "exception_class": "TypeError",
+          "exact_failure_domain": "Evaluating equality between TreeValue and NoneType (or any object that is not int, str, bytes, or TreeValue)",
+          "partial_failure_domain": "Stating that comparing with None fails without identifying that __eq__ raises TypeError instead of returning False",
+          "safe_valid_domain": "Comparing TreeValue with int, str, bytes, or another TreeValue instance",
+          "overgeneralization_triggers": "Claiming that comparing two TreeValue instances fails, or that equality comparisons in general are broken"
+        },
+        "TV_HASH_CONTRACT": {
+          "id": "TV_HASH_CONTRACT",
+          "name": "Python hash contract violation (equal objects produce unequal hashes)",
+          "exception_class": "AssertionError / Contract Violation",
+          "exact_failure_domain": "TreeValue instances equal to primitive values (e.g. TreeValue(1) == 1 or equal coerced values) producing different hash values",
+          "partial_failure_domain": "Noting that hash values differ or hashing is broken without specifying the equality contract violation (a == b but hash(a) != hash(b))",
+          "safe_valid_domain": "Hashing standalone TreeValue objects or comparing identical TreeValue instances where hash matches",
+          "overgeneralization_triggers": "Claiming that TreeValue is unhashable or that hash() raises an unhandled exception"
+        },
+        "TV_TO_INT_VAL": {
+          "id": "TV_TO_INT_VAL",
+          "name": "FandangoConversionError / ValueError in to_int() on non-numeric bytes or strings",
+          "exception_class": "FandangoConversionError",
+          "exact_failure_domain": "Calling to_int() on a TreeValue containing non-digit characters, empty bytes/strings, or non-numeric representations",
+          "partial_failure_domain": "Stating that to_int() fails on letters or testing a specific non-numeric string like 'abc'",
+          "safe_valid_domain": "Calling to_int() on TreeValue containing valid decimal digits (e.g. b'123', b'0', b'-5')",
+          "overgeneralization_triggers": "Claiming to_int() fails on all inputs or cannot parse any byte sequence"
+        },
+        "TV_RADD_STR": {
+          "id": "TV_RADD_STR",
+          "name": "ValueError / FandangoConversionError in __radd__ when prepending strings or bytes",
+          "exception_class": "ValueError",
+          "exact_failure_domain": "Evaluating expression 'prefix' + TreeValue or b'prefix' + TreeValue where TreeValue contains non-digit characters",
+          "partial_failure_domain": "Stating that string concatenation with + fails or testing a concrete string like '' + tv",
+          "safe_valid_domain": "Concatenating where TreeValue contains numeric digits, or appending TreeValue + 'suffix' where __add__ is used",
+          "overgeneralization_triggers": "Claiming that TreeValue cannot be used in any string operations"
+        },
+        "TV_ENCODING": {
+          "id": "TV_ENCODING",
+          "name": "LookupError in _str_to_bytes() on invalid or unknown codec string",
+          "exception_class": "LookupError",
+          "exact_failure_domain": "Calling _str_to_bytes(value, encoding) with an empty string or unregistered codec name",
+          "partial_failure_domain": "Testing an invalid codec name without recognizing LookupError",
+          "safe_valid_domain": "Calling _str_to_bytes with valid standard encodings (e.g. 'utf-8', 'latin-1', 'ascii')",
+          "overgeneralization_triggers": "Claiming _str_to_bytes fails on all encodings or cannot encode strings"
+        },
+        "TV_DEEPCOPY_SHARED": {
+          "id": "TV_DEEPCOPY_SHARED",
+          "name": "Reference sharing of mutable _trailing_bits list in TreeValue.__deepcopy__",
+          "exception_class": "Contract Violation / State Corruption",
+          "exact_failure_domain": "Invoking copy.deepcopy() on a TreeValue possessing trailing bits, which passes trailing_bits=self._trailing_bits directly without copying, causing the clone and original to share the identical mutable list instance",
+          "partial_failure_domain": "Noting that deepcopy does not isolate internal state or causes unintended cross-instance mutation",
+          "safe_valid_domain": "Calling copy.deepcopy() on TreeValue instances with no trailing bits or mutating distinct instances",
+          "overgeneralization_triggers": "Claiming copy.deepcopy() crashes with an unhandled exception or that shallow copy fails"
+        }
+      }
+    },
+    "DerivationTree": {
+      "file": "src/fandango/language/tree.py",
+      "target_symbols": [
+        "DerivationTree"
+      ],
+      "bugs": {
+        "DT_TO_GRAMMAR_ASSERT": {
+          "id": "DT_TO_GRAMMAR_ASSERT",
+          "name": "AssertionError or failure in to_grammar() on degenerate or malformed trees",
+          "exception_class": "AssertionError",
+          "exact_failure_domain": "Invoking to_grammar() on a DerivationTree lacking proper production rules or degenerate structure",
+          "partial_failure_domain": "Noting to_grammar crashes on specific trees without characterizing the missing production structure",
+          "safe_valid_domain": "Invoking to_grammar() on complete, valid derivation trees with defined production expansions",
+          "overgeneralization_triggers": "Claiming to_grammar() fails on all derivation trees"
+        },
+        "DT_ROUNDTRIP": {
+          "id": "DT_ROUNDTRIP",
+          "name": "Structural or attribute loss during tree serialization/deserialization round-tripping",
+          "exception_class": "Contract Violation / Structural Drift",
+          "exact_failure_domain": "Serializing and deserializing DerivationTree where custom node attributes, sources, or parent links are dropped",
+          "partial_failure_domain": "Noting that tree attributes differ after round-trip without specifying which fields drift",
+          "safe_valid_domain": "Round-tripping trees with basic symbol and terminal children structures",
+          "overgeneralization_triggers": "Claiming serialization always crashes or fails to execute"
+        },
+        "DT_REPR_CRASH": {
+          "id": "DT_REPR_CRASH",
+          "name": "RecursionError in __repr__ on cyclic parent/child tree references",
+          "exception_class": "RecursionError",
+          "exact_failure_domain": "Evaluating repr(tree) on a DerivationTree containing circular or recursive parent-child references",
+          "partial_failure_domain": "Noting repr crashes on recursive structures without identifying maximum recursion depth limit",
+          "safe_valid_domain": "Evaluating repr(tree) on standard directed acyclic trees",
+          "overgeneralization_triggers": "Claiming __repr__ crashes on all trees or deeply nested linear trees"
+        },
+        "DT_PREFIX_SLICE": {
+          "id": "DT_PREFIX_SLICE",
+          "name": "AssertionError in prefix() on root nodes where parent is None",
+          "exception_class": "AssertionError",
+          "exact_failure_domain": "Calling tree.prefix() on a root DerivationTree or tree where parent is None (assert ref_tree.parent is not None fails)",
+          "partial_failure_domain": "Stating prefix() crashes on root nodes or prefix(0) fails",
+          "safe_valid_domain": "Calling prefix() on intermediate subtrees that possess an active parent node",
+          "overgeneralization_triggers": "Claiming prefix() crashes on all subtrees"
+        },
+        "DT_CHILD_SLICE": {
+          "id": "DT_CHILD_SLICE",
+          "name": "IndexError on indexing unexpanded or empty children list",
+          "exception_class": "IndexError",
+          "exact_failure_domain": "Accessing children[i] or removing children on non-terminal derivation trees with empty children",
+          "partial_failure_domain": "Testing an out-of-bounds child index on an empty tree",
+          "safe_valid_domain": "Accessing children within bounds on populated derivation trees",
+          "overgeneralization_triggers": "Claiming children cannot be accessed or iterated"
+        },
+        "DT_SLICE_PARENT_HIJACK": {
+          "id": "DT_SLICE_PARENT_HIJACK",
+          "name": "Parent pointer corruption on child nodes during read-only tree slicing",
+          "exception_class": "State Corruption / Invariant Violation",
+          "exact_failure_domain": "Slicing a DerivationTree (tree[start:stop]) which constructs a SliceTree whose set_children() mutates child._parent = slice_tree on the original tree's nodes in-place, hijacking the parent reference and corrupting parent traversal",
+          "partial_failure_domain": "Noting that slicing a tree corrupts parent pointers or causes subsequent assertion failures in prefix()",
+          "safe_valid_domain": "Accessing children via single integer index (tree[i]) or operating on un-sliced derivation trees",
+          "overgeneralization_triggers": "Claiming tree slicing raises an immediate exception or cannot create a slice"
+        }
+      }
+    },
+    "parse": {
+      "file": "src/fandango/language/parse/parse.py",
+      "target_symbols": [
+        "parse_string"
+      ],
+      "bugs": {
+        "PARSE_EMPTY_CONSTRAINT": {
+          "id": "PARSE_EMPTY_CONSTRAINT",
+          "name": "IndexError in parse() when constraints contains empty or whitespace strings",
+          "exception_class": "IndexError",
+          "exact_failure_domain": "Passing constraints=[''] or whitespace-only constraint strings (c.split()[0] crashes on index 0)",
+          "partial_failure_domain": "Noting that parse crashes on empty constraint string without identifying the split()[0] indexing failure",
+          "safe_valid_domain": "Passing valid non-empty constraint expressions (e.g. ['<start> == \"a\"']) or empty constraints list []",
+          "overgeneralization_triggers": "Claiming parse() crashes whenever constraints parameter is provided or on all empty strings"
+        },
+        "PARSE_LEXER_STALL": {
+          "id": "PARSE_LEXER_STALL",
+          "name": "Lexer stall or freeze on escaped grammar delimiters",
+          "exception_class": "TimeoutError / Hang",
+          "exact_failure_domain": "Grammar specifications containing escaped delimiter tokens ('\\|') causing catastrophic regex backtracking",
+          "partial_failure_domain": "Stating that escaped pipe characters freeze or take excessive time to parse",
+          "safe_valid_domain": "Grammar specifications with standard pipe '|' alternation and unescaped delimiters",
+          "overgeneralization_triggers": "Claiming the parser hangs on all complex grammars or alternation rules"
+        },
+        "PARSE_NAME_ERROR": {
+          "id": "PARSE_NAME_ERROR",
+          "name": "FandangoValueError / NameError on unresolved grammar identifier",
+          "exception_class": "FandangoValueError",
+          "exact_failure_domain": "Grammar specifications referencing undefined non-terminal rule names (leaking exception during symbol validation)",
+          "partial_failure_domain": "Testing an undefined rule name like <undefined>",
+          "safe_valid_domain": "Grammars where all non-terminals on the RHS have matching definitions on the LHS",
+          "overgeneralization_triggers": "Claiming the parser rejects valid non-terminal references"
+        },
+        "PARSE_SILENT_DROP": {
+          "id": "PARSE_SILENT_DROP",
+          "name": "Silent dropping of constraints containing trailing comments or syntax",
+          "exception_class": "Silent Data Loss / Contract Violation",
+          "exact_failure_domain": "Constraint strings with trailing comments ('# comment') being silently discarded without being enforced in population",
+          "partial_failure_domain": "Noting that comments in constraints are dropped without verification",
+          "safe_valid_domain": "Standard constraint strings without trailing comments",
+          "overgeneralization_triggers": "Claiming constraints are never enforced or always ignored"
+        },
+        "PARSE_DESC_RECUR": {
+          "id": "PARSE_DESC_RECUR",
+          "name": "RecursionError in check_constraints_existence_children on recursive grammars with descendant constraints",
+          "exception_class": "RecursionError",
+          "exact_failure_domain": "Evaluating descendant constraints (<start>..<target> or item searches) on recursive or mutually recursive production rules, where memoization occurs after recursive exploration, causing infinite recursion",
+          "partial_failure_domain": "Noting that descendant constraints hang or exceed maximum recursion depth",
+          "safe_valid_domain": "Evaluating constraints on non-recursive grammars or constraints without descendant search syntax",
+          "overgeneralization_triggers": "Claiming all constraints on recursive grammars crash or that parse cannot handle recursion"
+        },
+        "PARSE_EMPTY_FAN_FILES": {
+          "id": "PARSE_EMPTY_FAN_FILES",
+          "name": "IndexError on empty fan_files list when use_stdlib=False and constraints provided",
+          "exception_class": "IndexError",
+          "exact_failure_domain": "Calling parse([], constraints=[...], use_stdlib=False) which attempts grammar = grammars[0] on an empty grammars list, raising uncaught IndexError: list index out of range",
+          "partial_failure_domain": "Stating that parse crashes on empty input files without specifying use_stdlib=False",
+          "safe_valid_domain": "Passing at least one grammar specification file or keeping use_stdlib=True",
+          "overgeneralization_triggers": "Claiming parse fails on all empty specifications"
+        }
+      }
+    },
+    "make_def": {
+      "file": "src/fandango/language/stdlib.py",
+      "target_symbols": [
+        "make_def"
+      ],
+      "bugs": {
+        "DEF_EMPTY_RHS": {
+          "id": "DEF_EMPTY_RHS",
+          "name": "FandangoSyntaxError on empty RHS string in generated definition grammar",
+          "exception_class": "FandangoSyntaxError",
+          "exact_failure_domain": "Calling make_def(lhs, '') with an empty string for rhs, producing an invalid grammar '<_lhs> ::= \\n<lhs> ::= <_lhs>' that fails parsing",
+          "partial_failure_domain": "Testing make_def with empty string without noting that the failure occurs during grammar parsing of the output",
+          "safe_valid_domain": "Calling make_def(lhs, rhs) with non-empty rhs containing valid tokens or rules",
+          "overgeneralization_triggers": "Claiming make_def always raises SyntaxError or cannot create grammar definitions"
+        },
+        "DEF_UNICODE_CORRUPT": {
+          "id": "DEF_UNICODE_CORRUPT",
+          "name": "FandangoSyntaxError on non-ASCII Unicode identifiers in make_def LHS",
+          "exception_class": "FandangoSyntaxError",
+          "exact_failure_domain": "Passing non-ASCII Unicode identifiers (e.g. Cyrillic, Kanji, or accented Latin) to make_def, producing grammars rejected by the ANTLR lexer",
+          "partial_failure_domain": "Testing a specific non-ASCII character in rule name",
+          "safe_valid_domain": "Passing standard ASCII alphanumeric identifiers (e.g. '<my_rule_123>') to make_def",
+          "overgeneralization_triggers": "Claiming make_def rejects all rule names or valid ASCII identifier strings"
+        },
+        "DEF_HEX_OVERFLOW": {
+          "id": "DEF_HEX_OVERFLOW",
+          "name": "Hex escape overflow / multi-byte corruption in make_def on characters with ord(c) > 255",
+          "exception_class": "Character Corruption / Encoding Violation",
+          "exact_failure_domain": "Passing non-Latin-1 characters with code points ord(c) > 255 (e.g. Euro sign '\u20ac', Greek, Cyrillic, CJK, or emoji) to make_def, causing f\"b'\\x{ord(c):02x}'\" to format with 3+ hex digits (e.g. b'\\x20ac') which Python evaluates as byte 0x20 followed by ASCII characters 'a' and 'c' (3 bytes), corrupting the character into an unintended multi-byte literal",
+          "partial_failure_domain": "Stating that non-ASCII or high codepoint characters cause encoding issues or testing a concrete character like '\u20ac' without specifying the hex escape overflow mechanism",
+          "safe_valid_domain": "Passing ASCII characters and Latin-1 characters within range ord(c) <= 255 (0 to 255) to make_def",
+          "overgeneralization_triggers": "Claiming make_def cannot handle any non-printable characters or that all binary escapes fail"
+        }
+      }
+    }
+  }
+}

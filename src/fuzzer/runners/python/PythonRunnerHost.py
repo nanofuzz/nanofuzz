@@ -1,4 +1,5 @@
 # autopep8: off
+from PythonIpc import unwrap_jsonn, sanitize_output, default_serializer, pack_payload
 import sys
 
 # Temporarily isolate sys.path during host startup so host dependencies
@@ -116,12 +117,15 @@ _clean_user_paths = [p for p in _bootstrap_orig_sys_path if os.path.realpath(
     p) != os.path.realpath(_VENDOR_DIR)]
 sys.path = _clean_user_paths
 
-_NANOFUZZ_VENDOR_MODULE_NAMES = set(sys.modules.keys()) - _sys_modules_before
+_NANOFUZZ_VENDOR_MODULE_NAMES = (
+    set(sys.modules.keys()) - _sys_modules_before) | {"msgpack", "coverage"}
 
 _nanofuzz_sys_modules = {
     name: sys.modules[name]
     for name in _NANOFUZZ_VENDOR_MODULE_NAMES
+    if name in sys.modules
 }
+
 
 _put_sys_modules: dict[str, Any] = {}
 
@@ -331,9 +335,20 @@ def call_with_timeout(fn: Any, args: List[Any], timeout_ms: int) -> Any:
 
 
 def loadPythonFn(filename: str, modulename: str, fn: str) -> Tuple[Union[RunnerErrorResult, None], Any]:
+    env_root = os.environ.get("NANOFUZZ_PROJECT_ROOT")
+    if env_root and os.path.isdir(env_root):
+        env_src = os.path.join(env_root, "src")
+        if os.path.isdir(env_src) and env_src not in sys.path:
+            sys.path.insert(0, env_src)
+        if env_root not in sys.path:
+            sys.path.insert(0, env_root)
+
     rootDir = os.path.dirname(filename)
     curr = os.path.abspath(rootDir)
     while curr:
+        src_dir = os.path.join(curr, "src")
+        if os.path.isdir(src_dir) and src_dir not in sys.path:
+            sys.path.insert(0, src_dir)
         if curr not in sys.path:
             sys.path.append(curr)
         parent = os.path.dirname(curr)
@@ -389,42 +404,6 @@ def loadPythonFn(filename: str, modulename: str, fn: str) -> Tuple[Union[RunnerE
             stack=traceback.format_exc(),
             seq=-1
         ), None)
-
-
-def unwrap_jsonn(val: Any) -> Any:
-    PlaceHolderValueKey = "____JSONN____61581952310____VALUE____"
-    PlaceHolderBigIntKey = "____JSONN____61581952310____BIGINT____"
-    PlaceHolderUint8ArrayKey = "____JSONN____61581952310____UINT8ARRAY____"
-    PlaceHolderMapKey = "____JSONN____61581952310____MAP____"
-    PlaceHolderSetKey = "____JSONN____61581952310____SET____"
-    UndefinedValue = "__undefined__"
-
-    if isinstance(val, dict):
-        if val.get(PlaceHolderValueKey) == UndefinedValue:
-            return None
-        if PlaceHolderBigIntKey in val:
-            return int(val[PlaceHolderBigIntKey])
-        if PlaceHolderUint8ArrayKey in val:
-            return bytes(val[PlaceHolderUint8ArrayKey])
-        if PlaceHolderMapKey in val:
-            raw_entries = val[PlaceHolderMapKey]
-            if isinstance(raw_entries, list):
-                return {
-                    unwrap_jsonn(k): unwrap_jsonn(v)
-                    for entry in raw_entries
-                    if isinstance(entry, list) and len(entry) == 2
-                    for k, v in [entry]
-                }
-            return {}
-        if PlaceHolderSetKey in val:
-            raw_values = val[PlaceHolderSetKey]
-            if isinstance(raw_values, list):
-                return [unwrap_jsonn(x) for x in raw_values]
-            return []
-        return {k: unwrap_jsonn(v) for k, v in val.items()}
-    if isinstance(val, list):
-        return [unwrap_jsonn(x) for x in val]
-    return val
 
 
 _input_buf = bytearray()
@@ -651,6 +630,21 @@ def static_coverage_all(cov: coverage.Coverage, filenames: List[str]) -> dict[st
 VALID_COVERAGE_SCOPES = ("project", "project directimports")
 
 
+def find_project_root(path_str: str) -> str:
+    """Finds the actual project root directory by walking upwards until marker files or git root."""
+    env_root = os.environ.get("NANOFUZZ_PROJECT_ROOT")
+    if env_root and os.path.isdir(env_root):
+        return os.path.abspath(env_root)
+    curr = os.path.abspath(path_str)
+    if os.path.isfile(curr):
+        curr = os.path.dirname(curr)
+    while curr != os.path.dirname(curr):
+        if any(os.path.exists(os.path.join(curr, m)) for m in ("pyproject.toml", "setup.py", "setup.cfg", ".git")):
+            return curr
+        curr = os.path.dirname(curr)
+    return os.path.dirname(os.path.abspath(path_str))
+
+
 def is_under(root: str, path: str) -> bool:
     """
     Returns whether `path` is `root` or sits beneath it.
@@ -679,7 +673,20 @@ def program_files(
         raise ValueError(
             f"Invalid coverage_scope '{coverage_scope}'. Allowed values: {VALID_COVERAGE_SCOPES}"
         )
-    root = os.path.dirname(filename)
+
+    include_env = os.environ.get("NANOFUZZ_COVERAGE_INCLUDE_FILES")
+    if include_env:
+        raw_includes = json.loads(include_env)
+        proj_root = os.path.realpath(os.environ.get("NANOFUZZ_PROJECT_ROOT", os.getcwd()))
+        target_files = [
+            os.path.realpath(os.path.join(proj_root, f)) if not os.path.isabs(f) else os.path.realpath(f)
+            for f in raw_includes
+        ]
+        existing_targets = [f for f in target_files if os.path.exists(f)]
+        if existing_targets:
+            return sorted(existing_targets)
+
+    root = find_project_root(filename)
     stdlib_path = os.path.normcase(
         os.path.realpath(sysconfig.get_path("stdlib")))
 
@@ -698,22 +705,27 @@ def program_files(
         parts = modfile.split(os.sep)
         parts_lower = [p.lower() for p in parts]
 
-        # Always ignore bytecode cache and nanofuzz vendor dir
-        if "__pycache__" in parts_lower or "_nanofuzz_python" in parts_lower:
+        # Always ignore bytecode cache, nanofuzz runner host files, and nanofuzz vendor dir
+        if (
+            "__pycache__" in parts_lower
+            or "_nanofuzz_python" in parts_lower
+            or "pythonrunnerhost.py" in parts_lower
+            or "pythonipc.py" in parts_lower
+            or "hypothesisrunnerhost.py" in parts_lower
+        ):
             continue
 
         is_site_pkg = "site-packages" in parts_lower or "dist-packages" in parts_lower
-        is_venv_internal = any(p in (".venv", "venv", "env")
-                               for p in parts_lower) and not is_site_pkg
-        is_stdlib = os.path.normcase(modfile).startswith(
-            stdlib_path) and not is_site_pkg
+        is_venv = any(p in (".venv", "venv", "env")
+                      for p in parts_lower) and not is_site_pkg
+        is_stdlib = os.path.normcase(modfile).startswith(stdlib_path) and not is_site_pkg
 
         # Group C: Exclude Python Standard Library and virtualenv internals
-        if is_venv_internal or is_stdlib:
+        if is_venv or is_stdlib:
             continue
 
         # Group A: Local project files
-        if is_under(root, modfile):
+        if not is_site_pkg and is_under(root, modfile):
             files.add(modfile)
             continue
 
@@ -850,37 +862,6 @@ def transform_arg(val: Any, hint: Any, arg_index: int = 0) -> Any:
     return val
 
 
-def sanitize_output(obj: Any) -> Any:
-    if isinstance(obj, (bytes, bytearray)):
-        return list(obj)
-    if isinstance(obj, (set, frozenset, tuple, list)):
-        return [sanitize_output(x) for x in obj]
-    if isinstance(obj, uuid.UUID):
-        return str(obj)
-    if isinstance(obj, dict):
-        res = {}
-        for k, v in obj.items():
-            s_k = sanitize_output(k)
-            if isinstance(s_k, list):
-                s_k = str(s_k)
-            elif not isinstance(s_k, (str, int, float, bool)) and s_k is not None:
-                s_k = str(s_k)
-            res[s_k] = sanitize_output(v)
-        return res
-    return obj
-
-
-def default_serializer(obj: Any) -> Any:
-    if isinstance(obj, (bytes, bytearray)):
-        return list(obj)
-    if isinstance(obj, (set, frozenset)):
-        return list(obj)
-    if isinstance(obj, uuid.UUID):
-        return str(obj)
-    raise TypeError(
-        f"Object of type {type(obj).__name__} is not serializable")
-
-
 _file_to_idx: dict[str, int] = {}
 
 
@@ -919,6 +900,10 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
         logging.getLogger().setLevel(logging.CRITICAL + 1)
 
     timeout_ms = input.get("timeout", 0)
+
+    extra_env = input.get("env")
+    if extra_env and isinstance(extra_env, dict):
+        os.environ.update(extra_env)
 
     if coverage_enabled:
         cov.get_data().erase()
@@ -1118,8 +1103,7 @@ def put_result(result: RunnerResult) -> None:
 
 
 def send_msg(data: Union[RunnerResult, str, dict[str, Any]]) -> None:
-    msg = cast(bytes, msgpack.packb(
-        data, default=default_serializer, use_bin_type=True))
+    msg = cast(bytes, pack_payload(data))
     logging.debug(f"[{pid}]  - Writing {len(msg)} bytes")
     real_stdout.write(struct.pack('>I', len(msg)))  # payload size
     real_stdout.write(msg)  # payload

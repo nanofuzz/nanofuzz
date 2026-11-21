@@ -93,7 +93,9 @@ export function isExecutionOptionValid(options: FuzzExecutionOptions): boolean {
     ["auto", "v1", "v2", "v3"].includes(options.engine) &&
     (options.workers === "auto" ||
       (typeof options.workers === "number" && options.workers >= 1)) &&
-    ["all", "failures", "none"].includes(options.outputResults) &&
+    ["all", "interesting", "failures", "none"].includes(
+      options.outputResults
+    ) &&
     typeof options.precompile === "boolean"
   );
 } // fn: isExecutionOptionValid()
