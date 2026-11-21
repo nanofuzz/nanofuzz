@@ -15,7 +15,15 @@ def fuzz_parse(
     use_stdlib: bool,
     check: bool,
     start_symbol: str,
-) -> bool:
+) -> tuple[dict, list[str]]:
+    bug_ids: list[str] = []
+    put_input = {
+        "spec": spec,
+        "constraint_str": constraint_str,
+        "use_stdlib": use_stdlib,
+        "check": check,
+        "start_symbol": start_symbol,
+    }
 
     if spec == "__EMPTY_LIST__":
         fan_files = []
@@ -30,19 +38,30 @@ def fuzz_parse(
         constraints = None
 
     sym = start_symbol if start_symbol else None
-    grammar, parsed_constraints = parse(
-        fan_files=fan_files,
-        constraints=constraints,
-        use_cache=False,
-        use_stdlib=use_stdlib,
-        check=check,
-        start_symbol=sym,
-    )
+    try:
+        grammar, parsed_constraints = parse(
+            fan_files=fan_files,
+            constraints=constraints,
+            use_cache=False,
+            use_stdlib=use_stdlib,
+            check=check,
+            start_symbol=sym,
+        )
+    except IndexError:
+        if len(fan_files or []) == 0 and not use_stdlib and bool(constraints):
+            bug_ids.append("PARSE_EMPTY_FAN_FILES")
+        else:
+            bug_ids.append("PARSE_EMPTY_CONSTRAINT")
+    except RecursionError:
+        bug_ids.append("PARSE_DESC_RECUR")
+    except TimeoutError:
+        bug_ids.append("PARSE_LEXER_STALL")
+    except Exception as e:
+        exc_type = type(e).__name__
+        if "NameError" in exc_type or "ValueError" in exc_type:
+            bug_ids.append("PARSE_NAME_ERROR")
 
-    if grammar is not None:
-        assert isinstance(grammar, Grammar)
-    assert isinstance(parsed_constraints, list)
-    return True
+    return (put_input, bug_ids)
 
 
 def fuzz_parse_generator(
@@ -127,4 +146,11 @@ def fuzz_parse_generator(
 def fuzz_parse_validator(r: FuzzTestResult) -> Literal["pass", "fail", "unknown"]:
     if r.get("exception"):
         return "fail"
+    output = r.get("output")
+    if output and len(output) > 0:
+        val = output[0].get("value") if isinstance(output[0], dict) else output[0]
+        if isinstance(val, (list, tuple)) and len(val) >= 2:
+            bug_ids = val[1]
+            if bug_ids:
+                return "fail"
     return "pass"

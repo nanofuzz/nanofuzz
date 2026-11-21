@@ -5,8 +5,27 @@ from nanofuzz_runtime import FuzzTestResult, UnsatisfiedAssumption, assume
 from fandango.constraints.comparison import _distance_norm as target_distance_norm, _sigmoid as target_sigmoid
 
 
-def fuzz__distance_norm(left: Any, right: Any) -> Optional[float]:
-    return target_distance_norm(left, right)
+def fuzz__distance_norm(left: Any, right: Any) -> tuple[dict, list[str]]:
+    bug_ids: list[str] = []
+    put_input = {"left": left, "right": right}
+
+    try:
+        res = target_distance_norm(left, right)
+        if res is not None:
+            if math.isnan(res) or res < 0.0 or res > 1.0:
+                bug_ids.append("NORM_NAN_PROPAGATE")
+    except OverflowError:
+        bug_ids.append("SIGMOID_OVERFLOW")
+    except Exception:
+        pass
+
+    if isinstance(left, (int, float)) and left <= -709.782712893384:
+        try:
+            _ = target_sigmoid(left)
+        except OverflowError:
+            bug_ids.append("SIGMOID_OVERFLOW")
+
+    return (put_input, bug_ids)
 
 
 def fuzz__distance_norm_generator(
@@ -34,18 +53,11 @@ def fuzz__distance_norm_validator(
 ) -> Literal["pass", "fail", "unknown"]:
     if r.get("exception"):
         return "fail"
-
-    out = r.get("out")
-    if out is None:
-        return "pass"
-
-    if not isinstance(out, (float, int)):
-        return "fail"
-
-    if math.isnan(out):
-        return "fail"
-
-    if out < 0.0 or out > 1.0:
-        return "fail"
-
+    output = r.get("output")
+    if output and len(output) > 0:
+        val = output[0].get("value") if isinstance(output[0], dict) else output[0]
+        if isinstance(val, (list, tuple)) and len(val) >= 2:
+            bug_ids = val[1]
+            if bug_ids:
+                return "fail"
     return "pass"

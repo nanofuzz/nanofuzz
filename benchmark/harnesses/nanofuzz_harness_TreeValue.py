@@ -17,7 +17,17 @@ def fuzz_TreeValue(
     action: str,
     left_val: str = "",
     right_val: str = "",
-) -> bool:
+) -> tuple[dict, list[str]]:
+    bug_ids: list[str] = []
+    put_input = {
+        "kind": kind,
+        "val": val,
+        "extra": extra,
+        "action": action,
+        "left_val": left_val,
+        "right_val": right_val,
+    }
+
     # Construct TreeValue based on kind (heterogeneous types: str, bytes, int, empty, bits, float, bool, None)
     if kind == 0:
         tv = TreeValue(val)
@@ -64,39 +74,41 @@ def fuzz_TreeValue(
 
     if action_key in ("eq_none", "compare_none", "0"):
         # Contract TV_EQ_NONE: Comparing TreeValue with None must return False and not raise TypeError
-        is_eq = (tv == None)
-        assert is_eq is False, f"tv == None must be False, got {is_eq}"
-        is_ne = (tv != None)
-        assert is_ne is True, f"tv != None must be True, got {is_ne}"
-        is_eq_rev = (None == tv)
-        assert is_eq_rev is False, f"None == tv must be False, got {is_eq_rev}"
+        try:
+            is_eq = (tv == None)
+            is_ne = (tv != None)
+            is_eq_rev = (None == tv)
+            if is_eq is not False or is_ne is not True or is_eq_rev is not False:
+                bug_ids.append("TV_EQ_NONE")
+        except TypeError:
+            bug_ids.append("TV_EQ_NONE")
 
     elif action_key in ("radd", "concat", "1"):
         # Contract TV_RADD_STR: Concatenation with string/bytes must succeed for compatible types
-        if tv.is_type(TreeValueType.STRING):
-            prefix_str = extra if extra else ""
-            res_radd = prefix_str + tv
-            assert isinstance(res_radd, str)
-            res_add = tv + prefix_str
-            assert isinstance(res_add, str)
-        elif tv.is_type(TreeValueType.BYTES):
-            prefix_bytes = extra.encode("latin-1", errors="ignore")
-            res_radd_b = prefix_bytes + tv
-            assert isinstance(res_radd_b, bytes)
-            res_add_b = tv + prefix_bytes
-            assert isinstance(res_add_b, bytes)
+        try:
+            if tv.is_type(TreeValueType.STRING):
+                prefix_str = extra if extra else ""
+                res_radd = prefix_str + tv
+                res_add = tv + prefix_str
+                if not isinstance(res_radd, str) or not isinstance(res_add, str):
+                    bug_ids.append("TV_RADD_STR")
+            elif tv.is_type(TreeValueType.BYTES):
+                prefix_bytes = extra.encode("latin-1", errors="ignore")
+                res_radd_b = prefix_bytes + tv
+                res_add_b = tv + prefix_bytes
+                if not isinstance(res_radd_b, bytes) or not isinstance(res_add_b, bytes):
+                    bug_ids.append("TV_RADD_STR")
+        except (ValueError, TypeError):
+            bug_ids.append("TV_RADD_STR")
 
     elif action_key in ("to_int", "int", "2"):
         # Contract TV_TO_INT_VAL: to_int() must raise FandangoConversionError on non-numeric data, not unhandled ValueError
         try:
             res_int = tv.to_int()
-            assert isinstance(res_int, int)
         except FandangoConversionError:
             pass
-        except ValueError as e:
-            raise AssertionError(
-                f"to_int() raised raw ValueError instead of FandangoConversionError: {e}"
-            ) from e
+        except ValueError:
+            bug_ids.append("TV_TO_INT_VAL")
 
     elif action_key in ("encoding", "codec", "3"):
         # Contract TV_ENCODING: Invalid encoding must raise FandangoConversionError, not raw LookupError
@@ -106,30 +118,24 @@ def fuzz_TreeValue(
             _str_to_bytes(val if val else "hello", codec)
         except FandangoConversionError:
             pass
-        except LookupError as e:
-            raise AssertionError(
-                f"_str_to_bytes raised raw LookupError instead of FandangoConversionError: {e}"
-            ) from e
+        except LookupError:
+            bug_ids.append("TV_ENCODING")
 
     elif action_key in ("deepcopy", "copy", "4"):
         # Contract TV_DEEPCOPY_SHARED: Deepcopy must create independent mutable structures
         tv_copy = copy.deepcopy(tv)
         if hasattr(tv, "_trailing_bits") and hasattr(tv_copy, "_trailing_bits"):
-            assert (
-                tv_copy._trailing_bits is not tv._trailing_bits
-            ), "deepcopy shared the _trailing_bits list reference between original and copy"
+            if tv_copy._trailing_bits is tv._trailing_bits:
+                bug_ids.append("TV_DEEPCOPY_SHARED")
 
     elif action_key in ("hash", "5"):
         # Contract TV_HASH_CONTRACT: Hash contract consistency
-        h = hash(tv)
-        assert isinstance(h, int)
-        assert tv == copy.deepcopy(tv), "A TreeValue must equal its deepcopy"
-        assert hash(tv) == hash(copy.deepcopy(
-            tv)), "A TreeValue must have same hash as its deepcopy"
         try:
-            if tv == val:
-                assert hash(tv) == hash(
-                    val), f"Hash contract violation: tv == val but hash(tv)={hash(tv)} != hash(val)={hash(val)}"
+            h = hash(tv)
+            if tv == copy.deepcopy(tv) and h != hash(copy.deepcopy(tv)):
+                bug_ids.append("TV_HASH_CONTRACT")
+            if tv == val and h != hash(val):
+                bug_ids.append("TV_HASH_CONTRACT")
         except FandangoConversionError:
             pass
 
@@ -214,7 +220,7 @@ def fuzz_TreeValue(
         _ = f"{tv}"
         _ = format(tv, "")
 
-    return True
+    return (put_input, bug_ids)
 
 
 def fuzz_TreeValue_generator(
@@ -241,4 +247,11 @@ def fuzz_TreeValue_validator(
 ) -> Literal["pass", "fail", "unknown"]:
     if r.get("exception"):
         return "fail"
+    output = r.get("output")
+    if output and len(output) > 0:
+        val = output[0].get("value") if isinstance(output[0], dict) else output[0]
+        if isinstance(val, (list, tuple)) and len(val) >= 2:
+            bug_ids = val[1]
+            if bug_ids:
+                return "fail"
     return "pass"

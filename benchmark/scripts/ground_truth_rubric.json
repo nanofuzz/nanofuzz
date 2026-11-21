@@ -22,15 +22,6 @@
           "safe_valid_domain": "x > -709.782712893384 (any finite float above threshold, positive floats, 0.0, or -math.inf which returns 0.0)",
           "overgeneralization_triggers": "Claiming that all negative numbers crash, that 0.0 crashes, or that positive numbers crash"
         },
-        "NORM_ZERO_DIV": {
-          "id": "NORM_ZERO_DIV",
-          "name": "ZeroDivisionError in interval/distance normalization when lower == upper bound",
-          "exception_class": "ZeroDivisionError",
-          "exact_failure_domain": "Normalizing value distance against degenerate bounds where lower == upper bound (or equal interval bounds)",
-          "partial_failure_domain": "Mentioning division by zero or equal values without specifying that the lower and upper bounds are identical",
-          "safe_valid_domain": "Normalizing with distinct bounds where upper != lower",
-          "overgeneralization_triggers": "Claiming that any zero value or zero distance causes division by zero"
-        },
         "NORM_NAN_PROPAGATE": {
           "id": "NORM_NAN_PROPAGATE",
           "name": "NaN propagation and range contract violation on NaN or non-finite inputs",

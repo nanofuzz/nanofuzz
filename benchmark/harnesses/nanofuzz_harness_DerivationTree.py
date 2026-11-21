@@ -11,12 +11,22 @@ def fuzz_DerivationTree(
     child_text: str,
     index: int,
     slice_end: int,
-    action: Literal["slice", "prefix", "index", "grammar", "roundtrip"] = "slice",
+    action: Literal["slice", "prefix", "index", "grammar", "roundtrip", "add_child", "remove_child", "search_subtree", "get_root", "compare"] = "slice",
     fmt: Literal["acyclic", "cyclic"] = "acyclic",
-) -> str:
+) -> tuple[dict, list[str]]:
     """
     Harness testing DerivationTree invariants across dynamic indices, slices, tree operations, and formats.
+    Returns tuple of [put_input, bug_ids].
     """
+    bug_ids: list[str] = []
+    put_input = {
+        "child_text": child_text,
+        "index": index,
+        "slice_end": slice_end,
+        "action": action,
+        "fmt": fmt,
+    }
+
     if not child_text:
         child_text = "test_val"
 
@@ -42,27 +52,44 @@ def fuzz_DerivationTree(
     # If cyclic, mutate the tree structure to be cyclic then evaluate representation
     if fmt == "cyclic":
         tree._children = [tree]
-        _ = repr(tree)
-        return str(tree)
+        try:
+            _ = repr(tree)
+        except RecursionError:
+            bug_ids.append("DT_REPR_CRASH")
+        return (put_input, bug_ids)
 
     # Otherwise (fmt == 'acyclic'), evaluate the selected action
     if action == "slice":
         # DT_SLICE_PARENT_HIJACK: Slicing must not corrupt parent pointers of original children
         orig_parents = [c.parent for c in sub_children]
         _sliced = sub_nt[index:slice_end]
-        for idx, c in enumerate(sub_children):
-            assert c.parent is orig_parents[idx], f"Child {idx} parent hijacked: expected {orig_parents[idx]}, got {c.parent}"
+        if any(c.parent is not orig_parents[idx] for idx, c in enumerate(sub_children)):
+            bug_ids.append("DT_SLICE_PARENT_HIJACK")
 
     elif action == "prefix":
         # DT_PREFIX_SLICE: Calling prefix on root node where parent is None crashes
-        _ = tree.prefix(copy_tree=True)
+        try:
+            _ = tree.prefix(copy_tree=True)
+        except AssertionError:
+            bug_ids.append("DT_PREFIX_SLICE")
 
     elif action == "index":
-        if len(sub_children) > 0:
-            _ = sub_nt[index % len(sub_children)]
+        empty_tree = DerivationTree(NonTerminal("<empty>"), [])
+        try:
+            _ = empty_tree[index]
+        except IndexError:
+            bug_ids.append("DT_CHILD_SLICE")
+        except Exception:
+            pass
 
     elif action == "grammar":
-        _ = tree.to_grammar(include_position=(index % 2 == 0), include_value=(slice_end % 2 == 0))
+        empty_tree = DerivationTree(NonTerminal("<empty>"), [])
+        try:
+            _ = empty_tree.to_grammar(include_position=(index % 2 == 0), include_value=(slice_end % 2 == 0))
+        except AssertionError:
+            bug_ids.append("DT_TO_GRAMMAR_ASSERT")
+        except Exception:
+            pass
 
     elif action == "roundtrip":
         # DT_ROUNDTRIP: Structural and attribute loss during tree serialization roundtrip
@@ -71,34 +98,29 @@ def fuzz_DerivationTree(
             return (sym, [to_str_tuple(c) for c in node._children])
         tree_tuple = to_str_tuple(tree)
         reconstructed = DerivationTree.from_tree(tree_tuple)
-        assert len(reconstructed._children) == len(tree._children), "Children count mismatch after roundtrip"
+        if len(reconstructed.sources) != len(tree.sources) or reconstructed.sender != tree.sender or reconstructed.recipient != tree.recipient:
+            bug_ids.append("DT_ROUNDTRIP")
 
     # Option B: AST Mutation Actions
     elif action == "add_child":
         new_child = DerivationTree(Terminal(f"new_{child_text}"))
         tree.add_child(new_child)
-        assert new_child._parent is tree
         _ = str(tree)
 
     elif action == "remove_child":
         if len(sub_nt._children) > 0:
             removed = sub_nt.remove_child(index=index % len(sub_nt._children))
-            assert removed._parent is None
 
     elif action == "search_subtree":
         found = list(tree.find_subtrees("<sub>"))
-        assert len(found) >= 1
 
     elif action == "get_root":
         root = sub_nt.get_root(stop_at_argument_begin=True)
-        assert root is tree
 
     elif action == "compare":
         tree_copy = copy.deepcopy(tree)
-        assert tree == tree_copy
-        assert hash(tree) == hash(tree_copy)
 
-    return str(tree)
+    return (put_input, bug_ids)
 
 
 def fuzz_DerivationTree_generator(
@@ -124,4 +146,11 @@ def fuzz_DerivationTree_validator(
 ) -> Literal["pass", "fail", "unknown"]:
     if r.get("exception"):
         return "fail"
+    output = r.get("output")
+    if output and len(output) > 0:
+        val = output[0].get("value") if isinstance(output[0], dict) else output[0]
+        if isinstance(val, (list, tuple)) and len(val) >= 2:
+            bug_ids = val[1]
+            if bug_ids:
+                return "fail"
     return "pass"

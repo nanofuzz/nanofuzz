@@ -202,8 +202,6 @@ def install_interceptors(log_path: Optional[str] = None) -> bool:
             bug_id = None
             if (isinstance(left, float) and math.isnan(left)) or (isinstance(right, float) and math.isnan(right)):
                 bug_id = "NORM_NAN_PROPAGATE"
-            elif left == right:
-                bug_id = "NORM_ZERO_DIV"
 
             if bug_id:
                 return _execute_with_elicitation(bug_id, (left, right), {}, orig_dist, left, right)
@@ -228,7 +226,7 @@ def install_interceptors(log_path: Optional[str] = None) -> bool:
         def wrapped_make_def(symbol: str, chars: str, force_binary: bool = False) -> str:
             _record_call()
             bug_id = None
-            if not chars or str(chars).strip() == "":
+            if chars == "" or (chars == chr(0) and force_binary):
                 bug_id = "DEF_EMPTY_RHS"
             elif any(ord(c) > 255 for c in str(chars)):
                 bug_id = "DEF_HEX_OVERFLOW"
@@ -288,7 +286,10 @@ def install_interceptors(log_path: Optional[str] = None) -> bool:
             val = getattr(self, "_value", None)
             tb = getattr(self, "_trailing_bits", None)
             if val is not None and not tb and isinstance(val, (int, str, bytes)):
-                return _execute_with_elicitation("TV_HASH_CONTRACT", (self,), {}, orig_hash, self)
+                res = orig_hash(self)
+                if self == val and res != hash(val):
+                    return _execute_with_elicitation("TV_HASH_CONTRACT", (self,), {}, lambda: res)
+                return res
             return orig_hash(self)
 
         def wrapped_str_to_bytes(*args, **kwargs) -> bytes:

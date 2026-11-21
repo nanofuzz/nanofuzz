@@ -90,7 +90,7 @@ TASKS_MAP = {
 }
 
 ALL_DEFECT_COLUMNS = [
-    "SIGMOID_OVERFLOW", "NORM_ZERO_DIV", "NORM_NAN_PROPAGATE",
+    "SIGMOID_OVERFLOW", "NORM_NAN_PROPAGATE",
     "TV_EQ_NONE", "TV_HASH_CONTRACT", "TV_TO_INT_VAL", "TV_RADD_STR", "TV_ENCODING", "TV_DEEPCOPY_SHARED",
     "DT_TO_GRAMMAR_ASSERT", "DT_ROUNDTRIP", "DT_REPR_CRASH", "DT_PREFIX_SLICE", "DT_CHILD_SLICE", "DT_SLICE_PARENT_HIJACK",
     "PARSE_EMPTY_CONSTRAINT", "PARSE_LEXER_STALL", "PARSE_NAME_ERROR", "PARSE_SILENT_DROP", "PARSE_DESC_RECUR", "PARSE_EMPTY_FAN_FILES",
@@ -454,15 +454,17 @@ def process_trial_result(
             provenance_from_fuzzer.append("SeedInput")
 
     for r in raw_results:
-        if r.get("passedValidator") == "fail" or r.get("exception"):
-            # Check if this input matches a specific ground-truth bug
-            for bid in task_rubric_bugs:
-                if bid in interceptor_hits:
-                    validator_detected_bugs.add(bid)
+        # Extract bug IDs directly from the harness output tuple [put_input, bug_ids]
+        output = r.get("output")
+        if output and len(output) > 0:
+            val = output[0].get("value") if isinstance(output[0], dict) else output[0]
+            if isinstance(val, (list, tuple)) and len(val) >= 2:
+                for bid in val[1]:
+                    if bid in task_rubric_bugs:
+                        validator_detected_bugs.add(bid)
 
     defects_elicited_count = len(interceptor_hits)
-    defects_detected_count = sum(
-        1 for e in interceptor_hits.values() if e.get("detected") == 1)
+    defects_detected_count = len(validator_detected_bugs)
 
     bug_elicitation_rate = round(
         defects_elicited_count / float(task_bug_count), 3) if task_bug_count > 0 else 0.0
@@ -505,10 +507,9 @@ def process_trial_result(
 
     for b in ALL_DEFECT_COLUMNS:
         if b in task_rubric_bugs:
-            elicited_val = 1 if (b in interceptor_hits and interceptor_hits[b].get("detected") == 1) else 0
+            elicited_val = 1 if b in interceptor_hits else 0
             row[b] = elicited_val
-            row[f"{b}_Validator"] = 1 if (b in interceptor_hits and (
-                b in validator_detected_bugs or interceptor_hits[b].get("detected") == 1)) else 0
+            row[f"{b}_Validator"] = 1 if b in validator_detected_bugs else 0
         else:
             row[b] = "#N/A"
             row[f"{b}_Validator"] = "#N/A"

@@ -66,7 +66,7 @@ TASKS_MAP = {
     "TreeValue": {"branches_total": 124, "bugs_count": 6},
     "DerivationTree": {"branches_total": 246, "bugs_count": 6},
     "parse": {"branches_total": 122, "bugs_count": 6},
-    "_distance_norm": {"branches_total": 54, "bugs_count": 3},
+    "_distance_norm": {"branches_total": 54, "bugs_count": 2},
     "make_def": {"branches_total": 8, "bugs_count": 3},
 }
 
@@ -742,10 +742,11 @@ def generate_bugs_elicited_table(df: pd.DataFrame, out_path: str):
             lines.append(f"    {prefix} & \\texttt{{{escaped_bid}}} & " + " & ".join(counts) + r" \\")
         lines.append(r"    \midrule")
 
+    total_rubric_bugs = sum(len(rubric.get("tasks", {}).get(t, {}).get("bugs", {})) for t in TASKS)
     lines.extend([
         f"    \\multicolumn{{2}}{{l|}}{{\\textbf{{Total Elicitations}}}} & " + " & ".join(str(treatment_totals[t]) for t in TREATMENTS) + r" \\",
         r"    \hline",
-        f"    \\multicolumn{{2}}{{l|}}{{\\textbf{{Unique Defects Elicited (out of 24)}}}} & " + " & ".join(str(treatment_unique[t]) for t in TREATMENTS) + r" \\",
+        f"    \\multicolumn{{2}}{{l|}}{{\\textbf{{Unique Defects Elicited (out of {total_rubric_bugs})}}}} & " + " & ".join(str(treatment_unique[t]) for t in TREATMENTS) + r" \\",
         r"    \bottomrule",
         r"  \end{tabular}",
         r"\end{table*}",
