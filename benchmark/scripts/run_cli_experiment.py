@@ -1,28 +1,26 @@
 #!/usr/bin/env python3
-import pandas as pd
-import msgpack
-from typing import Any, Dict, List, Optional, Tuple
-import time
-import subprocess
-import signal
-import shutil
-import re
-import random
-import multiprocessing
-import math
-import json
-import glob
-import datetime
 import argparse
+import datetime
+import json
+import multiprocessing
 import os
+import random
+import shutil
+import signal
+import subprocess
 import sys
+import time
+from typing import Any
+
+import msgpack
+import pandas as pd
 
 # Auto-re-execute using target .venv python if target venv is present and current interpreter lacks msgpack/pandas
 _VENV_PY = os.path.abspath(os.path.join(os.path.dirname(
     __file__), "..", "target", ".venv", "bin", "python"))
 if os.path.exists(_VENV_PY) and os.path.realpath(sys.executable) != os.path.realpath(_VENV_PY):
     try:
-        import msgpack  # noqa: F401
+        import msgpack
         import pandas  # noqa: F401
     except ImportError:
         os.execv(_VENV_PY, [_VENV_PY] + sys.argv)
@@ -106,7 +104,7 @@ def load_json(path_str: str) -> dict:
         return json.load(f)
 
 
-def calculate_workers(lanes: int, unused_cpus: int, explicit_workers: Optional[int] = None) -> int:
+def calculate_workers(lanes: int, unused_cpus: int, explicit_workers: int | None = None) -> int:
     if explicit_workers is not None and explicit_workers >= 1:
         return int(explicit_workers)
     total_cpus = os.cpu_count() or 4
@@ -137,7 +135,7 @@ def tprint(msg: str, **kwargs):
     print(f"[{ts}] {msg}", flush=flush, **kwargs)
 
 
-def sanitize_command_for_log(cmd: List[str], worktree_dir: str) -> str:
+def sanitize_command_for_log(cmd: list[str], worktree_dir: str) -> str:
     home_dir = os.path.expanduser("~")
     parts = []
     for arg in cmd:
@@ -168,17 +166,15 @@ def execute_nanofuzz_run(
     harness_path: str,
     fn_name: str,
     config_file_path: str,
-    cli_args: List[str],
+    cli_args: list[str],
     runtime_ms: int,
     output_mpk_path: str,
     workers: int,
     interceptor_log_path: str,
     target_rel_path: str,
     seed_str: str
-) -> Tuple[int, float, str, str]:
+) -> tuple[int, float, str, str]:
     venv_bin = os.path.join(worktree_dir, ".venv", "bin")
-    python_bin = os.path.join(venv_bin, "python")
-    target_abs_path = os.path.join(worktree_dir, target_rel_path)
 
     cmd = [
         "node",
@@ -416,7 +412,7 @@ def process_trial_result(
         task_name, {}).get("bugs", {})
     task_bug_count = len(task_rubric_bugs)
 
-    interceptor_hits: Dict[str, dict] = {}
+    interceptor_hits: dict[str, dict] = {}
     interceptor_total_calls = 0
     if os.path.exists(interceptor_log_path):
         with open(interceptor_log_path, "r", encoding="utf-8") as f:
@@ -442,7 +438,7 @@ def process_trial_result(
     interesting_inputs = data.get("interesting", {}).get("inputs", [])
 
     # Compile provenance from fuzzer's internal results/interesting structures
-    provenance_from_fuzzer: List[str] = []
+    provenance_from_fuzzer: list[str] = []
     for item in interesting_inputs:
         src = item.get("input", {}).get("source", {})
         gtype = src.get("type")
@@ -462,6 +458,11 @@ def process_trial_result(
                 for bid in val[1]:
                     if bid in task_rubric_bugs:
                         validator_detected_bugs.add(bid)
+        elif r.get("exception"):
+            # Unhandled exception escaped from harness: attribute to matching rubric bugs in interceptor
+            for bid in task_rubric_bugs:
+                if bid in interceptor_hits:
+                    validator_detected_bugs.add(bid)
 
     defects_elicited_count = len(interceptor_hits)
     defects_detected_count = len(validator_detected_bugs)
@@ -524,14 +525,14 @@ def process_trial_result(
     # Treatment provenance consistency check:
     treatment_name = trial["Treatment"]
     if treatment_name == "R":
-        for bid, ev in interceptor_hits.items():
+        for _bid, ev in interceptor_hits.items():
             g = ev.get("generator", "")
             if "SeedInput" in g or "Custom" in g or "Ai" in g or "Mutation" in g:
                 raise ValueError(
                     f"CROSS-CHECK FAILED: Non-random generator '{g}' recorded for pure random treatment R on {run_id}"
                 )
     elif treatment_name in ("CR", "R", "RA", "RM"):
-        for bid, ev in interceptor_hits.items():
+        for _bid, ev in interceptor_hits.items():
             g = ev.get("generator", "")
             if "SeedInput" in g:
                 raise ValueError(
@@ -597,7 +598,7 @@ def lane_worker_loop(
     rubric: dict,
     warmup_cfg: dict,
     treatments_cfg: dict,
-    warmup_barrier: Optional[Any] = None
+    warmup_barrier: Any | None = None
 ):
     try:
         run_warmup_lane(lane_idx, worktree_dir, workers,
@@ -804,6 +805,10 @@ def main():
                         help="Override runtimeMs per trial (ms)")
     parser.add_argument("--smoke", action="store_true",
                         help="Run fast smoke test with 1 full factorial repetition (30 trials) covering all treatments and PUTs")
+    parser.add_argument("--treatments", nargs="+", default=None,
+                        help="Filter to specific treatments (e.g. --treatments SCRAM)")
+    parser.add_argument("--tasks", nargs="+", default=None,
+                        help="Filter to specific tasks (e.g. --tasks TreeValue make_def)")
     parser.add_argument("--no-failed-test-measure", action="store_true",
                         help="Disable FailedTestMeasure in NaNofuzz CLI")
     parser.add_argument("--no-warmup", action="store_true",
@@ -824,7 +829,11 @@ def main():
 
     repetitions = args.repetitions
     canonical_treatments = list(treatments_cfg["treatments"].keys())
+    if args.treatments:
+        canonical_treatments = [t for t in args.treatments if t in treatments_cfg["treatments"]]
     tasks_list = treatments_cfg.get("tasks", list(TASKS_MAP.keys()))
+    if args.tasks:
+        tasks_list = [t for t in args.tasks if t in TASKS_MAP]
 
     if args.resume:
         run_dir = os.path.abspath(args.resume)
@@ -1004,11 +1013,17 @@ def main():
     # Run analysis pipeline at the end of experiment
     analyze_script = os.path.join(SCRIPT_DIR, "analyze_cig.py")
     if os.path.exists(analyze_script):
-        print(f"\n[ANALYSIS] Running CIG analysis pipeline on {data_csv_path}...")
-        cmd_analyze = [sys.executable, analyze_script, "--data", data_csv_path]
-        if args.smoke:
-            cmd_analyze.append("--smoke")
-        subprocess.run(cmd_analyze, check=True)
+        if args.treatments and len(canonical_treatments) < len(treatments_cfg["treatments"]):
+            print(
+                f"\n[ANALYSIS] Partial treatment run ({canonical_treatments}): comparative hypothesis "
+                f"testing against control 'R' requires all 6 treatments. Full comparative analysis skipped."
+            )
+        else:
+            print(f"\n[ANALYSIS] Running CIG analysis pipeline on {data_csv_path}...")
+            cmd_analyze = [sys.executable, analyze_script, "--data", data_csv_path]
+            if args.smoke:
+                cmd_analyze.append("--smoke")
+            subprocess.run(cmd_analyze, check=True)
 
 
 if __name__ == "__main__":

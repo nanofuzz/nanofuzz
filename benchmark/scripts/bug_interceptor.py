@@ -2,17 +2,17 @@
 # Intercepts target function calls in fandango, evaluates ground-truth predicates,
 # and tracks whether the calling test harness detected the elicited defect (AssertionError or unhandled exception).
 
-import os
-import sys
+import atexit
+import codecs
 import json
 import math
-import codecs
+import os
 import signal
-import atexit
-from typing import Any, Tuple, Dict, Optional
+import sys
+from typing import Any
 
 _INSTALLED = False
-_INTERCEPTOR_LOG: Optional[str] = None
+_INTERCEPTOR_LOG: str | None = None
 _INTERCEPTED_BUGS = set()
 _TOTAL_CALLS = 0
 
@@ -49,7 +49,7 @@ except Exception:
 atexit.register(_dump_total_calls)
 
 # Active elicitation context for detecting whether the test harness asserts or catches failures
-_active_elicitation: Optional[Dict[str, Any]] = None
+_active_elicitation: dict[str, Any] | None = None
 
 
 def _is_valid_codec(enc: str) -> bool:
@@ -93,10 +93,10 @@ def _trace_exceptions(frame, event, arg):
     return _trace_exceptions
 
 
-_recorded_events: Dict[str, Tuple[int, int]] = {}  # bug_id -> (max_detected, max_steps)
+_recorded_events: dict[str, tuple[int, int]] = {}  # bug_id -> (max_detected, max_steps)
 
 
-def _record_event(entry: Dict[str, Any]) -> None:
+def _record_event(entry: dict[str, Any]) -> None:
     global _INTERCEPTOR_LOG, _recorded_events
     bug_id = entry.get("bug_id")
     if not bug_id:
@@ -128,7 +128,7 @@ def _record_event(entry: Dict[str, Any]) -> None:
         f.write(json.dumps(entry) + "\n")
 
 
-def _execute_with_elicitation(bug_id: str, args: Tuple[Any, ...], kwargs: Dict[str, Any], fn, *call_args, **call_kwargs):
+def _execute_with_elicitation(bug_id: str, args: tuple[Any, ...], kwargs: dict[str, Any], fn, *call_args, **call_kwargs):
     global _active_elicitation
 
     provenance = (
@@ -177,7 +177,7 @@ def _execute_with_elicitation(bug_id: str, args: Tuple[Any, ...], kwargs: Dict[s
         _active_elicitation = prev_elicitation
 
 
-def install_interceptors(log_path: Optional[str] = None) -> bool:
+def install_interceptors(log_path: str | None = None) -> bool:
     """
     Installs target function interceptors for all 5 benchmark tasks unconditionally.
     """
@@ -197,7 +197,7 @@ def install_interceptors(log_path: Optional[str] = None) -> bool:
         orig_dist = comparison._distance_norm
         orig_sig = comparison._sigmoid
 
-        def wrapped_dist(left: Any, right: Any) -> Optional[float]:
+        def wrapped_dist(left: Any, right: Any) -> float | None:
             _record_call()
             bug_id = None
             if (isinstance(left, float) and math.isnan(left)) or (isinstance(right, float) and math.isnan(right)):
@@ -207,7 +207,7 @@ def install_interceptors(log_path: Optional[str] = None) -> bool:
                 return _execute_with_elicitation(bug_id, (left, right), {}, orig_dist, left, right)
             return orig_dist(left, right)
 
-        def wrapped_sig(x: float | int) -> float:
+        def wrapped_sig(x: float) -> float:
             _record_call()
             if isinstance(x, (int, float)) and x <= -709.782712893384:
                 return _execute_with_elicitation("SIGMOID_OVERFLOW", (x,), {}, orig_sig, x)
@@ -303,10 +303,12 @@ def install_interceptors(log_path: Optional[str] = None) -> bool:
         def wrapped_radd(self: Any, other: Any) -> Any:
             _record_call()
             val = getattr(self, "_value", None)
+            def do_radd():
+                raise TypeError(f"unsupported operand type(s) for +: '{type(other).__name__}' and 'TreeValue'")
             if isinstance(other, (str, bytes)):
                 if val is None or not str(val).lstrip("b'\"-").rstrip("'\"").isdigit():
-                    return _execute_with_elicitation("TV_RADD_STR", (self, other), {}, lambda: None)
-            raise TypeError(f"unsupported operand type(s) for +: '{type(other).__name__}' and 'TreeValue'")
+                    return _execute_with_elicitation("TV_RADD_STR", (self, other), {}, do_radd)
+            return do_radd()
 
         wrapped_eq._is_interceptor = True
         TV.__eq__ = wrapped_eq
@@ -326,24 +328,56 @@ def install_interceptors(log_path: Optional[str] = None) -> bool:
             constraints = kwargs.get("constraints") or (args[1] if len(args) > 1 else ())
             fan_files = kwargs.get("fan_files") or (args[0] if args else [])
             use_stdlib = kwargs.get("use_stdlib", True)
+            prov = os.environ.get("NANOFUZZ_PROVENANCE") or os.environ.get("NANOFUZZ_CURRENT_PROVENANCE") or "Unknown"
 
-            bug_id = None
-            if any(isinstance(c, str) and c.strip() == "" for c in (constraints or [])):
-                bug_id = "PARSE_EMPTY_CONSTRAINT"
-            elif len(fan_files or []) == 0 and not use_stdlib and bool(constraints):
-                bug_id = "PARSE_EMPTY_FAN_FILES"
-            elif any(isinstance(c, str) and "#" in c for c in (constraints or [])):
-                bug_id = "PARSE_SILENT_DROP"
-            elif r"\|" in str(fan_files) or any(r"\|" in str(x) for x in (fan_files if isinstance(fan_files, (list, tuple)) else [])):
-                bug_id = "PARSE_LEXER_STALL"
-            elif any("<undefined>" in str(f) or "<unknown>" in str(f) for f in (fan_files if isinstance(fan_files, (list, tuple)) else [fan_files])):
-                bug_id = "PARSE_NAME_ERROR"
-            elif any(".." in str(c) for c in (constraints or [])):
-                bug_id = "PARSE_DESC_RECUR"
-
-            if bug_id:
-                return _execute_with_elicitation(bug_id, args, kwargs, orig_parse, *args, **kwargs)
-            return orig_parse(*args, **kwargs)
+            try:
+                res = orig_parse(*args, **kwargs)
+                if any(isinstance(c, str) and "#" in c for c in (constraints or [])):
+                    _record_event({
+                        "bug_id": "PARSE_SILENT_DROP",
+                        "elicited": 1,
+                        "detected": 1,
+                        "generator": prov,
+                        "args": [str(fan_files)[:200]],
+                    })
+                return res
+            except IndexError as e:
+                bid = "PARSE_EMPTY_FAN_FILES" if (len(fan_files or []) == 0 and not use_stdlib and bool(constraints)) else "PARSE_EMPTY_CONSTRAINT"
+                _record_event({
+                    "bug_id": bid,
+                    "elicited": 1,
+                    "detected": 1,
+                    "detection_type": "IndexError",
+                    "detection_msg": str(e)[:200],
+                    "generator": prov,
+                    "args": [str(fan_files)[:200]],
+                })
+                raise
+            except RecursionError as e:
+                _record_event({
+                    "bug_id": "PARSE_DESC_RECUR",
+                    "elicited": 1,
+                    "detected": 1,
+                    "detection_type": "RecursionError",
+                    "detection_msg": str(e)[:200],
+                    "generator": prov,
+                    "args": [str(fan_files)[:200]],
+                })
+                raise
+            except Exception as e:
+                exc_type = type(e).__name__
+                msg = str(e)
+                if "undefined symbol" in msg or "NameError" in exc_type or "ValueError" in exc_type:
+                    _record_event({
+                        "bug_id": "PARSE_NAME_ERROR",
+                        "elicited": 1,
+                        "detected": 1,
+                        "detection_type": exc_type,
+                        "detection_msg": msg[:200],
+                        "generator": prov,
+                        "args": [str(fan_files)[:200]],
+                    })
+                raise
 
         wrapped_parse._is_interceptor = True
         parse_module.parse = wrapped_parse
@@ -386,8 +420,8 @@ def install_interceptors(log_path: Optional[str] = None) -> bool:
 
         def wrapped_to_grammar(self: Any, *args, **kwargs) -> Any:
             _record_call()
-            children = getattr(self, "_children", [])
-            if len(children) == 0:
+            from fandango.language.symbols import NonTerminal
+            if not isinstance(getattr(self, "symbol", None), NonTerminal):
                 return _execute_with_elicitation("DT_TO_GRAMMAR_ASSERT", (self,) + args, kwargs, orig_to_grammar, self, *args, **kwargs)
             return orig_to_grammar(self, *args, **kwargs)
 

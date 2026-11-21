@@ -1,11 +1,7 @@
-import os
-import sys
 from collections.abc import Callable
-from typing import Any, Literal
+from typing import Literal
 
-from nanofuzz_runtime import FuzzTestResult, UnsatisfiedAssumption, assume
-from fandango.errors import FandangoError
-from fandango.language.grammar.grammar import Grammar
+from nanofuzz_runtime import FuzzTestResult
 from fandango.language.parse.parse import parse
 
 
@@ -28,12 +24,14 @@ def fuzz_parse(
     if spec == "__EMPTY_LIST__":
         fan_files = []
     elif spec.startswith("__MULTI_SPEC__\n"):
-        fan_files = [s for s in spec[len("__MULTI_SPEC__\n"):].split("\n---\n") if s.strip()]
+        fan_files = [s for s in spec[len("__MULTI_SPEC__\n"):].split(
+            "\n---\n") if s.strip()]
     else:
         fan_files = spec
 
     if constraint_str is not None:
-        constraints = ["" if constraint_str == "__EMPTY_STR__" else constraint_str]
+        constraints = ["" if constraint_str ==
+                       "__EMPTY_STR__" else constraint_str]
     else:
         constraints = None
 
@@ -47,6 +45,8 @@ def fuzz_parse(
             check=check,
             start_symbol=sym,
         )
+        if any(isinstance(c, str) and "#" in c for c in (constraints or [])):
+            bug_ids.append("PARSE_SILENT_DROP")
     except IndexError:
         if len(fan_files or []) == 0 and not use_stdlib and bool(constraints):
             bug_ids.append("PARSE_EMPTY_FAN_FILES")
@@ -71,9 +71,11 @@ def fuzz_parse_generator(
     Grammar-aware BNF production generator constructing arbitrary grammar specifications,
     character classes, regexes, boolean constraints, multi-spec files, and repetitions.
     """
-    nonterminals = ["<start>", "<a>", "<b>", "<c>", "<expr>", "<digit>", "<id>"]
+    nonterminals = ["<start>", "<a>", "<b>",
+                    "<c>", "<expr>", "<digit>", "<id>"]
     # Option A: Terminals including regexes and character classes
-    terminals = ["'a'", "'b'", "'0'", "'1'", "'hello'", "' '", "'\\n'", "r'[0-9]+'", "r'[a-z]+'", "[a-zA-Z]", "~['a']"]
+    terminals = ["'a'", "'b'", "'0'", "'1'", "'hello'", "' '",
+                 "'\\n'", "r'[0-9]+'", "r'[a-z]+'", "[a-zA-Z]", "~['a']"]
 
     # Generate 1 to 3 production rules
     num_rules = int(prng() * 3) + 1
@@ -87,7 +89,8 @@ def fuzz_parse_generator(
             elements = []
             for _ in range(seq_len):
                 if prng() < 0.4:
-                    elements.append(nonterminals[int(prng() * len(nonterminals))])
+                    elements.append(
+                        nonterminals[int(prng() * len(nonterminals))])
                 else:
                     t = terminals[int(prng() * len(terminals))]
                     r = prng()
@@ -133,7 +136,8 @@ def fuzz_parse_generator(
         f"maximizing len({nt1})",
         f"str({nt1}) != {t1}",
     ]
-    constraint_str = constraint_patterns[int(prng() * len(constraint_patterns))]
+    constraint_str = constraint_patterns[int(
+        prng() * len(constraint_patterns))]
 
     start_symbols = ["<start>", "", "start", "<undefined>"]
     start_symbol = start_symbols[int(prng() * len(start_symbols))]
@@ -146,11 +150,14 @@ def fuzz_parse_generator(
 def fuzz_parse_validator(r: FuzzTestResult) -> Literal["pass", "fail", "unknown"]:
     if r.get("exception"):
         return "fail"
-    output = r.get("output")
-    if output and len(output) > 0:
-        val = output[0].get("value") if isinstance(output[0], dict) else output[0]
-        if isinstance(val, (list, tuple)) and len(val) >= 2:
-            bug_ids = val[1]
-            if bug_ids:
-                return "fail"
+    out = r.get("out")
+    if out is None and r.get("output"):
+        out_list = r.get("output")
+        if isinstance(out_list, list) and len(out_list) > 0:
+            out = out_list[0].get("value") if isinstance(
+                out_list[0], dict) else out_list[0]
+    if out and isinstance(out, (list, tuple)) and len(out) >= 2:
+        bug_ids = out[1]
+        if bug_ids:
+            return "fail"
     return "pass"

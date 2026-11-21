@@ -1,8 +1,9 @@
 import math
 from collections.abc import Callable
-from typing import Any, Literal, Optional
-from nanofuzz_runtime import FuzzTestResult, UnsatisfiedAssumption, assume
-from fandango.constraints.comparison import _distance_norm as target_distance_norm, _sigmoid as target_sigmoid
+from typing import Any, Literal
+from nanofuzz_runtime import FuzzTestResult
+from fandango.constraints.comparison import _distance_norm as target_distance_norm
+from fandango.constraints.comparison import _sigmoid as target_sigmoid
 
 
 def fuzz__distance_norm(left: Any, right: Any) -> tuple[dict, list[str]]:
@@ -32,7 +33,8 @@ def fuzz__distance_norm_generator(
     prng: Callable[[], float],
 ) -> tuple[Any, Any] | None:
     # Samples across continuous float distributions, IEEE 754 boundaries, and types
-    special_floats = [0.0, -0.0, 1.0, -1.0, float("nan"), float("inf"), float("-inf"), 1e308, -1e308]
+    special_floats = [0.0, -0.0, 1.0, -1.0,
+                      float("nan"), float("inf"), float("-inf"), 1e308, -1e308]
 
     def sample_single() -> Any:
         p = prng()
@@ -53,11 +55,14 @@ def fuzz__distance_norm_validator(
 ) -> Literal["pass", "fail", "unknown"]:
     if r.get("exception"):
         return "fail"
-    output = r.get("output")
-    if output and len(output) > 0:
-        val = output[0].get("value") if isinstance(output[0], dict) else output[0]
-        if isinstance(val, (list, tuple)) and len(val) >= 2:
-            bug_ids = val[1]
-            if bug_ids:
-                return "fail"
+    out = r.get("out")
+    if out is None and r.get("output"):
+        out_list = r.get("output")
+        if isinstance(out_list, list) and len(out_list) > 0:
+            out = out_list[0].get("value") if isinstance(
+                out_list[0], dict) else out_list[0]
+    if out and isinstance(out, (list, tuple)) and len(out) >= 2:
+        bug_ids = out[1]
+        if bug_ids:
+            return "fail"
     return "pass"

@@ -3,11 +3,10 @@
 Unit test verifying proper defect attribution through both the Bug Interceptor
 and the Harness/Validator cross-check sensor using the [put_input, bug_ids[]] pattern.
 """
+import json
 import os
 import sys
 import tempfile
-import json
-import pytest
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 BENCHMARK_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, ".."))
@@ -22,14 +21,27 @@ for p in (TARGET_SRC, HARNESSES_DIR, SCRIPTS_DIR, RUNTIME_SRC):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-import bug_interceptor
+import bug_interceptor  # noqa: E402
+
 bug_interceptor.install_interceptors()
 
-from nanofuzz_harness_make_def import fuzz_make_def, fuzz_make_def_validator
-from nanofuzz_harness_TreeValue import fuzz_TreeValue, fuzz_TreeValue_validator
-from nanofuzz_harness_DerivationTree import fuzz_DerivationTree, fuzz_DerivationTree_validator
-from nanofuzz_harness_parse import fuzz_parse, fuzz_parse_validator
-from nanofuzz_harness__distance_norm import fuzz__distance_norm, fuzz__distance_norm_validator
+from nanofuzz_harness__distance_norm import (  # noqa: E402
+    fuzz__distance_norm,
+    fuzz__distance_norm_validator,
+)
+from nanofuzz_harness_DerivationTree import (  # noqa: E402
+    fuzz_DerivationTree,
+    fuzz_DerivationTree_validator,
+)
+from nanofuzz_harness_make_def import (  # noqa: E402
+    fuzz_make_def,
+    fuzz_make_def_validator,
+)
+from nanofuzz_harness_parse import fuzz_parse, fuzz_parse_validator  # noqa: E402
+from nanofuzz_harness_TreeValue import (  # noqa: E402
+    fuzz_TreeValue,
+    fuzz_TreeValue_validator,
+)
 
 
 def run_with_interceptor_capture(task_name: str, fn, *args, **kwargs):
