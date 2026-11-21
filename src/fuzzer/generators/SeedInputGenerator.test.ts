@@ -1,12 +1,12 @@
-import { HumanInputGenerator } from "./HumanInputGenerator";
+import { SeedInputGenerator } from "./SeedInputGenerator";
 import { FuzzPinnedTest, InputAndSource } from "../Types";
 
-describe("fuzzer/generators/HumanInputGenerator:", () => {
+describe("fuzzer/generators/SeedInputGenerator:", () => {
   it("initializes empty when no inputs provided", () => {
-    const gen = new HumanInputGenerator([]);
+    const gen = new SeedInputGenerator([]);
     expect(gen.nextable()).toBe(false);
-    expect(gen.name).toBe("HumanInputGenerator");
-    expect(gen.humanName).toBe("Human");
+    expect(gen.name).toBe("SeedInputGenerator");
+    expect(gen.humanName).toBe("Seed");
     expect(() => gen.next()).toThrow();
   });
 
@@ -38,7 +38,7 @@ describe("fuzzer/generators/HumanInputGenerator:", () => {
       },
     ];
 
-    const gen = new HumanInputGenerator([], undefined, mockPinnedTests);
+    const gen = new SeedInputGenerator([], undefined, mockPinnedTests);
 
     expect(gen.nextable()).toBe("now!");
 
@@ -62,7 +62,7 @@ describe("fuzzer/generators/HumanInputGenerator:", () => {
   });
 
   it("onRunStart() loads inputs for the run", () => {
-    const gen = new HumanInputGenerator([]);
+    const gen = new SeedInputGenerator([]);
     expect(gen.nextable()).toBe(false);
 
     const inputs1: Omit<InputAndSource, "tick">[] = [
