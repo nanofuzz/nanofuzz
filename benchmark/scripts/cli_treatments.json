@@ -29,9 +29,12 @@
       "description": "All generators active: Seed, Custom (User), Random, AI, Mutation",
       "generators": ["S", "C", "R", "A", "M"],
       "cliArgs": [
-        "--model-provider", "gemini",
-        "--model-name", "gemini-3.1-flash-lite",
-        "--model-timeout", "30000"
+        "--model-provider",
+        "gemini",
+        "--model-name",
+        "gemini-3.1-flash-lite",
+        "--model-timeout",
+        "15000"
       ]
     },
     "S": {
@@ -92,9 +95,12 @@
       "description": "AI generator only",
       "generators": ["A"],
       "cliArgs": [
-        "--model-provider", "gemini",
-        "--model-name", "gemini-3.1-flash-lite",
-        "--model-timeout", "30000",
+        "--model-provider",
+        "gemini",
+        "--model-name",
+        "gemini-3.1-flash-lite",
+        "--model-timeout",
+        "15000",
         "--no-seed-input-generator",
         "--no-user-input-generator",
         "--no-random-input-generator",
@@ -106,9 +112,12 @@
       "description": "Random and AI generators active",
       "generators": ["R", "A"],
       "cliArgs": [
-        "--model-provider", "gemini",
-        "--model-name", "gemini-3.1-flash-lite",
-        "--model-timeout", "30000",
+        "--model-provider",
+        "gemini",
+        "--model-name",
+        "gemini-3.1-flash-lite",
+        "--model-timeout",
+        "15000",
         "--no-seed-input-generator",
         "--no-user-input-generator",
         "--no-mutation-input-generator"
@@ -140,12 +149,27 @@
       "description": "Random, AI, and Mutation generators active",
       "generators": ["R", "A", "M"],
       "cliArgs": [
-        "--model-provider", "gemini",
-        "--model-name", "gemini-3.1-flash-lite",
-        "--model-timeout", "30000",
+        "--model-provider",
+        "gemini",
+        "--model-name",
+        "gemini-3.1-flash-lite",
+        "--model-timeout",
+        "15000",
         "--no-seed-input-generator",
         "--no-user-input-generator"
       ]
+    },
+    "SRM": {
+      "name": "SRM",
+      "description": "Seed, Random, and Mutation generators active",
+      "generators": ["S", "R", "M"],
+      "cliArgs": ["--no-user-input-generator", "--no-ai-input-generator"]
+    },
+    "CRM": {
+      "name": "CRM",
+      "description": "Custom, Random, and Mutation generators active",
+      "generators": ["C", "R", "M"],
+      "cliArgs": ["--no-seed-input-generator", "--no-ai-input-generator"]
     }
   }
 }

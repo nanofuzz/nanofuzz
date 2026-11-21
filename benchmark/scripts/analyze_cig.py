@@ -50,7 +50,8 @@ try:
 except ImportError:
     HAS_MATPLOTLIB = False
 
-ORDERED_TASKS = ["make_def", "_distance_norm", "parse", "DerivationTree", "TreeValue"]
+ORDERED_TASKS = ["make_def", "_distance_norm",
+                 "parse", "DerivationTree", "TreeValue"]
 TASKS = ORDERED_TASKS
 
 TASK_LABELS = {
@@ -69,15 +70,18 @@ TASKS_MAP = {
     "make_def": {"branches_total": 8, "bugs_count": 3},
 }
 
-TREATMENTS = ["SCRAM", "S", "SR", "C", "CR", "R", "A", "RA", "M", "RM", "RAM"]
+TREATMENTS = ["SCRAM", "S", "SR", "SRM", "C",
+              "CR", "CRM", "R", "A", "RA", "M", "RM", "RAM"]
 CONTROL_TREATMENT = "R"
 
 TREATMENT_LABELS = {
     "SCRAM": r"\textbf{SCRAM}",
     "S": r"\textbf{S}",
     "SR": r"\textbf{SR}",
+    "SRM": r"\textbf{SRM}",
     "C": r"\textbf{C}",
     "CR": r"\textbf{CR}",
+    "CRM": r"\textbf{CRM}",
     "R": r"\textbf{R} \textit{(Control)}",
     "A": r"\textbf{A}",
     "RA": r"\textbf{RA}",
@@ -86,13 +90,23 @@ TREATMENT_LABELS = {
     "RAM": r"\textbf{RAM}",
 }
 
-TREATMENT_SHORT_TEXT = ["SCRAM", "S", "SR", "C", "CR", "R", "A", "RA", "M", "RM", "RAM"]
+TREATMENT_SHORT_TEXT = ["SCRAM", "S", "SR", "SRM",
+                        "C", "CR", "CRM", "R", "A", "RA", "M", "RM", "RAM"]
+
+
+def get_active_treatments(df: pd.DataFrame) -> List[str]:
+    """Returns the ordered subset of recognized treatments present in the dataset."""
+    if df.empty or "Treatment" not in df.columns:
+        return list(TREATMENTS)
+    present = set(df["Treatment"].dropna().unique())
+    return [t for t in TREATMENTS if t in present]
 
 
 def sanitize_dataset(df: pd.DataFrame):
     """Strictly validates data.csv: rejects missing, out-of-range, or corrupted data."""
     if df.empty:
-        raise ValueError("CRITICAL: data.csv is empty! Rejecting invalid dataset.")
+        raise ValueError(
+            "CRITICAL: data.csv is empty! Rejecting invalid dataset.")
 
     required_cols = [
         "RunID", "Task", "Treatment", "Replicate",
@@ -103,24 +117,36 @@ def sanitize_dataset(df: pd.DataFrame):
     ]
     missing = [c for c in required_cols if c not in df.columns]
     if missing:
-        raise ValueError(f"CRITICAL: data.csv is missing required columns: {missing}")
+        raise ValueError(
+            f"CRITICAL: data.csv is missing required columns: {missing}")
 
     for _, row in df.iterrows():
         rid = row["RunID"]
         task = row["Task"]
         tr = row["Treatment"]
 
-        if row["Status"] != "COMPLETED":
+        if row["Status"] == "FAILED":
+            # Permitted as an unobserved/failed trial; numeric metrics must be unobserved (NaN/NA)
+            # rather than fabricated zeros.
+            cov = row["BranchCoveragePct"]
+            if not pd.isna(cov):
+                raise ValueError(
+                    f"CRITICAL: Failed trial {rid} has fabricated numeric BranchCoveragePct={cov}. Must be unobserved (#N/A)."
+                )
+            continue
+        elif row["Status"] != "COMPLETED":
             raise ValueError(
                 f"CRITICAL: Trial {rid} ({task} under {tr}) has Status='{row['Status']}'. "
-                f"Failed or incomplete runs cannot be admitted into analysis."
+                f"Unknown status."
             )
 
         if task not in TASKS_MAP:
-            raise ValueError(f"CRITICAL: Unknown task '{task}' in trial {rid}.")
+            raise ValueError(
+                f"CRITICAL: Unknown task '{task}' in trial {rid}.")
 
         if tr not in TREATMENTS:
-            raise ValueError(f"CRITICAL: Unknown treatment '{tr}' in trial {rid}.")
+            raise ValueError(
+                f"CRITICAL: Unknown treatment '{tr}' in trial {rid}.")
 
         expected_branches = TASKS_MAP[task]["branches_total"]
         actual_branches = row["BranchesTotal"]
@@ -132,19 +158,23 @@ def sanitize_dataset(df: pd.DataFrame):
 
         cov = row["BranchCoveragePct"]
         if pd.isna(cov) or cov < 0.0 or cov > 100.0:
-            raise ValueError(f"CRITICAL: Invalid BranchCoveragePct={cov} in trial {rid}.")
+            raise ValueError(
+                f"CRITICAL: Invalid BranchCoveragePct={cov} in trial {rid}.")
 
         rate = row["BugElicitationRate"]
         if pd.isna(rate) or rate < 0.0 or rate > 1.0:
-            raise ValueError(f"CRITICAL: Invalid BugElicitationRate={rate} in trial {rid}.")
+            raise ValueError(
+                f"CRITICAL: Invalid BugElicitationRate={rate} in trial {rid}.")
 
         tests = row["TotalTestsExecuted"]
         if pd.isna(tests) or tests <= 0:
-            raise ValueError(f"CRITICAL: Trial {rid} executed {tests} tests. TotalTestsExecuted must be strictly positive.")
+            raise ValueError(
+                f"CRITICAL: Trial {rid} executed {tests} tests. TotalTestsExecuted must be strictly positive.")
 
         elapsed = row["ElapsedSec"]
         if pd.isna(elapsed) or elapsed < 0:
-            raise ValueError(f"CRITICAL: Invalid ElapsedSec={elapsed} in trial {rid}.")
+            raise ValueError(
+                f"CRITICAL: Invalid ElapsedSec={elapsed} in trial {rid}.")
 
         exit_code = row["ExitCode"]
         if exit_code not in (0, 1):
@@ -155,16 +185,19 @@ def sanitize_dataset(df: pd.DataFrame):
 
         stop_reason = str(row["StopReason"])
         if not stop_reason or stop_reason in ("unknown", "None", "nan"):
-            raise ValueError(f"CRITICAL: Trial {rid} has missing or unknown StopReason='{stop_reason}'.")
+            raise ValueError(
+                f"CRITICAL: Trial {rid} has missing or unknown StopReason='{stop_reason}'.")
 
         tool_ver = str(row.get("ToolVersion", ""))
         if not tool_ver or tool_ver in ("unknown", "None", "nan"):
-            raise ValueError(f"CRITICAL: Trial {rid} has missing or unknown ToolVersion='{tool_ver}'.")
+            raise ValueError(
+                f"CRITICAL: Trial {rid} has missing or unknown ToolVersion='{tool_ver}'.")
 
-    # Assert balanced, even factorial matrix across all tasks and treatments
+    # Assert balanced, even factorial matrix across all tasks and active treatments
+    active_treatments = get_active_treatments(df)
     cell_counts = {}
     for task in TASKS:
-        for tr in TREATMENTS:
+        for tr in active_treatments:
             cnt = len(df[(df["Task"] == task) & (df["Treatment"] == tr)])
             if cnt == 0:
                 raise ValueError(
@@ -186,25 +219,34 @@ def analyze_cig_dataset(df: pd.DataFrame) -> dict:
     """Computes descriptive and inferential statistics across treatments and tasks."""
     stats = {}
     measures = ["BugElicitationRate", "BranchCoveragePct", "BugsElicited"]
+    active_treatments = get_active_treatments(df)
 
-    for tr in TREATMENTS:
+    for tr in active_treatments:
         stats[tr] = {}
         tr_df = df[df["Treatment"] == tr] if not df.empty else pd.DataFrame()
 
         for task in TASKS:
             stats[tr][task] = {}
-            task_df = tr_df[tr_df["Task"] == task] if not tr_df.empty else pd.DataFrame()
-            ctl_df = df[(df["Treatment"] == CONTROL_TREATMENT) & (df["Task"] == task)] if not df.empty else pd.DataFrame()
+            task_df = tr_df[tr_df["Task"] ==
+                            task] if not tr_df.empty else pd.DataFrame()
+            ctl_df = df[(df["Treatment"] == CONTROL_TREATMENT) & (
+                df["Task"] == task)] if not df.empty else pd.DataFrame()
 
             for col in measures:
-                s_int = task_df[col].dropna().values.astype(float) if col in task_df.columns else np.array([])
-                s_ctl = ctl_df[col].dropna().values.astype(float) if col in ctl_df.columns else np.array([])
+                s_int = task_df[col].dropna().values.astype(
+                    float) if col in task_df.columns else np.array([])
+                s_ctl = ctl_df[col].dropna().values.astype(
+                    float) if col in ctl_df.columns else np.array([])
 
                 # No observation does NOT mean zero: use NaN when unobserved, and undefined SD for n < 2
-                m_val = float(np.mean(s_int)) if len(s_int) > 0 else float(np.nan)
-                sd_val = float(np.std(s_int, ddof=1)) if len(s_int) > 1 else float(np.nan)
-                p_val = compute_ttest(s_int, s_ctl) if tr != CONTROL_TREATMENT else float(np.nan)
-                mw_p, mw_stat = compute_mann_whitney(s_int, s_ctl) if tr != CONTROL_TREATMENT else (float(np.nan), float(np.nan))
+                m_val = float(np.mean(s_int)) if len(
+                    s_int) > 0 else float(np.nan)
+                sd_val = float(np.std(s_int, ddof=1)) if len(
+                    s_int) > 1 else float(np.nan)
+                p_val = compute_ttest(
+                    s_int, s_ctl) if tr != CONTROL_TREATMENT else float(np.nan)
+                mw_p, mw_stat = compute_mann_whitney(
+                    s_int, s_ctl) if tr != CONTROL_TREATMENT else (float(np.nan), float(np.nan))
 
                 stats[tr][task][col] = {
                     "mean": m_val,
@@ -217,15 +259,21 @@ def analyze_cig_dataset(df: pd.DataFrame) -> dict:
 
         # Overall summary across all tasks
         stats[tr]["All"] = {}
-        ctl_all_df = df[df["Treatment"] == CONTROL_TREATMENT] if not df.empty else pd.DataFrame()
+        ctl_all_df = df[df["Treatment"] ==
+                        CONTROL_TREATMENT] if not df.empty else pd.DataFrame()
         for col in measures:
-            s_int = tr_df[col].dropna().values.astype(float) if col in tr_df.columns else np.array([])
-            s_ctl = ctl_all_df[col].dropna().values.astype(float) if col in ctl_all_df.columns else np.array([])
+            s_int = tr_df[col].dropna().values.astype(
+                float) if col in tr_df.columns else np.array([])
+            s_ctl = ctl_all_df[col].dropna().values.astype(
+                float) if col in ctl_all_df.columns else np.array([])
 
             m_val = float(np.mean(s_int)) if len(s_int) > 0 else float(np.nan)
-            sd_val = float(np.std(s_int, ddof=1)) if len(s_int) > 1 else float(np.nan)
-            p_val = compute_ttest(s_int, s_ctl) if tr != CONTROL_TREATMENT else float(np.nan)
-            mw_p, mw_stat = compute_mann_whitney(s_int, s_ctl) if tr != CONTROL_TREATMENT else (float(np.nan), float(np.nan))
+            sd_val = float(np.std(s_int, ddof=1)) if len(
+                s_int) > 1 else float(np.nan)
+            p_val = compute_ttest(
+                s_int, s_ctl) if tr != CONTROL_TREATMENT else float(np.nan)
+            mw_p, mw_stat = compute_mann_whitney(
+                s_int, s_ctl) if tr != CONTROL_TREATMENT else (float(np.nan), float(np.nan))
 
             stats[tr]["All"][col] = {
                 "mean": m_val,
@@ -245,11 +293,14 @@ def generate_pyplots(df: pd.DataFrame, pdf_paths: List[str]):
         print("[WARN] matplotlib not available, skipping plot generation.")
         return
 
+    active_treatments = get_active_treatments(df)
+
     # Crash if any cell is missing: no observation cannot be plotted as 0.0
     for task in TASKS:
-        for t in TREATMENTS:
+        for t in active_treatments:
             sub = df[(df["Task"] == task) & (df["Treatment"] == t)]
-            vals = sub["BranchCoveragePct"].dropna().values.astype(float) if not sub.empty else []
+            vals = sub["BranchCoveragePct"].dropna().values.astype(
+                float) if not sub.empty else []
             if len(vals) == 0:
                 raise ValueError(
                     f"CRITICAL: Cannot generate pyplots: Task '{task}' has missing observations for treatment '{t}'. "
@@ -263,14 +314,15 @@ def generate_pyplots(df: pd.DataFrame, pdf_paths: List[str]):
     # Order PUTs: make_def before _distance_norm as requested
     ordered_tasks = ORDERED_TASKS
 
-    # Clean 3x2 grid of plots (no time plot)
-    fig, axs = plt.subplots(3, 2, figsize=(7.2, 8.5))
-    fig.subplots_adjust(left=0.09, right=0.96, top=0.95, bottom=0.07, hspace=0.45, wspace=0.30)
+    # 3x2 grid of plots scaled for active treatments
+    fig, axs = plt.subplots(3, 2, figsize=(8.8, 9.6))
+    fig.subplots_adjust(left=0.08, right=0.97, top=0.95,
+                        bottom=0.08, hspace=0.48, wspace=0.28)
     flat_axs = axs.flatten()
 
     def render_violin_cell(ax, data, group_labels, xlabel, ylabel, ylim):
         ax.set_xticks(list(range(1, len(group_labels) + 1)))
-        ax.set_xticklabels(group_labels, rotation=35, ha="right", fontsize=6.5)
+        ax.set_xticklabels(group_labels, rotation=45, ha="right", fontsize=5.8)
         ax.spines[:].set_visible(False)
         ax.tick_params(axis="both", which="both", bottom=False, left=False)
         ax.set_xlabel(xlabel, fontsize=7.5, labelpad=4)
@@ -278,38 +330,44 @@ def generate_pyplots(df: pd.DataFrame, pdf_paths: List[str]):
         if ylim:
             ax.set_ylim(ylim)
 
-        violins = ax.violinplot(data, widths=0.7, showextrema=False)
-        for pc in violins.get("bodies", []):
-            pc.set_facecolor("none")
-            pc.set_edgecolor("black")
-            pc.set_alpha(1.0)
-            pc.set_linewidth(1.0)
-
         for i, vals in enumerate(data):
             x = i + 1
+            if len(vals) > 1:
+                try:
+                    v = ax.violinplot([vals], positions=[x], widths=0.6, showextrema=False)
+                    for pc in v.get("bodies", []):
+                        pc.set_facecolor("none")
+                        pc.set_edgecolor("black")
+                        pc.set_alpha(1.0)
+                        pc.set_linewidth(0.8)
+                except Exception:
+                    pass
             if len(vals) > 0:
                 jitter = x + np.random.normal(0, 0.04, len(vals))
-                ax.scatter(jitter, vals, s=11, color="grey", alpha=0.5, edgecolors="none")
-                ax.scatter(x, np.mean(vals), s=32, color="black", zorder=3)
+                ax.scatter(jitter, vals, s=8, color="grey",
+                           alpha=0.5, edgecolors="none")
+                ax.scatter(x, np.mean(vals), s=26, color="black", zorder=3)
 
     # First 5 plots: Branch Coverage for each PUT in order of lowest elicitation rate
     for idx, task in enumerate(ordered_tasks):
         ax = flat_axs[idx]
         data = []
-        for t in TREATMENTS:
+        for t in active_treatments:
             sub = df[(df["Task"] == task) & (df["Treatment"] == t)]
             vals = sub["BranchCoveragePct"].dropna().values.astype(float)
             data.append(vals)
-        render_violin_cell(ax, data, TREATMENT_SHORT_TEXT, f"(1) Branch Coverage\n{put_mathtt(task)}", "Branch Cov. (%)", (0, 105))
+        render_violin_cell(ax, data, active_treatments,
+                           f"(1) Branch Coverage\n{put_mathtt(task)}", "Branch Cov. (%)", (0, 105))
 
     # 6th plot: (2) Bugs Elicited across treatments (replacing the time plot)
     ax_last = flat_axs[5]
     data_bugs = []
-    for t in TREATMENTS:
+    for t in active_treatments:
         sub = df[df["Treatment"] == t]
         vals = sub["BugsElicited"].dropna().values.astype(float)
         data_bugs.append(vals)
-    render_violin_cell(ax_last, data_bugs, TREATMENT_SHORT_TEXT, "(2) Bugs Elicited", "Elicited Bugs (Count)", None)
+    render_violin_cell(ax_last, data_bugs, active_treatments,
+                       "(2) Bugs Elicited", "Elicited Bugs (Count)", None)
 
     for p in pdf_paths:
         os.makedirs(os.path.dirname(os.path.abspath(p)), exist_ok=True)
@@ -320,6 +378,7 @@ def generate_pyplots(df: pd.DataFrame, pdf_paths: List[str]):
 
 def generate_trials_table(df: pd.DataFrame, out_path: str):
     """Generates the trial allocation matrix table."""
+    active_treatments = get_active_treatments(df)
     lines = [
         r"\begin{table*}[!htbp]",
         r"  \centering",
@@ -332,10 +391,11 @@ def generate_trials_table(df: pd.DataFrame, out_path: str):
         r"    \midrule",
     ]
 
-    for tr in TREATMENTS:
+    for tr in active_treatments:
         row_cells = [TREATMENT_LABELS.get(tr, tr)]
         for task in ORDERED_TASKS:
-            sub = df[(df["Treatment"] == tr) & (df["Task"] == task)] if not df.empty else pd.DataFrame()
+            sub = df[(df["Treatment"] == tr) & (df["Task"] == task)
+                     ] if not df.empty else pd.DataFrame()
             rids = sub["RunID"].tolist() if "RunID" in sub.columns else []
             cell_text = ", ".join(rids) if rids else "--"
             row_cells.append(cell_text)
@@ -358,11 +418,13 @@ def generate_cig_results_table(df: pd.DataFrame, out_path: str, stats: dict):
     """Generates the main LaTeX factorial results table comparing treatments vs control R."""
     # Order PUTs: make_def before _distance_norm as requested
     ordered_tasks = ORDERED_TASKS
+    active_treatments = get_active_treatments(df)
 
     header_cols = []
     for i, t in enumerate(ordered_tasks):
         sep = "||" if i == len(ordered_tasks) - 1 else "|"
-        header_cols.append(f"\\multicolumn{{2}}{{c{sep}}}{{\\textbf{{{TASK_LABELS.get(t, t)}}}}}")
+        header_cols.append(
+            f"\\multicolumn{{2}}{{c{sep}}}{{\\textbf{{{TASK_LABELS.get(t, t)}}}}}")
 
     lines = [
         r"\begin{table*}[!htbp]",
@@ -375,7 +437,8 @@ def generate_cig_results_table(df: pd.DataFrame, out_path: str, stats: dict):
         r"  \footnotesize",
         r"  \begin{tabularx}{\textwidth}{l| *{4}{>{\raggedleft\arraybackslash}X >{\centering\arraybackslash}X |} >{\raggedleft\arraybackslash}X >{\centering\arraybackslash}X || >{\raggedleft\arraybackslash}X >{\centering\arraybackslash}X}",
         r"    \toprule",
-        "    & " + " & ".join(header_cols) + r" & \multicolumn{2}{c}{\textbf{Overall ($\Sigma$)}} \\",
+        "    & " + " & ".join(header_cols) +
+        r" & \multicolumn{2}{c}{\textbf{Overall ($\Sigma$)}} \\",
         r"    \midrule",
         r"    \multicolumn{1}{c|}{\textbf{Treatment}} ",
         r"    & \multicolumn{1}{c}{\textbf{Mean}} & \textbf{SD}",
@@ -398,26 +461,28 @@ def generate_cig_results_table(df: pd.DataFrame, out_path: str, stats: dict):
             r"    \midrule",
         ])
 
-        for tr in TREATMENTS:
+        for tr in active_treatments:
             label = TREATMENT_LABELS.get(tr, tr)
             row_items = [f"    {label}"]
-            ctl_m_all = stats[CONTROL_TREATMENT]["All"][col]["mean"]
+            ctl_m_all = stats.get(CONTROL_TREATMENT, {}).get("All", {}).get(col, {}).get("mean", np.nan)
 
             for task in ordered_tasks:
-                m_val = stats[tr][task][col]["mean"]
-                sd_val = stats[tr][task][col]["sd"]
-                ctl_m = stats[CONTROL_TREATMENT][task][col]["mean"]
-                p_val = stats[tr][task][col].get("pvalue", None)
+                m_val = stats.get(tr, {}).get(task, {}).get(col, {}).get("mean", np.nan)
+                sd_val = stats.get(tr, {}).get(task, {}).get(col, {}).get("sd", np.nan)
+                ctl_m = stats.get(CONTROL_TREATMENT, {}).get(task, {}).get(col, {}).get("mean", np.nan)
+                p_val = stats.get(tr, {}).get(task, {}).get(col, {}).get("pvalue", None)
                 # Formats as \multicolumn{2}{c}{--} if unobserved (NaN)
-                row_items.append(format_sig_cell(tr, col, m_val, sd_val, ctl_m, p_val, dec, base_tool=CONTROL_TREATMENT))
+                row_items.append(format_sig_cell(
+                    tr, col, m_val, sd_val, ctl_m, p_val, dec, base_tool=CONTROL_TREATMENT))
 
-            all_m = stats[tr]["All"][col]["mean"]
-            all_sd = stats[tr]["All"][col]["sd"]
-            all_p_val = stats[tr]["All"][col].get("pvalue", None)
-            row_items.append(format_sig_cell(tr, col, all_m, all_sd, ctl_m_all, all_p_val, dec, base_tool=CONTROL_TREATMENT))
+            all_m = stats.get(tr, {}).get("All", {}).get(col, {}).get("mean", np.nan)
+            all_sd = stats.get(tr, {}).get("All", {}).get(col, {}).get("sd", np.nan)
+            all_p_val = stats.get(tr, {}).get("All", {}).get(col, {}).get("pvalue", None)
+            row_items.append(format_sig_cell(
+                tr, col, all_m, all_sd, ctl_m_all, all_p_val, dec, base_tool=CONTROL_TREATMENT))
 
             lines.append(" & ".join(row_items) + r" \\")
-            if tr != TREATMENTS[-1]:
+            if tr != active_treatments[-1]:
                 lines.append(r"    \hline")
 
     lines.extend([
@@ -436,17 +501,22 @@ def generate_cig_results_table(df: pd.DataFrame, out_path: str, stats: dict):
 
 def generate_results_detail_table(df: pd.DataFrame, out_path: str, stats: dict):
     """Generates detailed summary table with min, mean, max, and totals across treatments."""
+    num_tr = len(TREATMENTS)
+    col_spec = "l|" + "c" * num_tr
+    total_cols = num_tr + 1
+    tr_headers = " & ".join([f"\\textbf{{{tr}}}" for tr in TREATMENTS])
+
     lines = [
         r"\begin{table*}[!htbp]",
         r"  \centering",
         r"  \small",
         r"  \caption{Detailed Experimental Outcomes by Generator Treatment across Measures}",
         r"  \label{quarton:tab:results-detail}",
-        r"  \begin{tabular}{l|cccccc}",
+        f"  \\begin{{tabular}}{{{col_spec}}}",
         r"    \toprule",
-        r"    \textbf{Metric} & \textbf{SCRAM} & \textbf{CR} & \textbf{R} & \textbf{RA} & \textbf{RM} & \textbf{SR} \\",
+        f"    \\textbf{{Metric}} & {tr_headers} \\\\",
         r"    \midrule",
-        r"    \multicolumn{7}{c}{\textbf{Measure 1: Branch Coverage (\%)}} \\",
+        f"    \\multicolumn{{{total_cols}}}{{c}}{{\\textbf{{Measure 1: Branch Coverage (\\%)}}}} \\\\",
         r"    \midrule",
     ]
 
@@ -458,7 +528,8 @@ def generate_results_detail_table(df: pd.DataFrame, out_path: str, stats: dict):
         row = [f"    {label}"]
         for tr in TREATMENTS:
             sub = df[df["Treatment"] == tr] if not df.empty else pd.DataFrame()
-            vals = sub[col].dropna().values.astype(float) if col in sub.columns else []
+            vals = sub[col].dropna().values.astype(
+                float) if col in sub.columns else []
             if len(vals) == 0:
                 row.append("--")
             elif label.startswith("Max"):
@@ -471,21 +542,23 @@ def generate_results_detail_table(df: pd.DataFrame, out_path: str, stats: dict):
 
     lines.extend([
         r"    \midrule",
-        r"    \multicolumn{7}{c}{\textbf{Measure 2: Bugs Elicited}} \\",
+        f"    \\multicolumn{{{total_cols}}}{{c}}{{\\textbf{{Measure 2: Bugs Elicited}}}} \\\\",
         r"    \midrule",
     ])
 
     total_el_row = ["    Total Bugs Elicited"]
     for tr in TREATMENTS:
         sub = df[df["Treatment"] == tr] if not df.empty else pd.DataFrame()
-        tot = int(sub["BugsElicited"].sum()) if "BugsElicited" in sub.columns and len(sub) > 0 else 0
+        tot = int(sub["BugsElicited"].sum()
+                  ) if "BugsElicited" in sub.columns and len(sub) > 0 else 0
         total_el_row.append(str(tot) if len(sub) > 0 else "--")
     lines.append(" & ".join(total_el_row) + r" \\")
 
     mean_el_row = ["    Mean Bugs / Trial"]
     for tr in TREATMENTS:
         sub = df[df["Treatment"] == tr] if not df.empty else pd.DataFrame()
-        m = float(sub["BugsElicited"].mean()) if "BugsElicited" in sub.columns and len(sub) > 0 else float(np.nan)
+        m = float(sub["BugsElicited"].mean()) if "BugsElicited" in sub.columns and len(
+            sub) > 0 else float(np.nan)
         mean_el_row.append(f"{m:.2f}" if not np.isnan(m) else "--")
     lines.append(" & ".join(mean_el_row) + r" \\")
 
@@ -545,7 +618,8 @@ def generate_ttest_table(df: pd.DataFrame, out_path: str, stats: dict):
         r"    \multicolumn{1}{c|}{\textbf{Measure}} & \multicolumn{1}{c}{\textbf{$\Delta$}} & \multicolumn{1}{c}{\textbf{Test}} & \multicolumn{1}{c}{\textbf{Statistic}} & \multicolumn{1}{c}{\textbf{$p$}} \\",
     ]
 
-    compare_treatments = [t for t in TREATMENTS if t != CONTROL_TREATMENT]
+    active_treatments = get_active_treatments(df)
+    compare_treatments = [t for t in active_treatments if t != CONTROL_TREATMENT]
 
     for tr in compare_treatments:
         header = f"\\textbf{{{tr} vs.\\ {CONTROL_TREATMENT} (Control)}}"
@@ -558,7 +632,8 @@ def generate_ttest_table(df: pd.DataFrame, out_path: str, stats: dict):
         for col, name, higher_is_better in measures:
             if col == "BranchCoveragePct":
                 s_tool = df[df["Treatment"] == tr][col].dropna().values
-                s_ctl = df[df["Treatment"] == CONTROL_TREATMENT][col].dropna().values
+                s_ctl = df[df["Treatment"] ==
+                           CONTROL_TREATMENT][col].dropna().values
                 p_val, u_stat = compute_mann_whitney(s_tool, s_ctl)
                 test_str = "Mann--Whitney $U$"
 
@@ -582,28 +657,37 @@ def generate_ttest_table(df: pd.DataFrame, out_path: str, stats: dict):
                         row = f"    {name} & {delta_str} & {test_str} & {stat_str} & {p_str}{star} \\\\"
 
             elif col == "BugsElicited":
-                el_tool = int(df[df["Treatment"] == tr]["BugsElicited"].sum()) if not df.empty and len(df[df["Treatment"] == tr]) > 0 else 0
-                el_ctl = int(df[df["Treatment"] == CONTROL_TREATMENT]["BugsElicited"].sum()) if not df.empty and len(df[df["Treatment"] == CONTROL_TREATMENT]) > 0 else 0
-                tot_tool = int(df[df["Treatment"] == tr]["TaskBugCount"].sum()) if not df.empty and len(df[df["Treatment"] == tr]) > 0 else 0
-                tot_ctl = int(df[df["Treatment"] == CONTROL_TREATMENT]["TaskBugCount"].sum()) if not df.empty and len(df[df["Treatment"] == CONTROL_TREATMENT]) > 0 else 0
+                el_tool = int(df[df["Treatment"] == tr]["BugsElicited"].sum(
+                )) if not df.empty and len(df[df["Treatment"] == tr]) > 0 else 0
+                el_ctl = int(df[df["Treatment"] == CONTROL_TREATMENT]["BugsElicited"].sum(
+                )) if not df.empty and len(df[df["Treatment"] == CONTROL_TREATMENT]) > 0 else 0
+                tot_tool = int(df[df["Treatment"] == tr]["TaskBugCount"].sum(
+                )) if not df.empty and len(df[df["Treatment"] == tr]) > 0 else 0
+                tot_ctl = int(df[df["Treatment"] == CONTROL_TREATMENT]["TaskBugCount"].sum(
+                )) if not df.empty and len(df[df["Treatment"] == CONTROL_TREATMENT]) > 0 else 0
                 test_str = "Fisher's exact"
 
                 if tot_tool == 0 or tot_ctl == 0:
                     row = f"    {name} & -- & {test_str} & -- & n/a \\\\"
                 else:
-                    p_val = compute_fisher_exact(el_tool, tot_tool, el_ctl, tot_ctl)
+                    p_val = compute_fisher_exact(
+                        el_tool, tot_tool, el_ctl, tot_ctl)
                     if np.isnan(p_val):
                         row = f"    {name} & -- & {test_str} & -- & n/a \\\\"
                     else:
-                        delta_pct = (el_tool / el_ctl - 1.0) * 100.0 if el_ctl != 0 else 0.0
+                        delta_pct = (el_tool / el_ctl - 1.0) * \
+                            100.0 if el_ctl != 0 else 0.0
                         sign = "+" if delta_pct >= 0 else ""
                         delta_str = f"{sign}{delta_pct:.1f}\\%"
-                        fish_table = [[el_tool, max(0, tot_tool - el_tool)], [el_ctl, max(0, tot_ctl - el_ctl)]]
+                        fish_table = [
+                            [el_tool, max(0, tot_tool - el_tool)], [el_ctl, max(0, tot_ctl - el_ctl)]]
                         try:
-                            odds_ratio = float(st.fisher_exact(fish_table).statistic)
+                            odds_ratio = float(
+                                st.fisher_exact(fish_table).statistic)
                         except Exception:
                             odds_ratio = float(np.nan)
-                        stat_str = f"$\\text{{OR}} = {odds_ratio:.2f}$" if not np.isnan(odds_ratio) else "--"
+                        stat_str = f"$\\text{{OR}} = {odds_ratio:.2f}$" if not np.isnan(
+                            odds_ratio) else "--"
                         p_str = f"{p_val:.4f}"
                         star = star_alignment(p_val)
                         is_sig = p_val < 0.05
@@ -614,8 +698,10 @@ def generate_ttest_table(df: pd.DataFrame, out_path: str, stats: dict):
                         else:
                             row = f"    {name} & {delta_str} & {test_str} & {stat_str} & {p_str}{star} \\\\"
             else:
-                s_tool = df[df["Treatment"] == tr][col] if not df.empty else pd.Series([])
-                s_ctl = df[df["Treatment"] == CONTROL_TREATMENT][col] if not df.empty else pd.Series([])
+                s_tool = df[df["Treatment"] ==
+                            tr][col] if not df.empty else pd.Series([])
+                s_ctl = df[df["Treatment"] == CONTROL_TREATMENT][col] if not df.empty else pd.Series([
+                ])
                 r = t_stats(s_tool, s_ctl)
                 test_str = "Two-tailed $t$-test"
 
@@ -623,7 +709,8 @@ def generate_ttest_table(df: pd.DataFrame, out_path: str, stats: dict):
                     row = f"    {name} & -- & {test_str} & -- & n/a \\\\"
                 else:
                     is_sig = r["p"] < 0.05
-                    is_better = (r["m1"] > r["m2"]) if higher_is_better else (r["m1"] < r["m2"])
+                    is_better = (r["m1"] > r["m2"]) if higher_is_better else (
+                        r["m1"] < r["m2"])
                     color = "bettergreen" if is_better else "worsered"
                     star = star_alignment(r["p"])
                     sign = "+" if r["delta_pct"] >= 0 else ""
@@ -653,12 +740,19 @@ def generate_ttest_table(df: pd.DataFrame, out_path: str, stats: dict):
 
 def generate_bugs_elicited_table(df: pd.DataFrame, out_path: str):
     """Generates the ground-truth defect elicitation and detection matrix across treatments."""
-    rubric_path = os.path.join(os.path.dirname(__file__), "ground_truth_rubric.json")
+    rubric_path = os.path.join(os.path.dirname(
+        __file__), "ground_truth_rubric.json")
     if not os.path.exists(rubric_path):
-        raise FileNotFoundError(f"CRITICAL: ground_truth_rubric.json not found at {rubric_path}")
+        raise FileNotFoundError(
+            f"CRITICAL: ground_truth_rubric.json not found at {rubric_path}")
 
     with open(rubric_path, "r", encoding="utf-8") as f:
         rubric = json.load(f)
+
+    active_treatments = get_active_treatments(df)
+    num_tr = len(active_treatments)
+    col_spec = "ll|" + "r" * num_tr
+    tr_headers = " & ".join([f"\\textbf{{{tr}}}" for tr in active_treatments])
 
     lines = [
         r"\begin{table*}[!htbp]",
@@ -668,14 +762,14 @@ def generate_bugs_elicited_table(df: pd.DataFrame, out_path: str):
         r"  \definecolor{worsered}{RGB}{245,183,177}",
         r"  \caption{Bug Elicitations by Task Program and Treatment}",
         r"  \label{quarton:tab:bugs-elicited}",
-        r"  \begin{tabular}{ll|rrrrrr}",
+        f"  \\begin{{tabular}}{{{col_spec}}}",
         r"    \toprule",
-        r"    \textbf{Task Program} & \textbf{Bug ID} & \textbf{SCRAM} & \textbf{CR} & \textbf{R} & \textbf{RA} & \textbf{RM} & \textbf{SR} \\",
+        f"    \\textbf{{Task Program}} & \\textbf{{Bug ID}} & {tr_headers} \\\\",
         r"    \midrule",
     ]
 
-    treatment_totals = {t: 0 for t in TREATMENTS}
-    treatment_unique = {t: 0 for t in TREATMENTS}
+    treatment_totals = {t: 0 for t in active_treatments}
+    treatment_unique = {t: 0 for t in active_treatments}
 
     # Order PUTs: make_def before _distance_norm as requested
     ordered_tasks = ORDERED_TASKS
@@ -686,8 +780,10 @@ def generate_bugs_elicited_table(df: pd.DataFrame, out_path: str):
         first_row = True
 
         # Sort bugs by total hits ascending (lowest hits on top)
-        bug_hits = {bid: int(df[bid].dropna().sum()) if bid in df.columns else 0 for bid in bugs}
-        ordered_bids = sorted(bugs.keys(), key=lambda b: (bug_hits.get(b, 0), b))
+        bug_hits = {bid: int(df[bid].dropna().sum())
+                    if bid in df.columns else 0 for bid in bugs}
+        ordered_bids = sorted(
+            bugs.keys(), key=lambda b: (bug_hits.get(b, 0), b))
 
         for bid in ordered_bids:
             prefix = task_label if first_row else ""
@@ -695,8 +791,9 @@ def generate_bugs_elicited_table(df: pd.DataFrame, out_path: str):
             escaped_bid = bid.replace("_", r"\_")
 
             counts = []
-            for t in TREATMENTS:
-                sub = df[df["Treatment"] == t] if not df.empty else pd.DataFrame()
+            for t in active_treatments:
+                sub = df[df["Treatment"] ==
+                         t] if not df.empty else pd.DataFrame()
                 hits = 0
                 if bid in sub.columns:
                     hits = int((sub[bid] == 1).sum())
@@ -706,14 +803,18 @@ def generate_bugs_elicited_table(df: pd.DataFrame, out_path: str):
                 if hits > 0:
                     treatment_unique[t] += 1
 
-            lines.append(f"    {prefix} & \\texttt{{{escaped_bid}}} & " + " & ".join(counts) + r" \\")
+            lines.append(
+                f"    {prefix} & \\texttt{{{escaped_bid}}} & " + " & ".join(counts) + r" \\")
         lines.append(r"    \midrule")
 
-    total_rubric_bugs = sum(len(rubric.get("tasks", {}).get(t, {}).get("bugs", {})) for t in TASKS)
+    total_rubric_bugs = sum(
+        len(rubric.get("tasks", {}).get(t, {}).get("bugs", {})) for t in TASKS)
     lines.extend([
-        "    \\multicolumn{2}{l|}{\\textbf{Total Elicitations}} & " + " & ".join(str(treatment_totals[t]) for t in TREATMENTS) + r" \\",
+        "    \\multicolumn{2}{l|}{\\textbf{Total Elicitations}} & " +
+        " & ".join(str(treatment_totals[t]) for t in active_treatments) + r" \\",
         r"    \hline",
-        f"    \\multicolumn{{2}}{{l|}}{{\\textbf{{Unique Bugs Elicited (out of {total_rubric_bugs})}}}} & " + " & ".join(str(treatment_unique[t]) for t in TREATMENTS) + r" \\",
+        f"    \\multicolumn{{2}}{{l|}}{{\\textbf{{Unique Bugs Elicited (out of {total_rubric_bugs})}}}} & " + " & ".join(
+            str(treatment_unique[t]) for t in active_treatments) + r" \\",
         r"    \bottomrule",
         r"    \multicolumn{8}{c}{\footnotesize Green indicates the bug was elicited by the treatment; red indicates unelicited.} \\",
         r"  \end{tabular}",
@@ -728,6 +829,7 @@ def generate_bugs_elicited_table(df: pd.DataFrame, out_path: str):
 
 def generate_stop_reasons_table(df: pd.DataFrame, out_path: str):
     """Generates stop reason and exit code breakdown table across tasks and treatments."""
+    active_treatments = get_active_treatments(df)
     lines = [
         r"\begin{table*}[!htbp]",
         r"  \centering",
@@ -743,28 +845,39 @@ def generate_stop_reasons_table(df: pd.DataFrame, out_path: str):
     for task in TASKS:
         task_label = TASK_LABELS.get(task, task)
         first_row = True
-        for tr in TREATMENTS:
+        for tr in active_treatments:
             prefix = task_label if first_row else ""
             first_row = False
-            sub = df[(df["Task"] == task) & (df["Treatment"] == tr)] if not df.empty else pd.DataFrame()
-            n_time = int((sub["StopReason"] == "maxTime").sum()) if "StopReason" in sub.columns else 0
-            n_dupes = int((sub["StopReason"] == "maxDupes").sum()) if "StopReason" in sub.columns else 0
-            n_tests = int((sub["StopReason"] == "maxTests").sum()) if "StopReason" in sub.columns else 0
+            sub = df[(df["Task"] == task) & (df["Treatment"] == tr)
+                     ] if not df.empty else pd.DataFrame()
+            n_time = int((sub["StopReason"] == "maxTime").sum()
+                         ) if "StopReason" in sub.columns else 0
+            n_dupes = int((sub["StopReason"] == "maxDupes").sum()
+                          ) if "StopReason" in sub.columns else 0
+            n_tests = int((sub["StopReason"] == "maxTests").sum()
+                          ) if "StopReason" in sub.columns else 0
             n_other = len(sub) - (n_time + n_dupes + n_tests)
-            n_exit0 = int((sub["ExitCode"] == 0).sum()) if "ExitCode" in sub.columns else 0
-            n_exit1 = int((sub["ExitCode"] == 1).sum()) if "ExitCode" in sub.columns else 0
+            n_exit0 = int((sub["ExitCode"] == 0).sum()
+                          ) if "ExitCode" in sub.columns else 0
+            n_exit1 = int((sub["ExitCode"] == 1).sum()
+                          ) if "ExitCode" in sub.columns else 0
             tr_label = TREATMENT_LABELS.get(tr, tr)
             lines.append(
                 f"    {prefix} & {tr_label} & {n_time} & {n_dupes} & {n_tests} & {n_other} & {n_exit0} & {n_exit1} \\\\"
             )
         lines.append(r"    \midrule")
 
-    tot_time = int((df["StopReason"] == "maxTime").sum()) if "StopReason" in df.columns else 0
-    tot_dupes = int((df["StopReason"] == "maxDupes").sum()) if "StopReason" in df.columns else 0
-    tot_tests = int((df["StopReason"] == "maxTests").sum()) if "StopReason" in df.columns else 0
+    tot_time = int((df["StopReason"] == "maxTime").sum()
+                   ) if "StopReason" in df.columns else 0
+    tot_dupes = int((df["StopReason"] == "maxDupes").sum()
+                    ) if "StopReason" in df.columns else 0
+    tot_tests = int((df["StopReason"] == "maxTests").sum()
+                    ) if "StopReason" in df.columns else 0
     tot_other = len(df) - (tot_time + tot_dupes + tot_tests)
-    tot_exit0 = int((df["ExitCode"] == 0).sum()) if "ExitCode" in df.columns else 0
-    tot_exit1 = int((df["ExitCode"] == 1).sum()) if "ExitCode" in df.columns else 0
+    tot_exit0 = int((df["ExitCode"] == 0).sum()
+                    ) if "ExitCode" in df.columns else 0
+    tot_exit1 = int((df["ExitCode"] == 1).sum()
+                    ) if "ExitCode" in df.columns else 0
 
     lines.extend([
         f"    \\multicolumn{{2}}{{l|}}{{\\textbf{{Total across all {len(df)} trials}}}} & {tot_time} & {tot_dupes} & {tot_tests} & {tot_other} & {tot_exit0} & {tot_exit1} \\\\",
@@ -782,16 +895,21 @@ def generate_stop_reasons_table(df: pd.DataFrame, out_path: str):
 
 def generate_cig_generator_table(run_dir: str, out_path: str, df: Optional[pd.DataFrame] = None):
     """Generates generator provenance breakdown table for CIG trials in canonical S, C, R, A, M format."""
-    rubric_path = os.path.join(os.path.dirname(__file__), "ground_truth_rubric.json")
+    rubric_path = os.path.join(os.path.dirname(
+        __file__), "ground_truth_rubric.json")
     if not os.path.exists(rubric_path):
-        raise FileNotFoundError(f"CRITICAL: ground_truth_rubric.json not found at {rubric_path}")
+        raise FileNotFoundError(
+            f"CRITICAL: ground_truth_rubric.json not found at {rubric_path}")
 
     with open(rubric_path, "r", encoding="utf-8") as f:
         rubric = json.load(f)
 
-    artifact_pattern = os.path.join(run_dir, "artifacts", "*", "elicited_bugs.json")
-    eliciting_counts: Dict[str, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
-    originating_counts: Dict[str, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    artifact_pattern = os.path.join(
+        run_dir, "artifacts", "*", "elicited_bugs.json")
+    eliciting_counts: Dict[str, Dict[str, int]
+                           ] = defaultdict(lambda: defaultdict(int))
+    originating_counts: Dict[str, Dict[str, int]
+                             ] = defaultdict(lambda: defaultdict(int))
 
     log_files = glob.glob(artifact_pattern)
     for logf in log_files:
@@ -839,12 +957,15 @@ def generate_cig_generator_table(run_dir: str, out_path: str, df: Optional[pd.Da
         bugs = rubric.get("tasks", {}).get(task_name, {}).get("bugs", {})
         task_label = TASK_LABELS.get(task_name, task_name)
         lines.append(r"    \midrule")
-        lines.append(f"    \\multicolumn{{6}}{{c}}{{\\textbf{{{task_label}}}}} \\\\")
+        lines.append(
+            f"    \\multicolumn{{6}}{{c}}{{\\textbf{{{task_label}}}}} \\\\")
         lines.append(r"    \midrule")
 
         if df is not None and not df.empty:
-            bug_hits = {bid: int(df[bid].dropna().sum()) if bid in df.columns else 0 for bid in bugs}
-            ordered_bids = sorted(bugs.keys(), key=lambda b: (bug_hits.get(b, 0), b))
+            bug_hits = {bid: int(df[bid].dropna().sum())
+                        if bid in df.columns else 0 for bid in bugs}
+            ordered_bids = sorted(
+                bugs.keys(), key=lambda b: (bug_hits.get(b, 0), b))
         else:
             ordered_bids = sorted(bugs.keys())
 
@@ -854,10 +975,12 @@ def generate_cig_generator_table(run_dir: str, out_path: str, df: Optional[pd.Da
             for gtype in gen_keys:
                 el_cnt = eliciting_counts[bid][gtype]
                 orig_cnt = originating_counts[bid][gtype]
-                color = "bettergreen" if (el_cnt > 0 or orig_cnt > 0) else "worsered"
+                color = "bettergreen" if (
+                    el_cnt > 0 or orig_cnt > 0) else "worsered"
                 cell_text = f"{el_cnt} ({orig_cnt})"
                 cells.append(f"\\cellcolor{{{color}}}{cell_text}")
-            lines.append(f"    \\texttt{{{escaped_bid}}} & " + " & ".join(cells) + r" \\")
+            lines.append(
+                f"    \\texttt{{{escaped_bid}}} & " + " & ".join(cells) + r" \\")
 
     lines.extend([
         r"    \bottomrule",
@@ -894,7 +1017,8 @@ def generate_provenance_listing(run_dir: str, out_path: str, df: Optional[pd.Dat
         for _, r in df.iterrows():
             run_tasks[r["RunID"]] = r["Task"]
 
-    artifact_pattern = os.path.join(run_dir, "artifacts", "*", "elicited_bugs.json")
+    artifact_pattern = os.path.join(
+        run_dir, "artifacts", "*", "elicited_bugs.json")
     all_candidates = []
 
     log_files = glob.glob(artifact_pattern)
@@ -924,9 +1048,12 @@ def generate_provenance_listing(run_dir: str, out_path: str, df: Optional[pd.Dat
         return
 
     # Bucket candidates according to selection hierarchy
-    p1 = [c for c in all_candidates if len(bug_treatments.get(c["bug_id"], set())) == 1 and "SCRAM" in bug_treatments.get(c["bug_id"], set())]
-    p2 = [c for c in all_candidates if "SR" not in bug_treatments.get(c["bug_id"], set())]
-    p3 = [c for c in all_candidates if "R" not in bug_treatments.get(c["bug_id"], set())]
+    p1 = [c for c in all_candidates if len(bug_treatments.get(
+        c["bug_id"], set())) == 1 and "SCRAM" in bug_treatments.get(c["bug_id"], set())]
+    p2 = [c for c in all_candidates if "SR" not in bug_treatments.get(
+        c["bug_id"], set())]
+    p3 = [c for c in all_candidates if "R" not in bug_treatments.get(
+        c["bug_id"], set())]
 
     if p1:
         selected_pool = p1
@@ -943,13 +1070,15 @@ def generate_provenance_listing(run_dir: str, out_path: str, df: Optional[pd.Dat
     chain_parts = selected["chain"].split("->")
     formatted_lines = []
     for i, p in enumerate(chain_parts):
-        prefix = "Origin:  " if i == 0 else ("Elicit:  " if i == len(chain_parts) - 1 else "Mutate:  ")
+        prefix = "Origin:  " if i == 0 else (
+            "Elicit:  " if i == len(chain_parts) - 1 else "Mutate:  ")
         formatted_lines.append(f"{prefix}{p.strip()}")
 
     bid_tex = selected["bug_id"].replace("_", r"\_")
     task_tex = TASK_LABELS.get(selected["task"], selected["task"])
 
-    not_elicited_by = [tr for tr in TREATMENTS if tr not in bug_treatments.get(selected["bug_id"], set())]
+    not_elicited_by = [tr for tr in TREATMENTS if tr not in bug_treatments.get(
+        selected["bug_id"], set())]
     unelicited_str = ", ".join(not_elicited_by) if not_elicited_by else "none"
 
     caption_short = f"Input Mutation Lineage for \\texttt{{{bid_tex}}}"
@@ -985,29 +1114,35 @@ def generate_provenance_listing(run_dir: str, out_path: str, df: Optional[pd.Dat
 def generate_data_cig_tex(df: pd.DataFrame, out_path: str, stats: dict):
     """Outputs LaTeX macro definitions with key experimental metrics."""
     total_trials = len(df)
-    completed_trials = len(df[df["Status"] == "COMPLETED"]) if not df.empty else 0
-    total_runtime_sec = float(df["ElapsedSec"].sum()) if "ElapsedSec" in df.columns else 0.0
+    completed_trials = len(
+        df[df["Status"] == "COMPLETED"]) if not df.empty else 0
+    total_runtime_sec = float(
+        df["ElapsedSec"].sum()) if "ElapsedSec" in df.columns else 0.0
 
-    tool_ver_str = str(df["ToolVersion"].dropna().iloc[0]) if "ToolVersion" in df.columns and not df["ToolVersion"].dropna().empty else "NaNofuzz"
+    tool_ver_str = str(df["ToolVersion"].dropna(
+    ).iloc[0]) if "ToolVersion" in df.columns and not df["ToolVersion"].dropna().empty else "NaNofuzz"
+
+    active_treatments = get_active_treatments(df)
 
     lines = [
         r"% Auto-generated summary variables for CIG empirical benchmark",
         f"\\newcommand{{\\cigToolVersion}}{{{tool_ver_str}}}",
         f"\\newcommand{{\\cigTotalTrials}}{{{total_trials}}}",
         f"\\newcommand{{\\cigCompletedTrials}}{{{completed_trials}}}",
-        f"\\providecommand{{\\qntreatments}}{{{len(TREATMENTS)}}}",
-        f"\\renewcommand{{\\qntreatments}}{{{len(TREATMENTS)}}}",
+        f"\\providecommand{{\\qntreatments}}{{{len(active_treatments)}}}",
+        f"\\renewcommand{{\\qntreatments}}{{{len(active_treatments)}}}",
     ]
 
-    for tr in TREATMENTS:
+    for tr in active_treatments:
         tr_clean = tr.replace("_", "")
-        rate_all = stats[tr]["All"]["BugElicitationRate"]["mean"]
-        cov_all = stats[tr]["All"]["BranchCoveragePct"]["mean"]
-        bugs_all = stats[tr]["All"]["BugsElicited"]["mean"]
-        p_cov = stats[tr]["All"]["BranchCoveragePct"]["pvalue"]
-        p_rate = stats[tr]["All"]["BugElicitationRate"]["pvalue"]
+        rate_all = stats.get(tr, {}).get("All", {}).get("BugElicitationRate", {}).get("mean", np.nan)
+        cov_all = stats.get(tr, {}).get("All", {}).get("BranchCoveragePct", {}).get("mean", np.nan)
+        bugs_all = stats.get(tr, {}).get("All", {}).get("BugsElicited", {}).get("mean", np.nan)
+        p_cov = stats.get(tr, {}).get("All", {}).get("BranchCoveragePct", {}).get("pvalue", np.nan)
+        p_rate = stats.get(tr, {}).get("All", {}).get("BugElicitationRate", {}).get("pvalue", np.nan)
 
-        rate_str = f"{rate_all:.1%}".replace("%", r"\%") if not np.isnan(rate_all) else "--"
+        rate_str = f"{rate_all:.1%}".replace(
+            "%", r"\%") if not np.isnan(rate_all) else "--"
         cov_str = f"{cov_all:.1f}\\%" if not np.isnan(cov_all) else "--"
         bugs_str = f"{bugs_all:.2f}" if not np.isnan(bugs_all) else "--"
         p_cov_str = pvalrange(p_cov) if not np.isnan(p_cov) else "n/a"
@@ -1021,10 +1156,14 @@ def generate_data_cig_tex(df: pd.DataFrame, out_path: str, stats: dict):
             f"\\newcommand{{\\cig{tr_clean}ElicitationPRange}}{{{p_rate_str}}}",
         ])
 
-    tot_time = int((df["StopReason"] == "maxTime").sum()) if "StopReason" in df.columns else 0
-    tot_dupes = int((df["StopReason"] == "maxDupes").sum()) if "StopReason" in df.columns else 0
-    tot_exit0 = int((df["ExitCode"] == 0).sum()) if "ExitCode" in df.columns else 0
-    tot_exit1 = int((df["ExitCode"] == 1).sum()) if "ExitCode" in df.columns else 0
+    tot_time = int((df["StopReason"] == "maxTime").sum()
+                   ) if "StopReason" in df.columns else 0
+    tot_dupes = int((df["StopReason"] == "maxDupes").sum()
+                    ) if "StopReason" in df.columns else 0
+    tot_exit0 = int((df["ExitCode"] == 0).sum()
+                    ) if "ExitCode" in df.columns else 0
+    tot_exit1 = int((df["ExitCode"] == 1).sum()
+                    ) if "ExitCode" in df.columns else 0
 
     lines.extend([
         f"\\newcommand{{\\cigTotalMaxTime}}{{{tot_time}}}",
@@ -1040,10 +1179,14 @@ def generate_data_cig_tex(df: pd.DataFrame, out_path: str, stats: dict):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Analyze CIG experimental benchmark dataset")
-    parser.add_argument("--data", type=str, default=None, help="Path to data.csv (defaults to latest)")
-    parser.add_argument("--parts-dir", type=str, default=None, help="Destination directory for LaTeX parts")
-    parser.add_argument("--smoke", action="store_true", help="Flag indicating dataset is a partial smoke test")
+    parser = argparse.ArgumentParser(
+        description="Analyze CIG experimental benchmark dataset")
+    parser.add_argument("--data", type=str, default=None,
+                        help="Path to data.csv (defaults to latest)")
+    parser.add_argument("--parts-dir", type=str, default=None,
+                        help="Destination directory for LaTeX parts")
+    parser.add_argument("--smoke", action="store_true",
+                        help="Flag indicating dataset is a partial smoke test")
     args = parser.parse_args()
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -1055,7 +1198,8 @@ def main():
         if os.path.exists(latest_sym):
             data_path = latest_sym
         else:
-            raise FileNotFoundError("CRITICAL: data.csv not specified and latest run not found.")
+            raise FileNotFoundError(
+                "CRITICAL: data.csv not specified and latest run not found.")
 
     print(f"[ANALYSIS] Loading dataset from: {data_path}")
     df = pd.read_csv(data_path)
@@ -1124,7 +1268,8 @@ def main():
                 shutil.copy2(src_f, os.path.join(diss_parts, fname))
         print(f"[MIRROR] Mirrored tables, listings, and plots to {diss_parts}")
 
-    print(f"\n[SUCCESS] CIG complete analysis suite generated in:\n  {parts_dir}")
+    print(
+        f"\n[SUCCESS] CIG complete analysis suite generated in:\n  {parts_dir}")
 
 
 if __name__ == "__main__":

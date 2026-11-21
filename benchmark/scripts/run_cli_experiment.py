@@ -242,7 +242,8 @@ def execute_nanofuzz_run(
         retcode = proc.returncode
     except subprocess.TimeoutExpired:
         # Graceful timeout handling: send SIGINT first so NaNofuzz can stop runners and write .mpk
-        tprint(f"[Lane {lane_idx}] Process exceeded {timeout_sec:.0f}s. Sending SIGINT for graceful teardown...")
+        tprint(
+            f"[Lane {lane_idx}] Process exceeded {timeout_sec:.0f}s. Sending SIGINT for graceful teardown...")
         if sys.platform != "win32":
             try:
                 os.killpg(os.getpgid(proc.pid), signal.SIGINT)
@@ -256,7 +257,8 @@ def execute_nanofuzz_run(
             retcode = proc.returncode
         except subprocess.TimeoutExpired:
             # Force kill with SIGKILL if still hung after 30s grace period
-            tprint(f"[Lane {lane_idx}] Process failed to exit after 30s of SIGINT. Escalating to SIGKILL.")
+            tprint(
+                f"[Lane {lane_idx}] Process failed to exit after 30s of SIGINT. Escalating to SIGKILL.")
             if sys.platform != "win32":
                 try:
                     os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
@@ -423,7 +425,8 @@ def process_trial_result(
                 try:
                     entry = json.loads(line)
                 except Exception as e:
-                    raise RuntimeError(f"CRITICAL: Corrupted JSON line in {interceptor_log_path}: {line}") from e
+                    raise RuntimeError(
+                        f"CRITICAL: Corrupted JSON line in {interceptor_log_path}: {line}") from e
 
                 if entry.get("summary") and "total_calls" in entry:
                     interceptor_total_calls += int(entry["total_calls"])
@@ -453,7 +456,8 @@ def process_trial_result(
         # Extract bug IDs directly from the harness output tuple [put_input, bug_ids]
         output = r.get("output")
         if output and len(output) > 0:
-            val = output[0].get("value") if isinstance(output[0], dict) else output[0]
+            val = output[0].get("value") if isinstance(
+                output[0], dict) else output[0]
             if isinstance(val, (list, tuple)) and len(val) >= 2:
                 for bid in val[1]:
                     if bid in task_rubric_bugs:
@@ -553,7 +557,8 @@ def process_trial_result(
 
 def create_failed_trial_row(trial: dict, run_id: str, attempts: int, last_error: str, rubric: dict) -> dict:
     task_name = trial["Task"]
-    task_rubric_bugs = rubric.get("tasks", {}).get(task_name, {}).get("bugs", {})
+    task_rubric_bugs = rubric.get("tasks", {}).get(
+        task_name, {}).get("bugs", {})
     row = {
         "RunID": run_id,
         "Task": task_name,
@@ -566,19 +571,19 @@ def create_failed_trial_row(trial: dict, run_id: str, attempts: int, last_error:
         "ExitCode": -1,
         "StopReason": "FAILED",
         "Attempts": attempts,
-        "TotalTestsExecuted": 0,
-        "TotalTestsInterceptor": 0,
-        "DupesGenerated": 0,
-        "InputsSkipped": 0,
-        "BranchCoveragePct": 0.0,
-        "BranchesCovered": 0,
+        "TotalTestsExecuted": "#N/A",
+        "TotalTestsInterceptor": "#N/A",
+        "DupesGenerated": "#N/A",
+        "InputsSkipped": "#N/A",
+        "BranchCoveragePct": "#N/A",
+        "BranchesCovered": "#N/A",
         "BranchesTotal": TASKS_MAP[task_name]["branches_total"],
         "TaskBugCount": len(task_rubric_bugs),
-        "BugsElicited": 0,
-        "BugsDetected": 0,
-        "BugElicitationRate": 0.0,
-        "ElicitingGenerators": "None",
-        "ElicitingGeneratorsValidator": "None",
+        "BugsElicited": "#N/A",
+        "BugsDetected": "#N/A",
+        "BugElicitationRate": "#N/A",
+        "ElicitingGenerators": "#N/A",
+        "ElicitingGeneratorsValidator": "#N/A",
         "Status": "FAILED",
         "Error": str(last_error)[:300],
     }
@@ -605,10 +610,12 @@ def lane_worker_loop(
                         warmup_cfg, list(TASKS_MAP.keys()))
 
         if warmup_barrier is not None and warmup_cfg.get("enabled", True):
-            tprint(f"[Lane {lane_idx}] Finished warmup. Waiting for all other lanes to finish warmup...", flush=True)
+            tprint(
+                f"[Lane {lane_idx}] Finished warmup. Waiting for all other lanes to finish warmup...", flush=True)
             warmup_barrier.wait()
             if lane_idx == 1:
-                tprint("[WARMUP] All lanes have completed warmup. Commencing live experimental trials.", flush=True)
+                tprint(
+                    "[WARMUP] All lanes have completed warmup. Commencing live experimental trials.", flush=True)
 
         while True:
             item = task_queue.get()
@@ -693,10 +700,13 @@ def lane_worker_loop(
                     break
                 except Exception as exc:
                     last_err = exc
-                    err_file = os.path.join(trial_artifact_dir, f"attempt_{attempt}_error.txt")
+                    err_file = os.path.join(
+                        trial_artifact_dir, f"attempt_{attempt}_error.txt")
                     with open(err_file, "w", encoding="utf-8") as ef:
-                        ef.write(f"Timestamp: {datetime.datetime.now().isoformat()}\n")
-                        ef.write(f"Attempt: {attempt} of {MAX_TRIAL_ATTEMPTS}\n")
+                        ef.write(
+                            f"Timestamp: {datetime.datetime.now().isoformat()}\n")
+                        ef.write(
+                            f"Attempt: {attempt} of {MAX_TRIAL_ATTEMPTS}\n")
                         ef.write(f"ExitCode: {retcode}\n")
                         ef.write(f"Elapsed: {elapsed:.2f}s\n")
                         ef.write(f"Error: {exc}\n\n")
@@ -705,7 +715,8 @@ def lane_worker_loop(
 
                     ts_err = datetime.datetime.now().strftime("%H:%M:%S")
                     if attempt < MAX_TRIAL_ATTEMPTS:
-                        print(f"[{ts_err}] [Lane {lane_idx}] Trial {run_id} failed on attempt {attempt}: {exc}. Retrying...", flush=True)
+                        print(
+                            f"[{ts_err}] [Lane {lane_idx}] Trial {run_id} failed on attempt {attempt}: {exc}. Retrying...", flush=True)
                         time.sleep(2)
                     else:
                         print(f"[{ts_err}] [Lane {lane_idx} ERROR] Trial {run_id} failed after {MAX_TRIAL_ATTEMPTS} attempts: {exc}. Logging as FAILED and continuing remaining tasks.", flush=True)
@@ -737,7 +748,8 @@ def print_post_check_summary(results_rows: list, rubric: dict):
 
     total_trials = len(results_rows)
     completed = [r for r in results_rows if r.get("Status") == "COMPLETED"]
-    print(f"Total Trials: {total_trials} | Completed: {len(completed)} | Failed: {total_trials - len(completed)}")
+    print(
+        f"Total Trials: {total_trials} | Completed: {len(completed)} | Failed: {total_trials - len(completed)}")
 
     # 1. Denominator Cross-Checks
     denom_errors = []
@@ -746,12 +758,15 @@ def print_post_check_summary(results_rows: list, rubric: dict):
         expected_denom = TASKS_MAP[task]["branches_total"]
         actual_denom = r.get("BranchesTotal")
         if actual_denom != expected_denom:
-            denom_errors.append((r["RunID"], task, expected_denom, actual_denom))
+            denom_errors.append(
+                (r["RunID"], task, expected_denom, actual_denom))
 
     if not denom_errors:
-        print("✓ Branch Coverage Denominators: ALL PASSED (100% matched ground-truth rubric)")
+        print(
+            "✓ Branch Coverage Denominators: ALL PASSED (100% matched ground-truth rubric)")
     else:
-        print(f"✗ Branch Coverage Denominators: {len(denom_errors)} MISMATCHES:")
+        print(
+            f"✗ Branch Coverage Denominators: {len(denom_errors)} MISMATCHES:")
         for rid, tsk, exp, act in denom_errors:
             print(f"    - {rid} ({tsk}): expected {exp}, got {act}")
 
@@ -761,6 +776,11 @@ def print_post_check_summary(results_rows: list, rubric: dict):
         rid = r["RunID"]
         task = r["Task"]
         tr = r["Treatment"]
+        status = r.get("Status", "COMPLETED")
+        if status != "COMPLETED":
+            print(
+                f"    [{rid}] {task:<15} under {tr:<6} => FAILED ({status}): {r.get('Error', '')[:100]}")
+            continue
         el = r["BugsElicited"]
         tot = r["TaskBugCount"]
         cov = r["BranchCoveragePct"]
@@ -769,7 +789,8 @@ def print_post_check_summary(results_rows: list, rubric: dict):
         print(f"    [{rid}] {task:<15} under {tr:<6} => Elicited {el}/{tot} bugs ({rate:.1%}) | Cov: {cov}% ({r['BranchesCovered']}/{r['BranchesTotal']}) | Tests: {tests}")
 
     # 3. Provenance Verification
-    prov_empty = [r["RunID"] for r in results_rows if r.get("BugsElicited", 0) > 0 and not r.get("ElicitingGenerators")]
+    prov_empty = [r["RunID"] for r in results_rows if r.get(
+        "BugsElicited", 0) > 0 and not r.get("ElicitingGenerators")]
     if not prov_empty:
         print("\n✓ Generator Provenance Chains: ALL VERIFIED (non-empty provenance for all elicited defects)")
     else:
@@ -830,7 +851,8 @@ def main():
     repetitions = args.repetitions
     canonical_treatments = list(treatments_cfg["treatments"].keys())
     if args.treatments:
-        canonical_treatments = [t for t in args.treatments if t in treatments_cfg["treatments"]]
+        canonical_treatments = [
+            t for t in args.treatments if t in treatments_cfg["treatments"]]
     tasks_list = treatments_cfg.get("tasks", list(TASKS_MAP.keys()))
     if args.tasks:
         tasks_list = [t for t in args.tasks if t in TASKS_MAP]
@@ -910,7 +932,8 @@ def main():
     for _ in range(args.lanes):
         task_queue.put(None)
 
-    warmup_barrier = multiprocessing.Barrier(args.lanes) if treatments_cfg.get("warmup", {}).get("enabled", True) else None
+    warmup_barrier = multiprocessing.Barrier(args.lanes) if treatments_cfg.get(
+        "warmup", {}).get("enabled", True) else None
 
     workers_processes = []
     for lane in range(1, args.lanes + 1):
@@ -958,7 +981,8 @@ def main():
             pending_count -= 1
 
             if res.get("Status") == "FAILED":
-                tprint(f"[WARN] Trial {res['RunID']} failed after {res.get('Attempts', 1)} attempts ({res.get('Error')}). Logged to data.csv. Continuing remaining tasks.")
+                tprint(
+                    f"[WARN] Trial {res['RunID']} failed after {res.get('Attempts', 1)} attempts ({res.get('Error')}). Logged to data.csv. Continuing remaining tasks.")
 
             completed_count = len(results_rows)
             total_count = len(full_trial_list)
@@ -1019,8 +1043,10 @@ def main():
                 f"testing against control 'R' requires all 6 treatments. Full comparative analysis skipped."
             )
         else:
-            print(f"\n[ANALYSIS] Running CIG analysis pipeline on {data_csv_path}...")
-            cmd_analyze = [sys.executable, analyze_script, "--data", data_csv_path]
+            print(
+                f"\n[ANALYSIS] Running CIG analysis pipeline on {data_csv_path}...")
+            cmd_analyze = [sys.executable,
+                           analyze_script, "--data", data_csv_path]
             if args.smoke:
                 cmd_analyze.append("--smoke")
             subprocess.run(cmd_analyze, check=True)
