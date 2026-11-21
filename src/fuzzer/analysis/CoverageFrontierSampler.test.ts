@@ -838,6 +838,41 @@ def compute(x: int) -> int:
     const pyProg = ProgramFactory.fromFile(pyFile);
     expect(pyProg.functions["compute"].getCallees().has("add_one")).toBe(true);
     expect(pyProg.functions["add_one"].getCallees().size).toBe(0);
+
+    // Verify non-root programs lazily resolve supported functions and triage unsupported ones
+    const rootPyFile = path.join(tmpDir, "root_module.py");
+    const childPyFile = path.join(tmpDir, "child_dependency.py");
+    fs.writeFileSync(
+      childPyFile,
+      `from typing import IO
+
+def supported_helper(x: int) -> int:
+    return x * 2
+
+def unsupported_helper(stream: IO[str]) -> str:
+    return stream.read()
+`
+    );
+    fs.writeFileSync(
+      rootPyFile,
+      `import child_dependency
+
+def root_target(n: int) -> int:
+    return child_dependency.supported_helper(n)
+`
+    );
+
+    const rootProg = ProgramFactory.fromFile(rootPyFile);
+    const childProg = ProgramFactory.fromFile(childPyFile, undefined, undefined, rootProg.root);
+    expect(childProg.isRoot()).toBe(false);
+
+    // Reading functions on non-root program should not crash on unresolvable IO TypeRef
+    const childFunctions = childProg.functions;
+    expect(childFunctions["supported_helper"]).toBeDefined();
+    expect(childFunctions["supported_helper"].getArgDefs()[0].getName()).toBe("x");
+    expect(childFunctions["unsupported_helper"]).toBeUndefined();
+    expect(childProg.functionsNotSupported["unsupported_helper"]).toBeDefined();
+    expect(childProg.functionsNotSupported["unsupported_helper"].argument).toBe("stream");
   });
 
   it("getCallPath resolves call chains and sample() attaches CallChainFrame skeleton", () => {

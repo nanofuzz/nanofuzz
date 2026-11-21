@@ -556,4 +556,47 @@ public class PackagedHarness {
 
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
+
+  it("non-root child programs lazily resolve supported functions and categorize unsupported ones without throwing", () => {
+    const tmpDir = fs.mkdtempSync(
+      path.join(fs.realpathSync(os.tmpdir()), "nanofuzz-java-lazy-func-test-")
+    );
+    try {
+      const rootJava = path.join(tmpDir, "RootService.java");
+      const childJava = path.join(tmpDir, "ChildHelper.java");
+
+      fs.writeFileSync(
+        childJava,
+        `public class ChildHelper {
+    public static int validHelper(int n) { return n * 2; }
+    public static void unsupportedHelper(Object raw) {}
+}
+`
+      );
+
+      fs.writeFileSync(
+        rootJava,
+        `public class RootService {
+    public static int mainTarget(int x) { return ChildHelper.validHelper(x); }
+}
+`
+      );
+
+      const rootProg = ProgramFactory.fromFile(rootJava);
+      const childProg = ProgramFactory.fromFile(
+        childJava,
+        undefined,
+        undefined,
+        rootProg.root
+      );
+
+      expect(childProg.isRoot()).toBeFalse();
+      expect(childProg.functions["validHelper"]).toBeDefined();
+      expect(childProg.functions["validHelper"].getArgDefs()[0].getName()).toBe("n");
+      expect(childProg.functions["unsupportedHelper"]).toBeUndefined();
+      expect(childProg.functionsNotSupported["unsupportedHelper"]).toBeDefined();
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
 });

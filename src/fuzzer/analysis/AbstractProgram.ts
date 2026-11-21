@@ -318,6 +318,61 @@ export abstract class AbstractProgram {
   } // fn: get imports()
 
   /**
+   * Resolves argument and return types for a single function reference on-demand.
+   * If any argument type cannot be resolved, moves the function from supported to
+   * unsupported and returns undefined.
+   *
+   * @param fnRef The function reference to resolve
+   * @returns Resolved FunctionDef if supported, undefined otherwise
+   */
+  protected _resolveFunctionDef(fnRef: FunctionRef): FunctionDef | undefined {
+    const name = fnRef.name;
+    if (name in this._functionCache) {
+      return this._functionCache[name];
+    }
+    if (name in this._functions.unsupported) {
+      return undefined;
+    }
+
+    let lastArgName: string | undefined;
+    try {
+      if (fnRef.args) {
+        for (const fnArg of fnRef.args) {
+          lastArgName = fnArg.name;
+          this.resolveTypeRef(fnArg);
+        }
+      }
+    } catch (e: unknown) {
+      const msg = getErrorMessageOrJson(e);
+      this._functions.unsupported[name] = {
+        reason: msg,
+        argument: lastArgName,
+        function: fnRef,
+      };
+      delete this._functions.supported[name];
+      delete this._exports.functions[name];
+      return undefined;
+    }
+
+    try {
+      if (fnRef.returnType) {
+        lastArgName = "return";
+        this.resolveTypeRef(fnRef.returnType);
+      }
+    } catch (_e: unknown) {
+      // Failure to resolve return type does not make function unsupported
+    }
+
+    const fnDef = FunctionDef.fromFunctionRef(
+      fnRef,
+      this._options,
+      () => this.getCallees(name)
+    );
+    this._functionCache[name] = fnDef;
+    return fnDef;
+  } // fn: _resolveFunctionDef()
+
+  /**
    * Returns supported functions defined in the program
    *
    * @returns the functions defined in the program
@@ -325,14 +380,10 @@ export abstract class AbstractProgram {
   public get functions(): Record<IdentifierName, FunctionDef> {
     const ret: Record<IdentifierName, FunctionDef> = {};
     for (const [key, value] of Object.entries(this._functions.supported)) {
-      if (!(key in this._functionCache)) {
-        this._functionCache[key] = FunctionDef.fromFunctionRef(
-          value,
-          this._options,
-          () => this.getCallees(key)
-        );
+      const fnDef = this._resolveFunctionDef(value);
+      if (fnDef) {
+        ret[key] = fnDef;
       }
-      ret[key] = this._functionCache[key];
     }
     return ret;
   } // fn: get functions()
@@ -345,14 +396,10 @@ export abstract class AbstractProgram {
   public get functionsExported(): Record<IdentifierName, FunctionDef> {
     const ret: Record<IdentifierName, FunctionDef> = {};
     for (const [key, value] of Object.entries(this._exports.functions)) {
-      if (!(key in this._functionCache)) {
-        this._functionCache[key] = FunctionDef.fromFunctionRef(
-          value,
-          this._options,
-          () => this.getCallees(key)
-        );
+      const fnDef = this._resolveFunctionDef(value);
+      if (fnDef) {
+        ret[key] = fnDef;
       }
-      ret[key] = this._functionCache[key];
     }
     return ret;
   } // fn: get functionsExported()

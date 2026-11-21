@@ -5,6 +5,7 @@ import { ArgTag } from "../Types";
 import { PythonProgram } from "./PythonProgram";
 import seedrandom from "seedrandom";
 import * as fs from "fs";
+import * as os from "os";
 import * as path from "path";
 import * as Parser from "../../adapters/ParserAdapter";
 
@@ -2416,5 +2417,53 @@ def fn_with_generic_type(cls: Type[int]) -> None:
     expect(fns["fn_with_generic_type"].getArgDefs()[0].getType()).toEqual(
       ArgTag.OBJECT
     );
+  });
+
+  it("non-root child programs lazily resolve supported functions and categorize unsupported ones without throwing", () => {
+    const tmpDir = fs.mkdtempSync(
+      path.join(fs.realpathSync(os.tmpdir()), "nanofuzz-py-lazy-func-test-")
+    );
+    try {
+      const rootPy = path.join(tmpDir, "root_app.py");
+      const childPy = path.join(tmpDir, "child_lib.py");
+
+      fs.writeFileSync(
+        childPy,
+        `from typing import IO
+
+def valid_helper(n: int) -> int:
+    return n * 2
+
+def stream_helper(file: IO[str]) -> str:
+    return file.read()
+`
+      );
+
+      fs.writeFileSync(
+        rootPy,
+        `import child_lib
+
+def main_target(x: int) -> int:
+    return child_lib.valid_helper(x)
+`
+      );
+
+      const rootProg = ProgramFactory.fromFile(rootPy);
+      const childProg = ProgramFactory.fromFile(
+        childPy,
+        undefined,
+        undefined,
+        rootProg.root
+      );
+
+      expect(childProg.isRoot()).toBeFalse();
+      expect(childProg.functions["valid_helper"]).toBeDefined();
+      expect(childProg.functions["valid_helper"].getArgDefs()[0].getName()).toBe("n");
+      expect(childProg.functions["stream_helper"]).toBeUndefined();
+      expect(childProg.functionsNotSupported["stream_helper"]).toBeDefined();
+      expect(childProg.functionsNotSupported["stream_helper"].argument).toBe("file");
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 });
