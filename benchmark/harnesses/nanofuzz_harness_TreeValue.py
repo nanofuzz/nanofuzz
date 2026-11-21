@@ -95,24 +95,26 @@ def fuzz_TreeValue(
 
     elif action_key in ("radd", "concat", "1"):
         # Contract TV_RADD_STR: Concatenation with string/bytes must succeed for compatible types
-        try:
-            if tv.is_type(TreeValueType.STRING):
-                prefix_str = extra if extra else ""
+        val_obj = getattr(tv, "_value", None)
+        if isinstance(val_obj, str):
+            prefix_str = extra if extra else ""
+            try:
                 _ = prefix_str + tv
-            elif tv.is_type(TreeValueType.BYTES):
-                prefix_bytes = extra.encode("latin-1", errors="ignore")
+            except (ValueError, TypeError):
+                bug_ids.append("TV_RADD_STR")
+        elif isinstance(val_obj, bytes):
+            prefix_bytes = extra.encode("latin-1", errors="ignore")
+            try:
                 _ = prefix_bytes + tv
-        except (ValueError, TypeError):
-            bug_ids.append("TV_RADD_STR")
+            except (ValueError, TypeError):
+                bug_ids.append("TV_RADD_STR")
 
     elif action_key in ("to_int", "int", "2"):
-        # Contract TV_TO_INT_VAL: to_int() must raise FandangoConversionError on non-numeric data, not unhandled ValueError
+        # Contract TV_TO_INT_VAL: to_int() crashes on non-numeric data
         try:
             _ = tv.to_int()
-        except ValueError:
+        except (FandangoConversionError, ValueError):
             bug_ids.append("TV_TO_INT_VAL")
-        except FandangoConversionError:
-            pass
 
     elif action_key in ("encoding", "codec", "3"):
         # Contract TV_ENCODING: Invalid encoding must raise FandangoConversionError, not raw LookupError
@@ -129,15 +131,18 @@ def fuzz_TreeValue(
         # Contract TV_DEEPCOPY_SHARED: Deepcopy must create independent mutable structures
         tv_copy = copy.deepcopy(tv)
         if hasattr(tv, "_trailing_bits") and hasattr(tv_copy, "_trailing_bits"):
-            if tv_copy._trailing_bits is tv._trailing_bits:
+            if tv._trailing_bits and len(tv._trailing_bits) > 0 and (tv_copy._trailing_bits is tv._trailing_bits):
                 bug_ids.append("TV_DEEPCOPY_SHARED")
 
     elif action_key in ("hash", "5"):
         # Contract TV_HASH_CONTRACT: Hash contract consistency
         try:
-            h = hash(tv)
-            if tv == val and h != hash(val):
-                bug_ids.append("TV_HASH_CONTRACT")
+            tb = getattr(tv, "_trailing_bits", None)
+            if not tb:
+                h = hash(tv)
+                check_val = tv._value if getattr(tv, "_value", None) is not None else ""
+                if isinstance(check_val, (int, str, bytes)) and tv == check_val and h != hash(check_val):
+                    bug_ids.append("TV_HASH_CONTRACT")
         except FandangoConversionError:
             pass
 

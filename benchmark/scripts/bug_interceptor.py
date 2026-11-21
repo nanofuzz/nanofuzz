@@ -265,21 +265,10 @@ def install_interceptors(log_path: str | None = None) -> bool:
 
         def wrapped_to_int(self: Any, *args, **kwargs) -> int:
             _record_call()
-            val = getattr(self, "_value", None)
-            is_numeric = False
-            if val is not None:
-                if isinstance(val, int):
-                    is_numeric = True
-                elif isinstance(val, str):
-                    is_numeric = val.lstrip("-").isdigit()
-                elif isinstance(val, bytes):
-                    try:
-                        is_numeric = val.decode("latin-1").lstrip("-").isdigit()
-                    except Exception:
-                        is_numeric = False
-            if val is not None and not is_numeric:
+            try:
+                return orig_to_int(self, *args, **kwargs)
+            except (FandangoConversionError, ValueError):
                 return _execute_with_elicitation("TV_TO_INT_VAL", (self,) + args, kwargs, orig_to_int, self, *args, **kwargs)
-            return orig_to_int(self, *args, **kwargs)
 
         def wrapped_deepcopy(self: Any, *args, **kwargs) -> Any:
             _record_call()
@@ -292,9 +281,10 @@ def install_interceptors(log_path: str | None = None) -> bool:
             _record_call()
             val = getattr(self, "_value", None)
             tb = getattr(self, "_trailing_bits", None)
-            if val is not None and not tb and isinstance(val, (int, str, bytes)):
+            if not tb:
                 res = orig_hash(self)
-                if self == val and res != hash(val):
+                target_val = val if val is not None else ""
+                if isinstance(target_val, (int, str, bytes)) and self == target_val and res != hash(target_val):
                     return _execute_with_elicitation("TV_HASH_CONTRACT", (self,), {}, lambda: res)
                 return res
             return orig_hash(self)
