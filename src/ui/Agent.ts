@@ -758,7 +758,11 @@ export async function runFuzz(
         : (options.workers ?? getWorkersPerDeepSlot()),
       outputResults:
         options.outputResults ??
-        (isBenchRun || isDeepFuzzingRun ? "failures" : "all"),
+        (options.exportSuite || options.exportFilePath
+          ? "interesting"
+          : isBenchRun || isDeepFuzzingRun
+            ? "failures"
+            : "all"),
       precompile: false,
     };
 

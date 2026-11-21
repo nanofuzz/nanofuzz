@@ -131,7 +131,7 @@ function createProgram(): Commander.Command {
     )
     .option(
       `--output-results <mode>`,
-      `Return test results: all, failures, none`,
+      `Return test results: all, interesting, failures, none`,
       parseOutputResults,
       "failures"
     )
@@ -1220,7 +1220,7 @@ function parseCigScheduler(
 } // fn: parseCigScheduler
 
 function parseOutputResults(value: string, _previous: string): string {
-  const allowed = ["all", "failures", "none"];
+  const allowed = ["all", "interesting", "failures", "none"];
   if (!allowed.includes(value)) {
     throw new Commander.InvalidArgumentError(
       `Invalid output results mode '${value}'. Allowed: ${allowed.join(", ")}`
