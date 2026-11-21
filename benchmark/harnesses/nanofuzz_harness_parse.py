@@ -54,8 +54,6 @@ def fuzz_parse(
             bug_ids.append("PARSE_EMPTY_CONSTRAINT")
     except RecursionError:
         bug_ids.append("PARSE_DESC_RECUR")
-    except TimeoutError:
-        bug_ids.append("PARSE_LEXER_STALL")
     except Exception as e:
         exc_type = type(e).__name__
         if "NameError" in exc_type or "ValueError" in exc_type:

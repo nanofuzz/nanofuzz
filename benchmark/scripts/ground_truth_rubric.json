@@ -173,15 +173,6 @@
           "safe_valid_domain": "Passing valid non-empty constraint expressions (e.g. ['<start> == \"a\"']) or empty constraints list []",
           "overgeneralization_triggers": "Claiming parse() crashes whenever constraints parameter is provided or on all empty strings"
         },
-        "PARSE_LEXER_STALL": {
-          "id": "PARSE_LEXER_STALL",
-          "name": "Lexer stall or freeze on escaped grammar delimiters",
-          "exception_class": "TimeoutError / Hang",
-          "exact_failure_domain": "Grammar specifications containing escaped delimiter tokens ('\\|') causing catastrophic regex backtracking",
-          "partial_failure_domain": "Stating that escaped pipe characters freeze or take excessive time to parse",
-          "safe_valid_domain": "Grammar specifications with standard pipe '|' alternation and unescaped delimiters",
-          "overgeneralization_triggers": "Claiming the parser hangs on all complex grammars or alternation rules"
-        },
         "PARSE_NAME_ERROR": {
           "id": "PARSE_NAME_ERROR",
           "name": "FandangoValueError / NameError on unresolved grammar identifier",
