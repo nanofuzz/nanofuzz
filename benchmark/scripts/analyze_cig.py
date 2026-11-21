@@ -21,26 +21,23 @@ import argparse
 import glob
 import json
 import os
-import sys
+import shutil
 from collections import defaultdict
-from typing import Dict, List, Optional, Tuple
-
-from analysis_common import (
-    pvalrange,
-    pvalstars,
-    star_alignment,
-    format_delta_pct,
-    compute_ttest,
-    compute_fisher_exact,
-    compute_mann_whitney,
-    format_sig_cell,
-    parse_generator_chain,
-    put_mathtt,
-)
+from typing import Dict, List, Optional
 
 import numpy as np
 import pandas as pd
 import scipy.stats as st
+from analysis_common import (
+    compute_fisher_exact,
+    compute_mann_whitney,
+    compute_ttest,
+    format_sig_cell,
+    parse_generator_chain,
+    put_mathtt,
+    pvalrange,
+    star_alignment,
+)
 
 mpl = None
 plt = None
@@ -53,13 +50,15 @@ try:
 except ImportError:
     HAS_MATPLOTLIB = False
 
-TASKS = ["TreeValue", "DerivationTree", "parse", "_distance_norm", "make_def"]
+ORDERED_TASKS = ["make_def", "_distance_norm", "parse", "DerivationTree", "TreeValue"]
+TASKS = ORDERED_TASKS
+
 TASK_LABELS = {
-    "TreeValue": r"\texttt{TreeValue}",
-    "DerivationTree": r"\texttt{Derivation}",
-    "parse": r"\texttt{parse}",
-    "_distance_norm": r"\texttt{\_distance}",
     "make_def": r"\texttt{make\_def}",
+    "_distance_norm": r"\texttt{\_distance\_norm}",
+    "parse": r"\texttt{parse}",
+    "DerivationTree": r"\texttt{DerivationTree}",
+    "TreeValue": r"\texttt{TreeValue}",
 }
 
 TASKS_MAP = {
@@ -181,7 +180,7 @@ def sanitize_dataset(df: pd.DataFrame):
 def analyze_cig_dataset(df: pd.DataFrame) -> dict:
     """Computes descriptive and inferential statistics across treatments and tasks."""
     stats = {}
-    measures = ["BugElicitationRate", "BranchCoveragePct", "BugsElicited", "TotalTestsExecuted", "ElapsedSec"]
+    measures = ["BugElicitationRate", "BranchCoveragePct", "BugsElicited"]
 
     for tr in TREATMENTS:
         stats[tr] = {}
@@ -256,27 +255,13 @@ def generate_pyplots(df: pd.DataFrame, pdf_paths: List[str]):
     mpl.rcParams["font.size"] = 7.5
     mpl.rcParams["axes.labelweight"] = "bold"
 
-    fig = plt.figure(figsize=(8.5, 5.8))
-    subfigs = fig.subfigures(2, 1, height_ratios=[1, 1])
+    # Order PUTs: make_def before _distance_norm as requested
+    ordered_tasks = ORDERED_TASKS
 
-    subfigs[0].subplots_adjust(left=0.07, right=0.98, bottom=0.26, top=0.92, wspace=0.35)
-    axs_r1 = subfigs[0].subplots(1, 4)
-    fig.canvas.draw()
-
-    pos0 = axs_r1[0].get_position()
-    pos3 = axs_r1[3].get_position()
-    width = pos0.width
-    height = pos0.height
-    y0 = pos0.y0
-    x0_left = pos0.x0
-    x3_left = pos3.x0
-    x_mid = (x0_left + x3_left) / 2.0
-
-    axs_r2 = [
-        subfigs[1].add_axes([x0_left, y0, width, height]),
-        subfigs[1].add_axes([x_mid, y0, width, height]),
-        subfigs[1].add_axes([x3_left, y0, width, height]),
-    ]
+    # Clean 3x2 grid of plots (no time plot)
+    fig, axs = plt.subplots(3, 2, figsize=(7.2, 8.5))
+    fig.subplots_adjust(left=0.09, right=0.96, top=0.95, bottom=0.07, hspace=0.45, wspace=0.30)
+    flat_axs = axs.flatten()
 
     def render_violin_cell(ax, data, group_labels, xlabel, ylabel, ylim):
         ax.set_xticks(list(range(1, len(group_labels) + 1)))
@@ -302,41 +287,24 @@ def generate_pyplots(df: pd.DataFrame, pdf_paths: List[str]):
                 ax.scatter(jitter, vals, s=11, color="grey", alpha=0.5, edgecolors="none")
                 ax.scatter(x, np.mean(vals), s=32, color="black", zorder=3)
 
-    # Row 1: Branch Coverage (%) for first 4 PUTs
-    for c_idx, task in enumerate(TASKS[:4]):
-        ax = axs_r1[c_idx]
+    # First 5 plots: Branch Coverage for each PUT in order of lowest elicitation rate
+    for idx, task in enumerate(ordered_tasks):
+        ax = flat_axs[idx]
         data = []
         for t in TREATMENTS:
             sub = df[(df["Task"] == task) & (df["Treatment"] == t)]
             vals = sub["BranchCoveragePct"].dropna().values.astype(float)
             data.append(vals)
-        render_violin_cell(ax, data, TREATMENT_SHORT_TEXT, f"Branch Coverage\n{put_mathtt(task)}", "Branch Cov. (%)", (0, 105))
+        render_violin_cell(ax, data, TREATMENT_SHORT_TEXT, f"(1) Branch Coverage\n{put_mathtt(task)}", "Branch Cov. (%)", (0, 105))
 
-    # Row 2: 5th PUT Coverage, Task Time, Bugs Elicited
-    task_5 = TASKS[4]
-    ax_5 = axs_r2[0]
-    data_5 = []
-    for t in TREATMENTS:
-        sub = df[(df["Task"] == task_5) & (df["Treatment"] == t)]
-        vals = sub["BranchCoveragePct"].dropna().values.astype(float)
-        data_5.append(vals)
-    render_violin_cell(ax_5, data_5, TREATMENT_SHORT_TEXT, f"Branch Coverage\n{put_mathtt(task_5)}", "Branch Cov. (%)", (0, 105))
-
-    ax_time = axs_r2[1]
-    data_time = []
-    for t in TREATMENTS:
-        sub = df[df["Treatment"] == t]
-        vals = sub["ElapsedSec"].dropna().values.astype(float)
-        data_time.append(vals)
-    render_violin_cell(ax_time, data_time, TREATMENT_SHORT_TEXT, "Task Time (s)", "Elapsed Time (s)", None)
-
-    ax_bugs = axs_r2[2]
+    # 6th plot: (2) Bugs Elicited across treatments (replacing the time plot)
+    ax_last = flat_axs[5]
     data_bugs = []
     for t in TREATMENTS:
         sub = df[df["Treatment"] == t]
         vals = sub["BugsElicited"].dropna().values.astype(float)
         data_bugs.append(vals)
-    render_violin_cell(ax_bugs, data_bugs, TREATMENT_SHORT_TEXT, "Bugs Elicited", "Bugs Elicited (Count)", (0, 6.5))
+    render_violin_cell(ax_last, data_bugs, TREATMENT_SHORT_TEXT, "(2) Bugs Elicited", "Elicited Bugs (Count)", None)
 
     for p in pdf_paths:
         os.makedirs(os.path.dirname(os.path.abspath(p)), exist_ok=True)
@@ -351,17 +319,17 @@ def generate_trials_table(df: pd.DataFrame, out_path: str):
         r"\begin{table*}[!htbp]",
         r"  \centering",
         r"  \small",
-        r"  \caption{Empirical Trial Allocation Matrix across Generator Treatments and Target PUTs}",
-        r"  \label{tab:cig-trials}",
+        r"  \caption{Task Assignment Matrix ($n=\qn$)}",
+        r"  \label{quarton:tab:participants}",
         r"  \begin{tabular}{l|ccccc}",
         r"    \toprule",
-        r"    \textbf{Treatment} & \textbf{\texttt{TreeValue}} & \textbf{\texttt{Derivation}} & \textbf{\texttt{parse}} & \textbf{\texttt{\_distance}} & \textbf{\texttt{make\_def}} \\",
+        r"    \textbf{Treatment} & \textbf{\texttt{make\_def}} & \textbf{\texttt{\_distance\_norm}} & \textbf{\texttt{parse}} & \textbf{\texttt{DerivationTree}} & \textbf{\texttt{TreeValue}} \\",
         r"    \midrule",
     ]
 
     for tr in TREATMENTS:
         row_cells = [TREATMENT_LABELS.get(tr, tr)]
-        for task in TASKS:
+        for task in ORDERED_TASKS:
             sub = df[(df["Treatment"] == tr) & (df["Task"] == task)] if not df.empty else pd.DataFrame()
             rids = sub["RunID"].tolist() if "RunID" in sub.columns else []
             cell_text = ", ".join(rids) if rids else "--"
@@ -370,6 +338,7 @@ def generate_trials_table(df: pd.DataFrame, out_path: str):
 
     lines.extend([
         r"    \bottomrule",
+        r"    \multicolumn{6}{c}{\footnotesize Trial runs allocated across generator treatments and target task programs.} \\",
         r"  \end{tabular}",
         r"\end{table*}",
     ])
@@ -382,22 +351,26 @@ def generate_trials_table(df: pd.DataFrame, out_path: str):
 
 def generate_cig_results_table(df: pd.DataFrame, out_path: str, stats: dict):
     """Generates the main LaTeX factorial results table comparing treatments vs control R."""
+    # Order PUTs: make_def before _distance_norm as requested
+    ordered_tasks = ORDERED_TASKS
+
+    header_cols = []
+    for i, t in enumerate(ordered_tasks):
+        sep = "||" if i == len(ordered_tasks) - 1 else "|"
+        header_cols.append(f"\\multicolumn{{2}}{{c{sep}}}{{\\textbf{{{TASK_LABELS.get(t, t)}}}}}")
+
     lines = [
         r"\begin{table*}[!htbp]",
         r"  \centering",
-        r"  \setlength{\tabcolsep}{3pt}",
+        r"  \setlength{\tabcolsep}{2pt}",
         r"  \definecolor{bettergreen}{RGB}{169,223,192}",
         r"  \definecolor{worsered}{RGB}{245,183,177}",
-        r"  \caption{Empirical Evaluation of Composite Input Generator (CIG) Treatments vs.\ Control (R)}",
-        r"  \label{tab:cig-results}",
-        r"  \begin{tabular}{l|rr|rr|rr|rr|rr||rr}",
+        r"  \caption{Quantitative Task Results Summary for Measures 1--2 ($n=\qn$)}",
+        r"  \label{quarton:tab:results}",
+        r"  \footnotesize",
+        r"  \begin{tabularx}{\textwidth}{l| *{4}{>{\raggedleft\arraybackslash}X >{\centering\arraybackslash}X |} >{\raggedleft\arraybackslash}X >{\centering\arraybackslash}X || >{\raggedleft\arraybackslash}X >{\centering\arraybackslash}X}",
         r"    \toprule",
-        r"    & \multicolumn{2}{c|}{\textbf{\texttt{TreeValue}}}",
-        r"    & \multicolumn{2}{c|}{\textbf{\texttt{Derivation}}}",
-        r"    & \multicolumn{2}{c|}{\textbf{\texttt{parse}}}",
-        r"    & \multicolumn{2}{c|}{\textbf{\texttt{\_distance}}}",
-        r"    & \multicolumn{2}{c||}{\textbf{\texttt{make\_def}}}",
-        r"    & \multicolumn{2}{c}{\textbf{Overall ($\Sigma$)}} \\",
+        "    & " + " & ".join(header_cols) + r" & \multicolumn{2}{c}{\textbf{Overall ($\Sigma$)}} \\",
         r"    \midrule",
         r"    \multicolumn{1}{c|}{\textbf{Treatment}} ",
         r"    & \multicolumn{1}{c}{\textbf{Mean}} & \textbf{SD}",
@@ -409,10 +382,8 @@ def generate_cig_results_table(df: pd.DataFrame, out_path: str, stats: dict):
     ]
 
     measures = [
-        ("BugElicitationRate", r"Measure 1: Bug Elicitation Rate; higher is better", 3),
-        ("BranchCoveragePct", r"Measure 2: Branch Coverage (\%); higher is better", 1),
-        ("TotalTestsExecuted", r"Measure 3: Total Tests Executed; higher is better", 0),
-        ("ElapsedSec", r"Measure 4: Wall-clock Runtime (seconds); lower is better", 0),
+        ("BranchCoveragePct", r"Measure 1: Branch Coverage (\%); higher is better", 1),
+        ("BugElicitationRate", r"Measure 2: Elicited Bugs; higher is better", 3),
     ]
 
     for col, title, dec in measures:
@@ -427,7 +398,7 @@ def generate_cig_results_table(df: pd.DataFrame, out_path: str, stats: dict):
             row_items = [f"    {label}"]
             ctl_m_all = stats[CONTROL_TREATMENT]["All"][col]["mean"]
 
-            for task in TASKS:
+            for task in ordered_tasks:
                 m_val = stats[tr][task][col]["mean"]
                 sd_val = stats[tr][task][col]["sd"]
                 ctl_m = stats[CONTROL_TREATMENT][task][col]["mean"]
@@ -446,7 +417,9 @@ def generate_cig_results_table(df: pd.DataFrame, out_path: str, stats: dict):
 
     lines.extend([
         r"    \bottomrule",
-        r"  \end{tabular}",
+        r"    \multicolumn{13}{c}{\footnotesize Statistically significant differences against control R marked as: $\ast$ ($p\!<\!0.05$), $\ast\ast$ ($p\!<\!0.01$).} \\",
+        r"    \multicolumn{13}{c}{\footnotesize Measure 1: Mann--Whitney $U$ test; Measure 2: two-tailed Welch's $t$-test.} \\",
+        r"  \end{tabularx}",
         r"\end{table*}",
     ])
 
@@ -463,7 +436,7 @@ def generate_results_detail_table(df: pd.DataFrame, out_path: str, stats: dict):
         r"  \centering",
         r"  \small",
         r"  \caption{Detailed Experimental Outcomes by Generator Treatment across Measures}",
-        r"  \label{tab:cig-results-detail}",
+        r"  \label{quarton:tab:results-detail}",
         r"  \begin{tabular}{l|cccccc}",
         r"    \toprule",
         r"    \textbf{Metric} & \textbf{SCRAM} & \textbf{CR} & \textbf{R} & \textbf{RA} & \textbf{RM} & \textbf{SR} \\",
@@ -512,26 +485,6 @@ def generate_results_detail_table(df: pd.DataFrame, out_path: str, stats: dict):
     lines.append(" & ".join(mean_el_row) + r" \\")
 
     lines.extend([
-        r"    \midrule",
-        r"    \multicolumn{7}{c}{\textbf{Measure 3: Execution Scale}} \\",
-        r"    \midrule",
-    ])
-
-    mean_tests_row = ["    Mean Tests Executed"]
-    for tr in TREATMENTS:
-        sub = df[df["Treatment"] == tr] if not df.empty else pd.DataFrame()
-        m = float(sub["TotalTestsExecuted"].mean()) if "TotalTestsExecuted" in sub.columns and len(sub) > 0 else float(np.nan)
-        mean_tests_row.append(f"{m:.0f}" if not np.isnan(m) else "--")
-    lines.append(" & ".join(mean_tests_row) + r" \\")
-
-    mean_time_row = ["    Mean Task Time (s)"]
-    for tr in TREATMENTS:
-        sub = df[df["Treatment"] == tr] if not df.empty else pd.DataFrame()
-        m = float(sub["ElapsedSec"].mean()) if "ElapsedSec" in sub.columns and len(sub) > 0 else float(np.nan)
-        mean_time_row.append(f"{m:.1f}s" if not np.isnan(m) else "--")
-    lines.append(" & ".join(mean_time_row) + r" \\")
-
-    lines.extend([
         r"    \bottomrule",
         r"  \end{tabular}",
         r"\end{table*}",
@@ -570,10 +523,8 @@ def generate_ttest_table(df: pd.DataFrame, out_path: str, stats: dict):
         }
 
     measures = [
-        ("BugElicitationRate", r"Measure 1: Bug Elicitation Rate", True),
-        ("BranchCoveragePct", r"Measure 2: Branch Coverage", True),
-        ("TotalTestsExecuted", r"Measure 3: Tests Executed", True),
-        ("ElapsedSec", r"Measure 4: Task Time (s)", False),
+        ("BranchCoveragePct", r"Measure 1: Branch Coverage", True),
+        ("BugElicitationRate", r"Measure 2: Elicited Bugs", True),
     ]
 
     lines = [
@@ -582,9 +533,9 @@ def generate_ttest_table(df: pd.DataFrame, out_path: str, stats: dict):
         r"  \small",
         r"  \definecolor{bettergreen}{RGB}{169,223,192}",
         r"  \definecolor{worsered}{RGB}{245,183,177}",
-        r"  \caption{Statistical Significance of Generator Treatments vs.\ Control (R)}",
-        r"  \label{tab:cig-ttests}",
-        r"  \begin{tabular}{l | r l c r}",
+        r"  \caption{Statistical Significance of Treatment Effects for Measures 1--2 ($n=\qn$)}",
+        r"  \label{quarton:tab:ttests}",
+        r"  \begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}X | r l c r}",
         r"    \toprule",
         r"    \multicolumn{1}{c|}{\textbf{Measure}} & \multicolumn{1}{c}{\textbf{$\Delta$}} & \multicolumn{1}{c}{\textbf{Test}} & \multicolumn{1}{c}{\textbf{Statistic}} & \multicolumn{1}{c}{\textbf{$p$}} \\",
     ]
@@ -683,8 +634,9 @@ def generate_ttest_table(df: pd.DataFrame, out_path: str, stats: dict):
 
     lines.extend([
         r"    \bottomrule",
-        r"    \multicolumn{5}{c}{Statistically significant differences are marked as: $\ast$ ($p\!<\!0.05$), $\ast\ast$ ($p\!<\!0.01$). Uncomputed tests with $n<2$ are reported as n/a.} \\",
-        r"  \end{tabular}",
+        r"    \multicolumn{5}{c}{\footnotesize Statistically significant differences are marked as: $\ast$ ($p\!<\!0.05$), $\ast\ast$ ($p\!<\!0.01$).} \\",
+        r"    \multicolumn{5}{c}{\footnotesize Uncomputed tests with $n<2$ are reported as n/a.} \\",
+        r"  \end{tabularx}",
         r"\end{table*}",
     ])
 
@@ -707,23 +659,32 @@ def generate_bugs_elicited_table(df: pd.DataFrame, out_path: str):
         r"\begin{table*}[!htbp]",
         r"  \centering",
         r"  \small",
-        r"  \caption{Ground-Truth Defect Elicitation Counts across Generator Treatments}",
-        r"  \label{tab:cig-bugs}",
+        r"  \definecolor{bettergreen}{RGB}{169,223,192}",
+        r"  \definecolor{worsered}{RGB}{245,183,177}",
+        r"  \caption{Bug Elicitations by Task Program and Treatment}",
+        r"  \label{quarton:tab:bugs-elicited}",
         r"  \begin{tabular}{ll|rrrrrr}",
         r"    \toprule",
-        r"    \textbf{Target PUT} & \textbf{Defect ID} & \textbf{SCRAM} & \textbf{CR} & \textbf{R} & \textbf{RA} & \textbf{RM} & \textbf{SR} \\",
+        r"    \textbf{Task Program} & \textbf{Bug ID} & \textbf{SCRAM} & \textbf{CR} & \textbf{R} & \textbf{RA} & \textbf{RM} & \textbf{SR} \\",
         r"    \midrule",
     ]
 
     treatment_totals = {t: 0 for t in TREATMENTS}
     treatment_unique = {t: 0 for t in TREATMENTS}
 
-    for task in TASKS:
+    # Order PUTs: make_def before _distance_norm as requested
+    ordered_tasks = ORDERED_TASKS
+
+    for task in ordered_tasks:
         bugs = rubric.get("tasks", {}).get(task, {}).get("bugs", {})
         task_label = TASK_LABELS.get(task, task)
         first_row = True
 
-        for bid in sorted(bugs.keys()):
+        # Sort bugs by total hits ascending (lowest hits on top)
+        bug_hits = {bid: int(df[bid].dropna().sum()) if bid in df.columns else 0 for bid in bugs}
+        ordered_bids = sorted(bugs.keys(), key=lambda b: (bug_hits.get(b, 0), b))
+
+        for bid in ordered_bids:
             prefix = task_label if first_row else ""
             first_row = False
             escaped_bid = bid.replace("_", r"\_")
@@ -734,7 +695,8 @@ def generate_bugs_elicited_table(df: pd.DataFrame, out_path: str):
                 hits = 0
                 if bid in sub.columns:
                     hits = int((sub[bid] == 1).sum())
-                counts.append(str(hits))
+                color_cell = f"\\cellcolor{{bettergreen}}{hits}" if hits > 0 else r"\cellcolor{worsered}0"
+                counts.append(color_cell)
                 treatment_totals[t] += hits
                 if hits > 0:
                     treatment_unique[t] += 1
@@ -744,10 +706,11 @@ def generate_bugs_elicited_table(df: pd.DataFrame, out_path: str):
 
     total_rubric_bugs = sum(len(rubric.get("tasks", {}).get(t, {}).get("bugs", {})) for t in TASKS)
     lines.extend([
-        f"    \\multicolumn{{2}}{{l|}}{{\\textbf{{Total Elicitations}}}} & " + " & ".join(str(treatment_totals[t]) for t in TREATMENTS) + r" \\",
+        "    \\multicolumn{2}{l|}{\\textbf{Total Elicitations}} & " + " & ".join(str(treatment_totals[t]) for t in TREATMENTS) + r" \\",
         r"    \hline",
-        f"    \\multicolumn{{2}}{{l|}}{{\\textbf{{Unique Defects Elicited (out of {total_rubric_bugs})}}}} & " + " & ".join(str(treatment_unique[t]) for t in TREATMENTS) + r" \\",
+        f"    \\multicolumn{{2}}{{l|}}{{\\textbf{{Unique Bugs Elicited (out of {total_rubric_bugs})}}}} & " + " & ".join(str(treatment_unique[t]) for t in TREATMENTS) + r" \\",
         r"    \bottomrule",
+        r"    \multicolumn{8}{c}{\footnotesize Green indicates the bug was elicited by the treatment; red indicates unelicited.} \\",
         r"  \end{tabular}",
         r"\end{table*}",
     ])
@@ -765,7 +728,7 @@ def generate_stop_reasons_table(df: pd.DataFrame, out_path: str):
         r"  \centering",
         r"  \small",
         r"  \caption{Fuzzer Termination Reasons and Exit Codes by Target PUT and Treatment}",
-        r"  \label{tab:cig-stop-reasons}",
+        r"  \label{quarton:tab:stop-reasons}",
         r"  \begin{tabular}{ll|rrrr|rr}",
         r"    \toprule",
         r"    \textbf{Target PUT} & \textbf{Treatment} & \textbf{maxTime} & \textbf{maxDupes} & \textbf{maxTests} & \textbf{Other} & \textbf{Exit 0} & \textbf{Exit 1} \\",
@@ -801,6 +764,7 @@ def generate_stop_reasons_table(df: pd.DataFrame, out_path: str):
     lines.extend([
         f"    \\multicolumn{{2}}{{l|}}{{\\textbf{{Total across all {len(df)} trials}}}} & {tot_time} & {tot_dupes} & {tot_tests} & {tot_other} & {tot_exit0} & {tot_exit1} \\\\",
         r"    \bottomrule",
+        r"    \multicolumn{8}{c}{\footnotesize Normal termination reasons: maxTime (180s budget expired), maxDupes (duplicate threshold reached).} \\",
         r"  \end{tabular}",
         r"\end{table*}",
     ])
@@ -811,8 +775,8 @@ def generate_stop_reasons_table(df: pd.DataFrame, out_path: str):
     print(f"[TABLE] Generated Stop Reason Breakdown Table: {out_path}")
 
 
-def generate_cig_generator_table(run_dir: str, out_path: str):
-    """Generates generator provenance breakdown table for CIG trials."""
+def generate_cig_generator_table(run_dir: str, out_path: str, df: Optional[pd.DataFrame] = None):
+    """Generates generator provenance breakdown table for CIG trials in canonical S, C, R, A, M format."""
     rubric_path = os.path.join(os.path.dirname(__file__), "ground_truth_rubric.json")
     if not os.path.exists(rubric_path):
         raise FileNotFoundError(f"CRITICAL: ground_truth_rubric.json not found at {rubric_path}")
@@ -821,10 +785,13 @@ def generate_cig_generator_table(run_dir: str, out_path: str):
         rubric = json.load(f)
 
     artifact_pattern = os.path.join(run_dir, "artifacts", "*", "elicited_bugs.json")
-    generator_hits: Dict[str, Dict[str, int]] = {}
+    eliciting_counts: Dict[str, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    originating_counts: Dict[str, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
 
     log_files = glob.glob(artifact_pattern)
     for logf in log_files:
+        run_seen_el = set()
+        run_seen_orig = set()
         with open(logf, "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
@@ -837,39 +804,60 @@ def generate_cig_generator_table(run_dir: str, out_path: str):
                 gen_chain = entry.get("generator", "")
                 if bid and gen_chain:
                     eliciting, originating = parse_generator_chain(gen_chain)
-                    if bid not in generator_hits:
-                        generator_hits[bid] = {"seed": 0, "random": 0, "custom": 0, "ai": 0, "mutation": 0}
-                    if eliciting in generator_hits[bid]:
-                        generator_hits[bid][eliciting] += 1
+                    if (bid, eliciting) not in run_seen_el:
+                        run_seen_el.add((bid, eliciting))
+                        eliciting_counts[bid][eliciting] += 1
+                    if (bid, originating) not in run_seen_orig:
+                        run_seen_orig.add((bid, originating))
+                        originating_counts[bid][originating] += 1
 
     lines = [
         r"\begin{table*}[!htbp]",
         r"  \centering",
-        r"  \caption{Defect Elicitation by Generator Class across CIG Empirical Trials}",
-        r"  \label{tab:cig-generators}",
-        r"  \begin{tabular}{ll|rrrrr|r}",
+        r"  \small",
+        r"  \definecolor{bettergreen}{RGB}{169,223,192}",
+        r"  \definecolor{worsered}{RGB}{245,183,177}",
+        r"  \caption{Task Program Bugs by Eliciting and Originating Input Generator for \toolname}",
+        r"  \label{quarton:tab:generators}",
+        r"  \begin{tabular}{l | c c c c c}",
         r"    \toprule",
-        r"    \textbf{Target PUT} & \textbf{Defect ID} & \textbf{Seed} & \textbf{Random} & \textbf{Custom} & \textbf{AI} & \textbf{Mutation} & \textbf{Total} \\",
-        r"    \midrule",
+        r"    & \multicolumn{5}{c}{\textbf{Eliciting and (Originating) Input Generator}} \\",
+        r"    \multicolumn{1}{c|}{\textbf{Bug ID}} & \textbf{Seed} & \textbf{Custom} & \textbf{Random} & \textbf{AI} & \textbf{Mutation} \\",
     ]
 
-    for task_name in TASKS:
+    gen_keys = ["seed", "custom", "random", "ai", "mutation"]
+
+    # Order PUTs and bugs to match Table 6.6
+    ordered_tasks = ORDERED_TASKS
+
+    for task_name in ordered_tasks:
         bugs = rubric.get("tasks", {}).get(task_name, {}).get("bugs", {})
         task_label = TASK_LABELS.get(task_name, task_name)
-        first_row = True
-        for bid in sorted(bugs.keys()):
-            prefix = task_label if first_row else ""
-            first_row = False
-            b_counts = generator_hits.get(bid, {"seed": 0, "random": 0, "custom": 0, "ai": 0, "mutation": 0})
-            tot = sum(b_counts.values())
-            escaped_bid = bid.replace("_", r"\_")
-            lines.append(
-                f"    {prefix} & \\texttt{{{escaped_bid}}} & {b_counts['seed']} & {b_counts['random']} & {b_counts['custom']} & {b_counts['ai']} & {b_counts['mutation']} & {tot} \\\\"
-            )
         lines.append(r"    \midrule")
+        lines.append(f"    \\multicolumn{{6}}{{c}}{{\\textbf{{{task_label}}}}} \\\\")
+        lines.append(r"    \midrule")
+
+        if df is not None and not df.empty:
+            bug_hits = {bid: int(df[bid].dropna().sum()) if bid in df.columns else 0 for bid in bugs}
+            ordered_bids = sorted(bugs.keys(), key=lambda b: (bug_hits.get(b, 0), b))
+        else:
+            ordered_bids = sorted(bugs.keys())
+
+        for bid in ordered_bids:
+            escaped_bid = bid.replace("_", r"\_")
+            cells = []
+            for gtype in gen_keys:
+                el_cnt = eliciting_counts[bid][gtype]
+                orig_cnt = originating_counts[bid][gtype]
+                color = "bettergreen" if (el_cnt > 0 or orig_cnt > 0) else "worsered"
+                cell_text = f"{el_cnt} ({orig_cnt})"
+                cells.append(f"\\cellcolor{{{color}}}{cell_text}")
+            lines.append(f"    \\texttt{{{escaped_bid}}} & " + " & ".join(cells) + r" \\")
 
     lines.extend([
         r"    \bottomrule",
+        r"    \multicolumn{6}{c}{\footnotesize The originating generator first produced an input that was later mutated into an eliciting input.} \\",
+        r"    \multicolumn{6}{c}{\footnotesize The eliciting input generator produced the final bug-eliciting input.} \\",
         r"  \end{tabular}",
         r"\end{table*}",
     ])
@@ -959,11 +947,14 @@ def generate_provenance_listing(run_dir: str, out_path: str, df: Optional[pd.Dat
     not_elicited_by = [tr for tr in TREATMENTS if tr not in bug_treatments.get(selected["bug_id"], set())]
     unelicited_str = ", ".join(not_elicited_by) if not_elicited_by else "none"
 
+    caption_short = f"Input Mutation Lineage for \\texttt{{{bid_tex}}}"
     caption_text = (
-        f"Multi-step generator lineage for defect \\texttt{{{bid_tex}}} in Task Program {task_tex}. "
+        f"Multi-Step Input Mutation Lineage for \\texttt{{{bid_tex}}}. "
+        f"Treatment: \\toolname. "
         f"Trial Run: \\texttt{{{selected['run_id']}}}. "
-        f"Total mutation steps: {max_steps}. "
-        f"This defect was not elicited by: {unelicited_str}."
+        f"Task Program: \\texttt{{{task_tex}}}. "
+        f"Bug ID: \\texttt{{{bid_tex}}} "
+        f"(unelicited by {unelicited_str})."
     )
 
     lines = [
@@ -975,8 +966,8 @@ def generate_provenance_listing(run_dir: str, out_path: str, df: Optional[pd.Dat
         "",
         f"Eliciting Input Args: {selected['args']}",
         r"  \end{verbatim}",
-        f"  \\caption{{{caption_text}}}",
-        f"  \\label{{fig:cig-provenance-{selected['bug_id'].lower().replace('_', '-')}}}",
+        f"  \\caption[{caption_short}]{{{caption_text}}}",
+        f"  \\label{{quarton:lst:provenance-{selected['bug_id'].lower().replace('_', '-')}}}",
         r"\end{figure}",
     ]
 
@@ -999,26 +990,30 @@ def generate_data_cig_tex(df: pd.DataFrame, out_path: str, stats: dict):
         f"\\newcommand{{\\cigToolVersion}}{{{tool_ver_str}}}",
         f"\\newcommand{{\\cigTotalTrials}}{{{total_trials}}}",
         f"\\newcommand{{\\cigCompletedTrials}}{{{completed_trials}}}",
-        f"\\newcommand{{\\cigTotalRuntimeHours}}{{{total_runtime_sec / 3600.0:.1f}}}",
+        f"\\providecommand{{\\qntreatments}}{{{len(TREATMENTS)}}}",
+        f"\\renewcommand{{\\qntreatments}}{{{len(TREATMENTS)}}}",
     ]
 
     for tr in TREATMENTS:
         tr_clean = tr.replace("_", "")
         rate_all = stats[tr]["All"]["BugElicitationRate"]["mean"]
         cov_all = stats[tr]["All"]["BranchCoveragePct"]["mean"]
-        tests_all = stats[tr]["All"]["TotalTestsExecuted"]["mean"]
+        bugs_all = stats[tr]["All"]["BugsElicited"]["mean"]
+        p_cov = stats[tr]["All"]["BranchCoveragePct"]["pvalue"]
         p_rate = stats[tr]["All"]["BugElicitationRate"]["pvalue"]
 
-        rate_str = f"{rate_all:.1%}" if not np.isnan(rate_all) else "--"
+        rate_str = f"{rate_all:.1%}".replace("%", r"\%") if not np.isnan(rate_all) else "--"
         cov_str = f"{cov_all:.1f}\\%" if not np.isnan(cov_all) else "--"
-        tests_str = f"{tests_all:.0f}" if not np.isnan(tests_all) else "--"
-        p_str = pvalrange(p_rate) if not np.isnan(p_rate) else "n/a"
+        bugs_str = f"{bugs_all:.2f}" if not np.isnan(bugs_all) else "--"
+        p_cov_str = pvalrange(p_cov) if not np.isnan(p_cov) else "n/a"
+        p_rate_str = pvalrange(p_rate) if not np.isnan(p_rate) else "n/a"
 
         lines.extend([
-            f"\\newcommand{{\\cig{tr_clean}ElicitationRate}}{{{rate_str}}}",
             f"\\newcommand{{\\cig{tr_clean}CoveragePct}}{{{cov_str}}}",
-            f"\\newcommand{{\\cig{tr_clean}MeanTests}}{{{tests_str}}}",
-            f"\\newcommand{{\\cig{tr_clean}PRange}}{{{p_str}}}",
+            f"\\newcommand{{\\cig{tr_clean}MeanElicitedBugs}}{{{bugs_str}}}",
+            f"\\newcommand{{\\cig{tr_clean}ElicitationRate}}{{{rate_str}}}",
+            f"\\newcommand{{\\cig{tr_clean}CoveragePRange}}{{{p_cov_str}}}",
+            f"\\newcommand{{\\cig{tr_clean}ElicitationPRange}}{{{p_rate_str}}}",
         ])
 
     tot_time = int((df["StopReason"] == "maxTime").sum()) if "StopReason" in df.columns else 0
@@ -1068,45 +1063,63 @@ def main():
 
     parts_dir = args.parts_dir or os.path.join(run_dir, "parts")
     os.makedirs(parts_dir, exist_ok=True)
-    figures_dir = os.path.join(run_dir, "figures")
-    os.makedirs(figures_dir, exist_ok=True)
 
     stats = analyze_cig_dataset(df)
 
-    tab_trials = os.path.join(parts_dir, "tab-cig-trials.tex")
+    tab_participants = os.path.join(parts_dir, "tab-quarton-participants.tex")
+    generate_trials_table(df, tab_participants)
+    tab_trials = os.path.join(parts_dir, "tab-quarton-trials.tex")
     generate_trials_table(df, tab_trials)
 
-    tab_results = os.path.join(parts_dir, "tab-cig-results.tex")
+    tab_results = os.path.join(parts_dir, "tab-quarton-results.tex")
     generate_cig_results_table(df, tab_results, stats)
 
-    tab_detail = os.path.join(parts_dir, "tab-cig-results-detail.tex")
+    tab_detail = os.path.join(parts_dir, "tab-quarton-results-detail.tex")
     generate_results_detail_table(df, tab_detail, stats)
 
-    tab_ttests = os.path.join(parts_dir, "tab-cig-ttests.tex")
+    tab_ttests = os.path.join(parts_dir, "tab-quarton-ttests.tex")
     generate_ttest_table(df, tab_ttests, stats)
 
-    tab_bugs = os.path.join(parts_dir, "tab-cig-bugs.tex")
+    tab_bugs = os.path.join(parts_dir, "tab-quarton-bugs.tex")
     generate_bugs_elicited_table(df, tab_bugs)
 
-    tab_stops = os.path.join(parts_dir, "tab-cig-stop-reasons.tex")
+    tab_stops = os.path.join(parts_dir, "tab-quarton-stop-reasons.tex")
     generate_stop_reasons_table(df, tab_stops)
 
-    tab_gen = os.path.join(parts_dir, "tab-cig-generators.tex")
-    generate_cig_generator_table(run_dir, tab_gen)
+    tab_gen = os.path.join(parts_dir, "tab-quarton-generators.tex")
+    generate_cig_generator_table(run_dir, tab_gen, df)
 
-    lst_prov = os.path.join(parts_dir, "provenance-cig.tex")
+    lst_prov = os.path.join(parts_dir, "lst-quarton-provenance.tex")
     generate_provenance_listing(run_dir, lst_prov, df)
 
-    tex_vars = os.path.join(parts_dir, "data-cig.tex")
-    generate_data_cig_tex(df, tex_vars, stats)
-
     plot_paths = [
-        os.path.join(parts_dir, "pyplots-cig.pdf"),
-        os.path.join(figures_dir, "pyplots-cig.pdf"),
+        os.path.join(parts_dir, "pyplots-quarton.pdf"),
     ]
     generate_pyplots(df, plot_paths)
 
-    print(f"\n[SUCCESS] CIG complete analysis suite generated in:\n  {parts_dir}\n  {figures_dir}")
+    output_files = [
+        "tab-quarton-participants.tex",
+        "tab-quarton-trials.tex",
+        "tab-quarton-results.tex",
+        "tab-quarton-results-detail.tex",
+        "tab-quarton-ttests.tex",
+        "tab-quarton-bugs.tex",
+        "tab-quarton-stop-reasons.tex",
+        "tab-quarton-generators.tex",
+        "lst-quarton-provenance.tex",
+        "pyplots-quarton.pdf",
+    ]
+
+    # Mirror to dissertation folder if present
+    diss_parts = "/Users/mcd2/git/cmumatt/dissertation/parts"
+    if os.path.exists(diss_parts):
+        for fname in output_files:
+            src_f = os.path.join(parts_dir, fname)
+            if os.path.exists(src_f):
+                shutil.copy2(src_f, os.path.join(diss_parts, fname))
+        print(f"[MIRROR] Mirrored tables, listings, and plots to {diss_parts}")
+
+    print(f"\n[SUCCESS] CIG complete analysis suite generated in:\n  {parts_dir}")
 
 
 if __name__ == "__main__":

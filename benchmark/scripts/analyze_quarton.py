@@ -1482,7 +1482,7 @@ def generate_data_quarton_tex(df: pd.DataFrame, out_path: str, stats: dict):
         r"\def\qhypofuzzversion{v25.11.1}",
         r"\def\qagentmodel{Gemini 3.8 Flash}",
         r"\def\qpythonversion{3.11.2}",
-        r"\def\qhostos{macOS 26.7.2}",
+        r"\def\qhostos{macOS 26.7.3}",
         r"\def\qhosthardware{Apple MacBook M5 Pro}",
         r"\def\qfandangoversion{v1.3.1-81-gd06277ca}",
         r"",
