@@ -69,19 +69,24 @@ TASKS_MAP = {
     "make_def": {"branches_total": 8, "bugs_count": 3},
 }
 
-TREATMENTS = ["SCRAM", "CR", "R", "RA", "RM", "SR"]
+TREATMENTS = ["SCRAM", "S", "SR", "C", "CR", "R", "A", "RA", "M", "RM", "RAM"]
 CONTROL_TREATMENT = "R"
 
 TREATMENT_LABELS = {
     "SCRAM": r"\textbf{SCRAM}",
+    "S": r"\textbf{S}",
+    "SR": r"\textbf{SR}",
+    "C": r"\textbf{C}",
     "CR": r"\textbf{CR}",
     "R": r"\textbf{R} \textit{(Control)}",
+    "A": r"\textbf{A}",
     "RA": r"\textbf{RA}",
+    "M": r"\textbf{M}",
     "RM": r"\textbf{RM}",
-    "SR": r"\textbf{SR}",
+    "RAM": r"\textbf{RAM}",
 }
 
-TREATMENT_SHORT_TEXT = ["SCRAM", "CR", "R", "RA", "RM", "SR"]
+TREATMENT_SHORT_TEXT = ["SCRAM", "S", "SR", "C", "CR", "R", "A", "RA", "M", "RM", "RAM"]
 
 
 def sanitize_dataset(df: pd.DataFrame):

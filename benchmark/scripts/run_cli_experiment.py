@@ -531,7 +531,7 @@ def process_trial_result(
                 raise ValueError(
                     f"CROSS-CHECK FAILED: Non-random generator '{g}' recorded for pure random treatment R on {run_id}"
                 )
-    elif treatment_name in ("CR", "R", "RA", "RM"):
+    elif "S" not in treatment_name:
         for _bid, ev in interceptor_hits.items():
             g = ev.get("generator", "")
             if "SeedInput" in g:

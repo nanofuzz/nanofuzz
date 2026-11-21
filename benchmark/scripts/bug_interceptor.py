@@ -209,7 +209,7 @@ def install_interceptors(log_path: str | None = None) -> bool:
 
         def wrapped_sig(x: float) -> float:
             _record_call()
-            if isinstance(x, (int, float)) and x <= -709.782712893384:
+            if isinstance(x, (int, float)) and math.isfinite(x) and x <= -709.782712893384:
                 return _execute_with_elicitation("SIGMOID_OVERFLOW", (x,), {}, orig_sig, x)
             return orig_sig(x)
 
@@ -225,16 +225,23 @@ def install_interceptors(log_path: str | None = None) -> bool:
 
         def wrapped_make_def(symbol: str, chars: str, force_binary: bool = False) -> str:
             _record_call()
-            bug_id = None
+            elicited_bugs = []
             if chars == "" or (chars == chr(0) and force_binary):
-                bug_id = "DEF_EMPTY_RHS"
-            elif any(ord(c) > 255 for c in str(chars)):
-                bug_id = "DEF_HEX_OVERFLOW"
-            elif any(ord(c) > 127 and c.isalpha() for c in str(symbol)):
-                bug_id = "DEF_UNICODE_CORRUPT"
+                elicited_bugs.append("DEF_EMPTY_RHS")
+            if any(ord(c) > 255 for c in str(chars)):
+                elicited_bugs.append("DEF_HEX_OVERFLOW")
+            if any(ord(c) > 127 for c in str(symbol)):
+                elicited_bugs.append("DEF_UNICODE_CORRUPT")
 
-            if bug_id:
-                return _execute_with_elicitation(bug_id, (symbol, chars, force_binary), {}, orig_make_def, symbol, chars, force_binary=force_binary)
+            prov = os.environ.get("NANOFUZZ_PROVENANCE") or os.environ.get("NANOFUZZ_CURRENT_PROVENANCE") or "Unknown"
+            for b in elicited_bugs:
+                _record_event({
+                    "bug_id": b,
+                    "elicited": 1,
+                    "detected": 1,
+                    "generator": prov,
+                    "args": [str(symbol)[:200], str(chars)[:200], str(force_binary)],
+                })
             return orig_make_def(symbol, chars, force_binary=force_binary)
 
         wrapped_make_def._is_interceptor = True
@@ -408,7 +415,9 @@ def install_interceptors(log_path: str | None = None) -> bool:
             _record_call()
             bug_id = None
             if isinstance(item, slice):
-                bug_id = "DT_SLICE_PARENT_HIJACK"
+                children = getattr(self, "_children", [])
+                if len(children[item]) > 0:
+                    bug_id = "DT_SLICE_PARENT_HIJACK"
             elif isinstance(item, int):
                 children = getattr(self, "_children", [])
                 if len(children) == 0:

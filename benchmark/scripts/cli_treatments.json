@@ -34,25 +34,71 @@
         "--model-timeout", "30000"
       ]
     },
+    "S": {
+      "name": "S",
+      "description": "Seed generator only (saved tests)",
+      "generators": ["S"],
+      "cliArgs": [
+        "--no-user-input-generator",
+        "--no-random-input-generator",
+        "--no-ai-input-generator",
+        "--no-mutation-input-generator"
+      ]
+    },
+    "SR": {
+      "name": "SR",
+      "description": "Seed and Random generators active",
+      "generators": ["S", "R"],
+      "cliArgs": [
+        "--no-user-input-generator",
+        "--no-ai-input-generator",
+        "--no-mutation-input-generator"
+      ]
+    },
+    "C": {
+      "name": "C",
+      "description": "Custom (User) generator only",
+      "generators": ["C"],
+      "cliArgs": [
+        "--no-seed-input-generator",
+        "--no-random-input-generator",
+        "--no-ai-input-generator",
+        "--no-mutation-input-generator"
+      ]
+    },
     "CR": {
       "name": "CR",
       "description": "Custom (User) and Random generators active",
       "generators": ["C", "R"],
       "cliArgs": [
+        "--no-seed-input-generator",
         "--no-ai-input-generator",
-        "--no-mutation-input-generator",
-        "--no-seed-input-generator"
+        "--no-mutation-input-generator"
       ]
     },
     "R": {
       "name": "R",
-      "description": "Random generator only",
+      "description": "Random generator only (Control)",
       "generators": ["R"],
       "cliArgs": [
-        "--no-ai-input-generator",
-        "--no-mutation-input-generator",
+        "--no-seed-input-generator",
         "--no-user-input-generator",
-        "--no-seed-input-generator"
+        "--no-ai-input-generator",
+        "--no-mutation-input-generator"
+      ]
+    },
+    "A": {
+      "name": "A",
+      "description": "AI generator only",
+      "generators": ["A"],
+      "cliArgs": [
+        "--model-provider", "gemini",
+        "--model-name", "gemini-3.1-flash-lite",
+        "--model-timeout", "30000",
+        "--no-seed-input-generator",
+        "--no-user-input-generator",
+        "--no-random-input-generator",
+        "--no-mutation-input-generator"
       ]
     },
     "RA": {
@@ -63,9 +109,20 @@
         "--model-provider", "gemini",
         "--model-name", "gemini-3.1-flash-lite",
         "--model-timeout", "30000",
-        "--no-mutation-input-generator",
+        "--no-seed-input-generator",
         "--no-user-input-generator",
-        "--no-seed-input-generator"
+        "--no-mutation-input-generator"
+      ]
+    },
+    "M": {
+      "name": "M",
+      "description": "Mutation generator only",
+      "generators": ["M"],
+      "cliArgs": [
+        "--no-seed-input-generator",
+        "--no-user-input-generator",
+        "--no-random-input-generator",
+        "--no-ai-input-generator"
       ]
     },
     "RM": {
@@ -73,18 +130,20 @@
       "description": "Random and Mutation generators active",
       "generators": ["R", "M"],
       "cliArgs": [
-        "--no-ai-input-generator",
+        "--no-seed-input-generator",
         "--no-user-input-generator",
-        "--no-seed-input-generator"
+        "--no-ai-input-generator"
       ]
     },
-    "SR": {
-      "name": "SR",
-      "description": "Seed and Random generators active",
-      "generators": ["S", "R"],
+    "RAM": {
+      "name": "RAM",
+      "description": "Random, AI, and Mutation generators active",
+      "generators": ["R", "A", "M"],
       "cliArgs": [
-        "--no-ai-input-generator",
-        "--no-mutation-input-generator",
+        "--model-provider", "gemini",
+        "--model-name", "gemini-3.1-flash-lite",
+        "--model-timeout", "30000",
+        "--no-seed-input-generator",
         "--no-user-input-generator"
       ]
     }
