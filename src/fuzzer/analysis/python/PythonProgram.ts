@@ -3312,13 +3312,6 @@ export class PythonProgram extends AbstractProgram {
       case "Type":
       case "builtins.type":
       case "typing.Type":
-        typeRef.type = {
-          type: ArgTag.OBJECT,
-          dims: 0,
-          children: [],
-          resolved: true,
-        };
-        return typeRef;
       case "None":
       case "NoneType":
       case "none":

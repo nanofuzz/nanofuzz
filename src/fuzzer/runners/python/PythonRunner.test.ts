@@ -1778,6 +1778,54 @@ async def async_hang():
       }
     }
   });
+
+  it("serialization error: returns an error result over IPC when Python output exceeds MessagePack integer limits", async () => {
+    const tmpDir = getTmpDir("nanofuzz-overflow-py-");
+    const pyPath = path.join(tmpDir, "overflow_test.py");
+    const pyCode = `
+def return_huge_int() -> int:
+    return 10 ** 400
+`;
+    fs.writeFileSync(pyPath, pyCode);
+
+    try {
+      const srcCode = `
+def return_huge_int() -> int:
+    pass
+`;
+      const program = ProgramFactory.fromSource(
+        () => srcCode,
+        "python",
+        pyPath
+      );
+      const fnDef = program.functionsExported["return_huge_int"];
+      const env = createFuzzEnv(fnDef);
+
+      const runner = new PythonRunner(pyPath, "return_huge_int", env);
+      await runner.onRunStart();
+
+      const res = await runner.run([], 5000);
+      await runner.onRunEnd();
+
+      console.log("ACTUAL res.result:", res.result);
+      expect(res.result.tag).toBe("error");
+      if (res.result.tag === "error") {
+        expect(res.result.name).toBe("OverflowError");
+        expect(res.result.message).toContain("Serialization failure");
+      }
+    } finally {
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // Ignore
+      }
+    }
+  });
 });
 
 /**

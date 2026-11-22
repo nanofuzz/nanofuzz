@@ -249,7 +249,22 @@ public class JavaRunnerHost {
       }
 
       Map<String, Object> resp = handleRequest(req);
-      byte[] respBytes = MAPPER.writeValueAsBytes(resp);
+      byte[] respBytes;
+      try {
+        respBytes = MAPPER.writeValueAsBytes(resp);
+      } catch (Exception e) {
+        Map<String, Object> errResp = new LinkedHashMap<>();
+        errResp.put("tag", "error");
+        errResp.put("name", e.getClass().getSimpleName());
+        errResp.put("message", "Serialization failure: " + e.getMessage());
+        errResp.put("source", "host");
+        errResp.put("seq", req.get("seq"));
+        try {
+          respBytes = MAPPER.writeValueAsBytes(errResp);
+        } catch (Exception fatal) {
+          respBytes = new byte[0];
+        }
+      }
 
       synchronized (protocolOut) {
         protocolOut.writeInt(respBytes.length);

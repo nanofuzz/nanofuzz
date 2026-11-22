@@ -1103,7 +1103,30 @@ def put_result(result: RunnerResult) -> None:
 
 
 def send_msg(data: Union[RunnerResult, str, dict[str, Any]]) -> None:
-    msg = cast(bytes, pack_payload(data))
+    try:
+        msg = cast(bytes, pack_payload(data))
+    except Exception as e:
+        seq = -1
+        if isinstance(data, dict):
+            seq = data.get("seq", -1)
+        err_res: RunnerErrorResult = {
+            "tag": "error",
+            "name": type(e).__name__,
+            "message": f"Serialization failure: {str(e)}",
+            "source": "host",
+            "stack": traceback.format_exc(),
+            "seq": seq,
+        }
+        try:
+            msg = cast(bytes, pack_payload(err_res))
+        except Exception:
+            msg = cast(bytes, pack_payload({
+                "tag": "error",
+                "name": "SerializationError",
+                "message": "Critical serialization failure",
+                "source": "host",
+                "seq": seq,
+            }))
     logging.debug(f"[{pid}]  - Writing {len(msg)} bytes")
     real_stdout.write(struct.pack('>I', len(msg)))  # payload size
     real_stdout.write(msg)  # payload
