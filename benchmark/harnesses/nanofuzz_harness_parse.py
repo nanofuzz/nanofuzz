@@ -2,7 +2,7 @@ from collections.abc import Callable
 from typing import Literal
 
 from nanofuzz_runtime import FuzzTestResult
-from fandango.language.parse.parse import parse
+from fandango.language.parse.parse import parse_string
 
 
 def fuzz_parse(
@@ -37,10 +37,9 @@ def fuzz_parse(
 
     sym = start_symbol if start_symbol else None
     try:
-        grammar, parsed_constraints = parse(
-            fan_files=fan_files,
+        grammar, parsed_constraints = parse_string(
+            spec=fan_files,
             constraints=constraints,
-            use_cache=False,
             use_stdlib=use_stdlib,
             check=check,
             start_symbol=sym,

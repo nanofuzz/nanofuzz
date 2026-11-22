@@ -323,7 +323,7 @@ def install_interceptors(log_path: str | None = None) -> bool:
         def wrapped_parse(*args, **kwargs) -> Any:
             _record_call()
             constraints = kwargs.get("constraints") or (args[1] if len(args) > 1 else ())
-            fan_files = kwargs.get("fan_files") or (args[0] if args else [])
+            fan_files = kwargs.get("fan_files") if "fan_files" in kwargs else (kwargs.get("spec") if "spec" in kwargs else (args[0] if args else []))
             use_stdlib = kwargs.get("use_stdlib", True)
             prov = os.environ.get("NANOFUZZ_PROVENANCE") or os.environ.get("NANOFUZZ_CURRENT_PROVENANCE") or "Unknown"
 
