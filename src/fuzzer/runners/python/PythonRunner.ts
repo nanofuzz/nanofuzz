@@ -445,12 +445,14 @@ export class PythonRunner extends AbstractRunner {
 
     pythonEnv.interpreter = PythonRunner.resolveInterpreter(
       pythonEnv.interpreter,
-      pythonEnv.env
+      pythonEnv.env,
+      path.dirname(filename)
     );
     if (pythonEnv.venv) {
       pythonEnv.venv.interpreter = PythonRunner.resolveInterpreter(
         pythonEnv.venv.interpreter,
-        pythonEnv.env
+        pythonEnv.env,
+        path.dirname(filename)
       );
     }
 
@@ -516,9 +518,41 @@ export class PythonRunner extends AbstractRunner {
    */
   public static resolveInterpreter(
     candidate: string = "python3",
-    env?: Record<string, string | undefined>
+    env?: Record<string, string | undefined>,
+    contextDir?: string
   ): string {
     const candidates: string[] = [];
+
+    const isGeneric =
+      !candidate ||
+      candidate === "python3" ||
+      candidate === "python" ||
+      candidate === "python3.exe" ||
+      candidate === "python.exe";
+
+    if (isGeneric) {
+      if (process.env.NANOFUZZ_PYTHON_PATH) {
+        candidates.push(process.env.NANOFUZZ_PYTHON_PATH);
+      }
+      if (process.env.VIRTUAL_ENV) {
+        const binName = process.platform === "win32" ? "python.exe" : "python3";
+        const venvBin = path.join(
+          process.env.VIRTUAL_ENV,
+          process.platform === "win32" ? "Scripts" : "bin",
+          binName
+        );
+        candidates.push(venvBin);
+      }
+      const searchDirs: string[] = [];
+      if (contextDir) searchDirs.push(contextDir);
+      searchDirs.push(process.cwd());
+      for (const dir of searchDirs) {
+        const venvPy = findVenvPython(dir);
+        if (venvPy && !candidates.includes(venvPy)) {
+          candidates.push(venvPy);
+        }
+      }
+    }
 
     if (candidate) {
       if (candidate.endsWith("python") || candidate.endsWith("python.exe")) {
@@ -783,6 +817,31 @@ export class PythonRunner extends AbstractRunner {
     }
   } // fn: _killHost
 } // class: PythonRunner
+
+/**
+ * Searches for a virtual environment Python executable in ancestor directories.
+ *
+ * @param startDir the starting directory
+ * @returns absolute path to python executable, or null if not found
+ */
+function findVenvPython(startDir: string): string | null {
+  for (const venvName of [".venv", "venv", "env"]) {
+    const venvDir = findInAncestor(startDir, venvName);
+    if (venvDir) {
+      for (const binName of ["python3", "python", "python.exe"]) {
+        const binPath = path.join(
+          venvDir,
+          process.platform === "win32" ? "Scripts" : "bin",
+          binName
+        );
+        if (fs.existsSync(binPath)) {
+          return binPath;
+        }
+      }
+    }
+  }
+  return null;
+} // fn: findVenvPython
 
 /**
  * Finds the Python library directory
