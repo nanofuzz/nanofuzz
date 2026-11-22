@@ -82,10 +82,27 @@ def fuzz_make_def_validator(r: FuzzTestResult) -> Literal["pass", "fail", "unkno
 def fuzz_make_def_generator(
     prng: Callable[[], float],
 ) -> tuple[str, str, bool] | None:
-    symbols = ["digit", "alpha", "sym", "тест", "NUL", "euro", "hex", "rule_1", "start"]
-    chars_samples = ["0123456789", "abcdef", "", chr(0), "€", "abc\x00def", "xyz", " \t\n"]
-    sym = symbols[int(prng() * len(symbols))]
-    c = chars_samples[int(prng() * len(chars_samples))]
+    p = prng()
+    if p < 0.35:
+        symbols = ["digit", "alpha", "sym", "тест", "NUL", "euro", "hex", "rule_1", "start"]
+        sym = symbols[int(prng() * len(symbols))]
+    elif p < 0.70:
+        length = int(prng() * 8) + 1
+        sym = "".join(chr(int(prng() * 26) + 97) for _ in range(length))
+    else:
+        sym = chr(int(prng() * 200) + 100)
+
+    pc = prng()
+    if pc < 0.35:
+        chars_samples = ["0123456789", "abcdef", "", chr(0), "€", "abc\x00def", "xyz", " \t\n"]
+        c = chars_samples[int(prng() * len(chars_samples))]
+    elif pc < 0.70:
+        c_len = int(prng() * 12)
+        c = "".join(chr(int(prng() * 128)) for _ in range(c_len))
+    else:
+        c_len = int(prng() * 6) + 1
+        c = "".join(chr(int(prng() * 500) + 1) for _ in range(c_len))
+
     force_binary = prng() > 0.5
     return (sym, c, force_binary)
 
