@@ -147,8 +147,8 @@
           "safe_valid_domain": "Accessing children within bounds on populated derivation trees",
           "overgeneralization_triggers": "Claiming children cannot be accessed or iterated"
         },
-        "DT_SLICE_PARENT_HIJACK": {
-          "id": "DT_SLICE_PARENT_HIJACK",
+        "DT_SLICE_PARENT_MUT": {
+          "id": "DT_SLICE_PARENT_MUT",
           "name": "Parent pointer corruption on child nodes during read-only tree slicing",
           "exception_class": "State Corruption / Invariant Violation",
           "exact_failure_domain": "Slicing a DerivationTree (tree[start:stop]) which constructs a SliceTree whose set_children() mutates child._parent = slice_tree on the original tree's nodes in-place, hijacking the parent reference and corrupting parent traversal",

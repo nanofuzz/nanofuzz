@@ -10335,7 +10335,7 @@
           "op": 0
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -10463,7 +10463,7 @@
           "slice_start": 0
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -10479,7 +10479,7 @@
           "child_count": 2
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -10495,7 +10495,7 @@
           "child_count": 1
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -10511,7 +10511,7 @@
           "text": "start"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -10527,7 +10527,7 @@
           "text": "start"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -10543,7 +10543,7 @@
           "slice_stop": 2
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -10559,7 +10559,7 @@
           "child_count": 2
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -10575,7 +10575,7 @@
           "tag": "grammar"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -10591,7 +10591,7 @@
           "tag": "slice"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -10607,7 +10607,7 @@
           "text": "node"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -10623,7 +10623,7 @@
           "tag": "prefix"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -10639,7 +10639,7 @@
           "tag": "grammar"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -10671,7 +10671,7 @@
           "val2": "world"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -10818,7 +10818,7 @@
           "val": "seed"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -10830,7 +10830,7 @@
           "val": ""
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -10842,7 +10842,7 @@
           "val": "123"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -10857,7 +10857,7 @@
           "s_val": "abc"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -10887,7 +10887,7 @@
           "s_val": "abc"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -10931,7 +10931,7 @@
           "child_val": "0"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -10943,7 +10943,7 @@
           "symbol_name": "start"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -10957,7 +10957,7 @@
           "op": "eq_none"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -10971,7 +10971,7 @@
           "child_val": "test"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -10985,7 +10985,7 @@
           "op": "prefix"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -10999,7 +10999,7 @@
           "op": "deepcopy"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11013,7 +11013,7 @@
           "symbol_name": "root"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11027,7 +11027,7 @@
           "symbol_name": "root"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11041,7 +11041,7 @@
           "op": "tree_ops"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11058,7 +11058,7 @@
           "text": "hello"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11075,7 +11075,7 @@
           "sender": "client"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11092,7 +11092,7 @@
           "recipient": "server"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11109,7 +11109,7 @@
           "child_count": 0
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11122,7 +11122,7 @@
           "name": "start"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11135,7 +11135,7 @@
           "child_count": 0
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11147,7 +11147,7 @@
           "symbol": "start"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11163,7 +11163,7 @@
           "recipient": "server"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11175,7 +11175,7 @@
           "text": "hello"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11190,7 +11190,7 @@
           "val2": "world"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11360,7 +11360,7 @@
           "child_idx": 0
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11375,7 +11375,7 @@
           "child_idx": 0
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11390,7 +11390,7 @@
           "slice_stop": 1
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11408,7 +11408,7 @@
           "slice_stop": 1
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11429,7 +11429,7 @@
           }
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11449,7 +11449,7 @@
           "val": "hello"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11466,7 +11466,7 @@
           "child_strings": []
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11485,7 +11485,7 @@
           "slice_stop": 1
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11506,7 +11506,7 @@
           "child_idx": 1
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11531,7 +11531,7 @@
           "symbol_name": "start"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11549,7 +11549,7 @@
           "nested_strings": []
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11574,7 +11574,7 @@
           "symbol_name": "item"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11596,7 +11596,7 @@
           "child_idx": 1
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11616,7 +11616,7 @@
           "slice_stop": 1
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11628,7 +11628,7 @@
           "seed_val": 0
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11640,7 +11640,7 @@
           "seed_val": 1
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11652,7 +11652,7 @@
           "seed_val": 2
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11664,7 +11664,7 @@
           "seed_val": 3
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11676,7 +11676,7 @@
           "seed": 16
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11689,7 +11689,7 @@
           "num_children": 2
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11701,7 +11701,7 @@
           "children_count": 3
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11711,7 +11711,7 @@
         "source": "tests",
         "input": {},
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11724,7 +11724,7 @@
           "int_val": 42
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11737,7 +11737,7 @@
           "str_val": "hello"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11750,7 +11750,7 @@
           "int_val": 0
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11767,7 +11767,7 @@
           "read_only": false
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11781,7 +11781,7 @@
           "read_only": false
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11794,7 +11794,7 @@
           "spec_json": "{\"is_terminal\": true, \"val_str\": \"hello\"}"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11807,7 +11807,7 @@
           "spec_json": "{\"children\": [{\"is_terminal\": true, \"val_str\": \"a\"}], \"is_terminal\": false, \"symbol\": \"<start>\"}"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11820,7 +11820,7 @@
           "spec_json": "{\"children\": [{\"is_terminal\": true, \"val_str\": \"a\"}, {\"is_terminal\": true, \"val_str\": \"b\"}], \"is_terminal\": false, \"symbol\": \"<start>\"}"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11833,7 +11833,7 @@
           "spec_json": "{\"children\": [{\"children\": [{\"is_terminal\": true, \"val_str\": \"c\"}], \"is_terminal\": false, \"symbol\": \"<a>\"}], \"is_terminal\": false, \"symbol\": \"<start>\"}"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11846,7 +11846,7 @@
           "spec_json": "{\"children\": [{\"is_terminal\": true, \"val_str\": \"a\"}, {\"is_terminal\": true, \"val_str\": \"b\"}], \"is_terminal\": false, \"symbol\": \"<start>\"}"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11859,7 +11859,7 @@
           "op_code": 4
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11872,7 +11872,7 @@
           "op_code": 5
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11885,7 +11885,7 @@
           "spec_json": "{\"is_terminal\": false, \"symbol\": \"<root>\", \"children\": [{\"is_terminal\": true, \"val_int\": 1, \"term_type\": \"int\"}]}"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11898,7 +11898,7 @@
           "op_code": 7
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11911,7 +11911,7 @@
           "spec_json": "{\"is_terminal\": false, \"symbol\": \"<root>\", \"children\": [{\"is_terminal\": false, \"symbol\": \"<sub1>\", \"children\": [{\"is_terminal\": true, \"val_str\": \"1\"}]}]}"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11924,7 +11924,7 @@
           "op_code": 5
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11937,7 +11937,7 @@
           "op_code": 6
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11950,7 +11950,7 @@
           "op_code": 7
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11963,7 +11963,7 @@
           "op_code": 8
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11976,7 +11976,7 @@
           "op_code": 0
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -11989,7 +11989,7 @@
           "spec_json": "{\"children\": [{\"children\": [{\"children\": [{\"children\": [{\"is_terminal\": true, \"symbol\": \"bytes_term\", \"term_type\": \"bytes\", \"val_str\": \"hello\"}], \"is_terminal\": false, \"symbol\": \"<b>\"}, {\"is_terminal\": true, \"symbol\": \"str_term\", \"term_type\": \"str\", \"val_str\": \"123\"}, {\"children\": [], \"is_terminal\": false, \"symbol\": \"<term>\"}], \"is_terminal\": false, \"symbol\": \"<expr>\"}], \"is_terminal\": false, \"symbol\": \"<start>\"}], \"is_terminal\": false, \"symbol\": \"<term>\"}"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12006,7 +12006,7 @@
           ]
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12024,7 +12024,7 @@
           "nt_name": "<start>"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12041,7 +12041,7 @@
           "mode": 2
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12058,7 +12058,7 @@
           ]
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12075,7 +12075,7 @@
           "mode": 4
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12092,7 +12092,7 @@
           "has_source": true
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12110,7 +12110,7 @@
           ]
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12129,7 +12129,7 @@
           ]
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12146,7 +12146,7 @@
           "nt_name": "<start>"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12163,7 +12163,7 @@
           "mode": 9
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12180,7 +12180,7 @@
           "has_source": false
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12197,7 +12197,7 @@
           "has_source": false
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12213,7 +12213,7 @@
           ]
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12229,7 +12229,7 @@
           ]
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12245,7 +12245,7 @@
           ]
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12260,7 +12260,7 @@
           "nt_name": "start"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12272,7 +12272,7 @@
           "leaf": "a"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12287,7 +12287,7 @@
           ]
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12302,7 +12302,7 @@
           }
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12322,7 +12322,7 @@
           }
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12346,7 +12346,7 @@
           }
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12359,7 +12359,7 @@
           "children": []
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12374,7 +12374,7 @@
           ]
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12390,7 +12390,7 @@
           "symbol": "<root>"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12405,7 +12405,7 @@
           "symbol": "<a>"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12421,7 +12421,7 @@
           ]
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12436,7 +12436,7 @@
           "symbol": "<start>"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12449,7 +12449,7 @@
           "children": []
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12461,7 +12461,7 @@
           "symbol": "hello"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12473,7 +12473,7 @@
           "symbol": "123"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12487,7 +12487,7 @@
           "symbol": "<start>"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12499,7 +12499,7 @@
           "symbol": "<start>"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12513,7 +12513,7 @@
           "sample_input": "helloworld"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12529,7 +12529,7 @@
           "text": "hello"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12546,7 +12546,7 @@
           "sender": "alice"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12563,7 +12563,7 @@
           "text": "hello"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12580,7 +12580,7 @@
           "name": "<start>"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12597,7 +12597,7 @@
           "child_count": 1
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12614,7 +12614,7 @@
           "sender": "alice"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12636,7 +12636,7 @@
           ]
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12651,7 +12651,7 @@
           ]
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12663,7 +12663,7 @@
           "s": "hello"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12677,7 +12677,7 @@
           "i": 1
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12689,7 +12689,7 @@
           "s": "a"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12706,7 +12706,7 @@
           ]
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12718,7 +12718,7 @@
           "x": 0
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12731,7 +12731,7 @@
           "s1": "a"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12744,7 +12744,7 @@
           "s2": "x"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12758,7 +12758,7 @@
           "s2": "x"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12770,7 +12770,7 @@
           "num": 42
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12789,7 +12789,7 @@
           ]
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12808,7 +12808,7 @@
           ]
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12820,7 +12820,7 @@
           "num": 0
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12836,7 +12836,7 @@
           "bit": 0
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12854,7 +12854,7 @@
           ]
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12870,7 +12870,7 @@
           "s3": "c"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12976,7 +12976,7 @@
           "sender": "alice"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -12993,7 +12993,7 @@
           "root_name": "njsgfhoxrs"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -13009,7 +13009,7 @@
           "child_count": 2
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -13027,7 +13027,7 @@
           "symbol_name": "start"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -13045,7 +13045,7 @@
           "idx": 0
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -13063,7 +13063,7 @@
           "symbol_name": "start"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -13081,7 +13081,7 @@
           "op": "slicing"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -13099,7 +13099,7 @@
           "idx": 0
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -13117,7 +13117,7 @@
           "idx": 0
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -13135,7 +13135,7 @@
           "symbol_name": "start"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -13153,7 +13153,7 @@
           "op": "prefix"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -13170,7 +13170,7 @@
           "symbol_name": "start"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -13187,7 +13187,7 @@
           "check_mode": "repr_evaluable"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -13204,7 +13204,7 @@
           "symbol_str": "<start>"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -13221,7 +13221,7 @@
           "terminal_val": "test"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -13238,7 +13238,7 @@
           "symbol_str": "<start>"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -13255,7 +13255,7 @@
           "child_count": 1
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -13272,7 +13272,7 @@
           "check_mode": "sources_callable"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -13289,7 +13289,7 @@
           "source_count": 0
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -13306,7 +13306,7 @@
           "symbol_str": "<start>"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -13323,7 +13323,7 @@
           "child_count": 1
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -13340,7 +13340,7 @@
           "child_count": 1
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -13357,7 +13357,7 @@
           "is_terminal": false
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -13370,7 +13370,7 @@
           "text": "krttempk"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -13383,7 +13383,7 @@
           "tag": "eq"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -13396,7 +13396,7 @@
           "text": "krttempk"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -13409,7 +13409,7 @@
           "text": "krttempk"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -13422,7 +13422,7 @@
           "tag": "eq"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -13435,7 +13435,7 @@
           "text": "<start>"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -13448,7 +13448,7 @@
           "text": "hello"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -13461,7 +13461,7 @@
           "text": "world"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -13474,7 +13474,7 @@
           "symbol_type": "terminal_int"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -13491,7 +13491,7 @@
           "has_source": true
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -13508,7 +13508,7 @@
           "term_val": "123"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -13525,7 +13525,7 @@
           "nt_name": "<expr>"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -13542,7 +13542,7 @@
           "has_source": false
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -13560,7 +13560,7 @@
           "nt_name": "<start>"
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -13578,7 +13578,7 @@
           "has_sender": false
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -13596,7 +13596,7 @@
           "has_sender": false
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       },
@@ -13614,7 +13614,7 @@
           "num_children": 1
         },
         "elicits_bugs": [
-          "DT_SLICE_PARENT_HIJACK"
+          "DT_SLICE_PARENT_MUT"
         ],
         "in_bug_domain": true
       }

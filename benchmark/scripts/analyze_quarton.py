@@ -1405,19 +1405,22 @@ def generate_data_quarton_tex(df: pd.DataFrame, out_path: str, stats: dict):
     if p_m6 is not None and not np.isnan(p_m6) and p_m6 < 0.05:
         sig_measures.append(f"achieved {m6_pct_str} {m6_word} branch coverage ({pvalrange(p_m6)})")
     else:
-        nonsig_measures.append(f"achieved numerically {m6_pct_str} {m6_word} branch coverage")
+        p_str = f" ({pvalrange(p_m6)})" if (p_m6 is not None and not np.isnan(p_m6)) else ""
+        nonsig_measures.append(f"achieved numerically {m6_pct_str} {m6_word} branch coverage{p_str}")
 
     # Task Time
     if p_m3 is not None and not np.isnan(p_m3) and p_m3 < 0.05:
         sig_measures.append(f"completed tasks {m3_pct_str} {m3_word} ({pvalrange(p_m3)})")
     else:
-        nonsig_measures.append(f"completed tasks numerically {m3_pct_str} {m3_word}")
+        p_str = f" ({pvalrange(p_m3)})" if (p_m3 is not None and not np.isnan(p_m3)) else ""
+        nonsig_measures.append(f"completed tasks numerically {m3_pct_str} {m3_word}{p_str}")
 
     # Bugs Elicited
     if p_m1 is not None and not np.isnan(p_m1) and p_m1 < 0.05:
         sig_measures.append(f"elicited {m1_pct_str} {m1_word} bugs ({pvalrange(p_m1)})")
     else:
-        nonsig_measures.append(f"elicited numerically {m1_pct_str} {m1_word} bugs")
+        p_str = f" ({pvalrange(p_m1)})" if (p_m1 is not None and not np.isnan(p_m1)) else ""
+        nonsig_measures.append(f"elicited numerically {m1_pct_str} {m1_word} bugs{p_str}")
 
     summary_sentences = []
 
@@ -1485,11 +1488,25 @@ def generate_data_quarton_tex(df: pd.DataFrame, out_path: str, stats: dict):
         r"\def\qhostos{macOS 26.7.3}",
         r"\def\qhosthardware{Apple MacBook M5 Pro}",
         r"\def\qfandangoversion{v1.3.1-81-gd06277ca}",
+        r"\def\tscgoversion{7.0.2}",
+        r"\def\tscgoclibugs{5}",
+        r"\def\tscgoclilines{15}",
+        r"\def\tscgoclidesc{Command-line compiler driver executing compilation, checks, and emit}",
+        r"\def\tscgotranspiledeclbugs{2}",
+        r"\def\tscgotranspiledecllines{165}",
+        r"\def\tscgotranspiledecldesc{Single-file declaration (.d.ts) transpiler}",
+        r"\def\tscgotranspilemodulebugs{2}",
+        r"\def\tscgotranspilemodulelines{165}",
+        r"\def\tscgotranspilemoduledesc{Single-file JavaScript source transpiler}",
+        r"\def\tscgopublicendpointstotal{3}",
+        r"\def\tscgopublicbugstotal{9}",
         r"",
         f"\\def\\qn{{{n_tot}}}",
         f"\\def\\qntaskprograms{{{num_puts}}}",
         f"\\def\\qninvariants{{{num_invariants}}}",
         f"\\def\\qntreatments{{{num_treatments}}}",
+        f"\\def\\qtaskcombinations{{{num_treatments * num_puts}}}",
+        f"\\def\\qrepetitions{{{int(df['Replicate'].max()) if 'Replicate' in df.columns and not df['Replicate'].dropna().empty else 3}}}",
         f"\\def\\qntotaltasks{{{n_tot}}}",
         f"\\def\\qntotalbugs{{{total_unique_bugs}}}",
         f"\\def\\qnavgbugsperput{{{avg_bugs_per_put:.1f}}}",

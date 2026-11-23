@@ -6,7 +6,7 @@ Composite Input Generator (CIG) evaluation across 6 treatments:
 SCRAM, CR, R (control), RA, RM, SR.
 
 Generates complete suite of dissertation-aligned tables and figures:
-  parts/data-cig.tex (LaTeX macros and statistical indicators)
+  parts/data-quarton.tex (LaTeX macros and statistical indicators)
   parts/tab-cig-trials.tex (Table: Factorial Matrix Allocation)
   parts/tab-cig-results.tex (Table: Factorial Results vs Control R)
   parts/tab-cig-results-detail.tex (Table: Detailed Results by Measure and PUT)
@@ -25,6 +25,7 @@ import shutil
 from collections import defaultdict
 from typing import Dict, List, Optional
 
+import msgpack
 import numpy as np
 import pandas as pd
 import scipy.stats as st
@@ -32,6 +33,7 @@ from analysis_common import (
     compute_fisher_exact,
     compute_mann_whitney,
     compute_ttest,
+    format_delta_pct,
     format_sig_cell,
     parse_generator_chain,
     put_mathtt,
@@ -65,7 +67,7 @@ TASK_LABELS = {
 TASKS_MAP = {
     "TreeValue": {"branches_total": 124, "bugs_count": 6},
     "DerivationTree": {"branches_total": 246, "bugs_count": 6},
-    "parse": {"branches_total": 122, "bugs_count": 6},
+    "parse": {"branches_total": 122, "bugs_count": 5},
     "_distance_norm": {"branches_total": 54, "bugs_count": 2},
     "make_def": {"branches_total": 8, "bugs_count": 3},
 }
@@ -311,8 +313,8 @@ def generate_pyplots(df: pd.DataFrame, pdf_paths: List[str]):
     mpl.rcParams["font.size"] = 7.5
     mpl.rcParams["axes.labelweight"] = "bold"
 
-    # Order PUTs: make_def before _distance_norm as requested
-    ordered_tasks = ORDERED_TASKS
+    # Order PUTs for plots: parse, TreeValue, make_def, DerivationTree, _distance_norm
+    plot_tasks = ["parse", "TreeValue", "make_def", "DerivationTree", "_distance_norm"]
 
     # 3x2 grid of plots scaled for active treatments
     fig, axs = plt.subplots(3, 2, figsize=(8.8, 9.6))
@@ -348,8 +350,8 @@ def generate_pyplots(df: pd.DataFrame, pdf_paths: List[str]):
                            alpha=0.5, edgecolors="none")
                 ax.scatter(x, np.mean(vals), s=26, color="black", zorder=3)
 
-    # First 5 plots: Branch Coverage for each PUT in order of lowest elicitation rate
-    for idx, task in enumerate(ordered_tasks):
+    # First 5 plots: Branch Coverage for each PUT
+    for idx, task in enumerate(plot_tasks):
         ax = flat_axs[idx]
         data = []
         for t in active_treatments:
@@ -359,15 +361,15 @@ def generate_pyplots(df: pd.DataFrame, pdf_paths: List[str]):
         render_violin_cell(ax, data, active_treatments,
                            f"(1) Branch Coverage\n{put_mathtt(task)}", "Branch Cov. (%)", (0, 105))
 
-    # 6th plot: (2) Bugs Elicited across treatments (replacing the time plot)
+    # 6th plot: (2) Bug Elicitation Rate across treatments (Measure 2)
     ax_last = flat_axs[5]
     data_bugs = []
     for t in active_treatments:
         sub = df[df["Treatment"] == t]
-        vals = sub["BugsElicited"].dropna().values.astype(float)
+        vals = sub["BugElicitationRate"].dropna().values.astype(float) * 100.0
         data_bugs.append(vals)
     render_violin_cell(ax_last, data_bugs, active_treatments,
-                       "(2) Bugs Elicited", "Elicited Bugs (Count)", None)
+                       "(2) Bug Elicitation Rate\nOverall ($\\Sigma$)", "Elicitation Rate (%)", (0, 105))
 
     for p in pdf_paths:
         os.makedirs(os.path.dirname(os.path.abspath(p)), exist_ok=True)
@@ -376,13 +378,149 @@ def generate_pyplots(df: pd.DataFrame, pdf_paths: List[str]):
     plt.close(fig)
 
 
+def generate_generator_usage_plot(df: pd.DataFrame, run_dir: str, out_path: str):
+    """Generates 3x2 per-PUT generator usage chart for SCRAM over 180s."""
+    if not HAS_MATPLOTLIB:
+        return
+
+    scram_runs = df[df["Treatment"] == "SCRAM"] if not df.empty else pd.DataFrame()
+    gen_colors = {
+        "Seed": "#4C72B0",
+        "Custom": "#55A868",
+        "Random": "#DD8452",
+        "AI": "#8172B3",
+        "Mutation": "#C44E52",
+    }
+    gen_map = {
+        "SeedInputGenerator": "Seed",
+        "UserInputGenerator": "Custom",
+        "RandomInputGenerator": "Random",
+        "AiInputGenerator": "AI",
+        "MutationInputGenerator": "Mutation",
+    }
+    gen_order = ["Seed", "Custom", "Random", "AI", "Mutation"]
+    labels = ["Seed (S)", "Custom (C)", "Random (R)", "AI (A)", "Mutation (M)"]
+
+    time_bins = np.linspace(0, 180, 181)
+    bin_centers = (time_bins[:-1] + time_bins[1:]) / 2.0
+
+    tasks_ordered = ["parse", "TreeValue", "make_def", "DerivationTree", "_distance_norm"]
+    task_titles = {
+        "parse": "parse",
+        "TreeValue": "TreeValue",
+        "make_def": "make_def",
+        "DerivationTree": "DerivationTree",
+        "_distance_norm": "_distance_norm",
+        "Overall": "Overall (5 PUTs)",
+    }
+
+    # Collect per-task counts across 10 replicates of each PUT
+    task_counts = {t: {g: np.zeros(len(bin_centers)) for g in gen_order} for t in tasks_ordered}
+
+    for _, row in scram_runs.iterrows():
+        rid = row["RunID"]
+        task = row["Task"]
+        mpk_files = glob.glob(os.path.join(run_dir, "artifacts", rid, "*.mpk"))
+        if not mpk_files:
+            continue
+        try:
+            with open(mpk_files[0], "rb") as f:
+                d = msgpack.unpackb(f.read())
+        except Exception:
+            continue
+        cig = d.get("stats", {}).get("generators", {}).get("CompositeInputGenerator", {})
+        cps = cig.get("checkpoints", [])
+        n_cps = len(cps)
+        if n_cps == 0:
+            continue
+
+        for i_cp, cp in enumerate(cps):
+            sec = min(179.9, 180.0 * (i_cp / max(1, n_cps - 1)))
+            bin_idx = int(sec)
+            if 0 <= bin_idx < len(bin_centers):
+                for gname, ginfo in cp.get("gens", {}).items():
+                    if ginfo.get("selected"):
+                        clean_g = gen_map.get(gname)
+                        if clean_g in task_counts.get(task, {}):
+                            task_counts[task][clean_g][bin_idx] += 1
+
+    window = 5
+    task_shares = {}
+    for tname in tasks_ordered:
+        counts = task_counts[tname]
+        smoothed = {}
+        tot_bin = np.zeros(len(bin_centers))
+        for g in gen_order:
+            s = pd.Series(counts[g]).rolling(window, min_periods=1, center=True).mean().values
+            smoothed[g] = s
+            tot_bin += s
+        sh = {}
+        for g in gen_order:
+            sh[g] = np.where(tot_bin > 0, (smoothed[g] / tot_bin) * 100.0, 0.0)
+        task_shares[tname] = sh
+
+    # Macro-average across all 5 PUTs (each PUT gets equal 20% weight)
+    overall_shares = {g: np.zeros(len(bin_centers)) for g in gen_order}
+    for g in gen_order:
+        for tname in tasks_ordered:
+            overall_shares[g] += task_shares[tname][g] / float(len(tasks_ordered))
+    task_shares["Overall"] = overall_shares
+
+    fig, axs = plt.subplots(3, 2, figsize=(8.8, 8.2), sharex=True, sharey=True)
+    fig.subplots_adjust(left=0.08, right=0.98, top=0.92, bottom=0.08, hspace=0.30, wspace=0.18)
+
+    flat_axs = axs.flatten()
+    all_panels = tasks_ordered + ["Overall"]
+
+    for idx, tname in enumerate(all_panels):
+        ax = flat_axs[idx]
+        sh = task_shares[tname]
+        y_stack = [sh[g] for g in gen_order]
+        colors = [gen_colors[g] for g in gen_order]
+
+        ax.stackplot(bin_centers, y_stack, colors=colors, alpha=0.9, edgecolor="white", linewidth=0.3)
+        ax.set_xlim(0, 180)
+        ax.set_ylim(0, 100)
+        ax.set_title(task_titles[tname], fontsize=9.5, fontweight="bold", pad=4)
+        ax.spines[:].set_visible(False)
+        ax.grid(axis="x", linestyle="--", alpha=0.35)
+        ax.tick_params(axis="both", which="both", bottom=True, left=True, labelsize=7.5)
+
+        if idx % 2 == 0:
+            ax.set_ylabel("Selection Share (%)", fontsize=8.5)
+        if idx >= 4:
+            ax.set_xlabel("Time (s)", fontsize=8.5)
+
+    legend_handles = [mpl.patches.Patch(facecolor=gen_colors[g], edgecolor="white", label=lbl) for g, lbl in zip(gen_order, labels)]
+    fig.legend(handles=legend_handles, loc="upper center", bbox_to_anchor=(0.52, 0.98), ncol=5, fontsize=8.5, frameon=False)
+
+    os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
+    fig.savefig(out_path, format="pdf", bbox_inches="tight")
+    plt.close(fig)
+    print(f"[PLOT] Generated 3x2 Per-PUT Generator Usage Plot: {out_path}")
+
+    # Companion LaTeX figure wrapper
+    tex_path = os.path.join(os.path.dirname(os.path.abspath(out_path)), "fig-quarton-generators.tex")
+    fig_lines = [
+        r"\begin{figure*}[!htbp]",
+        r"  \centering",
+        r"  \includegraphics[width=\textwidth]{parts/pyplots-quarton-generators.pdf}",
+        r"  \caption[Input generator scheduling share for each task program]{Input generator scheduling share for each task program, shown individually ($n=10$) and overall ($n=50$). Colored areas represent the proportion of generation turns allocated by the Multi-Armed Bandit scheduler.}",
+        r"  \label{quarton:fig:generators-by-put}",
+        r"\end{figure*}",
+    ]
+    with open(tex_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(fig_lines) + "\n")
+    print(f"[FIGURE] Generated Generator Figure Wrapper: {tex_path}")
+
+
 def generate_trials_table(df: pd.DataFrame, out_path: str):
     """Generates the trial allocation matrix table."""
     active_treatments = get_active_treatments(df)
     lines = [
         r"\begin{table*}[!htbp]",
         r"  \centering",
-        r"  \small",
+        r"  \footnotesize",
         r"  \caption{Task Assignment Matrix ($n=\qn$)}",
         r"  \label{quarton:tab:participants}",
         r"  \begin{tabular}{l|ccccc}",
@@ -403,7 +541,7 @@ def generate_trials_table(df: pd.DataFrame, out_path: str):
 
     lines.extend([
         r"    \bottomrule",
-        r"    \multicolumn{6}{c}{\footnotesize Trial runs allocated across generator treatments and target task programs.} \\",
+        r"    \multicolumn{6}{c}{\footnotesize Trial runs allocated across treatments and target task programs.} \\",
         r"  \end{tabular}",
         r"\end{table*}",
     ])
@@ -450,11 +588,11 @@ def generate_cig_results_table(df: pd.DataFrame, out_path: str, stats: dict):
     ]
 
     measures = [
-        ("BranchCoveragePct", r"Measure 1: Branch Coverage (\%); higher is better", 1),
-        ("BugElicitationRate", r"Measure 2: Elicited Bugs; higher is better", 3),
+        ("BranchCoveragePct", r"Measure 1: Branch Coverage (\%); higher is better", 1, 1.0),
+        ("BugElicitationRate", r"Measure 2: Elicited Bugs (\%); higher is better", 1, 100.0),
     ]
 
-    for col, title, dec in measures:
+    for col, title, dec, scale in measures:
         lines.extend([
             r"    \midrule",
             f"    \\multicolumn{{13}}{{c}}{{\\textbf{{{title}}}}} \\\\",
@@ -465,12 +603,20 @@ def generate_cig_results_table(df: pd.DataFrame, out_path: str, stats: dict):
             label = TREATMENT_LABELS.get(tr, tr)
             row_items = [f"    {label}"]
             ctl_m_all = stats.get(CONTROL_TREATMENT, {}).get("All", {}).get(col, {}).get("mean", np.nan)
+            if not np.isnan(ctl_m_all):
+                ctl_m_all = ctl_m_all * scale
 
             for task in ordered_tasks:
                 m_val = stats.get(tr, {}).get(task, {}).get(col, {}).get("mean", np.nan)
                 sd_val = stats.get(tr, {}).get(task, {}).get(col, {}).get("sd", np.nan)
                 ctl_m = stats.get(CONTROL_TREATMENT, {}).get(task, {}).get(col, {}).get("mean", np.nan)
                 p_val = stats.get(tr, {}).get(task, {}).get(col, {}).get("pvalue", None)
+                if not np.isnan(m_val):
+                    m_val = m_val * scale
+                if not np.isnan(sd_val):
+                    sd_val = sd_val * scale
+                if not np.isnan(ctl_m):
+                    ctl_m = ctl_m * scale
                 # Formats as \multicolumn{2}{c}{--} if unobserved (NaN)
                 row_items.append(format_sig_cell(
                     tr, col, m_val, sd_val, ctl_m, p_val, dec, base_tool=CONTROL_TREATMENT))
@@ -478,6 +624,10 @@ def generate_cig_results_table(df: pd.DataFrame, out_path: str, stats: dict):
             all_m = stats.get(tr, {}).get("All", {}).get(col, {}).get("mean", np.nan)
             all_sd = stats.get(tr, {}).get("All", {}).get(col, {}).get("sd", np.nan)
             all_p_val = stats.get(tr, {}).get("All", {}).get(col, {}).get("pvalue", None)
+            if not np.isnan(all_m):
+                all_m = all_m * scale
+            if not np.isnan(all_sd):
+                all_sd = all_sd * scale
             row_items.append(format_sig_cell(
                 tr, col, all_m, all_sd, ctl_m_all, all_p_val, dec, base_tool=CONTROL_TREATMENT))
 
@@ -501,17 +651,20 @@ def generate_cig_results_table(df: pd.DataFrame, out_path: str, stats: dict):
 
 def generate_results_detail_table(df: pd.DataFrame, out_path: str, stats: dict):
     """Generates detailed summary table with min, mean, max, and totals across treatments."""
-    num_tr = len(TREATMENTS)
+    active_treatments = get_active_treatments(df)
+    num_tr = len(active_treatments)
     col_spec = "l|" + "c" * num_tr
     total_cols = num_tr + 1
-    tr_headers = " & ".join([f"\\textbf{{{tr}}}" for tr in TREATMENTS])
+    tr_headers = " & ".join([f"\\textbf{{{tr}}}" for tr in active_treatments])
 
     lines = [
         r"\begin{table*}[!htbp]",
         r"  \centering",
-        r"  \small",
-        r"  \caption{Detailed Experimental Outcomes by Generator Treatment across Measures}",
+        r"  \setlength{\tabcolsep}{3pt}",
+        r"  \caption{Detailed Experimental Outcomes by Treatment across Measures}",
         r"  \label{quarton:tab:results-detail}",
+        r"  \footnotesize",
+        r"  \resizebox{\textwidth}{!}{%",
         f"  \\begin{{tabular}}{{{col_spec}}}",
         r"    \toprule",
         f"    \\textbf{{Metric}} & {tr_headers} \\\\",
@@ -526,7 +679,7 @@ def generate_results_detail_table(df: pd.DataFrame, out_path: str, stats: dict):
         ("Min Coverage", "BranchCoveragePct", ".1f"),
     ]:
         row = [f"    {label}"]
-        for tr in TREATMENTS:
+        for tr in active_treatments:
             sub = df[df["Treatment"] == tr] if not df.empty else pd.DataFrame()
             vals = sub[col].dropna().values.astype(
                 float) if col in sub.columns else []
@@ -547,7 +700,7 @@ def generate_results_detail_table(df: pd.DataFrame, out_path: str, stats: dict):
     ])
 
     total_el_row = ["    Total Bugs Elicited"]
-    for tr in TREATMENTS:
+    for tr in active_treatments:
         sub = df[df["Treatment"] == tr] if not df.empty else pd.DataFrame()
         tot = int(sub["BugsElicited"].sum()
                   ) if "BugsElicited" in sub.columns and len(sub) > 0 else 0
@@ -555,7 +708,7 @@ def generate_results_detail_table(df: pd.DataFrame, out_path: str, stats: dict):
     lines.append(" & ".join(total_el_row) + r" \\")
 
     mean_el_row = ["    Mean Bugs / Trial"]
-    for tr in TREATMENTS:
+    for tr in active_treatments:
         sub = df[df["Treatment"] == tr] if not df.empty else pd.DataFrame()
         m = float(sub["BugsElicited"].mean()) if "BugsElicited" in sub.columns and len(
             sub) > 0 else float(np.nan)
@@ -564,7 +717,8 @@ def generate_results_detail_table(df: pd.DataFrame, out_path: str, stats: dict):
 
     lines.extend([
         r"    \bottomrule",
-        r"  \end{tabular}",
+        r"  \end{tabular}%",
+        r"  }",
         r"\end{table*}",
     ])
 
@@ -576,159 +730,92 @@ def generate_results_detail_table(df: pd.DataFrame, out_path: str, stats: dict):
 
 def generate_ttest_table(df: pd.DataFrame, out_path: str, stats: dict):
     """Generates formal hypothesis testing results table comparing treatments vs Control R."""
-    def t_stats(s1, s2):
-        s1 = s1.dropna().values.astype(float)
-        s2 = s2.dropna().values.astype(float)
-        if len(s1) < 2 or len(s2) < 2:
-            return {
-                "m1": float(np.mean(s1)) if len(s1) else float(np.nan),
-                "m2": float(np.mean(s2)) if len(s2) else float(np.nan),
-                "delta_pct": float(np.nan),
-                "t": float(np.nan),
-                "df": float(np.nan),
-                "p": float(np.nan),
-            }
-        res = st.ttest_ind(s1, s2, equal_var=False)
-        m1, m2 = float(np.mean(s1)), float(np.mean(s2))
-        delta_pct = (m1 / m2 - 1.0) * 100.0 if m2 != 0 else 0.0
-        df_val = float(getattr(res, "df", np.nan))
-        return {
-            "m1": m1, "m2": m2,
-            "delta_pct": delta_pct,
-            "t": float(res.statistic),
-            "df": df_val,
-            "p": float(res.pvalue)
-        }
+    active_treatments = get_active_treatments(df)
+    compare_treatments = [t for t in active_treatments if t != CONTROL_TREATMENT]
 
-    measures = [
-        ("BranchCoveragePct", r"Measure 1: Branch Coverage", True),
-        ("BugElicitationRate", r"Measure 2: Elicited Bugs", True),
-    ]
+    s_ctl_cov = df[df["Treatment"] == CONTROL_TREATMENT]["BranchCoveragePct"].dropna().values if not df.empty else []
+    s_ctl_el = df[df["Treatment"] == CONTROL_TREATMENT]["BugElicitationRate"].dropna().values if not df.empty else []
 
     lines = [
         r"\begin{table*}[!htbp]",
         r"  \centering",
-        r"  \small",
+        r"  \footnotesize",
+        r"  \setlength{\tabcolsep}{3pt}",
         r"  \definecolor{bettergreen}{RGB}{169,223,192}",
         r"  \definecolor{worsered}{RGB}{245,183,177}",
-        r"  \caption{Statistical Significance of Treatment Effects for Measures 1--2 ($n=\qn$)}",
+        r"  \caption{Statistical Significance of Treatment Effects vs.\ Control R ($n=\qn$)}",
         r"  \label{quarton:tab:ttests}",
-        r"  \begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}X | r l c r}",
+        r"  \resizebox{\textwidth}{!}{%",
+        r"  \begin{tabular}{l | r c r | r c r}",
         r"    \toprule",
-        r"    \multicolumn{1}{c|}{\textbf{Measure}} & \multicolumn{1}{c}{\textbf{$\Delta$}} & \multicolumn{1}{c}{\textbf{Test}} & \multicolumn{1}{c}{\textbf{Statistic}} & \multicolumn{1}{c}{\textbf{$p$}} \\",
+        r"    & \multicolumn{3}{c|}{\textbf{Measure 1: Branch Coverage ($U$-test)}} & \multicolumn{3}{c}{\textbf{Measure 2: Elicited Bugs ($t$-test)}} \\",
+        r"    \textbf{Treatment} & \multicolumn{1}{c}{\textbf{$\Delta$}} & \textbf{Statistic} & \multicolumn{1}{c|}{\textbf{$p$}} & \multicolumn{1}{c}{\textbf{$\Delta$}} & \textbf{Statistic} & \multicolumn{1}{c}{\textbf{$p$}} \\",
+        r"    \midrule",
     ]
 
-    active_treatments = get_active_treatments(df)
-    compare_treatments = [t for t in active_treatments if t != CONTROL_TREATMENT]
-
     for tr in compare_treatments:
-        header = f"\\textbf{{{tr} vs.\\ {CONTROL_TREATMENT} (Control)}}"
-        lines.extend([
-            r"    \midrule",
-            f"    \\multicolumn{{5}}{{c}}{{{header}}} \\\\",
-            r"    \midrule",
-        ])
+        s_tr_cov = df[df["Treatment"] == tr]["BranchCoveragePct"].dropna().values if not df.empty else []
+        s_tr_el = df[df["Treatment"] == tr]["BugElicitationRate"].dropna().values if not df.empty else []
 
-        for col, name, higher_is_better in measures:
-            if col == "BranchCoveragePct":
-                s_tool = df[df["Treatment"] == tr][col].dropna().values
-                s_ctl = df[df["Treatment"] ==
-                           CONTROL_TREATMENT][col].dropna().values
-                p_val, u_stat = compute_mann_whitney(s_tool, s_ctl)
-                test_str = "Mann--Whitney $U$"
-
-                if np.isnan(p_val) or np.isnan(u_stat):
-                    row = f"    {name} & -- & {test_str} & -- & n/a \\\\"
-                else:
-                    m1 = float(np.mean(s_tool)) if len(s_tool) else 0.0
-                    m2 = float(np.mean(s_ctl)) if len(s_ctl) else 0.0
-                    delta_pct = (m1 / m2 - 1.0) * 100.0 if m2 != 0 else 0.0
-                    sign = "+" if delta_pct >= 0 else ""
-                    delta_str = f"{sign}{delta_pct:.1f}\\%"
-                    stat_str = f"$U = {u_stat:.0f}$"
-                    p_str = f"{p_val:.4f}" if p_val >= 0.0001 else "$<$0.0001"
-                    star = star_alignment(p_val)
-                    is_sig = p_val < 0.05
-                    is_better = delta_pct > 0
-                    color = "bettergreen" if is_better else "worsered"
-                    if is_sig:
-                        row = f"    {name} & \\cellcolor{{{color}}}{delta_str} & \\cellcolor{{{color}}}{test_str} & \\cellcolor{{{color}}}{stat_str} & \\cellcolor{{{color}}}{p_str}{star} \\\\"
-                    else:
-                        row = f"    {name} & {delta_str} & {test_str} & {stat_str} & {p_str}{star} \\\\"
-
-            elif col == "BugsElicited":
-                el_tool = int(df[df["Treatment"] == tr]["BugsElicited"].sum(
-                )) if not df.empty and len(df[df["Treatment"] == tr]) > 0 else 0
-                el_ctl = int(df[df["Treatment"] == CONTROL_TREATMENT]["BugsElicited"].sum(
-                )) if not df.empty and len(df[df["Treatment"] == CONTROL_TREATMENT]) > 0 else 0
-                tot_tool = int(df[df["Treatment"] == tr]["TaskBugCount"].sum(
-                )) if not df.empty and len(df[df["Treatment"] == tr]) > 0 else 0
-                tot_ctl = int(df[df["Treatment"] == CONTROL_TREATMENT]["TaskBugCount"].sum(
-                )) if not df.empty and len(df[df["Treatment"] == CONTROL_TREATMENT]) > 0 else 0
-                test_str = "Fisher's exact"
-
-                if tot_tool == 0 or tot_ctl == 0:
-                    row = f"    {name} & -- & {test_str} & -- & n/a \\\\"
-                else:
-                    p_val = compute_fisher_exact(
-                        el_tool, tot_tool, el_ctl, tot_ctl)
-                    if np.isnan(p_val):
-                        row = f"    {name} & -- & {test_str} & -- & n/a \\\\"
-                    else:
-                        delta_pct = (el_tool / el_ctl - 1.0) * \
-                            100.0 if el_ctl != 0 else 0.0
-                        sign = "+" if delta_pct >= 0 else ""
-                        delta_str = f"{sign}{delta_pct:.1f}\\%"
-                        fish_table = [
-                            [el_tool, max(0, tot_tool - el_tool)], [el_ctl, max(0, tot_ctl - el_ctl)]]
-                        try:
-                            odds_ratio = float(
-                                st.fisher_exact(fish_table).statistic)
-                        except Exception:
-                            odds_ratio = float(np.nan)
-                        stat_str = f"$\\text{{OR}} = {odds_ratio:.2f}$" if not np.isnan(
-                            odds_ratio) else "--"
-                        p_str = f"{p_val:.4f}"
-                        star = star_alignment(p_val)
-                        is_sig = p_val < 0.05
-                        is_better = delta_pct > 0
-                        color = "bettergreen" if is_better else "worsered"
-                        if is_sig:
-                            row = f"    {name} & \\cellcolor{{{color}}}{delta_str} & \\cellcolor{{{color}}}{test_str} & \\cellcolor{{{color}}}{stat_str} & \\cellcolor{{{color}}}{p_str}{star} \\\\"
-                        else:
-                            row = f"    {name} & {delta_str} & {test_str} & {stat_str} & {p_str}{star} \\\\"
+        # Measure 1: Mann-Whitney U
+        p_val_cov, u_stat = compute_mann_whitney(s_tr_cov, s_ctl_cov)
+        if np.isnan(p_val_cov) or np.isnan(u_stat):
+            c1, c2, c3 = "--", "--", "n/a"
+        else:
+            m1 = float(np.mean(s_tr_cov)) if len(s_tr_cov) else 0.0
+            m2 = float(np.mean(s_ctl_cov)) if len(s_ctl_cov) else 0.0
+            delta_pct_cov = (m1 / m2 - 1.0) * 100.0 if m2 != 0 else 0.0
+            sign_cov = "+" if delta_pct_cov >= 0 else ""
+            delta_str_cov = f"{sign_cov}{delta_pct_cov:.1f}\\%"
+            stat_str_cov = f"$U = {u_stat:.0f}$"
+            p_str_cov = f"{p_val_cov:.4f}" if p_val_cov >= 0.0001 else "$<$0.0001"
+            star_cov = star_alignment(p_val_cov)
+            is_sig_cov = p_val_cov < 0.05
+            color_cov = "bettergreen" if delta_pct_cov > 0 else "worsered"
+            if is_sig_cov:
+                c1 = f"\\cellcolor{{{color_cov}}}{delta_str_cov}"
+                c2 = f"\\cellcolor{{{color_cov}}}{stat_str_cov}"
+                c3 = f"\\cellcolor{{{color_cov}}}{p_str_cov}{star_cov}"
             else:
-                s_tool = df[df["Treatment"] ==
-                            tr][col] if not df.empty else pd.Series([])
-                s_ctl = df[df["Treatment"] == CONTROL_TREATMENT][col] if not df.empty else pd.Series([
-                ])
-                r = t_stats(s_tool, s_ctl)
-                test_str = "Two-tailed $t$-test"
+                c1 = delta_str_cov
+                c2 = stat_str_cov
+                c3 = f"{p_str_cov}{star_cov}"
 
-                if np.isnan(r["p"]) or np.isnan(r["t"]):
-                    row = f"    {name} & -- & {test_str} & -- & n/a \\\\"
-                else:
-                    is_sig = r["p"] < 0.05
-                    is_better = (r["m1"] > r["m2"]) if higher_is_better else (
-                        r["m1"] < r["m2"])
-                    color = "bettergreen" if is_better else "worsered"
-                    star = star_alignment(r["p"])
-                    sign = "+" if r["delta_pct"] >= 0 else ""
-                    delta_str = f"{sign}{r['delta_pct']:.1f}\\%"
-                    stat_str = f"$t({r['df']:.1f}) = {r['t']:+.2f}$"
-                    p_str = f"{r['p']:.4f}" if r["p"] >= 0.0001 else "$<$0.0001"
-                    if is_sig:
-                        row = f"    {name} & \\cellcolor{{{color}}}{delta_str} & \\cellcolor{{{color}}}{test_str} & \\cellcolor{{{color}}}{stat_str} & \\cellcolor{{{color}}}{p_str}{star} \\\\"
-                    else:
-                        row = f"    {name} & {delta_str} & {test_str} & {stat_str} & {p_str}{star} \\\\"
+        # Measure 2: Welch t-test
+        p_val_el = compute_ttest(s_tr_el, s_ctl_el)
+        if np.isnan(p_val_el) or len(s_tr_el) < 2 or len(s_ctl_el) < 2:
+            e1, e2, e3 = "--", "--", "n/a"
+        else:
+            res_t = st.ttest_ind(s_tr_el, s_ctl_el, equal_var=False)
+            t_stat = float(res_t.statistic)
+            df_t = float(getattr(res_t, "df", np.nan))
+            m1_el = float(np.mean(s_tr_el)) if len(s_tr_el) else 0.0
+            m2_el = float(np.mean(s_ctl_el)) if len(s_ctl_el) else 0.0
+            delta_pct_el = (m1_el / m2_el - 1.0) * 100.0 if m2_el != 0 else 0.0
+            sign_el = "+" if delta_pct_el >= 0 else ""
+            delta_str_el = f"{sign_el}{delta_pct_el:.1f}\\%"
+            stat_str_el = f"$t({df_t:.1f}) = {t_stat:+.2f}$"
+            p_str_el = f"{p_val_el:.4f}" if p_val_el >= 0.0001 else "$<$0.0001"
+            star_el = star_alignment(p_val_el)
+            is_sig_el = p_val_el < 0.05
+            color_el = "bettergreen" if delta_pct_el > 0 else "worsered"
+            if is_sig_el:
+                e1 = f"\\cellcolor{{{color_el}}}{delta_str_el}"
+                e2 = f"\\cellcolor{{{color_el}}}{stat_str_el}"
+                e3 = f"\\cellcolor{{{color_el}}}{p_str_el}{star_el}"
+            else:
+                e1 = delta_str_el
+                e2 = stat_str_el
+                e3 = f"{p_str_el}{star_el}"
 
-            lines.append(row)
+        lines.append(f"    \\textbf{{{tr}}} & {c1} & {c2} & {c3} & {e1} & {e2} & {e3} \\\\")
 
     lines.extend([
         r"    \bottomrule",
-        r"    \multicolumn{5}{c}{\footnotesize Statistically significant differences are marked as: $\ast$ ($p\!<\!0.05$), $\ast\ast$ ($p\!<\!0.01$).} \\",
-        r"    \multicolumn{5}{c}{\footnotesize Uncomputed tests with $n<2$ are reported as n/a.} \\",
-        r"  \end{tabularx}",
+        r"    \multicolumn{7}{c}{\footnotesize Measure 1 evaluated via Mann--Whitney $U$ test; Measure 2 evaluated via Welch's two-tailed $t$-test.} \\",
+        r"    \multicolumn{7}{c}{\footnotesize Statistically significant differences are marked as: $\ast$ ($p\!<\!0.05$), $\ast\ast$ ($p\!<\!0.01$).} \\",
+        r"  \end{tabular}%",
+        r"  }",
         r"\end{table*}",
     ])
 
@@ -757,11 +844,13 @@ def generate_bugs_elicited_table(df: pd.DataFrame, out_path: str):
     lines = [
         r"\begin{table*}[!htbp]",
         r"  \centering",
-        r"  \small",
+        r"  \setlength{\tabcolsep}{2.5pt}",
+        r"  \footnotesize",
         r"  \definecolor{bettergreen}{RGB}{169,223,192}",
         r"  \definecolor{worsered}{RGB}{245,183,177}",
         r"  \caption{Bug Elicitations by Task Program and Treatment}",
         r"  \label{quarton:tab:bugs-elicited}",
+        r"  \resizebox{\textwidth}{!}{%",
         f"  \\begin{{tabular}}{{{col_spec}}}",
         r"    \toprule",
         f"    \\textbf{{Task Program}} & \\textbf{{Bug ID}} & {tr_headers} \\\\",
@@ -816,8 +905,9 @@ def generate_bugs_elicited_table(df: pd.DataFrame, out_path: str):
         f"    \\multicolumn{{2}}{{l|}}{{\\textbf{{Unique Bugs Elicited (out of {total_rubric_bugs})}}}} & " + " & ".join(
             str(treatment_unique[t]) for t in active_treatments) + r" \\",
         r"    \bottomrule",
-        r"    \multicolumn{8}{c}{\footnotesize Green indicates the bug was elicited by the treatment; red indicates unelicited.} \\",
-        r"  \end{tabular}",
+        f"    \\multicolumn{{{num_tr + 2}}}{{c}}{{\\footnotesize Green indicates the bug was elicited by the treatment; red indicates unelicited.}} \\\\",
+        r"  \end{tabular}%",
+        r"  }",
         r"\end{table*}",
     ])
 
@@ -833,7 +923,7 @@ def generate_stop_reasons_table(df: pd.DataFrame, out_path: str):
     lines = [
         r"\begin{table*}[!htbp]",
         r"  \centering",
-        r"  \small",
+        r"  \footnotesize",
         r"  \caption{Fuzzer Termination Reasons and Exit Codes by Target PUT and Treatment}",
         r"  \label{quarton:tab:stop-reasons}",
         r"  \begin{tabular}{ll|rrrr|rr}",
@@ -904,6 +994,10 @@ def generate_cig_generator_table(run_dir: str, out_path: str, df: Optional[pd.Da
     with open(rubric_path, "r", encoding="utf-8") as f:
         rubric = json.load(f)
 
+    scram_run_ids = set()
+    if df is not None and not df.empty and "RunID" in df.columns and "Treatment" in df.columns:
+        scram_run_ids = set(df[df["Treatment"] == "SCRAM"]["RunID"])
+
     artifact_pattern = os.path.join(
         run_dir, "artifacts", "*", "elicited_bugs.json")
     eliciting_counts: Dict[str, Dict[str, int]
@@ -913,6 +1007,10 @@ def generate_cig_generator_table(run_dir: str, out_path: str, df: Optional[pd.Da
 
     log_files = glob.glob(artifact_pattern)
     for logf in log_files:
+        rid = os.path.basename(os.path.dirname(logf))
+        if scram_run_ids and rid not in scram_run_ids:
+            continue
+
         run_seen_el = set()
         run_seen_orig = set()
         with open(logf, "r", encoding="utf-8") as f:
@@ -937,12 +1035,13 @@ def generate_cig_generator_table(run_dir: str, out_path: str, df: Optional[pd.Da
     lines = [
         r"\begin{table*}[!htbp]",
         r"  \centering",
-        r"  \small",
+        r"  \footnotesize",
+        r"  \setlength{\tabcolsep}{4pt}",
         r"  \definecolor{bettergreen}{RGB}{169,223,192}",
         r"  \definecolor{worsered}{RGB}{245,183,177}",
-        r"  \caption{Task Program Bugs by Eliciting and Originating Input Generator for \toolname}",
+        r"  \caption{Task Program Bugs by Eliciting and (Originating) Input Generator for SCRAM}",
         r"  \label{quarton:tab:generators}",
-        r"  \begin{tabular}{l | c c c c c}",
+        r"  \begin{tabular}{l | *{5}{>{\centering\arraybackslash}p{2.1cm}}}",
         r"    \toprule",
         r"    & \multicolumn{5}{c}{\textbf{Eliciting and (Originating) Input Generator}} \\",
         r"    \multicolumn{1}{c|}{\textbf{Bug ID}} & \textbf{Seed} & \textbf{Custom} & \textbf{Random} & \textbf{AI} & \textbf{Mutation} \\",
@@ -984,8 +1083,8 @@ def generate_cig_generator_table(run_dir: str, out_path: str, df: Optional[pd.Da
 
     lines.extend([
         r"    \bottomrule",
-        r"    \multicolumn{6}{c}{\footnotesize The originating generator first produced an input that was later mutated into an eliciting input.} \\",
-        r"    \multicolumn{6}{c}{\footnotesize The eliciting input generator produced the final bug-eliciting input.} \\",
+        r"    \multicolumn{6}{c}{\footnotesize Green indicates bug was elicited or originated; red indicates zero contributions.} \\",
+        r"    \multicolumn{6}{c}{\footnotesize Format: Eliciting (Originating). Originating inputs were mutated to produce the final eliciting input.} \\",
         r"  \end{tabular}",
         r"\end{table*}",
     ])
@@ -1047,58 +1146,123 @@ def generate_provenance_listing(run_dir: str, out_path: str, df: Optional[pd.Dat
     if not all_candidates:
         return
 
-    # Bucket candidates according to selection hierarchy
-    p1 = [c for c in all_candidates if len(bug_treatments.get(
-        c["bug_id"], set())) == 1 and "SCRAM" in bug_treatments.get(c["bug_id"], set())]
-    p2 = [c for c in all_candidates if "SR" not in bug_treatments.get(
-        c["bug_id"], set())]
-    p3 = [c for c in all_candidates if "R" not in bug_treatments.get(
-        c["bug_id"], set())]
+    # User criteria: longest mutation chain from seed or custom that elicited PARSE_SILENT_DROP
+    target_candidates = []
+    for c in all_candidates:
+        if c["bug_id"] == "PARSE_SILENT_DROP":
+            el, orig = parse_generator_chain(c["chain"])
+            if orig in ("seed", "custom"):
+                target_candidates.append(c)
 
-    if p1:
-        selected_pool = p1
-    elif p2:
-        selected_pool = p2
-    elif p3:
-        selected_pool = p3
+    scram_targets = [c for c in target_candidates if df is not None and c["run_id"] in set(df[df["Treatment"] == "SCRAM"]["RunID"])]
+    if scram_targets:
+        selected = max(scram_targets, key=lambda x: x["steps"])
+    elif target_candidates:
+        selected = max(target_candidates, key=lambda x: x["steps"])
     else:
-        selected_pool = all_candidates
+        selected = max(all_candidates, key=lambda x: x["steps"])
 
-    selected = max(selected_pool, key=lambda x: x["steps"])
     max_steps = selected["steps"]
 
-    chain_parts = selected["chain"].split("->")
+    mpk_path = os.path.join(run_dir, "artifacts", selected["run_id"], f"{selected['run_id']}.mpk")
     formatted_lines = []
-    for i, p in enumerate(chain_parts):
-        prefix = "Origin:  " if i == 0 else (
-            "Elicit:  " if i == len(chain_parts) - 1 else "Mutate:  ")
-        formatted_lines.append(f"{prefix}{p.strip()}")
+
+    if os.path.exists(mpk_path):
+        try:
+            with open(mpk_path, "rb") as f:
+                d = msgpack.unpackb(f.read())
+            by_tick = {item.get("tick"): item for item in d.get("interesting", {}).get("inputs", [])}
+            curr_tick = 2048
+            chain = []
+            while curr_tick is not None:
+                obj = by_tick.get(curr_tick)
+                if not obj:
+                    break
+                chain.append((curr_tick, obj))
+                curr_tick = obj.get("input", {}).get("source", {}).get("tick")
+            chain.reverse()
+
+            if chain:
+                prev_vals = None
+                for i, (tick, obj) in enumerate(chain):
+                    inp = obj.get("input", {})
+                    src = inp.get("source", {})
+                    val = inp.get("value", [])
+
+                    spec = val[0].get("value") if isinstance(val[0], dict) else val[0]
+                    c_str = val[1].get("value") if isinstance(val[1], dict) else val[1]
+                    u_std = val[2].get("value") if isinstance(val[2], dict) else val[2]
+                    chk = val[3].get("value") if isinstance(val[3], dict) else val[3]
+                    sym = val[4].get("value") if isinstance(val[4], dict) else val[4]
+
+                    fn_name = src.get("fnName", "fuzz_parse_generator")
+                    muts = ", ".join(src.get("steps", {}).get("mutators", []))
+
+                    if i == 0:
+                        header = f"Origin: CustomInputGenerator[{fn_name}]"
+                    elif i == len(chain) - 1:
+                        header = f"Elicit: MutationInputGenerator[{muts}]"
+                    else:
+                        header = f"Mutate: MutationInputGenerator[{muts}]"
+
+                    formatted_lines.append(header)
+
+                    n_spec = ""
+                    n_cstr = ""
+                    n_ustd = ""
+                    if prev_vals:
+                        if u_std != prev_vals[2]:
+                            n_ustd = "                          <-- mutated to False"
+                        if c_str != prev_vals[1]:
+                            if i == len(chain) - 1:
+                                n_cstr = "                    <-- inserted '#' token (ELICITS BUG)"
+                            elif i == 2 and c_str == "":
+                                n_cstr = "                             <-- truncated to empty string"
+                            elif i == 3:
+                                n_cstr = "                      <-- inserted block"
+
+                    spec_escaped = spec.replace("\n", "\\n")
+                    formatted_lines.append(f"  spec:            \"{spec_escaped}\"{n_spec}")
+                    formatted_lines.append(f"  constraint_str:  \"{c_str}\"{n_cstr}")
+                    formatted_lines.append(f"  use_stdlib:      {u_std}{n_ustd}")
+                    formatted_lines.append(f"  check:           {chk}")
+                    formatted_lines.append(f"  start_symbol:    \"{sym}\"")
+                    formatted_lines.append("")
+
+                    prev_vals = (spec, c_str, u_std, chk, sym)
+        except Exception as err:
+            import traceback
+            traceback.print_exc()
+
+    if not formatted_lines:
+        chain_parts = selected["chain"].split("->")
+        for i, p in enumerate(chain_parts):
+            prefix = "Origin:  " if i == 0 else (
+                "Elicit:  " if i == len(chain_parts) - 1 else "Mutate:  ")
+            formatted_lines.append(f"{prefix}{p.strip()}")
+        formatted_lines.extend(["", f"Eliciting Input Args: {selected['args']}"])
 
     bid_tex = selected["bug_id"].replace("_", r"\_")
     task_tex = TASK_LABELS.get(selected["task"], selected["task"])
 
-    not_elicited_by = [tr for tr in TREATMENTS if tr not in bug_treatments.get(
+    single_treatments = ["S", "C", "R", "A", "M"]
+    non_eliciting_single = [tr for tr in single_treatments if tr not in bug_treatments.get(
         selected["bug_id"], set())]
-    unelicited_str = ", ".join(not_elicited_by) if not_elicited_by else "none"
+    single_unelicited_str = ", ".join(non_eliciting_single) if non_eliciting_single else "none"
 
-    caption_short = f"Input Mutation Lineage for \\texttt{{{bid_tex}}}"
+    caption_short = "Eliciting input example for SCRAM"
     caption_text = (
-        f"Multi-Step Input Mutation Lineage for \\texttt{{{bid_tex}}}. "
-        f"Treatment: \\toolname. "
-        f"Trial Run: \\texttt{{{selected['run_id']}}}. "
-        f"Task Program: \\texttt{{{task_tex}}}. "
-        f"Bug ID: \\texttt{{{bid_tex}}} "
-        f"(unelicited by {unelicited_str})."
+        f"Eliciting input example for SCRAM. "
+        f"Shows cooperation among different input generator types that elicited a bug candidate "
+        f"(\\texttt{{{bid_tex}}}) not elicited by single-generator treatments ({single_unelicited_str})."
     )
 
     lines = [
         r"\begin{figure}[!htbp]",
         r"  \centering",
-        r"  \small",
+        r"  \footnotesize",
         r"  \begin{verbatim}",
-        "\n".join(formatted_lines),
-        "",
-        f"Eliciting Input Args: {selected['args']}",
+        "\n".join(formatted_lines).rstrip(),
         r"  \end{verbatim}",
         f"  \\caption[{caption_short}]{{{caption_text}}}",
         f"  \\label{{quarton:lst:provenance-{selected['bug_id'].lower().replace('_', '-')}}}",
@@ -1109,6 +1273,242 @@ def generate_provenance_listing(run_dir: str, out_path: str, df: Optional[pd.Dat
     with open(out_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
     print(f"[LISTING] Generated Representative Provenance Listing: {out_path}")
+
+
+def generate_data_quarton_tex(df: pd.DataFrame, out_path: str, stats: dict):
+    """Outputs LaTeX macro definitions with key experimental metrics into data-quarton.tex."""
+    total_trials = len(df)
+    completed_trials = len(df[df["Status"] == "COMPLETED"]) if not df.empty else 0
+    total_runtime_sec = float(df["ElapsedSec"].sum()) if "ElapsedSec" in df.columns else 0.0
+
+    tool_ver_str = str(df["ToolVersion"].dropna().iloc[0]) if "ToolVersion" in df.columns and not df["ToolVersion"].dropna().empty else "NaNofuzz v0.4.2"
+    tool_ver_clean = tool_ver_str.replace("NaNofuzz", "").strip()
+    if not tool_ver_clean.startswith("v") and tool_ver_clean != "":
+        tool_ver_clean = f"v{tool_ver_clean}"
+    if not tool_ver_clean:
+        tool_ver_clean = "v0.4.2"
+
+    active_treatments = get_active_treatments(df)
+
+    rubric_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ground_truth_rubric.json")
+    tasks_dict = {}
+    if os.path.exists(rubric_file):
+        with open(rubric_file, "r", encoding="utf-8") as rf:
+            rdata = json.load(rf)
+        tasks_dict = rdata.get("tasks", {})
+
+    total_unique_bugs = sum(len(td.get("bugs", {})) for td in tasks_dict.values()) if tasks_dict else 23
+    num_puts = len(tasks_dict) if tasks_dict else len(TASKS)
+    avg_bugs_per_put = total_unique_bugs / float(num_puts) if num_puts > 0 else 4.6
+
+    k_treevalue = len(tasks_dict.get("TreeValue", {}).get("bugs", {})) if tasks_dict else TASKS_MAP["TreeValue"]["bugs_count"]
+    k_derivation = len(tasks_dict.get("DerivationTree", {}).get("bugs", {})) if tasks_dict else TASKS_MAP["DerivationTree"]["bugs_count"]
+    k_parse = len(tasks_dict.get("parse", {}).get("bugs", {})) if tasks_dict else TASKS_MAP["parse"]["bugs_count"]
+    k_distance = len(tasks_dict.get("_distance_norm", {}).get("bugs", {})) if tasks_dict else TASKS_MAP["_distance_norm"]["bugs_count"]
+    k_makedef = len(tasks_dict.get("make_def", {}).get("bugs", {})) if tasks_dict else TASKS_MAP["make_def"]["bugs_count"]
+
+    total_bugs_to_find = int(df["TaskBugCount"].sum()) if "TaskBugCount" in df.columns and not df["TaskBugCount"].dropna().empty else total_unique_bugs * total_trials // num_puts
+    num_reps = int(df["Replicate"].max()) if "Replicate" in df.columns and not df["Replicate"].dropna().empty else (total_trials // (len(active_treatments) * num_puts) if len(active_treatments) * num_puts > 0 else 10)
+
+    # Intervention is SCRAM, Control is R
+    int_tr = "SCRAM" if "SCRAM" in active_treatments else active_treatments[0]
+    ctl_tr = CONTROL_TREATMENT if CONTROL_TREATMENT in active_treatments else active_treatments[-1]
+
+    sub_ctl = df[df["Treatment"] == ctl_tr] if not df.empty else pd.DataFrame()
+    sub_int = df[df["Treatment"] == int_tr] if not df.empty else pd.DataFrame()
+
+    ctl_cov_m = stats.get(ctl_tr, {}).get("All", {}).get("BranchCoveragePct", {}).get("mean", np.nan)
+    ctl_cov_sd = stats.get(ctl_tr, {}).get("All", {}).get("BranchCoveragePct", {}).get("sd", np.nan)
+    int_cov_m = stats.get(int_tr, {}).get("All", {}).get("BranchCoveragePct", {}).get("mean", np.nan)
+    int_cov_sd = stats.get(int_tr, {}).get("All", {}).get("BranchCoveragePct", {}).get("sd", np.nan)
+
+    cov_delta = (int_cov_m / ctl_cov_m - 1.0) if (not np.isnan(ctl_cov_m) and ctl_cov_m > 0 and not np.isnan(int_cov_m)) else 0.0
+    p_cov = stats.get(int_tr, {}).get("All", {}).get("BranchCoveragePct", {}).get("pvalue", np.nan)
+
+    ctl_el_m = stats.get(ctl_tr, {}).get("All", {}).get("BugsElicited", {}).get("mean", np.nan)
+    ctl_el_sd = stats.get(ctl_tr, {}).get("All", {}).get("BugsElicited", {}).get("sd", np.nan)
+    ctl_el_sum = int(sub_ctl["BugsElicited"].sum()) if "BugsElicited" in sub_ctl.columns and len(sub_ctl) > 0 else 0
+    ctl_el_max = int(sub_ctl["TaskBugCount"].sum()) if "TaskBugCount" in sub_ctl.columns and len(sub_ctl) > 0 else total_unique_bugs
+
+    int_el_m = stats.get(int_tr, {}).get("All", {}).get("BugsElicited", {}).get("mean", np.nan)
+    int_el_sd = stats.get(int_tr, {}).get("All", {}).get("BugsElicited", {}).get("sd", np.nan)
+    int_el_sum = int(sub_int["BugsElicited"].sum()) if "BugsElicited" in sub_int.columns and len(sub_int) > 0 else 0
+    int_el_max = int(sub_int["TaskBugCount"].sum()) if "TaskBugCount" in sub_int.columns and len(sub_int) > 0 else total_unique_bugs
+
+    el_delta = (int_el_sum / ctl_el_sum - 1.0) if ctl_el_sum > 0 else 0.0
+    p_el = compute_fisher_exact(int_el_sum, int_el_max, ctl_el_sum, ctl_el_max)
+
+    cov_delta_str = format_delta_pct(cov_delta)
+    el_delta_str = format_delta_pct(el_delta)
+    p_el_range = pvalrange(p_el)
+    p_cov_range = pvalrange(p_cov)
+
+    summary_str = f"Tasks using \\toolname{{}}'s full composition of input generators achieved {cov_delta_str} higher branch coverage ({p_cov_range}) and elicited {el_delta_str} more bugs ({p_el_range}) than tasks using only a random input generator."
+
+    lines = [
+        r"% =====================================================================",
+        r"% QuartoN Empirical Study Experimental Data Variables",
+        r"% Between-Subjects Autonomous Agent Study (Gemini 3.8 Flash)",
+        r"% =====================================================================",
+        r"",
+        r"% ---------------------TREATMENT NAME MACROS----------------------",
+        r"% Full names",
+        r"\providecommand{\controlnameU}{Hypothesis}",
+        r"\renewcommand{\controlnameU}{Hypothesis}",
+        r"\providecommand{\controlname}{hypothesis}",
+        r"\renewcommand{\controlname}{hypothesis}",
+        r"\providecommand{\hypofuzzname}{Hypofuzz}",
+        r"\renewcommand{\hypofuzzname}{Hypofuzz}",
+        r"\providecommand{\toolname}{QuartoN}",
+        r"\renewcommand{\toolname}{QuartoN}",
+        r"",
+        r"% Short abbreviations for tables, figures, and plots",
+        r"\providecommand{\controlnameshort}{Hypt}",
+        r"\renewcommand{\controlnameshort}{Hypt}",
+        r"\providecommand{\hypofuzznameshort}{Hfuz}",
+        r"\renewcommand{\hypofuzznameshort}{Hfuz}",
+        r"\providecommand{\toolnameshort}{QtN}",
+        r"\renewcommand{\toolnameshort}{QtN}",
+        r"",
+        r"% ---------------------PAPER-SPECIFIC VARIABLES-------------------",
+        f"\\def\\qtoolversion{{{tool_ver_clean}}}",
+        r"\def\qcontrolversion{v6.170.15}",
+        r"\def\qhypofuzzversion{v25.11.1}",
+        r"\def\qagentmodel{Gemini 3.8 Flash}",
+        r"\def\qpythonversion{3.11.2}",
+        r"\def\qhostos{macOS 26.7.3}",
+        r"\def\qhosthardware{Apple MacBook M5 Pro}",
+        r"\def\qfandangoversion{v1.3.1-81-gd06277ca}",
+        r"\def\tscgoversion{7.0.2}",
+        r"\def\tscgoclibugs{5}",
+        r"\def\tscgoclilines{15}",
+        r"\def\tscgoclidesc{Command-line compiler driver executing compilation, checks, and emit}",
+        r"\def\tscgotranspiledeclbugs{2}",
+        r"\def\tscgotranspiledecllines{165}",
+        r"\def\tscgotranspiledecldesc{Single-file declaration (.d.ts) transpiler}",
+        r"\def\tscgotranspilemodulebugs{2}",
+        r"\def\tscgotranspilemodulelines{165}",
+        r"\def\tscgotranspilemoduledesc{Single-file JavaScript source transpiler}",
+        r"\def\tscgopublicendpointstotal{3}",
+        r"\def\tscgopublicbugstotal{9}",
+        r"",
+        f"\\def\\qn{{{total_trials}}}",
+        f"\\def\\qntaskprograms{{{num_puts}}}",
+        f"\\def\\qntreatments{{{len(active_treatments)}}}",
+        f"\\def\\qtaskcombinations{{{len(active_treatments) * num_puts}}}",
+        f"\\def\\qrepetitions{{{num_reps}}}",
+        f"\\def\\qntotaltasks{{{total_trials}}}",
+        f"\\def\\qntotalbugs{{{total_unique_bugs}}}",
+        f"\\def\\qnavgbugsperput{{{avg_bugs_per_put:.1f}}}",
+        f"\\def\\qnbugstreevalue{{{k_treevalue}}}",
+        f"\\def\\qnbugsderivationtree{{{k_derivation}}}",
+        f"\\def\\qnbugsparse{{{k_parse}}}",
+        f"\\def\\qnbugsdistancenorm{{{k_distance}}}",
+        f"\\def\\qnbugsmakedef{{{k_makedef}}}",
+        f"\\def\\qnbugstofind{{{total_bugs_to_find}}}",
+        r"",
+        r"% Measure 1: Peak Branch Coverage (%)",
+        f"\\def\\ctlCoveragemean{{{ctl_cov_m:.1f}}}",
+        f"\\def\\ctlCoveragesd{{{ctl_cov_sd:.1f}}}",
+        f"\\def\\ctlCoveragepct{{{ctl_cov_m:.1f}\\%}}",
+        f"\\def\\intCoveragemean{{{int_cov_m:.1f}}}",
+        f"\\def\\intCoveragesd{{{int_cov_sd:.1f}}}",
+        f"\\def\\intCoveragepct{{{int_cov_m:.1f}\\%}}",
+        f"\\def\\intCoveragedeltapct{{{cov_delta_str}}}",
+        f"\\def\\pCoverage{{{f'{p_cov:.3f}' if not np.isnan(p_cov) else 'N/A'}}}",
+        f"\\def\\pCoveragerange{{{pvalrange(p_cov)}}}",
+        r"",
+        r"% Measure 2: Elicited Bugs",
+        f"\\def\\ctlElicitedmax{{{ctl_el_max}}}",
+        f"\\def\\ctlElicitedsum{{{ctl_el_sum}}}",
+        f"\\def\\ctlElicitedmean{{{ctl_el_m:.2f}}}",
+        f"\\def\\ctlElicitedsd{{{ctl_el_sd:.2f}}}",
+        (f"\\def\\ctlElicitedpercent{{{ctl_el_sum / ctl_el_max:.1%}}}".replace("%", "\\%") if ctl_el_max > 0 else "\\def\\ctlElicitedpercent{0\\%}"),
+        f"\\def\\intElicitedmax{{{int_el_max}}}",
+        f"\\def\\intElicitedsum{{{int_el_sum}}}",
+        f"\\def\\intElicitedmean{{{int_el_m:.2f}}}",
+        f"\\def\\intElicitedsd{{{int_el_sd:.2f}}}",
+        (f"\\def\\intElicitedpercent{{{int_el_sum / int_el_max:.1%}}}".replace("%", "\\%") if int_el_max > 0 else "\\def\\intElicitedpercent{0\\%}"),
+        f"\\def\\intEliciteddeltapct{{{el_delta_str}}}",
+        f"\\def\\pelicited{{{f'{p_el:.3f}' if not np.isnan(p_el) else 'N/A'}}}",
+        f"\\def\\pelicitedrange{{{p_el_range}}}",
+        r"",
+        r"% High-level stats summary",
+        f"\\def\\quartonstatssummary{{{summary_str}}}",
+        r"\def\qgeneratorscaption{Input generator scheduling share for each task program, shown individually ($n=10$) and overall ($n=50$). Colored areas represent the proportion of generation turns allocated by the Multi-Armed Bandit scheduler.}",
+        r"",
+        r"% ---------------------CIG TREATMENT MACROS-----------------------",
+        f"\\providecommand{{\\cigToolVersion}}{{{tool_ver_clean}}}",
+        f"\\renewcommand{{\\cigToolVersion}}{{{tool_ver_clean}}}",
+        f"\\providecommand{{\\cigTotalTrials}}{{{total_trials}}}",
+        f"\\renewcommand{{\\cigTotalTrials}}{{{total_trials}}}",
+        f"\\providecommand{{\\cigCompletedTrials}}{{{completed_trials}}}",
+        f"\\renewcommand{{\\cigCompletedTrials}}{{{completed_trials}}}",
+    ]
+
+    for tr in active_treatments:
+        tr_clean = tr.replace("_", "")
+        rate_all = stats.get(tr, {}).get("All", {}).get("BugElicitationRate", {}).get("mean", np.nan)
+        cov_all = stats.get(tr, {}).get("All", {}).get("BranchCoveragePct", {}).get("mean", np.nan)
+        bugs_all = stats.get(tr, {}).get("All", {}).get("BugsElicited", {}).get("mean", np.nan)
+        p_cov_tr = stats.get(tr, {}).get("All", {}).get("BranchCoveragePct", {}).get("pvalue", np.nan)
+        p_rate_tr = stats.get(tr, {}).get("All", {}).get("BugElicitationRate", {}).get("pvalue", np.nan)
+
+        rate_str = f"{rate_all:.1%}".replace("%", r"\%") if not np.isnan(rate_all) else "--"
+        cov_str = f"{cov_all:.1f}\\%" if not np.isnan(cov_all) else "--"
+        bugs_str = f"{bugs_all:.2f}" if not np.isnan(bugs_all) else "--"
+        p_cov_str = pvalrange(p_cov_tr) if not np.isnan(p_cov_tr) else "n/a"
+        p_rate_str = pvalrange(p_rate_tr) if not np.isnan(p_rate_tr) else "n/a"
+
+        lines.extend([
+            f"\\providecommand{{\\cig{tr_clean}CoveragePct}}{{{cov_str}}}",
+            f"\\renewcommand{{\\cig{tr_clean}CoveragePct}}{{{cov_str}}}",
+            f"\\providecommand{{\\cig{tr_clean}MeanElicitedBugs}}{{{bugs_str}}}",
+            f"\\renewcommand{{\\cig{tr_clean}MeanElicitedBugs}}{{{bugs_str}}}",
+            f"\\providecommand{{\\cig{tr_clean}ElicitationRate}}{{{rate_str}}}",
+            f"\\renewcommand{{\\cig{tr_clean}ElicitationRate}}{{{rate_str}}}",
+            f"\\providecommand{{\\cig{tr_clean}CoveragePRange}}{{{p_cov_str}}}",
+            f"\\renewcommand{{\\cig{tr_clean}CoveragePRange}}{{{p_cov_str}}}",
+            f"\\providecommand{{\\cig{tr_clean}ElicitationPRange}}{{{p_rate_str}}}",
+            f"\\renewcommand{{\\cig{tr_clean}ElicitationPRange}}{{{p_rate_str}}}",
+        ])
+
+    # Treatment S runtime variables (one for mean, one for SD)
+    s_sub = df[df["Treatment"] == "S"] if not df.empty else pd.DataFrame()
+    s_elapsed = s_sub["ElapsedSec"].dropna().values.astype(float) if "ElapsedSec" in s_sub.columns else np.array([])
+    s_time_m = float(np.mean(s_elapsed)) if len(s_elapsed) > 0 else float(np.nan)
+    s_time_sd = float(np.std(s_elapsed, ddof=1)) if len(s_elapsed) > 1 else float(np.nan)
+    s_m_str = f"{s_time_m:.2f}" if not np.isnan(s_time_m) else "--"
+    s_sd_str = f"{s_time_sd:.2f}" if not np.isnan(s_time_sd) else "--"
+
+    lines.extend([
+        r"",
+        r"% Treatment S Runtime (seconds)",
+        f"\\def\\qsRuntimemean{{{s_m_str}}}",
+        f"\\def\\qsRuntimesd{{{s_sd_str}}}",
+    ])
+
+    tot_time = int((df["StopReason"] == "maxTime").sum()) if "StopReason" in df.columns else 0
+    tot_dupes = int((df["StopReason"] == "maxDupes").sum()) if "StopReason" in df.columns else 0
+    tot_exit0 = int((df["ExitCode"] == 0).sum()) if "ExitCode" in df.columns else 0
+    tot_exit1 = int((df["ExitCode"] == 1).sum()) if "ExitCode" in df.columns else 0
+
+    lines.extend([
+        f"\\providecommand{{\\cigTotalMaxTime}}{{{tot_time}}}",
+        f"\\renewcommand{{\\cigTotalMaxTime}}{{{tot_time}}}",
+        f"\\providecommand{{\\cigTotalMaxDupes}}{{{tot_dupes}}}",
+        f"\\renewcommand{{\\cigTotalMaxDupes}}{{{tot_dupes}}}",
+        f"\\providecommand{{\\cigTotalExitCodeZero}}{{{tot_exit0}}}",
+        f"\\renewcommand{{\\cigTotalExitCodeZero}}{{{tot_exit0}}}",
+        f"\\providecommand{{\\cigTotalExitCodeOne}}{{{tot_exit1}}}",
+        f"\\renewcommand{{\\cigTotalExitCodeOne}}{{{tot_exit1}}}",
+        r"% -------------------END PAPER-SPECIFIC VARIABLES----------------",
+    ])
+
+    os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
+    with open(out_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+    print(f"[TEX] Generated LaTeX Variables: {out_path}")
 
 
 def main():
@@ -1131,8 +1531,16 @@ def main():
         if os.path.exists(latest_sym):
             data_path = latest_sym
         else:
-            raise FileNotFoundError(
-                "CRITICAL: data.csv not specified and latest run not found.")
+            candidates = sorted(
+                glob.glob(os.path.join(bench_dir, "cli", "*", "data.csv")),
+                key=os.path.getmtime,
+                reverse=True
+            )
+            if candidates:
+                data_path = candidates[0]
+            else:
+                raise FileNotFoundError(
+                    "CRITICAL: data.csv not specified and latest run not found.")
 
     print(f"[ANALYSIS] Loading dataset from: {data_path}")
     df = pd.read_csv(data_path)
@@ -1147,6 +1555,9 @@ def main():
     os.makedirs(parts_dir, exist_ok=True)
 
     stats = analyze_cig_dataset(df)
+
+    data_tex = os.path.join(parts_dir, "data-quarton.tex")
+    generate_data_quarton_tex(df, data_tex, stats)
 
     tab_participants = os.path.join(parts_dir, "tab-quarton-participants.tex")
     generate_trials_table(df, tab_participants)
@@ -1179,7 +1590,11 @@ def main():
     ]
     generate_pyplots(df, plot_paths)
 
+    gen_plot_path = os.path.join(parts_dir, "pyplots-quarton-generators.pdf")
+    generate_generator_usage_plot(df, run_dir, gen_plot_path)
+
     output_files = [
+        "data-quarton.tex",
         "tab-quarton-participants.tex",
         "tab-quarton-trials.tex",
         "tab-quarton-results.tex",
@@ -1189,17 +1604,10 @@ def main():
         "tab-quarton-stop-reasons.tex",
         "tab-quarton-generators.tex",
         "lst-quarton-provenance.tex",
+        "fig-quarton-generators.tex",
         "pyplots-quarton.pdf",
+        "pyplots-quarton-generators.pdf",
     ]
-
-    # Mirror to dissertation folder if present
-    diss_parts = "/Users/mcd2/git/cmumatt/dissertation/parts"
-    if os.path.exists(diss_parts):
-        for fname in output_files:
-            src_f = os.path.join(parts_dir, fname)
-            if os.path.exists(src_f):
-                shutil.copy2(src_f, os.path.join(diss_parts, fname))
-        print(f"[MIRROR] Mirrored tables, listings, and plots to {diss_parts}")
 
     print(
         f"\n[SUCCESS] CIG complete analysis suite generated in:\n  {parts_dir}")

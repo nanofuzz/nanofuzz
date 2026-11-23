@@ -197,12 +197,12 @@ class TestTreeValueAttribution:
 class TestDerivationTreeAttribution:
     TASK = "DerivationTree"
 
-    def test_dt_slice_parent_hijack_attribution(self):
+    def test_dt_slice_parent_mut_attribution(self):
         put_inp, h_bugs, exc, i_bugs, res = run_with_interceptor_capture(
             self.TASK, fuzz_DerivationTree, "leaf", 0, 1, "slice", "acyclic"
         )
-        assert "DT_SLICE_PARENT_HIJACK" in i_bugs
-        assert "DT_SLICE_PARENT_HIJACK" in h_bugs
+        assert "DT_SLICE_PARENT_MUT" in i_bugs
+        assert "DT_SLICE_PARENT_MUT" in h_bugs
         mock_result = {"output": [{"value": res}], "exception": exc is not None}
         assert fuzz_DerivationTree_validator(mock_result) == "fail"
 
