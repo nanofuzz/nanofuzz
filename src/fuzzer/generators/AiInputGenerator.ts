@@ -40,6 +40,7 @@ import {
   SampledFrontierTarget,
   formatFrontierContext,
 } from "../analysis/CoverageFrontierSampler";
+import * as ProgramFactory from "../analysis/ProgramFactory";
 import { Leaderboard } from "./Leaderboard";
 
 // Maximum model calls allowed when policy is 'seed'
@@ -65,6 +66,11 @@ export class AiInputGenerator extends AbstractInputGenerator {
   protected _validator: ArgDefValidator; // Validator for argument constraints
   protected _policy: AiPolicy = "eager"; // AI input generation policy: 'eager' or 'seed'
   protected _disabledReason?: string; // Reason why AI generator was disabled for this run
+  protected _putSources: {
+    filePath: string;
+    src: string;
+    targetName: string;
+  }[] = []; // Resolved Program Under Test (PUT) target sources
 
   public constructor(
     fn: FunctionDef,
@@ -83,7 +89,28 @@ export class AiInputGenerator extends AbstractInputGenerator {
     this._validator = new ArgDefValidator(this._specs);
     this._tokensPerInput = this._estimateTokensPerInput();
     this._requestedInputCount = this._getRequestedInputCount();
+    this._putSources = this._resolvePutSources();
   } // fn: constructor
+
+  /**
+   * Resolves source files for any Program Under Test (PUT) targets declared on the function.
+   */
+  protected _resolvePutSources(): {
+    filePath: string;
+    src: string;
+    targetName: string;
+  }[] {
+    const putTargets = this._fn.getPutTargets();
+    if (putTargets.length === 0) {
+      return [];
+    }
+    try {
+      const prog = ProgramFactory.fromFile(this._fn.getModule());
+      return prog.resolvePutTargets(putTargets);
+    } catch {
+      return [];
+    }
+  } // fn: _resolvePutSources
 
   /**
    * Returns the human-readable name for the AI input generator
@@ -425,7 +452,9 @@ export class AiInputGenerator extends AbstractInputGenerator {
           this._stats.calls.sent,
           uncoveredInfo,
           frontierTarget,
-          this._leaderboard
+          this._leaderboard,
+          undefined,
+          this._putSources
         );
 
         try {
@@ -1084,12 +1113,30 @@ export const prompt = {
     uncoveredInfo?: UncoveredCoverageInfo,
     frontierTarget?: SampledFrontierTarget,
     leaderboard?: Leaderboard<InputAndSource>,
-    maxBackfeedTokens?: number
+    maxBackfeedTokens?: number,
+    putSources?: { filePath: string; src: string; targetName: string }[]
   ): string => {
     const fnRef = fn.getRef();
     const spec = (fn.getCmt() ?? "").replaceAll("```", "\\`\\`\\`");
     const fnSrc = fnRef.src.replaceAll("```", "\\`\\`\\`");
     const escapedModuleSrc = moduleSrc.replaceAll("```", "\\`\\`\\`");
+
+    let putContext = "";
+    if (putSources && putSources.length > 0) {
+      const externalPutSources = putSources.filter(
+        (s) => path.resolve(s.filePath) !== path.resolve(fnRef.module)
+      );
+      if (externalPutSources.length > 0) {
+        const putBlocks = externalPutSources.map((s) => {
+          const displayPath = path.isAbsolute(s.filePath)
+            ? path.relative(process.cwd(), s.filePath) || s.filePath
+            : s.filePath;
+          const escapedSrc = s.src.replaceAll("```", "\\`\\`\\`");
+          return `// File: ${displayPath}\n\`\`\`${fnRef.lang}\n${escapedSrc}\n\`\`\``;
+        });
+        putContext = `The implementation of the Program Under Test (PUT) called by this harness:\n${putBlocks.join("\n\n")}\n\n`;
+      }
+    }
 
     const backfeed = Config.get<boolean>(
       "nanofuzz.ai.backfeedPriorInputs",
@@ -1195,6 +1242,7 @@ ${escapedModuleSrc}
             spec.length +
             fnSrc.length +
             escapedModuleSrc.length +
+            putContext.length +
             coverageContext.length +
             500;
           const estimatedBaseTokens = Math.ceil(baseChars / 3.5);
@@ -1282,7 +1330,7 @@ The "${fnRef.name}" program:
 ${fnSrc}
 \`\`\`
 
-${moduleContext}${directives.length ? `Important details about the program's inputs:\n${directives.map((d) => ` - ${d}\n`).join("")}` : ""} 
+${putContext}${moduleContext}${directives.length ? `Important details about the program's inputs:\n${directives.map((d) => ` - ${d}\n`).join("")}` : ""} 
 
 ${coverageContext}${backfeedSection}`;
   },

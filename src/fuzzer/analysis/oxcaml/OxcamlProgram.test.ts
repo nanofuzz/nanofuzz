@@ -385,4 +385,16 @@ let unsupported_child (cb : int -> int) : int = cb 42
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });
+
+  it("extracts [@@put ...] attribute targets from functions", () => {
+    const src = `
+let test_harness (x : int) : int =
+  x
+[@@put TargetOne, TargetTwo]
+`;
+    const program = ProgramFactory.fromSource(() => src, "oxcaml");
+    const fn = program.functionsExported["test_harness"];
+    expect(fn).toBeDefined();
+    expect(fn.getPutTargets()).toEqual(["TargetOne", "TargetTwo"]);
+  });
 });

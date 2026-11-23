@@ -1,6 +1,7 @@
 import * as path from "node:path";
 import * as zod from "zod/v4";
 import * as AiInputGenerator from "./AiInputGenerator";
+import * as ProgramFactory from "../analysis/ProgramFactory";
 import {
   makeArgDef,
   makeTypeRef,
@@ -19,8 +20,13 @@ import { ArgDefValidator } from "../analysis/ArgDefValidator";
 import seedrandom from "seedrandom";
 import * as Config from "../../Config";
 import { FuzzConfigStore } from "../FuzzConfigStore";
+import * as Parser from "../adapters/ParserAdapter";
 
 describe("src/fuzzer/generators/AiInputGenerator: ", () => {
+  beforeAll(async () => {
+    await Parser.init();
+  });
+
   it("dimsUnique schema directives", () => {
     const argOptions = ArgDef.getDefaultOptions();
     const argDef = makeArgDef(
@@ -1831,5 +1837,183 @@ ${top5Report}`;
     // Verify overall accuracy bounds across randomly generated specs
     expect(Math.abs(mean)).toBeLessThan(0.05);
     expect(stdDev).toBeLessThan(0.1);
+  });
+
+  it("prompt.genInputs includes external Program Under Test (PUT) when putSources is provided", () => {
+    const harnessPath = path.join(process.cwd(), "harness.ts");
+    const putPath = path.join(process.cwd(), "src/target.ts");
+    const fnDef = FunctionDef.fromFunctionRef({
+      module: harnessPath,
+      name: "fuzz_harness",
+      src: "function fuzz_harness(x: number) {}",
+      lang: "typescript",
+      startOffset: 0,
+      endOffset: 35,
+      isExported: true,
+      isVoid: true,
+      args: [],
+    });
+
+    const putSources = [
+      {
+        filePath: putPath,
+        src: "export function targetPut(x: number) { return x * 2; }",
+        targetName: "targetPut",
+      },
+    ];
+
+    const promptText = prompt.genInputs(
+      fnDef,
+      [],
+      new Map(),
+      "function fuzz_harness(x: number) {}",
+      10,
+      1,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      putSources
+    );
+
+    const relPutPath = path.relative(process.cwd(), putPath);
+    expect(promptText).toContain(
+      "The implementation of the Program Under Test (PUT) called by this harness:"
+    );
+    expect(promptText).toContain(`// File: ${relPutPath}`);
+    expect(promptText).toContain(
+      "export function targetPut(x: number) { return x * 2; }"
+    );
+  });
+
+  it("prompt.genInputs omits PUT section when putSources is in the same module as the harness", () => {
+    const harnessPath = path.join(process.cwd(), "combined.ts");
+    const fnDef = FunctionDef.fromFunctionRef({
+      module: harnessPath,
+      name: "fuzz_harness",
+      src: "function fuzz_harness(x: number) {}",
+      lang: "typescript",
+      startOffset: 0,
+      endOffset: 35,
+      isExported: true,
+      isVoid: true,
+      args: [],
+    });
+
+    const putSources = [
+      {
+        filePath: harnessPath,
+        src: "function targetPut(x: number) { return x * 2; }\nfunction fuzz_harness(x: number) {}",
+        targetName: "targetPut",
+      },
+    ];
+
+    const promptText = prompt.genInputs(
+      fnDef,
+      [],
+      new Map(),
+      "",
+      10,
+      1,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      putSources
+    );
+
+    expect(promptText).not.toContain(
+      "The implementation of the Program Under Test (PUT) called by this harness:"
+    );
+  });
+
+  it("AiInputGenerator automatically resolves and injects external PUT into prompt for study harness", async () => {
+    const harnessPath = path.resolve(
+      "benchmark/harnesses/nanofuzz_harness_TreeValue.py"
+    );
+    const prog = ProgramFactory.fromFile(harnessPath);
+    const fnDef = prog.functionsExported["fuzz_TreeValue"];
+    expect(fnDef).toBeDefined();
+
+    class TestAiInputGenerator extends AiInputGenerator.AiInputGenerator {
+      public getPutSources() {
+        return this._putSources;
+      }
+      public setLlm(llm: LlmAdapter): void {
+        this._llm = llm;
+      }
+      public triggerGetMoreInputs(): void {
+        this._getMoreInputs();
+      }
+    }
+
+    class MockCaptureLlmAdapter extends LlmAdapter {
+      public capturedPrompt = "";
+      public override get id(): string {
+        return "mock-capture";
+      }
+      public override async query(
+        promptText: string | string[],
+        _schema?: zod.ZodType
+      ): Promise<LlmQueryResult> {
+        this.capturedPrompt = Array.isArray(promptText)
+          ? promptText.join("\n")
+          : promptText;
+        return {
+          text: JSON.stringify({
+            programInputs: [
+              {
+                kind: 0,
+                val: "test",
+                extra: "",
+                action: "identity",
+                left_val: "",
+                right_val: "",
+              },
+            ],
+          }),
+          stats: {
+            tokensSent: 10,
+            tokensSentCost: { amt: 0, unit: "USD" },
+            tokensReceived: 5,
+            tokensReceivedCost: { amt: 0, unit: "USD" },
+          },
+        };
+      }
+    }
+
+    const gen = new TestAiInputGenerator(
+      fnDef,
+      "seed_study",
+      new Map(),
+      prog.src
+    );
+
+    // Verify _putSources was automatically resolved
+    const putSources = gen.getPutSources();
+    expect(putSources.length).toBe(1);
+    expect(putSources[0].filePath).toContain("tree_value.py");
+    expect(putSources[0].src).toContain("class TreeValue");
+
+    // Trigger LLM call and verify prompt contains PUT implementation
+    Config.override("nanofuzz.ai.provider", "gemini");
+    Config.override("nanofuzz.ai.model", "gemini-flash");
+    Config.override("nanofuzz.ai.apiKey", "test-key");
+    Config.override("nanofuzz.ai.backfeedPriorInputs", false);
+
+    try {
+      const mockLlm = new MockCaptureLlmAdapter();
+      gen.setLlm(mockLlm);
+      gen.triggerGetMoreInputs();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      expect(mockLlm.capturedPrompt).toContain(
+        "The implementation of the Program Under Test (PUT) called by this harness:"
+      );
+      expect(mockLlm.capturedPrompt).toContain("tree_value.py");
+      expect(mockLlm.capturedPrompt).toContain("class TreeValue");
+    } finally {
+      Config.clearOverrides();
+    }
   });
 });

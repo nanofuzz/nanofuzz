@@ -889,4 +889,33 @@ export function rootTarget(n: number): number { return validChild(n); }
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });
+
+  it("extracts @put annotation targets from JSDoc comments", () => {
+    const prog = ProgramFactory.fromSource(
+      () => `
+/**
+ * Test harness for multiple PUT targets
+ * @put {TreeValue, DerivationTree}
+ */
+export function testHarness(n: number): void {}
+
+/**
+ * Single target
+ * @put TargetOne
+ */
+export const arrowHarness = (s: string): void => {};
+`,
+      "typescript"
+    );
+
+    const fns = prog.functionsExported;
+    expect(fns["testHarness"]).toBeDefined();
+    expect(fns["testHarness"].getPutTargets()).toEqual([
+      "TreeValue",
+      "DerivationTree",
+    ]);
+
+    expect(fns["arrowHarness"]).toBeDefined();
+    expect(fns["arrowHarness"].getPutTargets()).toEqual(["TargetOne"]);
+  });
 });

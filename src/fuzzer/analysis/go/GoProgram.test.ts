@@ -237,4 +237,19 @@ func MainTarget(n int) int { return n }
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });
+
+  it("extracts //nanofuzz:put directive targets from comments", () => {
+    const src = `
+package main
+
+//nanofuzz:put TargetOne, TargetTwo
+func TestHarness(x int) bool {
+    return x > 0
+}
+`;
+    const program = ProgramFactory.fromSource(() => src, "go", "harness.go");
+    const fn = program.functionsExported["TestHarness"];
+    expect(fn).toBeDefined();
+    expect(fn.getPutTargets()).toEqual(["TargetOne", "TargetTwo"]);
+  });
 });

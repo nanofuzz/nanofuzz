@@ -334,6 +334,10 @@ export class PythonRunner extends AbstractRunner {
       if (fs.existsSync(srcSubdir)) {
         pyPaths.push(srcSubdir);
       }
+      const targetSrc = path.join(currPyDir, "target", "src");
+      if (fs.existsSync(targetSrc)) {
+        pyPaths.push(targetSrc);
+      }
       const parent = path.dirname(currPyDir);
       if (parent === currPyDir) break;
       currPyDir = parent;
