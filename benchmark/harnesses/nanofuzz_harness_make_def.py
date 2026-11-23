@@ -3,13 +3,18 @@ import ast
 import string
 from typing import Literal
 
-from nanofuzz_runtime import FuzzTestResult, assume
+from nanofuzz_runtime import FuzzTestResult, assume, put
 from fandango.language.parse.parse import parse
 from fandango.language.stdlib import make_def
 from fandango.language.symbols import NonTerminal
 
 
+@put(make_def)
 def fuzz_make_def(symbol: str, chars: str, force_binary: bool) -> tuple[dict, list[str]]:
+    assume(isinstance(symbol, str) and len(symbol) > 0 and len(symbol) <= 100)
+    assume(isinstance(chars, str) and len(chars) <= 100)
+    assume(isinstance(force_binary, bool))
+
     bug_ids: list[str] = []
     put_input = {"symbol": symbol, "chars": chars,
                  "force_binary": force_binary}
@@ -54,13 +59,6 @@ def fuzz_make_def(symbol: str, chars: str, force_binary: bool) -> tuple[dict, li
             bug_ids.append("DEF_UNICODE_CORRUPT")
 
     return (put_input, bug_ids)
-
-
-def fuzz_make_def_transformer(symbol: str, chars: str, force_binary: bool) -> tuple[str, str, bool]:
-    assume(isinstance(symbol, str) and len(symbol) > 0 and len(symbol) <= 100)
-    assume(isinstance(chars, str) and len(chars) <= 100)
-    assume(isinstance(force_binary, bool))
-    return (symbol, chars, force_binary)
 
 
 def fuzz_make_def_validator(r: FuzzTestResult) -> Literal["pass", "fail", "unknown"]:

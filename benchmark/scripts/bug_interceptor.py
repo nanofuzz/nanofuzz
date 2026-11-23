@@ -249,6 +249,7 @@ def install_interceptors(log_path: str | None = None) -> bool:
 
     # Task: TreeValue
     from fandango.language import tree_value
+    from fandango.errors import FandangoConversionError
     TV = tree_value.TreeValue
     if not getattr(TV.__eq__, "_is_interceptor", False):
         orig_eq = TV.__eq__
@@ -407,7 +408,7 @@ def install_interceptors(log_path: str | None = None) -> bool:
             if isinstance(item, slice):
                 children = getattr(self, "_children", [])
                 if len(children[item]) > 0:
-                    bug_id = "DT_SLICE_PARENT_HIJACK"
+                    bug_id = "DT_SLICE_PARENT_MUT"
             elif isinstance(item, int):
                 children = getattr(self, "_children", [])
                 if len(children) == 0:

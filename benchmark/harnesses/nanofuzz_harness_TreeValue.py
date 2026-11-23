@@ -3,11 +3,12 @@ from __future__ import annotations
 import copy
 from collections.abc import Callable
 from typing import Literal
-from nanofuzz_runtime import FuzzTestResult
+from nanofuzz_runtime import FuzzTestResult, put
 from fandango.errors import FandangoConversionError
 from fandango.language.tree_value import TreeValue, TreeValueType
 
 
+@put(TreeValue)
 def fuzz_TreeValue(
     kind: int,
     val: str,

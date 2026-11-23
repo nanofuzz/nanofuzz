@@ -1,11 +1,12 @@
 import math
 from collections.abc import Callable
 from typing import Any, Literal
-from nanofuzz_runtime import FuzzTestResult
+from nanofuzz_runtime import FuzzTestResult, put
 from fandango.constraints.comparison import _distance_norm as target_distance_norm
 from fandango.constraints.comparison import _sigmoid as target_sigmoid
 
 
+@put(target_distance_norm, target_sigmoid)
 def fuzz__distance_norm(left: Any, right: Any) -> tuple[dict, list[str]]:
     bug_ids: list[str] = []
     put_input = {"left": left, "right": right}

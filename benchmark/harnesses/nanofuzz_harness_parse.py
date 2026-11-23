@@ -1,10 +1,11 @@
 from collections.abc import Callable
 from typing import Literal
 
-from nanofuzz_runtime import FuzzTestResult
+from nanofuzz_runtime import FuzzTestResult, put
 from fandango.language.parse.parse import parse_string
 
 
+@put(parse_string)
 def fuzz_parse(
     spec: str,
     constraint_str: str,

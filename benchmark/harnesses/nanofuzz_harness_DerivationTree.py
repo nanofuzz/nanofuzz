@@ -1,11 +1,12 @@
 from collections.abc import Callable
 from typing import Literal
 
-from nanofuzz_runtime import FuzzTestResult
+from nanofuzz_runtime import FuzzTestResult, put
 from fandango.language.symbols import NonTerminal, Terminal
 from fandango.language.tree import DerivationTree
 
 
+@put(DerivationTree)
 def fuzz_DerivationTree(
     child_text: str,
     index: int,
@@ -50,11 +51,11 @@ def fuzz_DerivationTree(
     tree.sender = "sender_client"
     tree.recipient = "recipient_server"
 
-    # DT_SLICE_PARENT_HIJACK: Slicing must not corrupt parent pointers of original children
+    # DT_SLICE_PARENT_MUT: Slicing must not corrupt parent pointers of original children
     orig_parents = [c.parent for c in sub_children]
     _sliced = sub_nt[index:slice_end]
     if any(c.parent is not orig_parents[idx] for idx, c in enumerate(sub_children)):
-        bug_ids.append("DT_SLICE_PARENT_HIJACK")
+        bug_ids.append("DT_SLICE_PARENT_MUT")
 
     # DT_PREFIX_SLICE: Calling prefix on root node where parent is None crashes
     try:
