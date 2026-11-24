@@ -1,3 +1,6 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import * as ProgramFactory from "../ProgramFactory";
 import { ArgTag } from "../Types";
 import { GoProgram } from "./GoProgram";
@@ -190,5 +193,48 @@ func ProcessCallback(cb func(string) bool) {}
     expect("ProcessChan" in unsupp).toBeTrue();
     expect("ProcessReader" in unsupp).toBeTrue();
     expect("ProcessCallback" in unsupp).toBeTrue();
+  });
+
+  it("non-root child programs lazily resolve supported functions and categorize unsupported ones without throwing", () => {
+    const tmpDir = fs.mkdtempSync(
+      path.join(fs.realpathSync(os.tmpdir()), "nanofuzz-go-lazy-func-test-")
+    );
+    try {
+      const rootGo = path.join(tmpDir, "main.go");
+      const childGo = path.join(tmpDir, "helper.go");
+
+      fs.writeFileSync(
+        childGo,
+        `package helper
+
+func ValidHelper(x int) int { return x * 2 }
+func UnsupportedHelper(ch chan int) { <-ch }
+`
+      );
+
+      fs.writeFileSync(
+        rootGo,
+        `package main
+
+func MainTarget(n int) int { return n }
+`
+      );
+
+      const rootProg = ProgramFactory.fromFile(rootGo);
+      const childProg = ProgramFactory.fromFile(
+        childGo,
+        undefined,
+        undefined,
+        rootProg.root
+      );
+
+      expect(childProg.isRoot()).toBeFalse();
+      expect(childProg.functions["ValidHelper"]).toBeDefined();
+      expect(childProg.functions["ValidHelper"].getArgDefs()[0].getName()).toBe("x");
+      expect(childProg.functions["UnsupportedHelper"]).toBeUndefined();
+      expect(childProg.functionsNotSupported["UnsupportedHelper"]).toBeDefined();
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 });
