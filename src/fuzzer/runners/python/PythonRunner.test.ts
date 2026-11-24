@@ -1368,11 +1368,7 @@ def fn(x: int) -> int:
     fs.writeFileSync(pyPath, pyCode);
 
     try {
-      const program = ProgramFactory.fromSource(
-        () => pyCode,
-        "python",
-        pyPath
-      );
+      const program = ProgramFactory.fromSource(() => pyCode, "python", pyPath);
       const fnDef = program.functionsExported["fn"];
       const env = createFuzzEnv(fnDef);
 
@@ -1401,11 +1397,7 @@ def fn(x: int) -> int:
     fs.writeFileSync(pyPath, pyCode);
 
     try {
-      const program = ProgramFactory.fromSource(
-        () => pyCode,
-        "python",
-        pyPath
-      );
+      const program = ProgramFactory.fromSource(() => pyCode, "python", pyPath);
       const fnDef = program.functionsExported["fn"];
       const env = createFuzzEnv(fnDef);
 
@@ -2099,6 +2091,53 @@ async def async_hang():
       await runner.onRunEnd();
 
       expect(res.result.tag).toBe("timeout");
+    } finally {
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // Ignore
+      }
+    }
+  });
+
+  it("serialization error: returns an error result over IPC when Python output exceeds MessagePack integer limits", async () => {
+    const tmpDir = getTmpDir("nanofuzz-overflow-py-");
+    const pyPath = path.join(tmpDir, "overflow_test.py");
+    const pyCode = `
+def return_huge_int() -> int:
+    return 10 ** 400
+`;
+    fs.writeFileSync(pyPath, pyCode);
+
+    try {
+      const srcCode = `
+def return_huge_int() -> int:
+    pass
+`;
+      const program = ProgramFactory.fromSource(
+        () => srcCode,
+        "python",
+        pyPath
+      );
+      const fnDef = program.functionsExported["return_huge_int"];
+      const env = createFuzzEnv(fnDef);
+
+      const runner = new PythonRunner(pyPath, "return_huge_int", env);
+      await runner.onRunStart();
+
+      const res = await runner.run([], 5000);
+      await runner.onRunEnd();
+
+      expect(res.result.tag).toBe("error");
+      if (res.result.tag === "error") {
+        expect(["OverflowError", "TypeError"]).toContain(res.result.name);
+        expect(res.result.message).toContain("Serialization failure");
+      }
     } finally {
       try {
         fs.rmSync(tmpDir, {

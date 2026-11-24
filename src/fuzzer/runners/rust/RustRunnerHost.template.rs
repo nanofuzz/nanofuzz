@@ -193,7 +193,21 @@ fn main() -> io::Result<()> {
             }
         };
 
-        write_msg(&rmp_serde::to_vec_named(&response).unwrap())?;
+        let msg_bytes = match rmp_serde::to_vec_named(&response) {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                let err_resp = RunnerResultPayload::Error {
+                    name: "SerializationError".to_string(),
+                    message: format!("Serialization failure: {}", e),
+                    source: "host",
+                    seq: input.seq,
+                    validators: None,
+                    coverage_data: None,
+                };
+                rmp_serde::to_vec_named(&err_resp).unwrap_or_default()
+            }
+        };
+        write_msg(&msg_bytes)?;
     }
 
     Ok(())
