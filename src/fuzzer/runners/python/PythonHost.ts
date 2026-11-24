@@ -36,9 +36,4 @@ export type PythonEnv = {
   libs: string | undefined | null;
   interpreter: string;
   paths: readonly string[];
-  venv?: {
-    activateCmd: string;
-    path: string;
-    interpreter: string;
-  };
 };
