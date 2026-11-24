@@ -403,7 +403,7 @@ export abstract class AbstractProgram {
    * @returns Set of callee names
    */
   public getCallees(fnName: string): Set<string> {
-    if (this._calleeCache[fnName]) {
+    if (Object.hasOwn(this._calleeCache, fnName)) {
       return new Set(this._calleeCache[fnName]);
     }
     const callees = this._findCallees(fnName);
