@@ -668,11 +668,14 @@ export class GoProgram extends AbstractProgram {
       }
     }
 
-    const cmtNode = itemNode.previousNamedSibling;
-    const cmt =
-      cmtNode && (cmtNode.type === "comment" || cmtNode.type === "line_comment")
-        ? cmtNode.text
-        : undefined;
+    const comments: string[] = [];
+    let prev = itemNode.previousNamedSibling;
+    while (prev && (prev.type === "comment" || prev.type === "line_comment")) {
+      comments.unshift(prev.text);
+      prev = prev.previousNamedSibling;
+    }
+    const cmt = comments.length > 0 ? comments.join("\n") : undefined;
+    const putTargets = AbstractProgram.extractPutTargets(cmt);
 
     const fnRef: FunctionRef = {
       module: this._filename,
@@ -686,6 +689,7 @@ export class GoProgram extends AbstractProgram {
       args,
       ...(returnType ? { returnType } : {}),
       ...(cmt ? { cmt } : {}),
+      ...(putTargets && putTargets.length > 0 ? { putTargets } : {}),
     };
 
     return fnRef;

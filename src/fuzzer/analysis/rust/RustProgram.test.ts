@@ -624,4 +624,24 @@ pub fn main_target(n: i32) -> i32 { child_mod::valid_child(n) }
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });
+
+  it("extracts #[put(...)] attribute and doc comment targets", () => {
+    const src = `
+#[put(TargetOne, TargetTwo)]
+pub fn test_attr(x: i32) {}
+
+/// @put(TargetThree)
+pub fn test_doc(x: i32) {}
+`;
+    const program = ProgramFactory.fromSource(() => src, "rust");
+    const fns = program.functionsExported;
+    expect(fns["test_attr"]).toBeDefined();
+    expect(fns["test_attr"].getPutTargets()).toEqual([
+      "TargetOne",
+      "TargetTwo",
+    ]);
+
+    expect(fns["test_doc"]).toBeDefined();
+    expect(fns["test_doc"].getPutTargets()).toEqual(["TargetThree"]);
+  });
 });

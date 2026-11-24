@@ -1288,6 +1288,8 @@ export class TypescriptProgram extends AbstractProgram {
       if (!path.node.range) {
         throw new Error("Source code ranges missing in AST");
       }
+      const cmt = this._getFunctionComment(path);
+      const putTargets = AbstractProgram.extractPutTargets(cmt);
       return {
         name,
         module: this._filename,
@@ -1302,7 +1304,8 @@ export class TypescriptProgram extends AbstractProgram {
         returnType,
         isVoid,
         ...(isAsync ? { isAsync: true } : {}),
-        cmt: this._getFunctionComment(path),
+        cmt,
+        ...(putTargets && putTargets.length > 0 ? { putTargets } : {}),
       };
     } else if (
       // Standard Function Definition: function xyz(): void => { ... }
@@ -1338,6 +1341,13 @@ export class TypescriptProgram extends AbstractProgram {
         isVoid,
         ...(isAsync ? { isAsync: true } : {}),
         cmt: this._getFunctionComment(path),
+        ...(AbstractProgram.extractPutTargets(this._getFunctionComment(path))
+          ? {
+              putTargets: AbstractProgram.extractPutTargets(
+                this._getFunctionComment(path)
+              ),
+            }
+          : {}),
       };
     }
   } // fn: _getFunctionFromNode()

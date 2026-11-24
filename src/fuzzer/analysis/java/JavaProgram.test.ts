@@ -599,4 +599,31 @@ public class PackagedHarness {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });
+
+  it("extracts @PUT annotation and Javadoc targets", () => {
+    const prog = ProgramFactory.fromSource(
+      () => `
+public class Harness {
+    /**
+     * @put(TargetOne, TargetTwo)
+     */
+    public static void testDoc(int x) {}
+
+    @PUT({ TreeValue.class, DerivationTree.class })
+    public static void testAnnotated(int x) {}
+}
+`,
+      "java"
+    );
+
+    const fns = prog.functionsExported;
+    expect(fns["testDoc"]).toBeDefined();
+    expect(fns["testDoc"].getPutTargets()).toEqual(["TargetOne", "TargetTwo"]);
+
+    expect(fns["testAnnotated"]).toBeDefined();
+    expect(fns["testAnnotated"].getPutTargets()).toEqual([
+      "TreeValue",
+      "DerivationTree",
+    ]);
+  });
 });
