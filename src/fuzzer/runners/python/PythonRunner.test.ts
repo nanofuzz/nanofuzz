@@ -19,6 +19,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 import { spawnSync } from "node:child_process";
+import vscode from "vscode";
 import { getDefaultFuzzExecutionOptions } from "../../FuzzerFactory";
 
 describe("fuzzer/runners/PythonRunner", () => {
@@ -52,6 +53,32 @@ describe("fuzzer/runners/PythonRunner", () => {
     // Case 4: neither works, returns candidate
     spy.and.callFake(() => false);
     expect(PythonRunner.resolveInterpreter("python3")).toBe("python3");
+  });
+
+  it("runs programs with the interpreter selected in VS Code", () => {
+    // A made-up interpreter, which `canExecute` accepts
+    const selected = path.resolve("venv", "bin", "python");
+    spyOn(PythonRunner, "canExecute").and.callFake((bin) => bin === selected);
+    spyOn(vscode.extensions, "getExtension")
+      .withArgs("ms-python.python")
+      .and.returnValue(
+        jasmine.createSpyObj<vscode.Extension<unknown>>("python", [], {
+          isActive: true,
+          exports: {
+            environments: {
+              getActiveEnvironmentPath: () => ({ path: selected }),
+            },
+          },
+        })
+      );
+    PythonRunner.clearCache();
+    try {
+      expect(PythonRunner.envFor(path.resolve("target.py")).interpreter).toBe(
+        selected
+      );
+    } finally {
+      PythonRunner.clearCache();
+    }
   });
 
   it("handles binary bytes inputs and outputs", async () => {
@@ -398,8 +425,9 @@ def doubleValidator(r) -> str:
             [runnerHost, pyPath, "mypkg.target", "fn", "project", "[]"],
             { env: pythonEnv.env, encoding: "utf8", timeout: 20000 }
           );
-          expect(res.status).not.toBe(0);
-          expect(res.stderr).toContain(
+          // Like other errors while it starts, it reports this to NaNofuzz,
+          // on stdout
+          expect(res.stdout).toContain(
             "Missing source_root for 'mypkg.target', a module of a package"
           );
         }
@@ -1316,6 +1344,76 @@ def calculate(x: int) -> int:
       );
     } finally {
       Config.override("nanofuzz.fuzzer.coverageScope", "project static");
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // Ignore
+      }
+    }
+  }, 30000);
+
+  it("fails immediately on startup if Python module import fails", async () => {
+    const tmpDir = getTmpDir("nanofuzz-import-fail-");
+    const pyPath = path.join(tmpDir, "bad_import.py");
+    const pyCode = `import non_existent_dummy_module_987654321
+
+def fn(x: int) -> int:
+    return x + 1
+`;
+    fs.writeFileSync(pyPath, pyCode);
+
+    try {
+      const program = ProgramFactory.fromSource(
+        () => pyCode,
+        "python",
+        pyPath
+      );
+      const fnDef = program.functionsExported["fn"];
+      const env = createFuzzEnv(fnDef);
+
+      const runner = new PythonRunner(pyPath, "fn", env);
+      await expectAsync(runner.onRunStart()).toBeRejectedWithError(
+        /non_existent_dummy_module_987654321/
+      );
+    } finally {
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // Ignore
+      }
+    }
+  }, 30000);
+
+  it("fails immediately on startup if target function is not callable or not found", async () => {
+    const tmpDir = getTmpDir("nanofuzz-noncallable-");
+    const pyPath = path.join(tmpDir, "non_callable.py");
+    const pyCode = `fn = 42\n`;
+    fs.writeFileSync(pyPath, pyCode);
+
+    try {
+      const program = ProgramFactory.fromSource(
+        () => pyCode,
+        "python",
+        pyPath
+      );
+      const fnDef = program.functionsExported["fn"];
+      const env = createFuzzEnv(fnDef);
+
+      const runner = new PythonRunner(pyPath, "fn", env);
+      await expectAsync(runner.onRunStart()).toBeRejectedWithError(
+        /'fn' is not callable/
+      );
+    } finally {
       try {
         fs.rmSync(tmpDir, {
           recursive: true,

@@ -664,6 +664,56 @@ public class PackagedGen {
     expect(res.result.tag).toBe("value");
     await genRunner.onRunEnd();
   });
+
+  it("fails immediately on startup if target Java method does not exist", async () => {
+    const javaPath = path.join(tempDir, "MissingMethod.java");
+    fs.writeFileSync(
+      javaPath,
+      `public class MissingMethod {
+    public static int existing(int a) {
+        return a + 1;
+    }
+}
+`
+    );
+
+    const program = ProgramFactory.fromFile(javaPath, "java");
+    const fnDef = program.functionsExported["existing"];
+    const env = createTestEnv(fnDef);
+
+    const runner = new JavaRunner(javaPath, "nonExistentMethod", env);
+    await expectAsync(runner.onRunStart()).toBeRejectedWithError(
+      /Method 'nonExistentMethod' not found in class MissingMethod/
+    );
+    runner.killHost();
+  });
+
+  it("fails immediately on startup if target Java class cannot be found", async () => {
+    const javaPath = path.join(tempDir, "MissingClass.java");
+    fs.writeFileSync(
+      javaPath,
+      `public class MissingClass {
+    public static int fn() {
+        return 1;
+    }
+}
+`
+    );
+
+    const program = ProgramFactory.fromFile(javaPath, "java");
+    const fnDef = program.functionsExported["fn"];
+    const env = createTestEnv(fnDef);
+
+    const runner = new JavaRunner(javaPath, "fn", env);
+    // Explicitly point to a non-existent class
+    // @ts-expect-error test private field
+    runner._fqClassName = "com.nonexistent.NoSuchClass";
+
+    await expectAsync(runner.onRunStart()).toBeRejectedWithError(
+      /com\.nonexistent\.NoSuchClass/
+    );
+    runner.killHost();
+  });
 });
 
 // ============================================================================

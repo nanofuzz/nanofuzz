@@ -1,6 +1,11 @@
 import seedrandom from "seedrandom";
 import { ArgDef } from "../analysis/ArgDef";
-import { FuzzPinnedTest, FuzzTestResults, InputAndSource } from "./../Types";
+import {
+  FuzzOptions,
+  FuzzPinnedTest,
+  FuzzTestResults,
+  InputAndSource,
+} from "./../Types";
 import { InputGeneratorStats, NextableStatus } from "./Types";
 import { AbstractRunner } from "../runners/AbstractRunner";
 
@@ -101,10 +106,9 @@ export abstract class AbstractInputGenerator {
    */
   public onRunStart(
     _active: boolean,
-    _injectedInputs: (FuzzPinnedTest | Omit<InputAndSource, "tick">)[] = [],
-    _transformRunner?: AbstractRunner,
-    _fnTimeout: number = 0,
-    _maxDupeInputs: number = 0,
+    _injectedInputs: (FuzzPinnedTest | Omit<InputAndSource, "tick">)[],
+    _transformRunner: AbstractRunner | undefined,
+    _fuzzOptions: FuzzOptions,
     _userGenRunner?: AbstractRunner
   ): void {
     return;

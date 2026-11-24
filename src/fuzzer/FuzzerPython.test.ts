@@ -105,16 +105,13 @@ describe("fuzzer: python targets", () => {
   });
 
   it("Python valid target in invalid file", async () => {
-    const fuzzResult = await FuzzerFactory(
-      "./test_fixtures/Fuzzer.testfixtures2.py",
-      "valid",
-      intOptions
-    ).test();
-
-    expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
-    expect(fuzzResult.stats.outcomes.exceptions).toEqual(
-      fuzzResult.stats.outcomes.total
-    );
+    await expectAsync(
+      FuzzerFactory(
+        "./test_fixtures/Fuzzer.testfixtures2.py",
+        "valid",
+        intOptions
+      ).test()
+    ).toBeRejectedWithError(/invalid syntax/);
   });
 
   it("Python invalid target in invalid file", async () => {

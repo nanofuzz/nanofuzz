@@ -308,7 +308,10 @@ export class PythonRunner extends AbstractRunner {
       libs: findPythonLibDir(path.dirname(module.filename)),
       paths: [],
       module: pythonModuleFor(filename),
-      interpreter: Config.get("python.defaultInterpreterPath", "python3"),
+      // The interpreter that VS Code's Python extension uses for the file, or
+      // else python3 on PATH (e.g., in the CLI, from an activated virtual
+      // environment)
+      interpreter: selectedInterpreterFor(filename) ?? "python3",
     };
 
     // Load .env file if configured
@@ -365,81 +368,10 @@ export class PythonRunner extends AbstractRunner {
       process.platform === "win32" ? ";" : ":"
     );
 
-    // Use a virtual environment if specified & found
-    const searchGlobs = Config.get<string[]>(
-      "python-envs.workspaceSearchPaths",
-      []
-    );
-    const workspace = vscode.workspace.getWorkspaceFolder(
-      vscode.Uri.file(filename)
-    )?.uri.fsPath;
-    if (
-      searchGlobs.length &&
-      workspace &&
-      Config.get<boolean>("python.terminal.activateEnvironment", false) &&
-      Config.get<string>(
-        "python-envs.terminal.autoActivationType",
-        "command"
-      ) === "command" /* TODO shellStartup */
-    ) {
-      const matches = fs.globSync(searchGlobs, { cwd: workspace });
-      if (matches.length) {
-        const venvPath = path.resolve(path.join(workspace, matches[0]));
-        const venvBins =
-          process.platform === "win32"
-            ? path.resolve(path.join(venvPath, "Scripts"))
-            : path.resolve(path.join(venvPath, "bin"));
-        const venvActivateCmd =
-          process.platform === "win32"
-            ? path.resolve(path.join(venvBins, "activate"))
-            : `source ${path.resolve(path.join(venvBins, "activate"))}`;
-
-        pythonEnv.venv = {
-          path: venvPath,
-          activateCmd: venvActivateCmd,
-          interpreter: path.resolve(
-            path.join(
-              venvBins,
-              process.platform === "win32" ? "python" : "python3"
-            )
-          ),
-        };
-        pythonEnv.interpreter = pythonEnv.venv.interpreter;
-      }
-    }
-
-    if (!pythonEnv.venv && process.env.VIRTUAL_ENV) {
-      const venvPath = path.resolve(process.env.VIRTUAL_ENV);
-      const venvBins =
-        process.platform === "win32"
-          ? path.resolve(path.join(venvPath, "Scripts"))
-          : path.resolve(path.join(venvPath, "bin"));
-      const venvInterpreter = path.resolve(
-        path.join(venvBins, process.platform === "win32" ? "python" : "python3")
-      );
-      if (
-        fs.existsSync(venvInterpreter) ||
-        fs.existsSync(venvInterpreter + ".exe")
-      ) {
-        pythonEnv.venv = {
-          path: venvPath,
-          activateCmd: "",
-          interpreter: venvInterpreter,
-        };
-        pythonEnv.interpreter = pythonEnv.venv.interpreter;
-      }
-    }
-
     pythonEnv.interpreter = PythonRunner.resolveInterpreter(
       pythonEnv.interpreter,
       pythonEnv.env
     );
-    if (pythonEnv.venv) {
-      pythonEnv.venv.interpreter = PythonRunner.resolveInterpreter(
-        pythonEnv.venv.interpreter,
-        pythonEnv.env
-      );
-    }
 
     // The program's sys.path, as the runner host sets it up
     pythonEnv.paths = Object.freeze([
@@ -681,7 +613,7 @@ export class PythonRunner extends AbstractRunner {
 
     // a longer timeout tolerance for the host to pre-warm the coverage
     const rawOkBuf = await host.getResponseBuffer(hostStartupTimeout);
-    const okcode = JSONN.unpack<string>(rawOkBuf);
+    const okcode = JSONN.unpack<unknown>(rawOkBuf);
     if (okcode === "READY") {
       this._host = host;
 
@@ -714,6 +646,23 @@ export class PythonRunner extends AbstractRunner {
       return host;
     } else {
       host.kill();
+      if (
+        isRecord(okcode) &&
+        (okcode.tag === "error" || typeof okcode.message === "string")
+      ) {
+        const message =
+          typeof okcode.message === "string"
+            ? okcode.message
+            : "Python runner host failed to load";
+        const err = new Error(message);
+        if (typeof okcode.name === "string") {
+          err.name = okcode.name;
+        }
+        if (typeof okcode.stack === "string") {
+          err.stack = okcode.stack;
+        }
+        throw err;
+      }
       throw new Error(`PythonHost not ready (okcode: ${String(okcode)})`);
     }
   } // get: host
@@ -762,6 +711,35 @@ function findPythonLibDir(dir: string): string | null {
 
   return null;
 } // fn: findPythonLibDir
+
+/**
+ * The part of the API of VS Code's Python extension (ms-python.python) that
+ * NaNofuzz uses
+ */
+type PythonExtensionApi = {
+  environments: {
+    getActiveEnvironmentPath(resource?: vscode.Uri): { path: string };
+  };
+};
+
+/**
+ * Returns the interpreter that VS Code's Python extension uses for a file
+ * (Python: Select Interpreter), if the extension is active
+ *
+ * @param `filename` Python source file
+ * @returns the interpreter's path; or a command (e.g., `python`), if the
+ * extension has not found an interpreter
+ */
+function selectedInterpreterFor(filename: string): string | undefined {
+  const python =
+    vscode.extensions.getExtension<PythonExtensionApi>("ms-python.python");
+  if (!python?.isActive) {
+    return undefined;
+  }
+  return python.exports.environments.getActiveEnvironmentPath(
+    vscode.Uri.file(filename)
+  ).path;
+} // fn: selectedInterpreterFor
 
 const TEST_FRAMEWORK_PACKAGES = new Set([
   "hypothesis",

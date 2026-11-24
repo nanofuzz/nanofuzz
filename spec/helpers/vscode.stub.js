@@ -60,6 +60,9 @@ module.exports = {
   commands: {
     executeCommand: () => null,
   },
+  extensions: {
+    getExtension: () => undefined,
+  },
   TextEditorSelectionChangeEvent: {},
   TextEditorVisibleRangesChangeEvent: {},
   Terminal: {},

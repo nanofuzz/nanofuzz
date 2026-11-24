@@ -334,7 +334,7 @@ export class PythonProgram extends AbstractProgram {
             `Duplicate type alias '${name}' found in module '${filename}'`
           );
         }
-        types[name] = this._getTypeRefFromAstNode(valueNode.node);
+        types[name] = { ...this._getTypeRefFromAstNode(valueNode.node), name };
       }
     }
 
@@ -401,6 +401,7 @@ export class PythonProgram extends AbstractProgram {
 
       types[nameNode.text] = {
         module: this._filename,
+        name: nameNode.text,
         dims: 0,
         optional: false,
         isExported: true,
@@ -470,6 +471,7 @@ export class PythonProgram extends AbstractProgram {
 
         types[left.text] = {
           module: this._filename,
+          name: left.text,
           dims: 0,
           optional: false,
           isExported: true,
@@ -829,8 +831,28 @@ export class PythonProgram extends AbstractProgram {
               }
               return child;
             });
+          // `Optional[T]` = `T | None`
+          //
+          // Note: T is not checked for None, either at the top level
+          // (`Optional[None]`) or nested (`Optional[int | None]`); the extra
+          // None arm is harmless.
           case "Optional":
-            return args.map((c) => this._getTypeRefFromAstNode(c));
+            return [
+              ...args.map((c) => this._getTypeRefFromAstNode(c)),
+              {
+                module: this._filename,
+                dims: 0,
+                optional: false,
+                isExported: true,
+                type: {
+                  dims: 0,
+                  type: ArgTag.LITERAL,
+                  children: [],
+                  value: undefined,
+                  resolved: true,
+                },
+              },
+            ];
           case "tuple":
           case "Tuple": {
             if (
@@ -3415,11 +3437,20 @@ export class PythonProgram extends AbstractProgram {
       if (!importRef.resolved) {
         // python does not have default exports
         // Namespace import: create concrete imports for each of the imports
-        for (const exported of Object.values(importProgram.typesExported)) {
+        for (const [key, exported] of Object.entries(
+          importProgram.typesExported
+        )) {
+          // Skip types without names, which should be impossible.
+          if (!exported.name) {
+            console.warn(
+              `Skipping type '${key}' in module '${importProgram.filename}': the type has no name.`
+            );
+            continue;
+          }
           const localName = importName + "." + exported.name;
           this._imports.identifiers[localName] = {
             local: localName,
-            imported: exported.name ?? "__default",
+            imported: exported.name,
             programPath: exported.module,
             resolved: true,
             default: false,

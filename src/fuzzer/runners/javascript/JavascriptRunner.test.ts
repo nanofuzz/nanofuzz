@@ -364,6 +364,73 @@ module.exports = { throwErr, infiniteLoop };
     }
   });
 
+  it("fails immediately on startup if target function cannot be found", async () => {
+    const tmpDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "nanofuzz-js-missing-fn-")
+    );
+    const jsPath = path.join(tmpDir, "sample.js");
+    const jsCode = `
+function existing() {
+  return 1;
+}
+module.exports = { existing };
+`;
+    fs.writeFileSync(jsPath, jsCode);
+
+    try {
+      const runner = new JavascriptRunner(jsPath, "nonExistentFn");
+      await expectAsync(runner.onRunStart()).toBeRejectedWithError(
+        /Could not find function 'nonExistentFn'/
+      );
+      runner.killHost();
+    } finally {
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // ignore
+      }
+    }
+  });
+
+  it("fails immediately on startup if module import/require fails", async () => {
+    const tmpDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "nanofuzz-js-broken-require-")
+    );
+    const jsPath = path.join(tmpDir, "broken.js");
+    const jsCode = `
+require("non_existent_module_987654321");
+function fn() {
+  return 1;
+}
+module.exports = { fn };
+`;
+    fs.writeFileSync(jsPath, jsCode);
+
+    try {
+      const runner = new JavascriptRunner(jsPath, "fn");
+      await expectAsync(runner.onRunStart()).toBeRejectedWithError(
+        /Cannot find module 'non_existent_module_987654321'/
+      );
+      runner.killHost();
+    } finally {
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // ignore
+      }
+    }
+  });
+
   it("subprocess crash recovery", async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nanofuzz-jsrunner-"));
     const jsPath = path.join(tmpDir, "crashModule.js");

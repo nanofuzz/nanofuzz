@@ -38,9 +38,4 @@ export type PythonEnv = {
   interpreter: string;
   paths: readonly string[];
   module: PythonModule;
-  venv?: {
-    activateCmd: string;
-    path: string;
-    interpreter: string;
-  };
 };

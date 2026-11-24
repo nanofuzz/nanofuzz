@@ -1,7 +1,7 @@
 import { AbstractInputGenerator } from "./AbstractInputGenerator";
 import { ArgValueTypeWrapped } from "../analysis/Types";
 import { FunctionDef } from "../analysis/FunctionDef";
-import { FuzzPinnedTest, InputAndSource } from "../Types";
+import { FuzzOptions, FuzzPinnedTest, InputAndSource } from "../Types";
 import { NextableStatus } from "./Types";
 import { AbstractRunner, RunnerResult } from "../runners/AbstractRunner";
 import * as JSONN from "../../Jsonn";
@@ -138,10 +138,9 @@ export class UserInputGenerator extends AbstractInputGenerator {
    */
   public override onRunStart(
     active: boolean,
-    _injectedInputs: (FuzzPinnedTest | Omit<InputAndSource, "tick">)[] = [],
-    _transformRunner?: AbstractRunner,
-    fnTimeout: number = 0,
-    _maxDupeInputs: number = 0,
+    _injectedInputs: (FuzzPinnedTest | Omit<InputAndSource, "tick">)[],
+    _transformRunner: AbstractRunner | undefined,
+    fuzzOptions: FuzzOptions,
     userGenRunner?: AbstractRunner
   ): void {
     this._active = active;
@@ -150,7 +149,7 @@ export class UserInputGenerator extends AbstractInputGenerator {
     this._callsPending = 0;
     this._pendingPromise = undefined;
     this._pendingError = undefined;
-    this._fnTimeout = fnTimeout;
+    this._fnTimeout = fuzzOptions.fnTimeout;
     if (userGenRunner !== undefined) {
       this._userGenRunner = userGenRunner;
     }

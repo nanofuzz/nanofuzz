@@ -6,6 +6,7 @@ import * as zod from "zod/v4";
 import * as nodellm from "@node-llm/core";
 import * as Config from "../Config";
 import { FuzzStopReason, FuzzTestResults } from "../fuzzer/Types";
+import { FuzzConfigStore } from "../fuzzer/FuzzConfigStore";
 import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
 import {
   AiInputGenerator,
@@ -195,7 +196,12 @@ describe("cli: ai cache", () => {
     const program = ProgramFactory.fromFile(targetFile);
     const fn = program.functionsExported[targetFn];
     const aiGen = new AiInputGenerator(fn, seed, new Map(), program.src);
-    aiGen.onRunStart(true);
+    aiGen.onRunStart(
+      true,
+      [],
+      undefined,
+      FuzzConfigStore.getDefaultFuzzOptions()
+    );
     const [schema, directives] = aiGen["_getInputsSchema"](fn.getLang());
     const numRequested = aiGen["_getRequestedInputCount"]();
     const promptText = prompt.genInputs(
@@ -396,7 +402,12 @@ describe("cli: ai cache", () => {
     const program = ProgramFactory.fromFile(targetFile);
     const fn = program.functionsExported[targetFn];
     const aiGen = new AiInputGenerator(fn, seed, new Map(), program.src);
-    aiGen.onRunStart(true);
+    aiGen.onRunStart(
+      true,
+      [],
+      undefined,
+      FuzzConfigStore.getDefaultFuzzOptions()
+    );
     const [schema, directives] = aiGen["_getInputsSchema"](fn.getLang());
     const numRequested = aiGen["_getRequestedInputCount"]();
     const promptText = prompt.genInputs(

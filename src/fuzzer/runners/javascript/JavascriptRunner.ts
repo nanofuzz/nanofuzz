@@ -426,7 +426,24 @@ export class JavascriptRunner extends AbstractRunner {
       return host;
     } else {
       host.kill();
-      throw new Error(`NodeHost not ready (okcode: ${okcode})`);
+      if (
+        isRecord(okcode) &&
+        (okcode.tag === "error" || typeof okcode.message === "string")
+      ) {
+        const message =
+          typeof okcode.message === "string"
+            ? okcode.message
+            : "Node runner host failed to load";
+        const err = new Error(message);
+        if (typeof okcode.name === "string") {
+          err.name = okcode.name;
+        }
+        if (typeof okcode.stack === "string") {
+          err.stack = okcode.stack;
+        }
+        throw err;
+      }
+      throw new Error(`NodeHost not ready (okcode: ${String(okcode)})`);
     }
   } // fn: _getHost
 
@@ -654,3 +671,7 @@ function extractDirectPackages(
 
   return Array.from(packages);
 } // fn: extractDirectPackages
+
+function isRecord(val: unknown): val is Record<string, unknown> {
+  return typeof val === "object" && val !== null;
+} // fn: isRecord

@@ -1,6 +1,7 @@
 import { UserInputGenerator } from "./UserInputGenerator";
 import { AbstractRunner, RunnerResult } from "../runners/AbstractRunner";
 import * as ProgramFactory from "../analysis/ProgramFactory";
+import { FuzzConfigStore } from "../FuzzConfigStore";
 
 class MockRunner extends AbstractRunner {
   private _runFn: (inputs: unknown[]) => Promise<RunnerResult>;
@@ -53,8 +54,9 @@ describe("fuzzer/generators/UserInputGenerator:", () => {
       };
     });
 
+    const dftOptions = FuzzConfigStore.getDefaultFuzzOptions();
     const gen = new UserInputGenerator(fnDef, "seed123", mockRunner);
-    gen.onRunStart(true, [], undefined, 200, 100, mockRunner);
+    gen.onRunStart(true, [], undefined, dftOptions, mockRunner);
 
     expect(gen.nextable()).toBe("soon");
     const input = await gen.nextSoon();
@@ -109,8 +111,9 @@ describe("fuzzer/generators/UserInputGenerator:", () => {
       };
     });
 
+    const dftOptions = FuzzConfigStore.getDefaultFuzzOptions();
     const gen = new UserInputGenerator(fnDef, "seed123", mockRunner);
-    gen.onRunStart(true, [], undefined, 200, 100, mockRunner);
+    gen.onRunStart(true, [], undefined, dftOptions, mockRunner);
 
     expect(gen.nextable()).toBe("soon");
     const first = await gen.nextSoon();
@@ -141,8 +144,9 @@ describe("fuzzer/generators/UserInputGenerator:", () => {
       };
     });
 
+    const dftOptions = FuzzConfigStore.getDefaultFuzzOptions();
     const gen = new UserInputGenerator(fnDef, "seed123", mockRunner);
-    gen.onRunStart(true, [], undefined, 200, 100, mockRunner);
+    gen.onRunStart(true, [], undefined, dftOptions, mockRunner);
 
     let caughtError: unknown;
     try {
@@ -169,8 +173,9 @@ describe("fuzzer/generators/UserInputGenerator:", () => {
       };
     });
 
+    const dftOptions = FuzzConfigStore.getDefaultFuzzOptions();
     const gen = new UserInputGenerator(fnDef, "seed123", mockRunner);
-    gen.onRunStart(true, [], undefined, 200, 100, mockRunner);
+    gen.onRunStart(true, [], undefined, dftOptions, mockRunner);
 
     let caughtError: unknown;
     try {
@@ -198,8 +203,9 @@ describe("fuzzer/generators/UserInputGenerator:", () => {
       };
     });
 
+    const dftOptions = FuzzConfigStore.getDefaultFuzzOptions();
     const gen = new UserInputGenerator(fnDef, "seed123", mockRunner);
-    gen.onRunStart(true, [], undefined, 200, 100, mockRunner);
+    gen.onRunStart(true, [], undefined, dftOptions, mockRunner);
 
     let caughtError: unknown;
     try {
@@ -226,8 +232,9 @@ describe("fuzzer/generators/UserInputGenerator:", () => {
       };
     });
 
+    const dftOptions = FuzzConfigStore.getDefaultFuzzOptions();
     const gen = new UserInputGenerator(fnDef, "seed123", mockRunner);
-    gen.onRunStart(true, [], undefined, 200, 100, mockRunner);
+    gen.onRunStart(true, [], undefined, dftOptions, mockRunner);
 
     let caughtError: unknown;
     try {
