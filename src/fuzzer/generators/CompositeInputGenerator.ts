@@ -286,7 +286,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
       }
       const { candidate, genCost } = this._generateCandidate();
 
-      // Injected inputs from HumanInputGenerator bpass the dupe check
+      // Injected inputs from SeedInputGenerator bypass the dupe check
       if (candidate.injected) {
         return this._acceptCandidate(candidate);
       }
@@ -334,7 +334,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
         selectedSubgen,
       } = this._generateCandidate();
 
-      // Injected inputs from HumanInputGenerator are always processed and never dupe-skipped or transformed
+      // Injected inputs from SeedInputGenerator are always processed and never dupe-skipped or transformed
       if (untransformedCandidate.injected) {
         return this._acceptCandidate(untransformedCandidate);
       }
