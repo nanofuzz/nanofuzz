@@ -183,12 +183,16 @@ export class FuzzStats {
 
     // 5. Result retention policy
     const retention = this._executionOptions.outputResults;
+    const isInteresting = Boolean(
+      result.interestingReasons && result.interestingReasons.length > 0
+    );
+    const isFailure = result.category !== "ok" && result.category !== "skip";
     const shouldRetain =
       retention === "all" ||
       Boolean(candidate.injected) ||
-      (retention === "failures" &&
-        result.category !== "ok" &&
-        result.category !== "skip");
+      (retention === "interesting"
+        ? isInteresting || isFailure
+        : retention === "failures" && isFailure);
 
     if (shouldRetain) {
       this._results.results.push(result);

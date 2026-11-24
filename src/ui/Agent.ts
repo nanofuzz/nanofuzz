@@ -667,7 +667,9 @@ export async function runFuzz(
       workers:
         options.workers ??
         Config.get<number | "auto">("nanofuzz.fuzzer.workers", "auto"),
-      outputResults: options.outputResults ?? "all",
+      outputResults:
+        options.outputResults ??
+        (options.exportSuite || options.exportFilePath ? "interesting" : "all"),
       precompile: false,
     };
 

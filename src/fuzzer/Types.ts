@@ -227,7 +227,7 @@ export function isFuzzResultTab(obj: unknown): obj is FuzzResultTab {
 /**
  * Fuzzer Options that specify the fuzzing behavior
  */
-export type FuzzOutputResults = "all" | "failures" | "none";
+export type FuzzOutputResults = "all" | "interesting" | "failures" | "none";
 
 /**
  * Engine version for execution: "auto", "v1", "v2", or "v3"
