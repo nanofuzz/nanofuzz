@@ -214,6 +214,20 @@ public class JavaRunnerHost {
     protocolOut.write(HEARTBEAT_BYTES);
     protocolOut.flush();
 
+    try {
+      validateTarget();
+    } catch (Throwable t) {
+      sendErrorAndPark(protocolOut, t);
+      return;
+    }
+
+    byte[] readyBytes = MAPPER.writeValueAsBytes("READY");
+    synchronized (protocolOut) {
+      protocolOut.writeInt(readyBytes.length);
+      protocolOut.write(readyBytes);
+      protocolOut.flush();
+    }
+
     DataInputStream in = new DataInputStream(System.in);
 
     while (true) {
@@ -235,7 +249,22 @@ public class JavaRunnerHost {
       }
 
       Map<String, Object> resp = handleRequest(req);
-      byte[] respBytes = MAPPER.writeValueAsBytes(resp);
+      byte[] respBytes;
+      try {
+        respBytes = MAPPER.writeValueAsBytes(resp);
+      } catch (Exception e) {
+        Map<String, Object> errResp = new LinkedHashMap<>();
+        errResp.put("tag", "error");
+        errResp.put("name", e.getClass().getSimpleName());
+        errResp.put("message", "Serialization failure: " + e.getMessage());
+        errResp.put("source", "host");
+        errResp.put("seq", req.get("seq"));
+        try {
+          respBytes = MAPPER.writeValueAsBytes(errResp);
+        } catch (Exception fatal) {
+          respBytes = new byte[0];
+        }
+      }
 
       synchronized (protocolOut) {
         protocolOut.writeInt(respBytes.length);
@@ -510,8 +539,29 @@ public class JavaRunnerHost {
   } // fn: executeValidator
 
   /**
-   * Locates a target method by name and parameter count across public and
-   * declared methods,
+   * Collects all methods for a class, including public methods (from class and
+   * all interfaces/superclasses) and declared methods walked up the class
+   * hierarchy.
+   *
+   * @param clazz Class to inspect
+   * @return List of all accessible and declared methods across hierarchy
+   */
+  private static List<Method> getAllMethods(Class<?> clazz) {
+    List<Method> methods = new ArrayList<>();
+    Collections.addAll(methods, clazz.getMethods());
+    for (Class<?> curr = clazz; curr != null && curr != Object.class; curr = curr.getSuperclass()) {
+      for (Method m : curr.getDeclaredMethods()) {
+        if (!methods.contains(m)) {
+          methods.add(m);
+        }
+      }
+    }
+    return methods;
+  } // fn: getAllMethods
+
+  /**
+   * Locates a target method by name and parameter count across the class
+   * hierarchy,
    * with support for overloaded method name suffixes (e.g.
    * {@code method_paramType}).
    *
@@ -521,27 +571,24 @@ public class JavaRunnerHost {
    * @return Matching Method or null if not found
    */
   private Method findMethod(Class<?> clazz, String name, int paramCount) {
-    for (Method m : clazz.getMethods()) {
-      if (m.getName().equals(name) && m.getParameterCount() == paramCount) {
+    for (Method m : getAllMethods(clazz)) {
+      if (m.getParameterCount() == paramCount && isMethodNameMatch(m.getName(), name)) {
         return m;
-      }
-    }
-    for (Method m : clazz.getDeclaredMethods()) {
-      if (m.getName().equals(name) && m.getParameterCount() == paramCount) {
-        return m;
-      }
-    }
-    // Handle overload suffix if name is formatted like method_paramType
-    if (name.contains("_")) {
-      String baseName = name.substring(0, name.indexOf('_'));
-      for (Method m : clazz.getDeclaredMethods()) {
-        if (m.getName().equals(baseName) && m.getParameterCount() == paramCount) {
-          return m;
-        }
       }
     }
     return null;
   } // fn: findMethod
+
+  /**
+   * Checks whether a method name matches the given requested name, supporting
+   * overloaded method suffixes formatted like {@code methodName_paramType}.
+   */
+  private static boolean isMethodNameMatch(String actualName, String requestedName) {
+    if (actualName.equals(requestedName)) {
+      return true;
+    }
+    return requestedName.startsWith(actualName + "_");
+  } // fn: isMethodNameMatch
 
   /**
    * Locates a companion validator method by name taking exactly 1 parameter.
@@ -551,12 +598,7 @@ public class JavaRunnerHost {
    * @return Matching Method or null if not found
    */
   private Method findValidatorMethod(Class<?> clazz, String name) {
-    for (Method m : clazz.getDeclaredMethods()) {
-      if (m.getName().equals(name) && m.getParameterCount() == 1) {
-        return m;
-      }
-    }
-    for (Method m : clazz.getMethods()) {
+    for (Method m : getAllMethods(clazz)) {
       if (m.getName().equals(name) && m.getParameterCount() == 1) {
         return m;
       }
@@ -977,6 +1019,64 @@ public class JavaRunnerHost {
   } // fn: convertMap
 
   /**
+   * Validates that the default target class and method can be loaded and
+   * resolved across the class hierarchy.
+   *
+   * @throws Exception On class or method resolution failure
+   */
+  private void validateTarget() throws Exception {
+    if (defaultClassName != null && !defaultClassName.isEmpty()) {
+      Class<?> targetClass = classLoader.loadClass(defaultClassName);
+      if (defaultMethodName != null && !defaultMethodName.isEmpty()) {
+        boolean foundMethod = false;
+        // Note: NaNofuzz currently only targets static methods. When support for
+        // instance/class methods is added, this validation will need to be updated
+        // to inspect method modifiers and verify a suitable constructor is available.
+        for (Method m : getAllMethods(targetClass)) {
+          if (isMethodNameMatch(m.getName(), defaultMethodName)) {
+            foundMethod = true;
+            break;
+          }
+        }
+        if (!foundMethod) {
+          throw new NoSuchMethodException("Method '" + defaultMethodName + "' not found in class " + defaultClassName);
+        }
+      }
+    }
+  } // fn: validateTarget
+
+  /**
+   * Sends a structured error result to the parent process and parks on stdin
+   * until killed by the parent process.
+   *
+   * @param out Destination protocol stream
+   * @param t   The error to report
+   */
+  private static void sendErrorAndPark(DataOutputStream out, Throwable t) {
+    try {
+      Map<String, Object> errorResp = new LinkedHashMap<>();
+      errorResp.put("tag", "error");
+      errorResp.put("name", t.getClass().getSimpleName());
+      errorResp.put("message", t.getMessage() != null ? t.getMessage() : t.toString());
+      errorResp.put("stack", getStackTrace(t));
+      errorResp.put("source", "host");
+      errorResp.put("seq", -1);
+
+      byte[] respBytes = MAPPER.writeValueAsBytes(errorResp);
+      synchronized (out) {
+        out.writeInt(respBytes.length);
+        out.write(respBytes);
+        out.flush();
+      }
+      while (System.in.read() != -1) {
+        // Park until stdin reaches EOF (parent closes pipe or kills process)
+      }
+    } catch (IOException ignored) {
+      // Stream closed or broken pipe upon process shutdown
+    }
+  } // fn: sendErrorAndPark
+
+  /**
    * Extracts a stack trace string from a Throwable.
    *
    * @param t The throwable to inspect
@@ -1009,11 +1109,12 @@ public class JavaRunnerHost {
     String defaultMethod = args.length > 1 ? args[1] : "";
     String classesDir = args.length > 2 ? args[2] : "";
 
-    JavaRunnerHost host = new JavaRunnerHost(defaultClass, defaultMethod, classesDir, originalOut);
+    DataOutputStream protocolStream = new DataOutputStream(originalOut);
     try {
+      JavaRunnerHost host = new JavaRunnerHost(defaultClass, defaultMethod, classesDir, protocolStream);
       host.runLoop();
-    } catch (IOException e) {
-      System.err.println("JavaRunnerHost exited: " + e.getMessage());
+    } catch (Throwable t) {
+      sendErrorAndPark(protocolStream, t);
     }
   } // fn: main
 

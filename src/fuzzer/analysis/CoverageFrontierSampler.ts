@@ -217,8 +217,14 @@ export class CoverageFrontierSampler {
 
       let cached = CoverageFrontierSampler._fileCache.get(normKey);
       if (!cached || cached.mtimeMs !== stat.mtimeMs) {
-        cached = analyzeFile(fileKey, stat.mtimeMs);
-        CoverageFrontierSampler._fileCache.set(normKey, cached);
+        try {
+          cached = analyzeFile(fileKey, stat.mtimeMs);
+          CoverageFrontierSampler._fileCache.set(normKey, cached);
+        } catch {
+          // If secondary/callee file has unsupported or unresolvable type syntax,
+          // ignore it as a frontier target candidate instead of crashing the primary fuzzer run
+          continue;
+        }
       }
 
       const fileStats = options.covStats.files?.find(

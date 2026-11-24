@@ -4,12 +4,12 @@ import { NextableStatus } from "./Types";
 import { FuzzPinnedTest, InputAndSource } from "../Types";
 
 /**
- * HumanInputGenerator generates predefined/injected inputs (e.g., pinned tests).
+ * SeedInputGenerator generates predefined/injected inputs (e.g., pinned tests).
  *
  * It reports a priority nextable status of "now!" until exhausted to
  * ensure injected inputs are always drained prior to other generators.
  */
-export class HumanInputGenerator extends AbstractInputGenerator {
+export class SeedInputGenerator extends AbstractInputGenerator {
   protected _inputs: Omit<InputAndSource, "tick">[] = [];
 
   public constructor(
@@ -34,7 +34,7 @@ export class HumanInputGenerator extends AbstractInputGenerator {
   public override next(): InputAndSource {
     const item = this._inputs.shift();
     if (item === undefined) {
-      throw new Error("HumanInputGenerator is exhausted.");
+      throw new Error("SeedInputGenerator is exhausted.");
     }
     return {
       tick: 0, // client sets this
@@ -81,4 +81,4 @@ export class HumanInputGenerator extends AbstractInputGenerator {
       })
     );
   } // _inject()
-} // class: HumanInputGenerator
+} // class: SeedInputGenerator

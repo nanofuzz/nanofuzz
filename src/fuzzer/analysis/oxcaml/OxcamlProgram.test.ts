@@ -1,3 +1,6 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import * as ProgramFactory from "../ProgramFactory";
 import { ArgTag } from "../Types";
 import { OxcamlProgram } from "./OxcamlProgram";
@@ -342,5 +345,56 @@ class point (x_init : int) =
     expect(program.functionsNotSupported["point.set_x"].reason).toContain(
       "Class and object methods are not supported"
     );
+  });
+
+  it("non-root child programs lazily resolve supported functions and categorize unsupported ones without throwing", () => {
+    const tmpDir = fs.mkdtempSync(
+      path.join(fs.realpathSync(os.tmpdir()), "nanofuzz-oxcaml-lazy-func-test-")
+    );
+    try {
+      const rootMl = path.join(tmpDir, "root.ml");
+      const childMl = path.join(tmpDir, "child.ml");
+
+      fs.writeFileSync(
+        childMl,
+        `let valid_child (x : int) : int = x * 2
+let unsupported_child (cb : int -> int) : int = cb 42
+`
+      );
+
+      fs.writeFileSync(
+        rootMl,
+        `let main_target (n : int) : int = n
+`
+      );
+
+      const rootProg = ProgramFactory.fromFile(rootMl);
+      const childProg = ProgramFactory.fromFile(
+        childMl,
+        undefined,
+        undefined,
+        rootProg.root
+      );
+
+      expect(childProg.isRoot()).toBeFalse();
+      expect(childProg.functions["valid_child"]).toBeDefined();
+      expect(childProg.functions["valid_child"].getArgDefs()[0].getName()).toBe("x");
+      expect(childProg.functions["unsupported_child"]).toBeUndefined();
+      expect(childProg.functionsNotSupported["unsupported_child"]).toBeDefined();
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("extracts [@@put ...] attribute targets from functions", () => {
+    const src = `
+let test_harness (x : int) : int =
+  x
+[@@put TargetOne, TargetTwo]
+`;
+    const program = ProgramFactory.fromSource(() => src, "oxcaml");
+    const fn = program.functionsExported["test_harness"];
+    expect(fn).toBeDefined();
+    expect(fn.getPutTargets()).toEqual(["TargetOne", "TargetTwo"]);
   });
 });

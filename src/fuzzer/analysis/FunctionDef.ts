@@ -122,6 +122,16 @@ export class FunctionDef {
   } // fn: getArgDefs()
 
   /**
+   * Returns target symbol names for the Program Under Test (PUT)
+   * if this function is decorated/annotated as a test harness.
+   *
+   * @returns Array of target symbol names
+   */
+  public getPutTargets(): string[] {
+    return [...(this._ref.putTargets ?? [])];
+  } // fn: getPutTargets()
+
+  /**
    * Returns the function's language
    *
    * @returns function language

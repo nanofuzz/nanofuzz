@@ -13,6 +13,7 @@ import {
   AgentGeneratorSummary,
   buildSummaryMarkdown,
   shrinkInputs,
+  getTargetCoverageFiles,
 } from "../../../ui/Agent";
 import { PythonRunner } from "./PythonRunner";
 import { getToolVersion } from "../../../ToolVersion";
@@ -97,6 +98,7 @@ export class HypothesisRunner {
       NANOFUZZ_SUITE_TIMEOUT_SEC: String(suiteTimeoutSec),
       NANOFUZZ_MAX_FAILURES: String(this._options.maxFailures ?? 0),
       NANOFUZZ_MAX_TESTS: String(this._options.maxTests ?? 0),
+      NANOFUZZ_PROVENANCE: this._tool === "hypofuzz" ? "Hypofuzz" : "Hypothesis",
     };
 
     if (injectedFile) {
@@ -131,9 +133,25 @@ export class HypothesisRunner {
     let stderrText = "";
     let exitCode: number | null = null;
 
+    const fileDir = path.dirname(filePath);
+    // If the test file is inside a tests/ or test/ folder, run from the project root
+    // so coverage.py and pytest can locate project source files in src/.
+    const projectRoot =
+      path.basename(fileDir) === "tests" || path.basename(fileDir) === "test"
+        ? path.resolve(fileDir, "..")
+        : fileDir;
+
+    env.NANOFUZZ_PROJECT_ROOT = projectRoot;
+
+    // Pass target coverage files to HypothesisRunnerHost if configured in Agent session
+    const activeTargets = getTargetCoverageFiles(projectRoot);
+    if (activeTargets && activeTargets.size > 0) {
+      env.NANOFUZZ_COVERAGE_INCLUDE_FILES = JSON.stringify(Array.from(activeTargets));
+    }
+
     try {
       proc = child_process.spawn(pythonEnv.interpreter, args, {
-        cwd: path.dirname(filePath),
+        cwd: projectRoot,
         env,
         stdio: ["ignore", "pipe", "pipe"],
       });
@@ -194,8 +212,11 @@ export class HypothesisRunner {
       });
 
       // Cancellation and timeout watchdog + periodic progress updater
-      const hardTimeoutMs = suiteTimeoutMs + 45000;
+      const maxTestsTarget = this._options.maxTests ?? 0;
+      const maxFailuresTarget = this._options.maxFailures ?? 0;
+      const hardTimeoutMs = suiteTimeoutMs + 3000;
       let lastReportCheck = 0;
+      let terminating = false;
       const watchdogInterval = setInterval(() => {
         if (processExited) {
           clearInterval(watchdogInterval);
@@ -206,27 +227,21 @@ export class HypothesisRunner {
         if (this._cancelFn?.()) {
           clearInterval(watchdogInterval);
           sendSignal(proc, "SIGINT");
-        } else if (elapsed >= hardTimeoutMs) {
-          clearInterval(watchdogInterval);
-          sendSignal(proc, "SIGINT");
-          setTimeout(() => {
-            if (!processExited && proc) {
-              proc.kill("SIGKILL");
-            }
-          }, 5000).unref();
+          return;
         }
 
-        // Periodically sample progress from the report file and fire _updateFn
-        if (this._updateFn && elapsed - lastReportCheck >= 1000) {
-          lastReportCheck = elapsed;
-          try {
-            if (fs.existsSync(reportFile)) {
-              const raw = fs.readFileSync(reportFile);
-              const interim = parsePbtRunReport(JSONN.unpack(raw));
-              if (interim) {
-                const total = interim.total_executions;
-                const passed = interim.pass_count;
-                const failed = interim.fail_count;
+        // Sample progress from report file and detect target completion
+        try {
+          if (fs.existsSync(reportFile)) {
+            const raw = fs.readFileSync(reportFile);
+            const interim = parsePbtRunReport(JSONN.unpack(raw));
+            if (interim) {
+              const total = interim.total_executions;
+              const passed = interim.pass_count;
+              const failed = interim.fail_count;
+
+              if (this._updateFn && elapsed - lastReportCheck >= 500) {
+                lastReportCheck = elapsed;
                 const pct =
                   suiteTimeoutMs > 0
                     ? Math.min(
@@ -280,25 +295,65 @@ export class HypothesisRunner {
                   isCancelled: false,
                 });
               }
+
+              // Check if targets are met or runner signaled completion
+              const targetReached =
+                (maxTestsTarget > 0 && total >= maxTestsTarget) ||
+                (maxFailuresTarget > 0 && failed >= maxFailuresTarget) ||
+                interim.stop_reason === "max_tests" ||
+                interim.stop_reason === "max_failures" ||
+                interim.stop_reason === "timeout";
+
+              if (targetReached && !terminating) {
+                terminating = true;
+                clearInterval(watchdogInterval);
+                sendSignal(proc, "SIGINT");
+                setTimeout(() => {
+                  if (!processExited && proc) {
+                    sendSignal(proc, "SIGKILL");
+                  }
+                }, 3000).unref();
+                return;
+              }
             }
-          } catch {
-            // Ignore interim read/parse race conditions
           }
+        } catch {
+          // Ignore interim read/parse race conditions
         }
-      }, 500);
+
+        if (elapsed >= hardTimeoutMs && !terminating) {
+          terminating = true;
+          clearInterval(watchdogInterval);
+          sendSignal(proc, "SIGINT");
+          setTimeout(() => {
+            if (!processExited && proc) {
+              sendSignal(proc, "SIGKILL");
+            }
+          }, 3000).unref();
+        }
+      }, 200);
 
       await new Promise<void>((resolve) => {
+        let settled = false;
+        const finish = (code: number | null) => {
+          if (!settled) {
+            settled = true;
+            exitCode = code;
+            processExited = true;
+            clearInterval(watchdogInterval);
+            resolve();
+          }
+        };
+
         proc?.on("close", (code) => {
-          exitCode = code;
-          processExited = true;
-          clearInterval(watchdogInterval);
-          resolve();
+          finish(code);
+        });
+        proc?.on("exit", (code) => {
+          finish(code);
         });
         proc?.on("error", (err) => {
           stderrText += String(err);
-          processExited = true;
-          clearInterval(watchdogInterval);
-          resolve();
+          finish(null);
         });
       });
     } catch (err) {
@@ -433,7 +488,8 @@ export class HypothesisRunner {
 
     const stopReason = isCancelled
       ? FuzzStopReason.PAUSE
-      : reportData?.stop_reason === "timeout"
+      : reportData?.stop_reason === "timeout" ||
+          Date.now() - startTime >= suiteTimeoutMs
         ? FuzzStopReason.MAXTIME
         : FuzzStopReason.NOMOREINPUTS;
 
@@ -711,16 +767,29 @@ function buildCliArgs(
 
 /**
  * Sends a signal safely to a child process.
+ * On Windows, forcefully terminates the entire process tree via taskkill.
  */
 function sendSignal(
   proc: child_process.ChildProcess | undefined,
   signal: NodeJS.Signals
 ): void {
-  if (proc && !proc.killed) {
-    try {
-      proc.kill(signal);
-    } catch {
-      // Ignore signal errors
+  if (proc) {
+    if (process.platform === "win32" && proc.pid !== undefined) {
+      try {
+        child_process.execSync(`taskkill /pid ${proc.pid} /T /F`, {
+          stdio: "ignore",
+        });
+        return;
+      } catch {
+        // Fall back to proc.kill
+      }
+    }
+    if (!proc.killed) {
+      try {
+        proc.kill(signal);
+      } catch {
+        // Ignore signal errors
+      }
     }
   }
 } // fn: sendSignal

@@ -1,4 +1,5 @@
 import { Logger, LoggerEntry } from "../telemetry/Logger";
+import * as Config from "../Config";
 import {
   FindBugsPhase,
   FindBugsTool,
@@ -26,6 +27,8 @@ export type FuzzRunStatsSnapshot = {
   maxTests?: number;
   statementCoveragePct?: number;
   branchCoveragePct?: number;
+  branchesCovered?: number;
+  branchesTotal?: number;
   deepSlotWaitMs?: number;
   generatorName?: string;
   details?: string;
@@ -69,6 +72,8 @@ export type WorkflowSession = {
   }[];
   fuzzRuns: FuzzRunStatsSnapshot[];
   transitions: PhaseTransitionRecord[];
+  benchmarkMode?: boolean;
+  reportPath?: string;
 };
 
 /**
@@ -87,7 +92,9 @@ class FindBugsSessionManager {
     workerCount: number,
     initialPhase: FindBugsPhase,
     targetScope?: string[],
-    targetRepoPath?: string
+    targetRepoPath?: string,
+    benchmarkMode?: boolean,
+    reportPath?: string
   ): WorkflowSession {
     const id =
       sessionId && this._sessions.has(sessionId)
@@ -103,6 +110,8 @@ class FindBugsSessionManager {
         invariantSource,
         targetScope: targetScope ?? [],
         targetRepoPath,
+        benchmarkMode,
+        reportPath,
         workerCount,
         startedAt: now,
         lastPhaseStartedAt: now,
@@ -119,6 +128,12 @@ class FindBugsSessionManager {
       }
       if (targetRepoPath) {
         session.targetRepoPath = targetRepoPath;
+      }
+      if (benchmarkMode !== undefined) {
+        session.benchmarkMode = benchmarkMode;
+      }
+      if (reportPath !== undefined) {
+        session.reportPath = reportPath;
       }
       session.workerCount = workerCount;
     }
@@ -334,7 +349,7 @@ class FindBugsSessionManager {
   /**
    * Returns true if all declared entrypoints have met the required stopping criteria:
    * 1. At least one Stage 2 deep fuzzing run (suiteTimeout >= 300000 ms, maxTests === 0).
-   * 2. Either 100% branch coverage was attained OR at least 5 deep exploration attempts were executed.
+   * 2. Either 100% branch coverage was attained OR at least 4 deep exploration attempts were executed.
    */
   public hasCompletedDeepRun(sessionId?: string, filePath?: string): boolean {
     const s = this.getSession(sessionId, filePath);
@@ -344,20 +359,40 @@ class FindBugsSessionManager {
       return s.entrypoints.every((e) => this.isEntrypointDeepCriteriaMet(s, e));
     }
 
-    // Default if no entrypoints formally registered: at least one 300,000ms run
-    return s.fuzzRuns.some(
-      (r) =>
-        r.isPropertyTest !== false &&
-        r.totalTests > 1 &&
-        (r.suiteTimeout ?? 0) >= 300000 &&
-        (r.maxTests === 0 || r.maxTests === Number.MAX_SAFE_INTEGER)
-    );
+    // Default if no entrypoints formally registered: at least one qualifying deep run
+    return s.fuzzRuns.some((r) => this.isQualifyingDeepRun(r));
   } // fn: hasCompletedDeepRun
 
   /**
+   * Helper to determine if a fuzz run qualifies as a Stage 2 deep fuzzing run:
+   * - Must be a property test.
+   * - Configured for deep continuous fuzzing: suiteTimeout >= 300,000 ms (5m) and maxTests === 0.
+   * - Must either achieve 100% branch coverage OR actually execute for the deep duration (>= 270,000 ms / 4.5m).
+   * Note: The number of tests executed is NOT checked.
+   */
+  public isQualifyingDeepRun(r: FuzzRunStatsSnapshot): boolean {
+    if (r.isPropertyTest === false) return false;
+    const reqTimeout = Config.get<number>(
+      "nanofuzz.experimental.findBugs.deepTimeoutMs",
+      300000
+    );
+    const reqDuration = Math.floor(reqTimeout * 0.9);
+    if ((r.suiteTimeout ?? 0) < reqTimeout) return false;
+    if (r.maxTests !== 0 && r.maxTests !== Number.MAX_SAFE_INTEGER) return false;
+
+    // 100% branch coverage allows early completion
+    if (r.branchCoveragePct !== undefined && r.branchCoveragePct >= 100) {
+      return true;
+    }
+
+    // Must have actually executed for the deep fuzzing duration
+    return (r.durationMs ?? 0) >= reqDuration;
+  } // fn: isQualifyingDeepRun
+
+  /**
    * Evaluates whether an entrypoint has satisfied stopping criteria:
-   * - Must have at least one deep run (suiteTimeout >= 300000, maxTests === 0).
-   * - Must achieve 100% branch coverage OR execute at least 5 exploration retries.
+   * - Must have at least one deep run (suiteTimeout >= deepTimeoutMs, maxTests === 0, duration >= 90% or 100% cov).
+   * - Must achieve 100% branch coverage OR execute at least maxRetries exploration retries.
    */
   public isEntrypointDeepCriteriaMet(
     session: WorkflowSession,
@@ -366,10 +401,7 @@ class FindBugsSessionManager {
     const matchingDeepRuns = session.fuzzRuns.filter(
       (r) =>
         functionMatchesEntrypoint(r.functionName, entrypoint) &&
-        r.isPropertyTest !== false &&
-        r.totalTests > 1 &&
-        (r.suiteTimeout ?? 0) >= 300000 &&
-        (r.maxTests === 0 || r.maxTests === Number.MAX_SAFE_INTEGER)
+        this.isQualifyingDeepRun(r)
     );
 
     if (matchingDeepRuns.length === 0) return false;
@@ -380,8 +412,11 @@ class FindBugsSessionManager {
     );
     if (reachedFullCoverage) return true;
 
-    // Otherwise must have executed at least 5 exploration attempts
-    return matchingDeepRuns.length >= 5;
+    const reqRetries = Config.get<number>(
+      "nanofuzz.experimental.findBugs.maxRetries",
+      4
+    );
+    return matchingDeepRuns.length >= reqRetries;
   } // fn: isEntrypointDeepCriteriaMet
 
   /**
@@ -394,16 +429,18 @@ class FindBugsSessionManager {
     const s = this.getSession(sessionId, filePath);
     if (!s || !s.entrypoints) return [];
 
+    const reqRetries = Config.get<number>(
+      "nanofuzz.experimental.findBugs.maxRetries",
+      4
+    );
+
     return s.entrypoints
       .filter((e) => !this.isEntrypointDeepCriteriaMet(s, e))
       .map((e) => {
         const deepRuns = s.fuzzRuns.filter(
           (r) =>
             functionMatchesEntrypoint(r.functionName, e) &&
-            r.isPropertyTest !== false &&
-            r.totalTests > 1 &&
-            (r.suiteTimeout ?? 0) >= 300000 &&
-            (r.maxTests === 0 || r.maxTests === Number.MAX_SAFE_INTEGER)
+            this.isQualifyingDeepRun(r)
         );
         const lastCov =
           deepRuns.length > 0
@@ -413,7 +450,7 @@ class FindBugsSessionManager {
           lastCov !== undefined
             ? `${lastCov}% branch coverage`
             : "no coverage reported";
-        return `${e.name} (${deepRuns.length}/5 retries, ${covStr})`;
+        return `${e.name} (${deepRuns.length}/${reqRetries} retries, ${covStr})`;
       });
   } // fn: getPendingDeepEntrypoints
 
@@ -452,10 +489,14 @@ class FindBugsSessionManager {
   public getDeepEntrypointsCount(sessionId?: string): number {
     const s = this.getSession(sessionId);
     if (!s || s.fuzzRuns.length === 0) return 0;
+    const reqTimeout = Config.get<number>(
+      "nanofuzz.experimental.findBugs.deepTimeoutMs",
+      300000
+    );
     if (s.entrypoints && s.entrypoints.length > 0) {
       const deepRuns = s.fuzzRuns.filter(
         (r) =>
-          (r.suiteTimeout ?? 0) >= 300000 &&
+          (r.suiteTimeout ?? 0) >= reqTimeout &&
           (r.maxTests === 0 || r.maxTests === Number.MAX_SAFE_INTEGER)
       );
       return s.entrypoints.filter((e) =>
@@ -466,7 +507,7 @@ class FindBugsSessionManager {
       s.fuzzRuns
         .filter(
           (r) =>
-            (r.suiteTimeout ?? 0) >= 300000 &&
+            (r.suiteTimeout ?? 0) >= reqTimeout &&
             (r.maxTests === 0 || r.maxTests === Number.MAX_SAFE_INTEGER)
         )
         .map((r) => r.functionName)

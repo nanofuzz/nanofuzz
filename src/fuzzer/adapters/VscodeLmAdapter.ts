@@ -1,4 +1,6 @@
 import * as vscode from "vscode";
+import * as path from "node:path";
+import * as Config from "../../Config";
 import * as JSONN from "../../Jsonn";
 import { Logger, LoggerEntry } from "../../telemetry/Logger";
 import {
@@ -22,6 +24,23 @@ import { getDisplayPath } from "../Util";
 // -------------------------------------------------------------------------- //
 // Tool Implementations & Helpers
 // -------------------------------------------------------------------------- //
+
+/**
+ * Resolves and sanitizes file paths ingested from Language Model tool arguments.
+ * Resolves relative paths against the active session's workspace root, the first
+ * workspace folder, or the process working directory.
+ */
+export function resolveToolFilePath(rawPath: string, sessionId?: string): string {
+  if (!rawPath) return rawPath;
+  const session = sessionId ? sessionManager.getSession(sessionId) : undefined;
+  const workspaceRoot =
+    session?.targetRepoPath ??
+    vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ??
+    process.cwd();
+  return path.isAbsolute(rawPath)
+    ? path.normalize(rawPath)
+    : path.resolve(workspaceRoot, rawPath);
+}
 
 /**
  * Resolves the best-matching VS Code Language Model for a requested vendor and model name.
@@ -59,15 +78,18 @@ export async function resolveMatchingModel(
     }
   }
 
-  // If model is specified, attempt model name/family/id matching
-  let selected = candidates[0];
+  // If model is specified, attempt model name/family/id matching without arbitrary default fallback
+  let selected: vscode.LanguageModelChat | undefined;
   if (model) {
     const mNorm = model.toLowerCase().replace(/[^a-z0-9]/g, "");
-    const matched = candidates.find((m) => {
+    selected = candidates.find((m) => {
       const f = (m.family || "").toLowerCase().replace(/[^a-z0-9]/g, "");
       const n = (m.name || "").toLowerCase().replace(/[^a-z0-9]/g, "");
       const i = (m.id || "").toLowerCase().replace(/[^a-z0-9]/g, "");
       return (
+        f === mNorm ||
+        n === mNorm ||
+        i === mNorm ||
         f.includes(mNorm) ||
         n.includes(mNorm) ||
         i.includes(mNorm) ||
@@ -77,15 +99,16 @@ export async function resolveMatchingModel(
       );
     });
 
-    if (matched) {
-      selected = matched;
-    } else if (candidates !== allModels) {
+    if (!selected && candidates !== allModels) {
       // Check across all vendors if the vendor filter was too restrictive
-      const globalMatch = allModels.find((m) => {
+      selected = allModels.find((m) => {
         const f = (m.family || "").toLowerCase().replace(/[^a-z0-9]/g, "");
         const n = (m.name || "").toLowerCase().replace(/[^a-z0-9]/g, "");
         const i = (m.id || "").toLowerCase().replace(/[^a-z0-9]/g, "");
         return (
+          f === mNorm ||
+          n === mNorm ||
+          i === mNorm ||
           f.includes(mNorm) ||
           n.includes(mNorm) ||
           i.includes(mNorm) ||
@@ -94,10 +117,16 @@ export async function resolveMatchingModel(
           mNorm.includes(i)
         );
       });
-      if (globalMatch) {
-        selected = globalMatch;
-      }
     }
+
+    if (!selected) {
+      const available = allModels.map((m) => `${m.vendor}:${m.id}`).join(", ");
+      throw new Error(
+        `Requested model '${model}' (vendor: '${vendor}') not found in VS Code. Available models: [${available}]. Refusing to substitute an arbitrary fallback.`
+      );
+    }
+  } else {
+    selected = candidates[0];
   }
 
   return {
@@ -114,8 +143,9 @@ export class ListTargetsTool implements vscode.LanguageModelTool<ListTargetsInpu
     options: vscode.LanguageModelToolInvocationPrepareOptions<ListTargetsInput>
   ): vscode.ProviderResult<vscode.PreparedToolInvocation> {
     const toolName = getToolName();
+    const resolvedPath = resolveToolFilePath(options.input.filePath);
     return {
-      invocationMessage: `Listing ${toolName} fuzz targets in \`${options.input.filePath}\``,
+      invocationMessage: `Listing ${toolName} fuzz targets in \`${resolvedPath}\``,
     };
   }
 
@@ -124,14 +154,15 @@ export class ListTargetsTool implements vscode.LanguageModelTool<ListTargetsInpu
     _token: vscode.CancellationToken
   ): Promise<vscode.LanguageModelToolResult> {
     const start = performance.now();
-    const targets = await listTargets(options.input.filePath);
+    const resolvedPath = resolveToolFilePath(options.input.filePath);
+    const targets = await listTargets(resolvedPath);
     const durationMs = Math.round(performance.now() - start);
 
     Logger.getLogger().push(
       new LoggerEntry(
         "VscodeLmAdapter.listTargets",
         JSONN.stringify({
-          filePath: options.input.filePath,
+          filePath: resolvedPath,
           language: targets.language,
           targetsFound: targets.functions.length,
           unsupportedCount: targets.unsupportedFunctions.length,
@@ -156,8 +187,9 @@ export class FuzzFunctionTool implements vscode.LanguageModelTool<FuzzFunctionIn
   ): vscode.ProviderResult<vscode.PreparedToolInvocation> {
     const { functionName, filePath, timeoutMs, maxFailures, sessionId } =
       options.input;
+    const resolvedPath = resolveToolFilePath(filePath, sessionId);
 
-    const session = sessionManager.getSession(sessionId, filePath);
+    const session = sessionManager.getSession(sessionId, resolvedPath);
     const underlyingTool = session?.tool ?? "nanofuzz";
     const toolName =
       underlyingTool !== "nanofuzz"
@@ -179,7 +211,7 @@ export class FuzzFunctionTool implements vscode.LanguageModelTool<FuzzFunctionIn
       }
     }
 
-    const displayPath = getDisplayPath(filePath);
+    const displayPath = getDisplayPath(resolvedPath);
     const target = `'${displayPath}::${functionName}'`;
 
     const constraints: string[] = [];
@@ -200,8 +232,21 @@ export class FuzzFunctionTool implements vscode.LanguageModelTool<FuzzFunctionIn
     const constraintSuffix =
       constraints.length > 0 ? ` up to ${constraints.join(" or ")}` : "";
 
+    const isBenchmark =
+      Boolean(session?.benchmarkMode) ||
+      (typeof sessionId === "string" && sessionId.startsWith("bench-")) ||
+      Config.get<boolean>("nanofuzz.benchmarkMode", false);
+
     return {
       invocationMessage: `Running ${toolName} on ${target}${constraintSuffix}`,
+      ...(isBenchmark
+        ? {}
+        : {
+            confirmationMessages: {
+              title: `${toolName} ${target}`,
+              message: `Run ${toolName} on ${target}${constraintSuffix}?`,
+            },
+          }),
     };
   }
 
@@ -241,15 +286,19 @@ export class FuzzFunctionTool implements vscode.LanguageModelTool<FuzzFunctionIn
     }
 
     const resolved = await resolveMatchingModel(vendor, model);
+    const resolvedFilePath = resolveToolFilePath(filePath, sessionId);
+    const resolvedExportPath = exportFilePath
+      ? resolveToolFilePath(exportFilePath, sessionId)
+      : undefined;
 
-    const session = sessionManager.getSession(sessionId, filePath);
+    const session = sessionManager.getSession(sessionId, resolvedFilePath);
     const underlyingTool = session?.tool ?? "nanofuzz";
     const toolName =
       underlyingTool !== "nanofuzz"
         ? underlyingTool.charAt(0).toUpperCase() + underlyingTool.slice(1)
         : getToolName();
 
-    const displayPath = getDisplayPath(filePath);
+    const displayPath = getDisplayPath(resolvedFilePath);
     const target = `'${displayPath}::${functionName}'`;
 
     // Create a live status bar item on the bottom toolbar
@@ -278,7 +327,7 @@ export class FuzzFunctionTool implements vscode.LanguageModelTool<FuzzFunctionIn
     try {
       result = await runFuzz(
         {
-          filePath,
+          filePath: resolvedFilePath,
           functionName,
           sessionId,
           maxTests,
@@ -291,10 +340,10 @@ export class FuzzFunctionTool implements vscode.LanguageModelTool<FuzzFunctionIn
           inputs,
           tests,
           exportSuite,
-          exportFilePath,
+          exportFilePath: resolvedExportPath,
           coverageScope,
           useTransformer,
-          enableCopilotAi: true,
+          isAgentCall: true,
         },
         () => token.isCancellationRequested,
         (status) => {
@@ -408,13 +457,15 @@ export class ShowResultsTool implements vscode.LanguageModelTool<ShowResultsInpu
     options: vscode.LanguageModelToolInvocationOptions<ShowResultsInput>,
     _token: vscode.CancellationToken
   ): Promise<vscode.LanguageModelToolResult> {
-    const res: ShowResultsResult = await showResults(options.input);
+    const resolvedPath = resolveToolFilePath(options.input.filePath);
+    const sanitizedInput = { ...options.input, filePath: resolvedPath };
+    const res: ShowResultsResult = await showResults(sanitizedInput);
 
     Logger.getLogger().push(
       new LoggerEntry(
         "VscodeLmAdapter.showResults",
         JSONN.stringify({
-          filePath: options.input.filePath,
+          filePath: resolvedPath,
           functionName: options.input.functionName,
           success: res.success,
         })
@@ -435,9 +486,10 @@ export class ShrinkInputsTool implements vscode.LanguageModelTool<ShrinkInputsIn
     options: vscode.LanguageModelToolInvocationPrepareOptions<ShrinkInputsInput>
   ): vscode.ProviderResult<vscode.PreparedToolInvocation> {
     const toolName = getToolName();
-    const { functionName, filePath } = options.input;
+    const resolvedPath = resolveToolFilePath(options.input.filePath);
+    const { functionName } = options.input;
     return {
-      invocationMessage: `Shrinking test inputs for \`${functionName}\` in \`${filePath}\` with ${toolName}`,
+      invocationMessage: `Shrinking test inputs for \`${functionName}\` in \`${resolvedPath}\` with ${toolName}`,
     };
   }
 
@@ -445,7 +497,9 @@ export class ShrinkInputsTool implements vscode.LanguageModelTool<ShrinkInputsIn
     options: vscode.LanguageModelToolInvocationOptions<ShrinkInputsInput>,
     _token: vscode.CancellationToken
   ): Promise<vscode.LanguageModelToolResult> {
-    const res = await shrinkInputs(options.input);
+    const resolvedPath = resolveToolFilePath(options.input.filePath);
+    const sanitizedInput = { ...options.input, filePath: resolvedPath };
+    const res = await shrinkInputs(sanitizedInput);
 
     const shrunkenCount =
       res.shrunkInputs?.filter((s) => s.status === "shrunk").length ?? 0;
@@ -453,7 +507,7 @@ export class ShrinkInputsTool implements vscode.LanguageModelTool<ShrinkInputsIn
       new LoggerEntry(
         "VscodeLmAdapter.shrinkInputs",
         JSONN.stringify({
-          filePath: options.input.filePath,
+          filePath: resolvedPath,
           functionName: options.input.functionName,
           inputCount: options.input.inputs.length,
           shrunkenCount,

@@ -1,3 +1,6 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import * as ProgramFactory from "../ProgramFactory";
 import { ArgTag } from "../Types";
 import { TypescriptProgram } from "./TypescriptProgram";
@@ -845,5 +848,74 @@ export const returnsValueArrow = () => "hello";
       prog.functionsNotSupported["evaluateExpressionGenerator"]
     ).toBeDefined();
     expect(prog.functionsNotSupported["arrowWithFnType"]).toBeDefined();
+  });
+
+  it("non-root child programs lazily resolve supported functions and categorize unsupported ones without throwing", () => {
+    const tmpDir = fs.mkdtempSync(
+      path.join(fs.realpathSync(os.tmpdir()), "nanofuzz-ts-lazy-func-test-")
+    );
+    try {
+      const rootTs = path.join(tmpDir, "Root.ts");
+      const childTs = path.join(tmpDir, "Child.ts");
+
+      fs.writeFileSync(
+        childTs,
+        `export function validChild(x: number): number { return x * 2; }
+export function unsupportedChild(cb: () => void): void { cb(); }
+`
+      );
+
+      fs.writeFileSync(
+        rootTs,
+        `import { validChild } from "./Child";
+export function rootTarget(n: number): number { return validChild(n); }
+`
+      );
+
+      const rootProg = ProgramFactory.fromFile(rootTs);
+      const childProg = ProgramFactory.fromFile(
+        childTs,
+        undefined,
+        undefined,
+        rootProg.root
+      );
+
+      expect(childProg.isRoot()).toBeFalse();
+      expect(childProg.functions["validChild"]).toBeDefined();
+      expect(childProg.functions["validChild"].getArgDefs()[0].getName()).toBe("x");
+      expect(childProg.functions["unsupportedChild"]).toBeUndefined();
+      expect(childProg.functionsNotSupported["unsupportedChild"]).toBeDefined();
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("extracts @put annotation targets from JSDoc comments", () => {
+    const prog = ProgramFactory.fromSource(
+      () => `
+/**
+ * Test harness for multiple PUT targets
+ * @put {TreeValue, DerivationTree}
+ */
+export function testHarness(n: number): void {}
+
+/**
+ * Single target
+ * @put TargetOne
+ */
+export const arrowHarness = (s: string): void => {};
+`,
+      "typescript"
+    );
+
+    const fns = prog.functionsExported;
+    expect(fns["testHarness"]).toBeDefined();
+    expect(fns["testHarness"].getPutTargets()).toEqual([
+      "TreeValue",
+      "DerivationTree",
+    ]);
+
+    expect(fns["arrowHarness"]).toBeDefined();
+    expect(fns["arrowHarness"].getPutTargets()).toEqual(["TargetOne"]);
   });
 });

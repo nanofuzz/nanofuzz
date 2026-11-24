@@ -1633,6 +1633,91 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
     expect(stats.muts.valid).not.toBe(0);
     expect(stats.muts.invalid).toBe(0);
   });
+
+  it("mutates surrogate and multi-byte unicode strings without splitting surrogate pairs", () => {
+    const spec = makeArgDef(
+      dummyModule,
+      "strVal",
+      0,
+      ArgTag.STRING,
+      {
+        ...argOptions,
+        strLength: { min: 1, max: 30 },
+      },
+      0,
+      false
+    );
+    const prng = seedrandom("surrogate-pair-mutation-seed");
+
+    // Starting wrapped string with emojis (surrogate pairs)
+    const input: ArgValueTypeWrapped[] = [
+      {
+        tag: "ArgValueTypeWrapped",
+        value: "hello 💃 world 🚀 test",
+      },
+    ];
+
+    for (let i = 0; i < 200; i++) {
+      const muts = ArgDefMutator.getMutators([spec], input, prng);
+      expect(muts.length).toBeGreaterThan(0);
+      const chosen = muts[Math.floor(prng() * muts.length)];
+      chosen.fn();
+
+      const resStr = input[0].value;
+      if (typeof resStr === "string") {
+        // Assert no lone surrogate exists
+        const hasLoneSurrogate = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(
+          resStr
+        );
+        expect(hasLoneSurrogate).toBeFalse();
+        expect(ArgDefValidator.validate(resStr, spec)).toBeTrue();
+      }
+    }
+  });
+
+  it("regression: string mutator charSet sampling does not pick lone surrogate code units", () => {
+    // When strCharset contains multi-byte characters (surrogate pairs in UTF-16 like 💃 = \ud83d\udc83)
+    const spec = makeArgDef(
+      dummyModule,
+      "emojiStr",
+      0,
+      ArgTag.STRING,
+      {
+        ...argOptions,
+        strCharset: "💃🚀",
+        strLength: { min: 1, max: 10 },
+      },
+      0,
+      false
+    );
+    const prng = seedrandom("charset-surrogate-regression-seed");
+
+    const input: ArgValueTypeWrapped[] = [
+      {
+        tag: "ArgValueTypeWrapped",
+        value: "a",
+      },
+    ];
+
+    for (let i = 0; i < 100; i++) {
+      const muts = ArgDefMutator.getMutators([spec], input, prng);
+      const strMut = muts.find(
+        (m) =>
+          m.name === "string-replaceOneChar" ||
+          m.name === "string-insertOneChar"
+      );
+      if (strMut) {
+        strMut.fn();
+        const mutated = input[0].value;
+        if (typeof mutated === "string") {
+          const hasLoneSurrogate = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(
+            mutated
+          );
+          expect(hasLoneSurrogate).toBeFalse();
+        }
+      }
+    }
+  });
 });
 
 // Helper function to abbreviate ArgDef specs

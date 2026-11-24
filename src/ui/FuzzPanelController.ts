@@ -46,7 +46,10 @@ import { synthesizeUserGenerator } from "../fuzzer/synthesis/UserGeneratorSynthe
 import { FuzzConfigStore, CURR_FILE_FMT_VER } from "../fuzzer/FuzzConfigStore";
 import {
   cancelBenchmarkMatrix,
+  recoverBenchmarkMatrix,
   runBenchmarkMatrix,
+  runBenchmarkSmoketest,
+  runBenchmarkAbTest,
 } from "./BenchmarkRunner";
 
 /**
@@ -4046,13 +4049,37 @@ export const commands = {
   runBenchmark: {
     name: "nanofuzz.RunBenchmark",
     fn: () => {
-      void runBenchmarkMatrix(1);
+      void runBenchmarkMatrix(15);
+    },
+  },
+  runBenchmark90: {
+    name: "nanofuzz.RunBenchmark90",
+    fn: () => {
+      void runBenchmarkMatrix(2);
+    },
+  },
+  runBenchmarkSmoketest: {
+    name: "nanofuzz.RunBenchmarkSmoketest",
+    fn: () => {
+      void runBenchmarkSmoketest();
     },
   },
   runBenchmarkFull: {
     name: "nanofuzz.RunBenchmarkFull",
     fn: () => {
       void runBenchmarkMatrix(3);
+    },
+  },
+  runBenchmarkAbTest: {
+    name: "nanofuzz.RunBenchmarkAbTest",
+    fn: () => {
+      void runBenchmarkAbTest();
+    },
+  },
+  recoverBenchmark: {
+    name: "nanofuzz.RecoverBenchmark",
+    fn: () => {
+      void recoverBenchmarkMatrix();
     },
   },
   cancelBenchmark: {

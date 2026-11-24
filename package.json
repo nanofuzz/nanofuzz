@@ -2,7 +2,7 @@
   "name": "nanofuzz",
   "displayName": "NaNofuzz",
   "publisher": "penrose",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "NaNofuzz is a fast and easy-to-use automatic test suite generator for TypeScript, Python, Rust, Java, OCaml/OxCaml, and Go that runs inside VS Code",
   "repository": {
     "type": "git",
@@ -60,12 +60,32 @@
       },
       {
         "command": "nanofuzz.RunBenchmark",
-        "title": "Run Benchmark Matrix (45 tasks: 3x3x5)",
+        "title": "Run Benchmark Matrix (150 tasks: 5 PUTs x 2 Tools x 15 Reps)",
+        "category": "NaNofuzz"
+      },
+      {
+        "command": "nanofuzz.RunBenchmark90",
+        "title": "Run 90-Participant Benchmark Matrix",
+        "category": "NaNofuzz"
+      },
+      {
+        "command": "nanofuzz.RunBenchmarkSmoketest",
+        "title": "Run Benchmark Smoketest",
         "category": "NaNofuzz"
       },
       {
         "command": "nanofuzz.RunBenchmarkFull",
-        "title": "Run Full Benchmark Matrix (135 tasks: 3x3x5x3)",
+        "title": "Run Full Benchmark Matrix",
+        "category": "NaNofuzz"
+      },
+      {
+        "command": "nanofuzz.RunBenchmarkAbTest",
+        "title": "Run Benchmark Test (7 tasks: NaNofuzz, TreeValue, 1m Deep)",
+        "category": "NaNofuzz"
+      },
+      {
+        "command": "nanofuzz.RecoverBenchmark",
+        "title": "Recover Benchmark Matrix",
         "category": "NaNofuzz"
       },
       {
@@ -130,7 +150,7 @@
             },
             "model": {
               "type": "string",
-              "description": "The language model name or family currently used by the calling agent (e.g. 'gemini-2.0-flash', 'gemini-3.7-flash', 'claude-3.5-sonnet', 'gpt-4o'). Always pass your own model name or family here so NaNofuzz uses the same AI model for input generation."
+              "description": "The language model name or family of the calling agent. Always pass your own active model name or family here so NaNofuzz routes to the matching model."
             },
             "vendor": {
               "type": "string",
@@ -251,7 +271,7 @@
             },
             "model": {
               "type": "string",
-              "description": "The calling agent's language model family/name (e.g. 'gemini-2.0-flash', 'claude-3.5-sonnet', 'gpt-4o'). Required."
+              "description": "The calling agent's language model family/name. Required."
             },
             "vendor": {
               "type": "string",
@@ -681,6 +701,17 @@
               "telemetry"
             ]
           },
+          "nanofuzz.ai.policy": {
+            "title": "AI input generation policy",
+            "order": 68,
+            "type": "string",
+            "enum": [
+              "eager",
+              "seed"
+            ],
+            "default": "eager",
+            "description": "Policy for AI input generation: 'eager' generate inputs continuously; 'seed' generate an initial batch of inputs only."
+          },
           "nanofuzz.ai.cacheMode": {
             "title": "LLM response cache mode",
             "order": 70,
@@ -869,6 +900,23 @@
             "description": "Experimental: When true, skips Phase 4/5 bug contextualization against external issue trackers and completes as soon as deep fuzzing stopping criteria are met.",
             "tags": [
               "experimental"
+            ]
+          },
+          "nanofuzz.benchmark.juryModels": {
+            "title": "Benchmark PoLL jury models",
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": [
+              "gemini-3.8-flash",
+              "claude-sonnet-5.5",
+              "gpt-4o-mini"
+            ],
+            "description": "Exact Language Model IDs to query for the 3-model evaluation jury panel slots.",
+            "tags": [
+              "experimental",
+              "benchmark"
             ]
           },
           "nanofuzz.generators.scheduler.impl": {
@@ -1112,11 +1160,11 @@
     "tree-sitter-java": "^0.23.5",
     "tree-sitter-ocaml": "^0.24.2",
     "tree-sitter-python": "^0.25.0",
-    "tree-sitter-rust": "^0.23.2",
+    "tree-sitter-rust": "^0.24.0",
     "tree-sitter-typescript": "^0.23.2",
     "typescript": "5.9.2",
     "undici": "^7.30.0",
-    "web-tree-sitter": "^0.26.11"
+    "web-tree-sitter": "^0.27.2"
   },
   "devDependencies": {
     "@babel/core": "^7.27.1",

@@ -1,3 +1,6 @@
+import * as fs from "fs";
+import * as path from "path";
+import * as os from "os";
 import { findBugs } from "./FindBugs";
 import * as Config from "../Config";
 import { sessionManager } from "./FindBugsSessionManager";
@@ -59,16 +62,16 @@ describe("FindBugs", () => {
     expect(result.instructions).toContain(
       "Do NOT place harness files in an external `/tmp`"
     );
-    expect(result.instructions).toContain("nanofuzz_listTargets");
-    expect(result.instructions).toContain("validatorTemplate");
-    expect(result.instructions).toContain("transformerTemplate");
-    expect(result.instructions).toContain("generatorTemplate");
+    expect(result.instructions).toContain("Target Harness Function");
+    expect(result.instructions).toContain("fuzz_<entrypoint>_transformer");
+    expect(result.instructions).toContain("fuzz_<entrypoint>_generator");
+    expect(result.instructions).toContain("fuzz_<entrypoint>_validator");
     expect(result.instructions).toContain(
       "No Hardcoded Lookup Tables or Initial States"
     );
   });
 
-  it("handles phase 'fuzz_entrypoint' with 5-retry coverage loop and anti-suppression rule", async () => {
+  it("handles phase 'fuzz_entrypoint' with 4-retry coverage loop and anti-suppression rule", async () => {
     // Register entrypoints in session first
     await findBugs({
       phase: "invariants_extracted",
@@ -140,13 +143,13 @@ describe("FindBugs", () => {
     expect(result.instructions).toContain("nanofuzz_harness_encode.ts");
     expect(result.instructions).toContain("fuzz_encode");
     expect(result.instructions).toContain(
-      '"coverageScope": "project directimports"'
+      '"coverageScope": "project"'
     );
     expect(result.instructions).toContain("Anti-Suppression Rule");
     expect(result.instructions).toContain("Multi-Defect Rule");
-    expect(result.instructions).toContain("Defect Shadowing Mitigation");
-    expect(result.instructions).toContain("Validator Immobility Rule");
-    expect(result.instructions).toContain("Max 5 Retries");
+    expect(result.instructions).toContain("Filter Known Failure Domain");
+    expect(result.instructions).toContain("Coverage Expansion");
+    expect(result.instructions).toContain("4 deep fuzzing retry cycles");
     expect(result.instructions).toContain("contextualize_bugs");
   });
 
@@ -274,6 +277,175 @@ describe("FindBugs", () => {
     );
     expect(result.instructions).toContain(`"model": "${model}"`);
     expect(result.instructions).toContain(`"vendor": "${vendor}"`);
+  });
+
+  it("handles benchmark mode contextualization: omits external search, requires report file before complete", async () => {
+    const benchSessionId = "bench-test-session";
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "nanofuzz-bench-test-"));
+    const reportPath = path.join(tempDir, "P01.md");
+
+    // Initialize session with benchmarkMode: true and reportPath
+    sessionManager.getOrCreateSession(
+      benchSessionId,
+      "nanofuzz",
+      "docs",
+      1,
+      "fuzz_entrypoint",
+      ["fuzz_encode"],
+      undefined,
+      true,
+      reportPath
+    );
+
+    // Record smoke and deep fuzz runs
+    sessionManager.recordFuzzRun(
+      {
+        functionName: "fuzz_encode",
+        filePath: "src/encode.ts",
+        timestamp: Date.now(),
+        totalTests: 10,
+        passedTests: 10,
+        failedTests: 0,
+        erroredTests: 0,
+        skippedTests: 0,
+        timeouts: 0,
+        exceptions: 0,
+        durationMs: 500,
+        suiteTimeout: 1000,
+        maxTests: 10,
+      },
+      benchSessionId
+    );
+    sessionManager.recordFuzzRun(
+      {
+        functionName: "fuzz_encode",
+        filePath: "src/encode.ts",
+        timestamp: Date.now(),
+        totalTests: 5000,
+        passedTests: 4999,
+        failedTests: 1,
+        erroredTests: 0,
+        skippedTests: 0,
+        timeouts: 0,
+        exceptions: 0,
+        durationMs: 300000,
+        suiteTimeout: 300000,
+        maxTests: 0,
+      },
+      benchSessionId
+    );
+
+    // Call contextualize_bugs in benchmarkMode
+    const ctxResult = await findBugs({
+      phase: "contextualize_bugs",
+      model,
+      vendor,
+      statePayload: {
+        sessionId: benchSessionId,
+        benchmarkMode: true,
+        reportPath,
+      },
+    });
+
+    expect(ctxResult.phase).toBe("contextualize_bugs");
+    expect(ctxResult.recommendedNextPhase).toBe("complete");
+    // Verify benchmark prompt elements:
+    expect(ctxResult.instructions).toContain("Bug Contextualization & Report Generation");
+    expect(ctxResult.instructions).toContain("Exact Failure Domain (D*)");
+    expect(ctxResult.instructions).toContain("State the exact input boundaries or conditions");
+    expect(ctxResult.instructions).toContain("Taxonomy & Evidence Mapping");
+    expect(ctxResult.instructions).toContain("Assign each finding to exactly one structured status");
+    expect(ctxResult.instructions).toContain("Mandatory Bug Report File Generation");
+    expect(ctxResult.instructions).toContain(reportPath);
+    // Verify external search elements are OMITTED:
+    expect(ctxResult.instructions).not.toContain("Scope & Access Assessment");
+    expect(ctxResult.instructions).not.toContain("GitHub/GitLab CLI");
+    expect(ctxResult.instructions).not.toContain("Multi-Faceted Search Strategy");
+
+    // Attempting to complete BEFORE report file exists throws error
+    await expectAsync(
+      findBugs({
+        phase: "complete",
+        model,
+        vendor,
+        statePayload: {
+          sessionId: benchSessionId,
+          benchmarkMode: true,
+          reportPath,
+        },
+      })
+    ).toBeRejectedWithError(/Execution Gate Blocked \(Bug Report File Required\)/);
+
+    // Write report file (>500 bytes)
+    fs.writeFileSync(reportPath, "# Benchmark Evaluation Report: fuzz_encode\n" + "A".repeat(600), "utf8");
+
+    // Now complete succeeds!
+    const completeResult = await findBugs({
+      phase: "complete",
+      model,
+      vendor,
+      statePayload: {
+        sessionId: benchSessionId,
+        benchmarkMode: true,
+        reportPath,
+      },
+    });
+
+    expect(completeResult.phase).toBe("complete");
+
+    // Cleanup
+    try {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    } catch {
+      // ignore
+    }
+  });
+
+  it("allows non-benchmark mode to complete without writing any report file", async () => {
+    const nonBenchSessionId = "non-bench-session";
+
+    sessionManager.getOrCreateSession(
+      nonBenchSessionId,
+      "nanofuzz",
+      "docs",
+      1,
+      "init",
+      ["fuzz_decode"],
+      undefined,
+      false
+    );
+
+    sessionManager.recordFuzzRun(
+      {
+        functionName: "fuzz_decode",
+        filePath: "src/decode.ts",
+        timestamp: Date.now(),
+        totalTests: 1000,
+        passedTests: 1000,
+        failedTests: 0,
+        erroredTests: 0,
+        skippedTests: 0,
+        timeouts: 0,
+        exceptions: 0,
+        durationMs: 300000,
+        suiteTimeout: 300000,
+        maxTests: 0,
+      },
+      nonBenchSessionId
+    );
+
+    // Non-benchmark mode complete without report file must succeed
+    const completeResult = await findBugs({
+      phase: "complete",
+      model,
+      vendor,
+      statePayload: {
+        sessionId: nonBenchSessionId,
+      },
+    });
+
+    expect(completeResult.phase).toBe("complete");
+    expect(completeResult.instructions).toContain("Structured Summary Report");
   });
 
   it("handles phase 'complete' with report guidelines and user disposition options", async () => {
@@ -416,7 +588,7 @@ describe("FindBugs", () => {
 
     expect(fuzzRes.instructions).toContain("nanofuzz_fuzzFunction");
     expect(fuzzRes.instructions).toContain("tests/test_pbt_encode.py");
-    expect(fuzzRes.instructions).toContain("Stage 2: Deep Fuzzing Run");
+    expect(fuzzRes.instructions).toContain("Deep Fuzzing Execution");
 
     // Record deep fuzz runs satisfying stopping criteria (100% branch coverage) so gate passes
     sessionManager.recordFuzzRun(
@@ -549,7 +721,7 @@ describe("FindBugs", () => {
     });
 
     expect(fuzzRes.instructions).toContain("nanofuzz_fuzzFunction");
-    expect(fuzzRes.instructions).toContain("Stage 2: Deep Fuzzing Run");
+    expect(fuzzRes.instructions).toContain("Deep Fuzzing Execution");
   });
 
   it("handles experimental option: invariantSource='all'", async () => {
@@ -1156,4 +1328,231 @@ describe("FindBugs", () => {
       });
     }
   }
+
+  describe("isQualifyingDeepRun duration enforcement", () => {
+    it("rejects runs with suiteTimeout >= 300000 that terminated early (< 270s) without 100% coverage", () => {
+      const prematureRun = {
+        functionName: "test_parse",
+        filePath: "src/parse.py",
+        timestamp: Date.now(),
+        totalTests: 101,
+        passedTests: 101,
+        failedTests: 0,
+        erroredTests: 0,
+        skippedTests: 0,
+        timeouts: 0,
+        exceptions: 0,
+        durationMs: 30000, // only ran 30 seconds
+        suiteTimeout: 300000,
+        maxTests: 0,
+        branchCoveragePct: 60,
+      };
+
+      expect(sessionManager.isQualifyingDeepRun(prematureRun)).toBe(false);
+    });
+
+    it("accepts runs that actually ran for deep duration (>= 270s) regardless of test count", () => {
+      const fullDurationRun = {
+        functionName: "test_parse",
+        filePath: "src/parse.py",
+        timestamp: Date.now(),
+        totalTests: 101, // low test count does not disqualify
+        passedTests: 101,
+        failedTests: 0,
+        erroredTests: 0,
+        skippedTests: 0,
+        timeouts: 0,
+        exceptions: 0,
+        durationMs: 285000, // 4.75 minutes
+        suiteTimeout: 300000,
+        maxTests: 0,
+        branchCoveragePct: 60,
+      };
+
+      expect(sessionManager.isQualifyingDeepRun(fullDurationRun)).toBe(true);
+    });
+
+    it("accepts runs that achieved 100% branch coverage even with shorter duration", () => {
+      const fullCoverageRun = {
+        functionName: "test_parse",
+        filePath: "src/parse.py",
+        timestamp: Date.now(),
+        totalTests: 50,
+        passedTests: 50,
+        failedTests: 0,
+        erroredTests: 0,
+        skippedTests: 0,
+        timeouts: 0,
+        exceptions: 0,
+        durationMs: 15000, // 15 seconds
+        suiteTimeout: 300000,
+        maxTests: 0,
+        branchCoveragePct: 100,
+      };
+
+      expect(sessionManager.isQualifyingDeepRun(fullCoverageRun)).toBe(true);
+    });
+  });
+
+  describe("Prompt formatting and gate rejection verification", () => {
+    it("formats Phase 3 NaNofuzz prompt with underscore stripping rule and Union typing guidance", async () => {
+      Config.override("nanofuzz.experimental.findBugs.tool", "nanofuzz");
+      Config.override("nanofuzz.experimental.findBugs.invariantSource", "docs");
+
+      const res = await findBugs({
+        phase: "invariants_extracted",
+        model,
+        vendor,
+        statePayload: {
+          sessionId: "prompt-format-session",
+          entrypoints: [
+            {
+              name: "_distance_norm",
+              filePath: "src/fandango/constraints/comparison.py",
+              invariants: ["Output in [0.0, 1.0]"],
+            },
+          ],
+        },
+      });
+
+      expect(res.instructions).toContain("def fuzz_distance_norm(...)");
+      expect(res.instructions).toContain("For unconstrained or generic parameters");
+      expect(res.instructions).toContain("For classes, complex types, or domain objects");
+    });
+
+    it("formats Gate 3 rejection with clear retry status and appends Phase 5 deep guidance", async () => {
+      Config.override("nanofuzz.experimental.findBugs.tool", "nanofuzz");
+
+      await findBugs({
+        phase: "invariants_extracted",
+        model,
+        vendor,
+        statePayload: {
+          sessionId: "gate3-rejection-session",
+          entrypoints: [
+            {
+              name: "TreeValue",
+              filePath: "src/fandango/language/tree_value.py",
+              invariants: ["Equality contract"],
+            },
+          ],
+        },
+      });
+
+      // Record 1 deep run with < 100% coverage
+      sessionManager.recordFuzzRun(
+        {
+          functionName: "fuzz_TreeValue",
+          filePath: "nanofuzz_harness_TreeValue.py",
+          timestamp: Date.now(),
+          totalTests: 500,
+          passedTests: 480,
+          failedTests: 20,
+          erroredTests: 0,
+          skippedTests: 0,
+          timeouts: 0,
+          exceptions: 0,
+          durationMs: 280000,
+          suiteTimeout: 300000,
+          maxTests: 0,
+          branchCoveragePct: 33.87,
+        },
+        "gate3-rejection-session"
+      );
+
+      let threw = false;
+      try {
+        await findBugs({
+          phase: "contextualize_bugs",
+          model,
+          vendor,
+          statePayload: {
+            sessionId: "gate3-rejection-session",
+            bugs: [{ entrypoint: "TreeValue", error: "contract violation" }],
+          },
+        });
+      } catch (err: unknown) {
+        threw = true;
+        if (err instanceof Error) {
+          expect(err.message).toContain("Gate 3: Deep Fuzzing Required - Incomplete");
+          expect(err.message).toContain("TreeValue (1/4 retries, 33.87% branch coverage)");
+          expect(err.message).toContain("Stopping Requirement: Gate 3 requires either 100% branch coverage or all 4 exploration retries completed.");
+          expect(err.message).toContain("timeoutMs: 300000 (5 minutes) and maxTests: 0 (continuous mode)");
+          expect(err.message).toContain("### Instructions for Phase 5: Deep Fuzzing");
+        } else {
+          fail("Expected error to be an instance of Error");
+        }
+      }
+      expect(threw).toBe(true);
+    });
+
+    it("Gate 3 dynamically reflects custom deepTimeoutMs (e.g. 60s) and maxRetries in rejection message", async () => {
+      Config.override("nanofuzz.experimental.findBugs.tool", "nanofuzz");
+      Config.override("nanofuzz.experimental.findBugs.deepTimeoutMs", 60000);
+      Config.override("nanofuzz.experimental.findBugs.maxRetries", 4);
+
+      await findBugs({
+        phase: "invariants_extracted",
+        model,
+        vendor,
+        statePayload: {
+          sessionId: "gate3-custom-session",
+          entrypoints: [
+            {
+              name: "TreeValue",
+              filePath: "src/fandango/language/tree_value.py",
+              invariants: ["Equality contract"],
+            },
+          ],
+        },
+      });
+
+      // Record 2 deep runs of 1-minute (>= 54s)
+      for (let i = 0; i < 2; i++) {
+        sessionManager.recordFuzzRun(
+          {
+            functionName: "fuzz_TreeValue",
+            filePath: "nanofuzz_harness_TreeValue.py",
+            timestamp: Date.now(),
+            totalTests: 500,
+            passedTests: 480,
+            failedTests: 20,
+            erroredTests: 0,
+            skippedTests: 0,
+            timeouts: 0,
+            exceptions: 0,
+            durationMs: 56000,
+            suiteTimeout: 60000,
+            maxTests: 0,
+            branchCoveragePct: 40.0,
+          },
+          "gate3-custom-session"
+        );
+      }
+
+      let threw = false;
+      try {
+        await findBugs({
+          phase: "contextualize_bugs",
+          model,
+          vendor,
+          statePayload: {
+            sessionId: "gate3-custom-session",
+            bugs: [{ entrypoint: "TreeValue", error: "contract violation" }],
+          },
+        });
+      } catch (err: unknown) {
+        threw = true;
+        if (err instanceof Error) {
+          expect(err.message).toContain("Gate 3: Deep Fuzzing Required - Incomplete");
+          expect(err.message).toContain("TreeValue (2/4 retries, 40% branch coverage)");
+          expect(err.message).toContain("Stopping Requirement: Gate 3 requires either 100% branch coverage or all 4 exploration retries completed.");
+          expect(err.message).toContain("timeoutMs: 60000 (1 minute) and maxTests: 0 (continuous mode)");
+        } else {
+          fail("Expected error to be an instance of Error");
+        }
+      }
+      expect(threw).toBe(true);
+    });
+  });
 });

@@ -474,11 +474,17 @@ export class FuzzConfigStore {
    * Loads and upgrades the FuzzTests configuration for an entire source module.
    *
    * @param sourcePath Path to the source file
+   * @param explicitConfigFile Optional explicit path to configuration file
    * @returns FuzzTests structure
    */
-  public static loadForModule(sourcePath: string): FuzzTests {
-    FuzzConfigStore.migrateLegacyNanoFile(sourcePath);
-    const jsonFile = FuzzConfigStore.getNanoFilename(sourcePath);
+  public static loadForModule(
+    sourcePath: string,
+    explicitConfigFile?: string
+  ): FuzzTests {
+    if (!explicitConfigFile) {
+      FuzzConfigStore.migrateLegacyNanoFile(sourcePath);
+    }
+    const jsonFile = explicitConfigFile ?? FuzzConfigStore.getNanoFilename(sourcePath);
 
     if (!fs.existsSync(jsonFile)) {
       return FuzzConfigStore.createEmptyFuzzTests();
@@ -500,15 +506,20 @@ export class FuzzConfigStore {
    * @param fnName Name of the function
    * @param defaultOptions Optional default options to use if function is not yet configured
    * @param normalizeOptions Whether to normalize options with defaults (default: true)
+   * @param explicitConfigFile Optional explicit path to configuration file
    * @returns FuzzTestsFunction configuration
    */
   public static loadForFunction(
     sourcePath: string,
     fnName: string,
     defaultOptions?: Partial<FuzzOptions>,
-    normalizeOptions: boolean = true
+    normalizeOptions: boolean = true,
+    explicitConfigFile?: string
   ): FuzzTestsFunction {
-    const moduleSet = FuzzConfigStore.loadForModule(sourcePath);
+    const moduleSet = FuzzConfigStore.loadForModule(
+      sourcePath,
+      explicitConfigFile
+    );
 
     if (fnName in moduleSet.functions) {
       const fnSet = moduleSet.functions[fnName];
@@ -705,7 +716,7 @@ export class FuzzConfigStore {
                 max: Number(thisOverride.string.maxStrLen),
               },
               strCharset:
-                thisOverride.string.strCharset === ""
+                (thisOverride.string.strCharset ?? "") === ""
                   ? argDefaults.strCharset
                   : decodeEscapeSequences(thisOverride.string.strCharset),
               strRegex: thisOverride.string.strRegex,

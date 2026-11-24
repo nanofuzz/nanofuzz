@@ -28,6 +28,14 @@ if os.path.exists(_VENDOR_DIR) and _VENDOR_DIR not in sys.path:
 REPORT_PATH = os.environ.get(
     "NANOFUZZ_PBT_OUT_FILE", ".nanofuzz_pbt_run.msgpack")
 
+# Hypofuzz compatibility bridge: Hypothesis 6.170 renamed slice_comments to span_comments
+from hypothesis.internal.conjecture.data import ConjectureResult
+
+if not hasattr(ConjectureResult, "slice_comments"):
+    ConjectureResult.slice_comments = property(
+        lambda self: getattr(self, "span_comments", {})
+    )
+
 # Path to optional file containing injected seed inputs to execute
 INJECTED_FILE = os.environ.get("NANOFUZZ_PBT_INJECTED_FILE")
 
@@ -48,10 +56,23 @@ LAST_FLUSH = 0.0
 
 # Initialize code coverage tracer
 _cov = None
+_include_files = None
 try:
     import coverage
 
-    _cov = coverage.Coverage(branch=True, data_file=None)
+    _include_env = os.environ.get("NANOFUZZ_COVERAGE_INCLUDE_FILES")
+    if _include_env:
+        import json
+        _raw_includes = json.loads(_include_env)
+        _proj_root = os.path.realpath(os.environ.get("NANOFUZZ_PROJECT_ROOT", os.getcwd()))
+        _include_files = [
+            os.path.realpath(os.path.join(_proj_root, f)) if not os.path.isabs(f) else os.path.realpath(f)
+            for f in _raw_includes
+        ]
+        _cov = coverage.Coverage(include=_include_files, branch=True, data_file=None)
+    else:
+        _cov = coverage.Coverage(branch=True, data_file=None)
+
     _cov.start()
 except Exception:
     _cov = None
@@ -84,24 +105,31 @@ def _collect_coverage():
     try:
         data = _cov.get_data()
         measured = data.measured_files()
-        cwd = os.getcwd()
+        project_root = os.path.realpath(os.environ.get("NANOFUZZ_PROJECT_ROOT", os.getcwd()))
         tot_stmts = 0
         cov_stmts = 0
         tot_br = 0
         cov_br = 0
         uncovered = {}
-        for f in measured:
-            if not f.startswith(cwd):
+
+        files_to_measure = _include_files if _include_files is not None else measured
+
+        for f in files_to_measure:
+            real_f = os.path.realpath(f)
+            if not real_f.startswith(project_root):
                 continue
-            rel = os.path.relpath(f, cwd)
-            # Exclude tests, virtualenvs, site-packages, build artifacts
+            rel = os.path.relpath(real_f, project_root)
+            # Exclude tests, virtualenvs, site-packages, build artifacts, and conftest.py
             parts = rel.split(os.sep)
-            if any(part in parts for part in (".venv", "venv", "tests", "test", "__pycache__", "build", "dist")):
+            parts_lower = [p.lower() for p in parts]
+            if any(part in parts_lower for part in (".venv", "venv", "env", "tests", "test", "__pycache__", "build", "dist")):
                 continue
-            if not f.endswith(".py"):
+            if "conftest.py" in parts_lower:
+                continue
+            if not real_f.endswith(".py"):
                 continue
             try:
-                analysis = _cov._analyze(f)
+                analysis = _cov._analyze(real_f)
                 ts = len(analysis.statements)
                 ms = len(analysis.missing)
                 cs = ts - ms
@@ -152,7 +180,7 @@ def _flush():
                 existing_data = unpack_payload(existing_file.read())
                 if isinstance(existing_data, dict):
                     existing_execs = existing_data.get("total_executions", 0)
-                    if existing_execs > run_data["total_executions"]:
+                    if existing_execs >= run_data["total_executions"]:
                         run_data["total_executions"] = existing_execs
                         run_data["pass_count"] = max(
                             run_data["pass_count"], existing_data.get(
@@ -170,11 +198,14 @@ def _flush():
                             run_data["primary_counterexample"] = existing_data.get(
                                 "primary_counterexample"
                             )
-                        if not run_data.get("coverage") and existing_data.get(
-                            "coverage"
-                        ):
-                            run_data["coverage"] = existing_data.get(
-                                "coverage")
+                        if existing_data.get("stop_reason") not in (None, "completed"):
+                            run_data["stop_reason"] = existing_data["stop_reason"]
+
+                    existing_cov = existing_data.get("coverage")
+                    if existing_cov:
+                        curr_cov = run_data.get("coverage")
+                        if not curr_cov or (curr_cov.get("branches_covered", 0) <= existing_cov.get("branches_covered", 0)):
+                            run_data["coverage"] = existing_cov
         except Exception:
             pass
 
@@ -212,6 +243,24 @@ except Exception:
 atexit.register(_flush)
 
 
+def _get_fuzz_database():
+    """Returns a valid Hypothesis example database to ensure hypofuzz can attach its listeners."""
+    try:
+        from hypothesis import settings
+        from hypothesis.database import DirectoryBasedExampleDatabase
+        import tempfile
+        from pathlib import Path
+
+        db = getattr(settings.default, "database", None)
+        if db is None:
+            db_dir = Path(tempfile.gettempdir()) / "nanofuzz_hypothesis_db"
+            db_dir.mkdir(parents=True, exist_ok=True)
+            db = DirectoryBasedExampleDatabase(db_dir)
+        return db
+    except Exception:
+        return None
+
+
 def pytest_configure(config):
     """Configures the global Hypothesis settings profile on pytest startup.
 
@@ -219,24 +268,34 @@ def pytest_configure(config):
     shrinking, and suppresses all health checks so unconstrained generators do not abort.
     Configures max_examples dynamically based on NANOFUZZ_MAX_TESTS (or 10,000,000 for
     continuous exploration mode) so tests do not exit prematurely after Hypothesis's default 100.
+    Explicitly forces derandomize=False and provides a database to prevent CI-environment
+    profiles from skipping hypofuzz test collection.
     """
     from hypothesis import settings, Phase, HealthCheck
 
     max_examples = MAX_TESTS if MAX_TESTS > 0 else 10_000_000
+    db = _get_fuzz_database()
 
-    settings.register_profile(
-        "nanofuzz_pbt",
-        phases=(Phase.explicit, Phase.reuse, Phase.generate),
-        suppress_health_check=[
+    profile_kwargs = {
+        "phases": (Phase.explicit, Phase.reuse, Phase.generate),
+        "suppress_health_check": [
             h for h in HealthCheck if h != HealthCheck.nested_given],
-        deadline=None,
-        max_examples=max_examples,
-    )
+        "deadline": None,
+        "max_examples": max_examples,
+        "derandomize": False,
+    }
+    if db is not None:
+        profile_kwargs["database"] = db
+
+    settings.register_profile("nanofuzz_pbt", **profile_kwargs)
     settings.load_profile("nanofuzz_pbt")
 
 
 def pytest_sessionfinish(session, exitstatus):
     """Called when the pytest session completes. Stops coverage collection and flushes final report."""
+    if getattr(session.config.option, "collectonly", False):
+        return
+
     global _cov
     if _cov is not None:
         try:
@@ -267,14 +326,23 @@ def pytest_collection_modifyitems(session, config, items):
     for item in items:
         fn = getattr(item, "obj", None)
         if fn and hasattr(fn, "hypothesis") and hasattr(fn.hypothesis, "inner_test"):
-            # Strip HealthCheck.nested_given if present so hypofuzz collection does not reject the target
+            # Strip HealthCheck.nested_given if present so hypofuzz collection does not reject the target,
+            # and ensure derandomize=False and a valid database so hypofuzz does not reject targets in CI
             if hasattr(fn, "_hypothesis_internal_use_settings"):
                 fn_settings = fn._hypothesis_internal_use_settings
+                updates = {}
                 if hasattr(fn_settings, "suppress_health_check") and HealthCheck.nested_given in fn_settings.suppress_health_check:
-                    filtered = tuple(
+                    updates["suppress_health_check"] = tuple(
                         h for h in fn_settings.suppress_health_check if h != HealthCheck.nested_given)
+                if getattr(fn_settings, "derandomize", False):
+                    updates["derandomize"] = False
+                if getattr(fn_settings, "database", None) is None:
+                    db = _get_fuzz_database()
+                    if db is not None:
+                        updates["database"] = db
+                if updates:
                     fn._hypothesis_internal_use_settings = settings(
-                        fn_settings, suppress_health_check=filtered)
+                        fn_settings, **updates)
             for ex in injected_examples:
                 example(**ex)(fn)
             _instrument_hypothesis_test(fn, item.name)
@@ -314,6 +382,11 @@ def _instrument_regular_test(item, fn):
             _record_step(is_fail=False)
             return res
         except Exception as exc:
+            # Exclude assumption failures (skips) from execution count and failure count
+            if type(exc).__name__ == "UnsatisfiedAssumption" or getattr(exc, "__class__", None).__name__ == "UnsatisfiedAssumption":
+                run_data["total_executions"] = max(0, run_data["total_executions"] - 1)
+                raise
+
             run_data["fail_count"] += 1
             if run_data["primary_counterexample"] is None:
                 run_data["primary_counterexample"] = {
@@ -369,9 +442,17 @@ def _instrument_hypothesis_test(fn, test_name):
         try:
             res = original(*args, **kwargs)
             run_data["pass_count"] += 1
-            _record_step(is_fail=False)
+            if MAX_TESTS > 0 and run_data["total_executions"] >= MAX_TESTS:
+                _flush()
+            else:
+                _record_step(is_fail=False)
             return res
         except Exception as exc:
+            # Exclude assumption failures (skips) from execution count and failure count
+            if type(exc).__name__ == "UnsatisfiedAssumption" or getattr(exc, "__class__", None).__name__ == "UnsatisfiedAssumption":
+                run_data["total_executions"] = max(0, run_data["total_executions"] - 1)
+                raise
+
             run_data["fail_count"] += 1
             if run_data["primary_counterexample"] is None:
                 run_data["primary_counterexample"] = {

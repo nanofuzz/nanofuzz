@@ -1,3 +1,4 @@
+import * as fs from "fs";
 import { resolveFilePath, getToolName } from "./Agent";
 import * as Config from "../Config";
 import { determineWorkerCount } from "../fuzzer/Util";
@@ -62,6 +63,12 @@ export async function findBugs(
     typeof payload.targetRepoPath === "string"
       ? payload.targetRepoPath
       : undefined;
+  const payloadBenchmarkMode =
+    typeof payload.benchmarkMode === "boolean"
+      ? payload.benchmarkMode
+      : undefined;
+  const payloadReportPath =
+    typeof payload.reportPath === "string" ? payload.reportPath : undefined;
 
   const session = sessionManager.getOrCreateSession(
     passedSessionId,
@@ -70,7 +77,9 @@ export async function findBugs(
     workerCount,
     phase,
     payloadScope,
-    payloadRepoPath
+    payloadRepoPath,
+    payloadBenchmarkMode,
+    payloadReportPath
   );
 
   const tool: FindBugsTool = session.tool;
@@ -249,10 +258,12 @@ export async function findBugs(
         const pendingDeep = session.entrypoints.filter(
           (e) => !sessionManager.isEntrypointDeepCriteriaMet(session, e)
         );
+        const shouldSkipContextualize =
+          !session.benchmarkMode && skipContextualization;
         nextPhase =
           pendingDeep.length > 0
             ? "fuzz_deep"
-            : skipContextualization
+            : shouldSkipContextualize
               ? "complete"
               : "contextualize_bugs";
       }
@@ -297,10 +308,12 @@ export async function findBugs(
         const pendingDeep = session.entrypoints.filter(
           (e) => !sessionManager.isEntrypointDeepCriteriaMet(session, e)
         );
+        const shouldSkipContextualize =
+          !session.benchmarkMode && skipContextualization;
         nextPhase =
           pendingDeep.length > 0
             ? "fuzz_deep"
-            : skipContextualization
+            : shouldSkipContextualize
               ? "complete"
               : "contextualize_bugs";
       }
@@ -317,52 +330,127 @@ export async function findBugs(
         );
       }
 
-      // Gate 3 Check: All declared entrypoints must have completed Stage 2 Deep Fuzzing (300,000ms / maxTests: 0)
+      // Gate 3 Check: All declared entrypoints must have completed Stage 2 Deep Fuzzing (configurable, default 300,000ms / maxTests: 0)
       const hasCompletedFuzzing =
         session.fuzzRuns.length > 0 &&
         sessionManager.hasCompletedDeepRun(session.sessionId);
 
       if (!hasCompletedFuzzing) {
+        const reqRetries = Config.get<number>(
+          "nanofuzz.experimental.findBugs.maxRetries",
+          4
+        );
+        const reqTimeout = Config.get<number>(
+          "nanofuzz.experimental.findBugs.deepTimeoutMs",
+          300000
+        );
+        const reqSec = Math.round(reqTimeout / 1000);
+        const reqMinStr =
+          reqSec >= 60
+            ? `${Math.round(reqSec / 60)} minute${Math.round(reqSec / 60) > 1 ? "s" : ""}`
+            : `${reqSec} seconds`;
         const pendingDeep = sessionManager.getPendingDeepEntrypoints(
           session.sessionId
         );
         const detail =
           pendingDeep.length > 0
-            ? `Pending Stage 2 Deep Fuzzing for entrypoint(s): ${pendingDeep.join(", ")}.`
-            : "Stage 2 Deep Fuzzing (300,000ms / 5 minutes per attempt, maxTests: 0) was never executed.";
+            ? `Pending Stage 2 Deep Fuzzing for: ${pendingDeep.join(", ")}.`
+            : `Stage 2 Deep Fuzzing (${reqTimeout}ms / ${reqSec}s per attempt, maxTests: 0) was never executed.`;
+
+        const deepPrompt = buildFuzzEntrypointGuidance(
+          options,
+          toolName,
+          tool,
+          invariantSource,
+          1,
+          session.sessionId
+        );
 
         throw new Error(
-          `Execution Gate Blocked (Gate 3: Deep Fuzzing Required): ${detail} You MUST execute Stage 2: Deep Fuzzing with timeoutMs: 300000 and maxTests: 0 for all declared entrypoints before advancing to contextualize_bugs.`
+          `Execution Gate Blocked (Gate 3: Deep Fuzzing Required - Incomplete): ${detail}\n` +
+          `Stopping Requirement: Gate 3 requires either 100% branch coverage or all ${reqRetries} exploration retries completed.\n` +
+          `To proceed, invoke nanofuzz_fuzzFunction with timeoutMs: ${reqTimeout} (${reqMinStr}) and maxTests: 0 (continuous mode).\n\n` +
+          deepPrompt
         );
       }
 
-      instructions = buildContextualizeBugsGuidance(
-        options,
-        toolName,
-        tool,
-        invariantSource,
-        session.sessionId
-      );
+      if (session.benchmarkMode) {
+        instructions = buildBenchmarkContextualizeBugsGuidance(
+          options,
+          toolName,
+          tool,
+          invariantSource,
+          session.sessionId,
+          session.reportPath
+        );
+      } else {
+        instructions = buildContextualizeBugsGuidance(
+          options,
+          toolName,
+          tool,
+          invariantSource,
+          session.sessionId
+        );
+      }
       nextPhase = "complete";
       break;
     }
     case "complete": {
+      // In benchmark mode: verify that the report file exists and is non-empty (>500 bytes)
+      if (session.benchmarkMode) {
+        const reportPath = session.reportPath;
+        const hasReport =
+          reportPath &&
+          fs.existsSync(reportPath) &&
+          fs.statSync(reportPath).size > 500;
+        if (!hasReport) {
+          throw new Error(
+            `Execution Gate Blocked (Bug Report File Required): You cannot complete the benchmark workflow without saving your evaluation report. You MUST write and save your comprehensive evaluation report to '${reportPath || "<assigned_report_path>"}' using create_file before completing this workflow.`
+          );
+        }
+      }
+
       // Gate 3 Check: All declared entrypoints must have completed Stage 2 Deep Fuzzing
       const hasCompletedFuzzing =
         session.fuzzRuns.length > 0 &&
         sessionManager.hasCompletedDeepRun(session.sessionId);
 
       if (!hasCompletedFuzzing) {
+        const reqRetries = Config.get<number>(
+          "nanofuzz.experimental.findBugs.maxRetries",
+          4
+        );
+        const reqTimeout = Config.get<number>(
+          "nanofuzz.experimental.findBugs.deepTimeoutMs",
+          300000
+        );
+        const reqSec = Math.round(reqTimeout / 1000);
+        const reqMinStr =
+          reqSec >= 60
+            ? `${Math.round(reqSec / 60)} minute${Math.round(reqSec / 60) > 1 ? "s" : ""}`
+            : `${reqSec} seconds`;
         const pendingDeep = sessionManager.getPendingDeepEntrypoints(
           session.sessionId
         );
         const detail =
           pendingDeep.length > 0
-            ? `Pending Stage 2 Deep Fuzzing for entrypoint(s): ${pendingDeep.join(", ")}.`
-            : "Stage 2 Deep Fuzzing (300,000ms / 5 minutes per attempt, maxTests: 0) was never executed.";
+            ? `Pending Stage 2 Deep Fuzzing for: ${pendingDeep.join(", ")}.`
+            : `Stage 2 Deep Fuzzing (${reqTimeout}ms / ${reqSec}s per attempt, maxTests: 0) was never executed.`;
+
+        const deepPrompt = buildFuzzEntrypointGuidance(
+          options,
+          toolName,
+          tool,
+          invariantSource,
+          1,
+          session.sessionId
+        );
 
         throw new Error(
-          `Execution Gate Blocked (Gate 3: Deep Fuzzing Required): ${detail} You MUST execute Stage 2: Deep Fuzzing with timeoutMs: 300000 and maxTests: 0 for all declared entrypoints before completing the workflow.`
+          `Execution Gate Blocked (Gate 3: Deep Fuzzing Required - Incomplete): ${detail}\n` +
+          `Stopping Requirement: Gate 3 requires either 100% branch coverage or all ${reqRetries} exploration retries completed.\n` +
+          `To proceed, invoke nanofuzz_fuzzFunction with timeoutMs: ${reqTimeout} (${reqMinStr}) and maxTests: 0 (continuous mode).\n\n` +
+          deepPrompt
         );
       }
 
@@ -376,10 +464,12 @@ export async function findBugs(
           t.phaseTo === "contextualize_bugs" ||
           t.phaseFrom === "contextualize_bugs"
       );
+      const shouldSkipContextualize =
+        !session.benchmarkMode && skipContextualization;
       if (
         totalFailuresInSession > 0 &&
         !hasContextualized &&
-        !skipContextualization
+        !shouldSkipContextualize
       ) {
         throw new Error(
           "Execution Gate Blocked (Phase 6 Contextualization Required): Defect failures were recorded during fuzzing, but Phase 6 (Bug Contextualization & Maintainer Intent Verification) was skipped. You must call nanofuzz_findBugs with phase: 'contextualize_bugs' to verify findings against public issues/PRs before completing the workflow."
@@ -468,12 +558,24 @@ function buildInitGuidance(
           `   - ⚠️ **The documentation is your specification and primary oracle**: treat it as ground truth even when it disagrees with the implementation.`,
           `   - Think about this as: *"If I had to prove the library correct by random testing, what properties would I check?"*`,
           `   - Do NOT read internal function bodies at this stage; derive properties purely from documented contracts.`,
+          "",
+          `3. **Extract Documented Contracts & Concrete Seed Inputs**:`,
+          `   - For each prioritized entrypoint, extract:`,
+          `     - *Concrete Seed Inputs & Edge Cases*: literal example inputs found in documentation, docstrings, tutorial calls, and README examples (zero values, boundary strings, empty containers, documented numerical limits).`,
+          `     - *Expected Error Contracts*: documented exceptions or errors when invalid arguments are provided.`,
+          `     - *Documented Invariants*: return value promises, round-trip identities, and semantic constraints promised by documentation.`,
         ].join("\n")
       : invariantSource === "all"
         ? [
             `2. **Inspect Documentation (Step 1/2: Documented Invariants)**:`,
             `   - Read API documentation (\`docs/\`, \`README.md\`, docstrings) as your primary specification oracle for intended contracts.`,
-            `   - ⚠️ **Strict Information Barrier (Black-Box Oracle Rule)**: Do NOT read existing test files or internal implementation bodies during this step. Extract invariants strictly from documentation and type signatures.`,
+            `   - ⚠️ **Strict Information Barrier (Black-Box Oracle Rule)**: Do NOT read existing test files or internal implementation bodies during this step. Extract invariants and example seeds strictly from documentation and type signatures.`,
+            "",
+            `3. **Extract Documented Contracts & Concrete Seed Inputs**:`,
+            `   - For each prioritized entrypoint, extract:`,
+            `     - *Concrete Seed Inputs & Edge Cases*: literal example inputs found in documentation, docstrings, tutorial calls, and README examples (zero values, boundary strings, empty containers, documented numerical limits).`,
+            `     - *Expected Error Contracts*: documented exceptions or errors when invalid arguments are provided.`,
+            `     - *Documented Invariants*: return value promises, round-trip identities, and semantic constraints promised by documentation.`,
           ].join("\n")
         : [
             `2. **Find Existing Test Suite & Documentation**:`,
@@ -483,6 +585,12 @@ function buildInitGuidance(
             `3. **Strict Information Barrier (Black-Box Oracle Rule)**:`,
             `   - ⚠️ **DO NOT READ THE INTERNAL IMPLEMENTATION BODIES** of target functions during this phase.`,
             `   - Extract invariants *strictly* from tests, documentation, and public type contracts. Reading function bodies now risks mirroring bugs into your test validators (tautological oracles).`,
+            "",
+            `4. **Extract Empirical Contracts & Concrete Seed Inputs**:`,
+            `   - For each prioritized entrypoint, extract:`,
+            `     - *Concrete Seed Inputs & Edge Cases*: literal inputs tested in unit tests (zero values, boundary strings, empty containers, extreme values).`,
+            `     - *Expected Error Contracts*: documented or tested exceptions for invalid arguments.`,
+            `     - *Regression Invariants*: output properties verified by existing test assertions.`,
           ].join("\n");
 
   const propertyTaxonomy =
@@ -494,7 +602,7 @@ function buildInitGuidance(
           `     - *Round-Trip & Inverses*: inverse transformations promised in docs (like decode(encode(x)) == x).`,
           `     - *Documented Boundaries & Thresholds*: min/max sizes, zeros, empty collections, documented numerical limits.`,
           `     - *Error Contracts*: documented exceptions or errors when invalid arguments are provided.`,
-          `   - ⚠️ **Do not spend budget hunting for a specific known bug**. Cover the specification broadly for each prioritized entrypoint; ${tool === "nanofuzz" ? "NaNofuzz" : tool === "hypofuzz" ? "Hypofuzz" : "Hypothesis"} will find deviations.`,
+          `   - ⚠️ **Do not spend budget hunting for a specific known bug**. Cover the specification broadly for each prioritized entrypoint; property fuzzing will find deviations.`,
         ].join("\n")
       : [
           `   - Formulate generalized invariants across diverse property classes:`,
@@ -522,9 +630,9 @@ function buildInitGuidance(
   const todoItems = [
     "Codebase Discovery & Entrypoint Ranking",
     ...extractionItems,
-    `Harness / Test Suite Synthesis (${tool})`,
+    "Test Suite Synthesis",
     "Smoke Test & Oracle Validation",
-    `Deep Fuzzing & Exploration Loop (${tool})`,
+    "Deep Fuzzing & Exploration Loop",
     "Bug Contextualization & Disposition",
   ]
     .map((item, idx) => `     ${idx + 1}. ${item}`)
@@ -580,10 +688,10 @@ function buildInitGuidance(
       ? targetScope
           .map(
             (t) =>
-              `         { "name": "${t}", "filePath": "<relPath>", "invariants": ["<desc1>", "<desc2>"], "harnessFunctionName": "test_${t.toLowerCase().replace(/^_+/, "")}" }`
+              `         { "name": "${t}", "filePath": "<relPath>", "invariants": ["<desc1>", "<desc2>"], "harnessFunctionName": "test_${t.toLowerCase().replace(/^_+/, "")}", "seeds": [{"<param1>": "<seedVal>"}] }`
           )
           .join(",\n")
-      : '         { "name": "<functionName>", "filePath": "<relPath>", "invariants": ["<desc1>", "<desc2>"], "harnessFunctionName": "test_<functionName>" }',
+      : '         { "name": "<functionName>", "filePath": "<relPath>", "invariants": ["<desc1>", "<desc2>"], "harnessFunctionName": "test_<functionName>", "seeds": [{"<param1>": "<seedVal>"}] }',
     "       ]",
     "     }",
     "   }",
@@ -619,9 +727,9 @@ function buildExtractTestsGuidance(
     `2. **Strict Information Barrier**:`,
     `   - ⚠️ **DO NOT READ INTERNAL IMPLEMENTATION CODE**: Inspect only tests and public type contracts. Reading function bodies risks copying implementation flaws into test assertions.`,
     "",
-    `3. **Extract Empirical Contracts & Concrete Seeds**:`,
+    `3. **Extract Empirical Contracts & Concrete Seed Inputs**:`,
     `   - For each prioritized entrypoint, extract:`,
-    `     - *Concrete Seeds & Edge Cases*: literal inputs tested in unit tests (zero values, boundary strings, empty containers, extreme values).`,
+    `     - *Concrete Seed Inputs & Edge Cases*: literal inputs tested in unit tests (zero values, boundary strings, empty containers, extreme values).`,
     `     - *Expected Error Contracts*: documented or tested exceptions for invalid arguments.`,
     `     - *Regression Invariants*: output properties verified by existing test assertions.`,
     `   - Merge these test-derived invariants with the documented invariants extracted in Step 1.`,
@@ -675,7 +783,13 @@ function buildInvariantsGuidance(
       `   - Assert that the extracted invariants hold across all generated cases.`,
       `   - ⚠️ **STRICT EXECUTION RULE — DO NOT RUN PYTEST IN TERMINAL**: Do NOT run \`pytest\`, \`python\`, or shell commands in the terminal to "verify" or execute your tests. As soon as you write your test functions, proceed IMMEDIATELY to calling \`${toolName.toLowerCase()}_findBugs\` with \`phase: "fuzz_entrypoint"\`. NaNofuzz executes, measures, and triages Hypothesis tests automatically through its execution engine.`,
       "",
-      `4. **Next Step**:`,
+      `4. **Seed Properties with Harvested Inputs**:`,
+      `   - Collect your concrete seed inputs extracted in Phase 1 and format them as an array of parameter objects (e.g. \`[{"<param1>": <val1>, "<param2>": <val2>}]\`).`,
+      `   - Pass these seeds in \`"inputs": [...]\` when invoking \`nanofuzz_fuzzFunction\`.`,
+      `   - Constrain all integer seed inputs to safe numeric bounds between \`-2**53 + 1\` and \`2**53 - 1\` (approximately \`-9e15\` to \`9e15\`).`,
+      `   - The engine executes these concrete seeds first to verify baseline contracts before randomized exploration begins.`,
+      "",
+      `5. **Next Step**:`,
       `   - Call \`${toolName.toLowerCase()}_findBugs\` for your first entrypoint to begin Stage 1 Smoke Testing:`,
       "   ```json",
       "   {",
@@ -685,7 +799,8 @@ function buildInvariantsGuidance(
       '     "statePayload": {',
       `       "sessionId": "${sessionId}",`,
       '       "harnessFilePath": "tests/test_pbt_<entrypoint>.py",',
-      '       "functionName": "test_<entrypoint>"',
+      '       "functionName": "test_<entrypoint>",',
+      '       "inputs": [{"<param1>": "<seedVal>"}]',
       "     }",
       "   }",
       "   ```",
@@ -696,37 +811,38 @@ function buildInvariantsGuidance(
     `### Instructions for Phase 3: Harness & Validator Synthesis [Engine: nanofuzz | Source: ${invariantSource}]`,
     "",
     `1. **Create Isolated Harness Files**:`,
-    `   - For each entrypoint or coupled group, create a dedicated harness file **inside the project root/source tree** (e.g. \`<projectRoot>/nanofuzz_harness_<entrypoint>.<ext>\`).`,
-    `   - ⚠️ Do NOT place harness files in an external \`/tmp\` directory—language runners need project \`tsconfig.json\`, \`package.json\`, \`Cargo.toml\`, or virtualenvs to resolve imports.`,
+  `   - For each entrypoint or coupled group, create a dedicated harness file **inside the project root/source tree** (e.g. \`<projectRoot>/nanofuzz_harness_<entrypoint>.py\`).`,
+  `   - ⚠️ Do NOT place harness files in an external \`/tmp\` directory—language runners need project virtualenvs to resolve imports.`,
     `   - Define a typed function (e.g. \`fuzz_<entrypoint>\`) that takes typed arguments and calls the target entrypoint.`,
-    `   - ⚠️ **No Hardcoded Lookup Tables or Initial States**: NEVER pass an integer index into a hardcoded array of test inputs (e.g. \`INITIAL_DOCS[idx % len(INITIAL_DOCS)]\`) or hardcode initial states inside the harness body. Always pass the initial state/document/data directly as a typed parameter (e.g. \`raw_doc: str\` or \`initial_items: list[...]\`) and construct the initial state dynamically from those inputs so NaNofuzz can generate, mutate, and shrink the initial state itself.`,
+    `   - ⚠️ **Naming for leading underscores**: For functions starting with underscores (e.g. \`_distance_norm\`), strip the leading underscore in the harness function name: define \`def fuzz_distance_norm(...)\` (not \`fuzz__distance_norm\`).`,
+  `   - ⚠️ **No Hardcoded Lookup Tables or Initial States**: NEVER pass an integer index into a hardcoded array of test inputs. Pass initial data directly as typed parameters so NaNofuzz can generate, mutate, and shrink them.`,
     "",
-    `2. **Synthesize Skeletons with \`nanofuzz_listTargets\`**:`,
-    `   - Call \`nanofuzz_listTargets\` on your harness file to inspect the generated templates:`,
-    `     - \`validatorTemplate\` (e.g. \`<fn>Validator\` or \`<fn>_validator\`)`,
-    `     - \`transformerTemplate\` (e.g. \`<fn>Transformer\` or \`<fn>_transformer\`)`,
-    `     - \`generatorTemplate\` (e.g. \`<fn>Generator\` or \`<fn>_generator\`)`,
+  `2. **Formal Companion Function Interface Contracts**:`,
+  `   - **Target Harness Function**: \`def fuzz_<entrypoint>(param1: T1, param2: T2) -> ReturnType:\``,
+  `     - For unconstrained or generic parameters, type your harness parameters as a union of diverse primitive and collection types supported by your language (such as numbers, strings, booleans, arrays/lists, maps/dictionaries, or tuples/sets).`,
+  `     - For classes, complex types, or domain objects, specify the typed primitive or collection inputs needed to construct that object in your harness parameters, and then construct the object *inside* the harness function before passing it to the target function under test.`,
+  `   - **Input Transformer**: \`def fuzz_<entrypoint>_transformer(param1: T1, param2: T2) -> tuple[T1, T2]:\``,
+  `     - Input: Same parameters and types as the harness function.`,
+  `     - Filtering: Use \`assume(condition)\` from \`nanofuzz_runtime\` to discard invalid inputs.`,
+  `     - Return: MUST return an argument tuple strictly matching the target parameter order: \`(param1, param2)\`. For 1 arg, use a 1-tuple with trailing comma: \`(param1,)\`.`,
+  `   - **Custom Generator**: \`def fuzz_<entrypoint>_generator(prng: Callable[[], float]) -> tuple[T1, T2] | None:\``,
+  `     - Input: \`prng: Callable[[], float]\` yielding uniform random floats in \`[0.0, 1.0)\`.`,
+  `     - Return: MUST return an argument tuple strictly matching the target parameter order: \`(param1, param2)\`, or \`None\` when exhausted.`,
+  `     - ⚠️ Never call \`assume()\` inside the generator (generators must only sample and return tuples or None).`,
+  `   - **Property Validator**: \`def fuzz_<entrypoint>_validator(r: FuzzTestResult) -> Literal["pass", "fail", "unknown"]:\``,
+  `     - Input: \`r: FuzzTestResult\` where \`r['in']\` is a list of inputs (\`r['in'][0]\`, \`r['in'][1]\`), \`r.get('out')\` is the return value, and \`r.get('exception')\` is any exception.`,
+  `     - Return: Return \`"fail"\` if an unhandled exception occurred or invariant violated, else \`"pass"\`.`,
     "",
-    `3. **Implement Property Validators (\`<fn>Validator\`)**:`,
-    `   - Place the validator in the same harness file. Assert that the specification invariants hold.`,
+  `3. **Runtime Imports**:`,
+  `   - Always import from runtime at the top of your harness file:`,
+  `     \`from nanofuzz_runtime import FuzzTestResult, UnsatisfiedAssumption, assume\``,
     "",
-    `4. **Implement Constructive Transformers (\`<fn>Transformer\`)**:`,
-    `   - **Construct/Repair rather than filter**: Normalize bounds, compute checksums, and repair relations.`,
-    `   - Avoid heavy \`assume()\` filtering to prevent starving the fuzzer.`,
-    `   - Note: Dual-Mode fuzzing is supported by toggling \`useTransformer: true\` (Semantic Mode) vs \`useTransformer: false\` (Adversarial/Robustness Mode).`,
+  `4. **Seed Properties with Harvested Inputs**:`,
+    `   - Collect your concrete seed inputs extracted in Phase 1 and format them as an array of parameter objects (e.g. \`[{"<param1>": <val1>, "<param2>": <val2>}]\`).`,
+    `   - Pass these seeds in \`"inputs": [...]\` when invoking \`nanofuzz_fuzzFunction\`.`,
+    `   - Constrain all integer seed inputs to safe numeric bounds between \`-2**53 + 1\` and \`2**53 - 1\` (approximately \`-9e15\` to \`9e15\`).`,
     "",
-    `5. **Implement Custom Generators (\`<fn>Generator\`)**:`,
-    `   - If inputs are structured (e.g. ASTs, grammar, XML, JSON), implement the PRNG generator template.`,
-    "",
-    `6. **Extract Concrete Seed Inputs with Ground-Truth Expected Outcomes**:`,
-    `   - Collect example inputs from existing project tests and format them as an array of parameter objects or test specifications.`,
-    `   - Include expected outcomes from the unit tests whenever available:`,
-    `     - For normal return values: \`{ "input": { ... }, "expectedOutput": <expectedVal> }\``,
-    `     - For expected exceptions/errors: \`{ "input": { ... }, "expectedException": true }\``,
-    `     - For expected timeouts: \`{ "input": { ... }, "expectedTimeout": true }\``,
-    `   - Injected tests run through both the Example Oracle and Property Oracle to validate both the implementation and your property invariants.`,
-    "",
-    `7. **Next Step**:`,
+  `5. **Next Step**:`,
     `   - Call \`${toolName.toLowerCase()}_findBugs\` for your first entrypoint to begin Stage 1 smoke testing:`,
     "   ```json",
     "   {",
@@ -734,14 +850,14 @@ function buildInvariantsGuidance(
     `     "model": "${options.model}",`,
     `     "vendor": "${options.vendor}",`,
     '     "statePayload": {',
-    `       "sessionId": "${sessionId}",`,
-    '       "stage": "smoke",',
-    '       "harnessFilePath": "<path>",',
-    '       "functionName": "fuzz_<entrypoint>",',
-    '       "inputs": [...]',
-    "     }",
-    "   }",
-    "   ```",
+  `       "sessionId": "${sessionId}",`,
+  '       "stage": "smoke",',
+  '       "harnessFilePath": "<path>",',
+  '       "functionName": "fuzz_<entrypoint>",',
+  '       "inputs": [{"<param1>": "<seedVal>"}]',
+  "     }",
+  "   }",
+  "   ```",
   ].join("\n");
 } // fn: buildInvariantsGuidance
 
@@ -784,7 +900,7 @@ function buildFuzzSmokeGuidance(
     `     "functionName": "${fnName}",`,
     `     "model": "${options.model}",`,
     `     "vendor": "${options.vendor}",`,
-    '     "coverageScope": "project directimports",',
+    '     "coverageScope": "project",',
     '     "fnTimeout": 500,',
     '     "maxTests": 100,',
     '     "timeoutMs": 3000,',
@@ -839,56 +955,137 @@ function buildFuzzEntrypointGuidance(
       ? payload.functionName
       : "<harnessFnName>";
 
+  const assertionNoun =
+    tool === "nanofuzz" ? "<fn>Validator assertions" : "test assertions";
+  const filterMechanism =
+    tool === "nanofuzz"
+      ? "<fn>Transformer"
+      : "parameter strategies or assume()";
+
+  const deepTimeoutMs = Config.get<number>(
+    "nanofuzz.experimental.findBugs.deepTimeoutMs",
+    300000
+  );
+  const maxRetries = Config.get<number>(
+    "nanofuzz.experimental.findBugs.maxRetries",
+    4
+  );
+  const deepTimeoutSec = Math.round(deepTimeoutMs / 1000);
+
   return [
     `### Instructions for Phase 5: Deep Fuzzing & Exploration Loop [Engine: ${tool} | Source: ${invariantSource}]`,
     "",
-    `Execute Stage 2 Deep Fuzzing for \`${fnName}\` in \`${harnessPath}\`:`,
+    `Execute Stage 2 Deep Fuzzing for \`${fnName}\` in \`${harnessPath}\`.`,
     "",
-    `⚠️ **STRICT TOOL INVOCATION RULE**: All fuzzing must be executed using \`nanofuzz_fuzzFunction\`. Do NOT execute \`pytest\`, \`hypofuzz\`, or python commands directly in the terminal.`,
+    `## Critical Constraints`,
+    `- ⚠️ **Multi-Defect Rule**: Your primary objective is to uncover multiple distinct defects across the target program. Finding an initial defect is NOT a stopping condition. An early failure shadows deeper defects downstream.`,
+    `- ⚠️ **Anti-Suppression Rule**: NEVER weaken ${assertionNoun} or alter specification invariants to make a failure pass. The specification is fixed; input filtering controls which inputs reach the code.`,
+    `- ⚠️ **Gate 3 Stopping Requirement**: Gate 3 will REJECT any attempt to advance to \`contextualize_bugs\` until either:`,
+    `  1. Branch coverage across the target program reaches 100%, OR`,
+    `  2. You have completed all ${maxRetries} deep fuzzing retry cycles.`,
     "",
-    `1. **Stage 2: Deep Fuzzing Run (Mandatory - 300,000ms / 5 minutes per attempt)**:`,
-    `   Call \`nanofuzz_fuzzFunction\` with \`maxTests: 0\` (no test count limit, running for the full 300,000ms / 5 minutes timeoutMs per attempt to discover all reachable defects rather than aborting prematurely):`,
-    "   ```json",
-    "   {",
-    `     "filePath": "${harnessPath}",`,
-    `     "functionName": "${fnName}",`,
-    `     "model": "${options.model}",`,
-    `     "vendor": "${options.vendor}",`,
-    '     "coverageScope": "project directimports",',
-    '     "fnTimeout": 500,',
-    '     "maxTests": 0,',
-    '     "timeoutMs": 300000,',
-    '     "inputs": [...]',
-    "   }",
-    "   ```",
-    `   ⚠️ **Target Warning**: \`filePath\` MUST be \`${harnessPath}\` (the test file or harness you created), NOT the production source file! And \`functionName\` MUST be \`${fnName}\`.`,
+    `## 1. Deep Fuzzing Execution`,
+    `Call \`nanofuzz_fuzzFunction\` with \`maxTests: 0\` (unlimited tests up to the full ${deepTimeoutMs}ms / ${deepTimeoutSec}s timeout per attempt):`,
+    `- Always include your harvested seed inputs from Phase 1 in \`"inputs": [...]\`.`,
+    `- Constrain all integer seed inputs to safe numeric bounds between \`-2**53 + 1\` and \`2**53 - 1\` (approximately \`-9e15\` to \`9e15\`).`,
+    `- The engine executes these concrete seeds first to verify baseline contracts before randomized exploration begins.`,
+    "```json",
+    "{",
+    `  "filePath": "${harnessPath}",`,
+    `  "functionName": "${fnName}",`,
+    `  "model": "${options.model}",`,
+    `  "vendor": "${options.vendor}",`,
+    '  "coverageScope": "project",',
+    '  "fnTimeout": 500,',
+    '  "maxTests": 0,',
+    `  "timeoutMs": ${deepTimeoutMs},`,
+    '  "inputs": [{"<param1>": "<seedVal>"}]',
+    "}",
+    "```",
+    `⚠️ **Target Warning**: \`filePath\` MUST be \`${harnessPath}\` (the test file you created), NOT the production source file! And \`functionName\` MUST be \`${fnName}\`.`,
     "",
-    `2. **Strict Counterexample Triage & Defect Cataloging Protocol**:`,
-    `   - ⚠️ **Anti-Suppression Rule**: NEVER weaken a validator or add \`assume()\` just to make a failure pass.`,
-    `   - Only modify the harness/transformer if the input demonstrably violates the public documented API contract.`,
-    `   - If the input is legal and the invariant fails (or target crashes), it is a **confirmed bug**!`,
-    `   - Synthesize a minimal reproducer test with \`exportSuite: true\` / \`exportFilePath: "..."\` and record which generator elicited the bug.`,
-    `   - ⚠️ **Multi-Defect Rule (Do NOT Stop at the First Bug)**: Finding one counterexample does NOT mean fuzzing for this entrypoint is finished. Early bugs frequently shadow deeper, more critical bugs downstream. Catalog this defect and proceed to the coverage and deeper defect exploration loop.`,
-    `   - ⚠️ **Forbidden Early Exit**: You are strictly FORBIDDEN from transitioning to \`phase: "contextualize_bugs"\` or \`phase: "complete"\` merely because a bug was found. If retry budget remains and uncovered branches exist, you MUST execute the next retry attempt.`,
+    `## 2. Multi-Defect Discovery Protocol`,
+    `When a defect is discovered (invariant disagreement, unhandled exception, or contract violation):`,
+    `1. **Save Reproducer**: Synthesize and save an executable reproducer test (\`exportSuite: true\` / \`exportFilePath: "..."\`).`,
+    `2. **Catalog Failure Domain**: Record the bug name, exception/symptom, and exact input domain that causes the failure.`,
+    `3. **Filter Known Failure Domain**: Update \`${filterMechanism}\` in your test file to clamp, normalize, or filter out that specific failure domain. This prevents the fuzzer from wasting time repeatedly re-triggering the same known defect and allows it to penetrate deeper.`,
+    `4. **Re-run Deep Fuzzing**: Execute the next retry attempt to find new and different defects across the remaining code.`,
     "",
-    `3. **Branch Coverage & Deeper Defect Exploration Loop (Max 5 Retries)**:`,
-    `   - Inspect target file coverage. Whether tests passed or bugs were discovered, as long as uncovered lines/branches remain in the target entrypoint:`,
-    `     1. **Defect Shadowing Mitigation (In-Harness Precondition Clamping)**: If a discovered bug was an early crash or premature exit that prevented reaching downstream code, clamp or filter out that specific trigger in \`<fn>Transformer\` within the same harness so the fuzzer can penetrate deeper into remaining branches. Do NOT spawn secondary harness files. Keep the synthesized reproducer test intact on disk—never discard or suppress it.`,
-    `     2. **Widen Inputs (Strict Validator Immobility Rule)**: Inspect the remaining uncovered lines in the target file, widen \`<fn>Generator\` or parameter strategies, adjust \`<fn>Transformer\`, or add targeted seed \`inputs\`. ⚠️ **NEVER modify \`<fn>Validator\` or weaken assertions during coverage expansion**: the validator embodies the specification and black-box invariants; altering or relaxing it to match uncovered internal code creates tautological oracles that mask genuine defects.`,
-    `     3. **Re-run Stage 2**: Continue fuzzing to uncover deeper secondary defects (up to 5 retries total). Record a separate reproducer test and generator attribution for each distinct defect found.`,
-    `   - **Stopping Criteria for this Entrypoint**: Stop retrying and move on ONLY when:`,
-    `     - All reachable branches in the target entrypoint are covered, OR`,
-    `     - The budget of 5 retries has been exhausted.`,
-    `     - ⚠️ Finding a bug is NEVER a stopping condition on its own!`,
+    `## 3. Coverage Expansion (Widen vs. Target)`,
+    `If coverage stalls or failures cease, apply two complementary strategies:`,
+    `- **Widen Input Distributions**: Expand parameter generators and strategies (e.g., negative values, multi-byte strings, nested structures, empty containers, extreme numerical bounds).`,
+    `- **Target Uncovered Branch Conditions**: Inspect the target program source code for conditional branches (\`if/elif/match\`) that were not taken, and add targeted seed inputs specifically shaped to satisfy those conditions.`,
+    `- Re-run Stage 2 to uncover secondary defects (up to 4 retries total).`,
     "",
-    `4. **Advance**:`,
-    `   - Repeat Stages 1 & 2 for all remaining entrypoint harnesses.`,
-    `   - ⚠️ You cannot advance until Stage 2 Deep Fuzzing has executed!`,
-    `   - When all entrypoints are completed:`,
-    `     - If any bugs/failing invariants were discovered, call \`${toolName.toLowerCase()}_findBugs\` with \`phase: "contextualize_bugs"\`.`,
-    `     - If no bugs were found across all entrypoints, call \`${toolName.toLowerCase()}_findBugs\` with \`phase: "complete"\`.`,
+    `## 4. Advance`,
+    `- Repeat for all remaining entrypoints.`,
+    `- When all entrypoints meet stopping criteria:`,
+    `  - If any bugs were discovered, call \`${toolName.toLowerCase()}_findBugs\` with \`phase: "contextualize_bugs"\`.`,
+    `  - If no bugs were discovered, call \`${toolName.toLowerCase()}_findBugs\` with \`phase: "complete"\`.`,
   ].join("\n");
 } // fn: buildFuzzEntrypointGuidance
+
+/**
+ * Builds benchmark-specific guidance for Phase 6: Bug contextualization without external searches,
+ * requiring mandatory report file generation to the assigned benchmark report path.
+ */
+function buildBenchmarkContextualizeBugsGuidance(
+  options: FindBugsOptions,
+  toolName: string,
+  tool: FindBugsTool,
+  invariantSource: FindBugsInvariantSource,
+  sessionId: string,
+  reportPath?: string
+): string {
+  const targetReportPath = reportPath || `<assigned_report_path>`;
+  return [
+    `### Instructions for Phase 6: Bug Contextualization & Report Generation [Engine: ${tool} | Source: ${invariantSource}]`,
+    "",
+    `The fuzz testing execution phases are now complete. For each confirmed defect or failing invariant discovered:`,
+    "",
+    `1. **Failure Domain Characterization (Evaluation Rubric Preparation)**:`,
+    `   Precisely characterize the failure domain for each defect:`,
+    `   - **Root Cause & Trigger**: Identify the triggering module, line number, exception type, and unhandled condition.`,
+    `   - **Exact Failure Domain (D*)**: State the exact input boundaries or conditions that cause the failure.`,
+    `   - **Safe / Allowed Domain**: Contrast with inputs where the function behaves correctly.`,
+    `   - **Minimal Counterexample**: Provide the simplest concrete failing inputs identified during testing and shrinking.`,
+    "",
+    `2. **Strict Evidentiary Standards (Anti-Rationalization Gate)**:`,
+    `   - ⚠️ **CRITICAL ANTI-RATIONALIZATION RULE**: You must NOT classify a bug as "Intentional" or "WontFix" without direct, unambiguous maintainer evidence in the local docstrings, comments, or specifications.`,
+    `   - In the absence of an explicit specification stating an exception is intended, the failure MUST be documented as an unintended defect.`,
+    "",
+    `3. **Taxonomy & Evidence Mapping**:`,
+    `   Assign each finding to exactly one structured status:`,
+    `   - **Crash / Unhandled Exception**: Unexpected runtime exception on valid or edge-case inputs.`,
+    `   - **Contract / Range Violation**: Function returns invalid output, NaN, or violates type/semantic bounds.`,
+    `   - **Behavior Discrepancy**: Function violates documented behavior or unit test expectations.`,
+    "",
+    `4. **Mandatory Bug Report File Generation**:`,
+    `   You MUST write and save your comprehensive evaluation report to:`,
+    `   \`${targetReportPath}\``,
+    `   using \`create_file\`.`,
+    `   `,
+    `   Structure the report with the following sections:`,
+    `   # Benchmark Evaluation Report: <entrypoint>`,
+    `   ## Executive Summary (tested entrypoint, tool engine, duration, bugs found)`,
+    `   ## Discovered Defects (for each defect: Bug Name, Exception, Exact Failure Domain D*, Minimal Reproducer, and Root Cause Analysis)`,
+    `   ## Coverage & Fuzzing Metrics (test counts, branch coverage achieved)`,
+    "",
+    `5. **Next Step (Gated)**:`,
+    `   You CANNOT complete the workflow until \`${targetReportPath}\` has been written to disk using \`create_file\`.`,
+    `   Once the file is saved, call \`${toolName.toLowerCase()}_findBugs\` with:`,
+    "   ```json",
+    "   {",
+    '     "phase": "complete",',
+    `     "model": "${options.model}",`,
+    `     "vendor": "${options.vendor}",`,
+    '     "statePayload": {',
+    `       "sessionId": "${sessionId}"`,
+    "     }",
+    "   }",
+    "   ```",
+  ].join("\n");
+} // fn: buildBenchmarkContextualizeBugsGuidance
 
 /**
  * Builds guidance for Phase 6: Bug contextualization and maintainer intent verification against public issues/PRs/docs.

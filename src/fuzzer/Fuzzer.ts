@@ -644,10 +644,22 @@ export class Tester {
       !!mode.gen,
       injectTests,
       transformRunner,
-      this._options.fnTimeout,
-      this._options.maxDupeInputs,
+      this._options,
       userGenRunner
     );
+
+    this._compositeInputGenerator.cancelFn = () => {
+      if (cancelFn()) return true;
+      if (this._options.suiteTimeout > 0 && runStats.timers.startGenTime > 0) {
+        if (
+          performance.now() - runStats.timers.startGenTime >=
+          this._options.suiteTimeout
+        ) {
+          return true;
+        }
+      }
+      return false;
+    };
 
     // Build runners for the property validators
     // Assumed: property validators are in the same module

@@ -318,6 +318,222 @@ export abstract class AbstractProgram {
   } // fn: get imports()
 
   /**
+   * Extracts Program Under Test (PUT) target names from a comment, docstring, or annotation string.
+   *
+   * Supports:
+   *  - `@put(Target1, Target2)` / `@put("Target1", "Target2")`
+   *  - `@put {Target1, Target2}` / `@put Target1, Target2`
+   *  - `//nanofuzz:put Target1, Target2` / `nanofuzz:put Target1, Target2`
+   *  - `[@@put Target1, Target2]`
+   *  - `#[put(Target1, Target2)]`
+   *
+   * @param text Comment, docstring, or annotation text
+   * @returns Array of target symbol names, or undefined if no targets are found
+   */
+  public static extractPutTargets(
+    text: string | undefined
+  ): string[] | undefined {
+    if (!text) return undefined;
+
+    const patterns = [
+      /@(?:put|PUT)\s*(?:\(([^)]+)\)|\{([^}]+)\}|\[([^\]]+)\])/,
+      /@(?:put|PUT)\s+([^\n\r*]+)/,
+      /(?:nanofuzz:put|\/\/nanofuzz:put)\s+([^\n\r]+)/,
+      /\[@@put\s+([^\]]+)\]/,
+      /#\[put\(([^)]+)\)\]/,
+    ];
+
+    for (const pattern of patterns) {
+      const match = text.match(pattern);
+      if (match) {
+        const rawList = match[1] || match[2] || match[3];
+        if (!rawList) continue;
+        const targets = rawList
+          .split(/[\s,]+/)
+          .map((item) =>
+            item
+              .trim()
+              .replace(/^['"]|['"]$/g, "")
+              .replace(/\.class$/, "")
+              .replace(/[{}()[\]]/g, "")
+              .trim()
+          )
+          .filter((item) => item.length > 0 && item !== "*");
+        if (targets.length > 0) {
+          return Array.from(new Set(targets));
+        }
+      }
+    }
+
+    return undefined;
+  } // fn: extractPutTargets()
+
+  /**
+   * Resolves a target symbol name for the Program Under Test (PUT) to its
+   * declaring file path, source code, and resolved symbol name.
+   *
+   * @param targetName Symbol name of the PUT (e.g. "TreeValue" or "parse_mod.parse")
+   * @returns Declaring file path, source code, and resolved symbol name, or undefined
+   */
+  public resolvePutTarget(
+    targetName: string
+  ): { filePath: string; src: string; targetName: string } | undefined {
+    // Check if defined in the current module (same-file PUT and harness)
+    if (
+      targetName in this._functions.supported ||
+      targetName in this._functions.unsupported ||
+      targetName in this._types
+    ) {
+      return {
+        filePath: this._filename,
+        src: this._src,
+        targetName,
+      };
+    }
+
+    // Check direct import identifier match
+    if (targetName in this._imports.identifiers) {
+      const imp = this._imports.identifiers[targetName];
+      if (imp.programPath && fs.existsSync(imp.programPath)) {
+        try {
+          const src = fs.readFileSync(imp.programPath, "utf-8");
+          return {
+            filePath: imp.programPath,
+            src,
+            targetName: imp.imported !== "*" ? imp.imported : targetName,
+          };
+        } catch {
+          // ignore
+        }
+      }
+    }
+
+    // Check dotted import (e.g., "tree.TreeValue")
+    const parts = targetName.split(".");
+    if (parts.length > 1 && parts[0] in this._imports.identifiers) {
+      const imp = this._imports.identifiers[parts[0]];
+      if (imp.programPath && fs.existsSync(imp.programPath)) {
+        try {
+          const src = fs.readFileSync(imp.programPath, "utf-8");
+          return {
+            filePath: imp.programPath,
+            src,
+            targetName: parts.slice(1).join("."),
+          };
+        } catch {
+          // ignore
+        }
+      }
+    }
+
+    // Check imported modules (wildcards or submodules)
+    for (const progPath of Object.keys(this._imports.programs)) {
+      if (fs.existsSync(progPath)) {
+        try {
+          const prog = getProgramFactory().fromFile(
+            progPath,
+            this.lang,
+            this._options,
+            this
+          );
+          if (
+            targetName in prog.functions.supported ||
+            targetName in prog.functions.unsupported ||
+            targetName in prog.types
+          ) {
+            return {
+              filePath: progPath,
+              src: prog.src,
+              targetName,
+            };
+          }
+        } catch {
+          // ignore
+        }
+      }
+    }
+
+    return undefined;
+  } // fn: resolvePutTarget()
+
+  /**
+   * Resolves multiple target symbol names for the Program Under Test (PUT),
+   * returning deduplicated file entries.
+   *
+   * @param targetNames Array of target symbol names
+   * @returns Array of resolved targets with file paths and source code
+   */
+  public resolvePutTargets(
+    targetNames: string[]
+  ): { filePath: string; src: string; targetName: string }[] {
+    const results: { filePath: string; src: string; targetName: string }[] = [];
+    const seenPaths = new Set<string>();
+
+    for (const name of targetNames) {
+      const resolved = this.resolvePutTarget(name);
+      if (resolved && !seenPaths.has(resolved.filePath)) {
+        seenPaths.add(resolved.filePath);
+        results.push(resolved);
+      }
+    }
+
+    return results;
+  } // fn: resolvePutTargets()
+
+  /**
+   * Resolves argument and return types for a single function reference on-demand.
+   * If any argument type cannot be resolved, moves the function from supported to
+   * unsupported and returns undefined.
+   *
+   * @param fnRef The function reference to resolve
+   * @returns Resolved FunctionDef if supported, undefined otherwise
+   */
+  protected _resolveFunctionDef(fnRef: FunctionRef): FunctionDef | undefined {
+    const name = fnRef.name;
+    if (name in this._functionCache) {
+      return this._functionCache[name];
+    }
+    if (name in this._functions.unsupported) {
+      return undefined;
+    }
+
+    let lastArgName: string | undefined;
+    try {
+      if (fnRef.args) {
+        for (const fnArg of fnRef.args) {
+          lastArgName = fnArg.name;
+          this.resolveTypeRef(fnArg);
+        }
+      }
+    } catch (e: unknown) {
+      const msg = getErrorMessageOrJson(e);
+      this._functions.unsupported[name] = {
+        reason: msg,
+        argument: lastArgName,
+        function: fnRef,
+      };
+      delete this._functions.supported[name];
+      delete this._exports.functions[name];
+      return undefined;
+    }
+
+    try {
+      if (fnRef.returnType) {
+        lastArgName = "return";
+        this.resolveTypeRef(fnRef.returnType);
+      }
+    } catch (_e: unknown) {
+      // Failure to resolve return type does not make function unsupported
+    }
+
+    const fnDef = FunctionDef.fromFunctionRef(fnRef, this._options, () =>
+      this.getCallees(name)
+    );
+    this._functionCache[name] = fnDef;
+    return fnDef;
+  } // fn: _resolveFunctionDef()
+
+  /**
    * Returns supported functions defined in the program
    *
    * @returns the functions defined in the program
@@ -325,14 +541,10 @@ export abstract class AbstractProgram {
   public get functions(): Record<IdentifierName, FunctionDef> {
     const ret: Record<IdentifierName, FunctionDef> = {};
     for (const [key, value] of Object.entries(this._functions.supported)) {
-      if (!(key in this._functionCache)) {
-        this._functionCache[key] = FunctionDef.fromFunctionRef(
-          value,
-          this._options,
-          () => this.getCallees(key)
-        );
+      const fnDef = this._resolveFunctionDef(value);
+      if (fnDef) {
+        ret[key] = fnDef;
       }
-      ret[key] = this._functionCache[key];
     }
     return ret;
   } // fn: get functions()
@@ -345,14 +557,10 @@ export abstract class AbstractProgram {
   public get functionsExported(): Record<IdentifierName, FunctionDef> {
     const ret: Record<IdentifierName, FunctionDef> = {};
     for (const [key, value] of Object.entries(this._exports.functions)) {
-      if (!(key in this._functionCache)) {
-        this._functionCache[key] = FunctionDef.fromFunctionRef(
-          value,
-          this._options,
-          () => this.getCallees(key)
-        );
+      const fnDef = this._resolveFunctionDef(value);
+      if (fnDef) {
+        ret[key] = fnDef;
       }
-      ret[key] = this._functionCache[key];
     }
     return ret;
   } // fn: get functionsExported()
@@ -403,7 +611,7 @@ export abstract class AbstractProgram {
    * @returns Set of callee names
    */
   public getCallees(fnName: string): Set<string> {
-    if (this._calleeCache[fnName]) {
+    if (Object.hasOwn(this._calleeCache, fnName)) {
       return new Set(this._calleeCache[fnName]);
     }
     const callees = this._findCallees(fnName);

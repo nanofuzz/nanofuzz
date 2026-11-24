@@ -959,6 +959,22 @@ export class JavaProgram extends AbstractProgram {
     }
 
     const cmt = extractLeadingDocComment(itemNode);
+    let putTargets = AbstractProgram.extractPutTargets(cmt);
+    if (!putTargets) {
+      for (const child of itemNode.children) {
+        if (
+          child.type === "modifiers" ||
+          child.type === "annotation" ||
+          child.type === "marker_annotation"
+        ) {
+          const extracted = AbstractProgram.extractPutTargets(child.text);
+          if (extracted) {
+            putTargets = extracted;
+            break;
+          }
+        }
+      }
+    }
 
     const fnRef: FunctionRef = {
       module: this._filename,
@@ -972,6 +988,7 @@ export class JavaProgram extends AbstractProgram {
       args,
       ...(returnType ? { returnType } : {}),
       ...(cmt ? { cmt } : {}),
+      ...(putTargets && putTargets.length > 0 ? { putTargets } : {}),
     };
 
     return fnRef;

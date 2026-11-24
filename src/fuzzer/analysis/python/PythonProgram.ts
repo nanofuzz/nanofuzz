@@ -270,7 +270,15 @@ export class PythonProgram extends AbstractProgram {
     // Absolute import: project source first, then the interpreter's own
     // search path for external (stdlib/third-party) packages.
     const rootDir = path.dirname(this._root.filename);
-    const searchDirs = [rootDir, ...PythonRunner.envFor(this._filename).paths];
+    const pyEnv = PythonRunner.envFor(this._filename);
+    const envPythonPaths = pyEnv.env.PYTHONPATH
+      ? pyEnv.env.PYTHONPATH.split(process.platform === "win32" ? ";" : ":")
+          .map((p) => p && path.resolve(p))
+          .filter((p): p is string => Boolean(p && fs.existsSync(p)))
+      : [];
+    const searchDirs = Array.from(
+      new Set([rootDir, fromDir, ...envPythonPaths, ...pyEnv.paths])
+    );
     for (const dir of searchDirs) {
       const found = probe(dir, moduleRef);
       if (found) {
@@ -592,6 +600,9 @@ export class PythonProgram extends AbstractProgram {
           case "bytes":
           case "bytearray":
             return [ArgTag.BYTES, 0, node.text];
+          case "type":
+          case "Type":
+            return [ArgTag.OBJECT, 0, node.text];
           case "UUID":
             return [
               ArgTag.STRING,
@@ -660,6 +671,9 @@ export class PythonProgram extends AbstractProgram {
               undefined,
               this._getLiteralValueFromNode(node),
             ];
+          case "type":
+          case "Type":
+            return [ArgTag.OBJECT, 0, base];
           default:
             return [ArgTag.UNRESOLVED, 0, base];
         }
@@ -829,8 +843,28 @@ export class PythonProgram extends AbstractProgram {
               }
               return child;
             });
+          // `Optional[T]` = `T | None`
+          //
+          // Note: T is not checked for None, either at the top level
+          // (`Optional[None]`) or nested (`Optional[int | None]`); the extra
+          // None arm is harmless.
           case "Optional":
-            return args.map((c) => this._getTypeRefFromAstNode(c));
+            return [
+              ...args.map((c) => this._getTypeRefFromAstNode(c)),
+              {
+                module: this._filename,
+                dims: 0,
+                optional: false,
+                isExported: true,
+                type: {
+                  dims: 0,
+                  type: ArgTag.LITERAL,
+                  children: [],
+                  value: undefined,
+                  resolved: true,
+                },
+              },
+            ];
           case "tuple":
           case "Tuple": {
             if (
@@ -1003,8 +1037,16 @@ export class PythonProgram extends AbstractProgram {
         thisType.typeRefName = typeRefNode; // Unresolved type reference
         break;
       }
-      case ArgTag.OBJECT:
-        throw new Error(`Unexpected object type in Python annotation`);
+      case ArgTag.OBJECT: {
+        thisType.dims = dims;
+        thisType.type = {
+          dims: dims,
+          type: ArgTag.OBJECT,
+          children: [],
+          resolved: true,
+        };
+        break;
+      }
     }
     return thisType;
   }
@@ -1060,6 +1102,7 @@ export class PythonProgram extends AbstractProgram {
     let returnType = undefined;
     let isVoid = false;
     let fuzzOptions: Partial<FuzzOptions> | undefined;
+    let putTargets: string[] | undefined;
     const nameNode = captures.find((c) => c.name === "function.name");
     const typeNode = captures.find((c) => c.name === "function.return_type");
     const defNode = captures.find((c) => c.name === "function.def");
@@ -1120,6 +1163,23 @@ export class PythonProgram extends AbstractProgram {
                   hypothesisPositionalArgs.push(
                     this._getTypeRefFromStrategy(argChild)
                   );
+                }
+              }
+            }
+          } else if (decoName === "put" && callNode) {
+            const argsNode = callNode.childForFieldName("arguments");
+            if (argsNode) {
+              putTargets = putTargets ?? [];
+              for (const argChild of Parser.getNamedChildrenNoComments(
+                argsNode
+              )) {
+                let targetText = argChild.text.trim();
+                if (argChild.type === "string") {
+                  const val = this._parseLiteral(argChild);
+                  if (typeof val === "string") targetText = val;
+                }
+                if (targetText && !putTargets.includes(targetText)) {
+                  putTargets.push(targetText);
                 }
               }
             }
@@ -1312,6 +1372,10 @@ export class PythonProgram extends AbstractProgram {
       // Ignore unsupported return type syntax
     }
 
+    if (!putTargets && cmt) {
+      putTargets = AbstractProgram.extractPutTargets(cmt);
+    }
+
     return {
       module: this._filename,
       name: nameNode.node.text,
@@ -1326,6 +1390,7 @@ export class PythonProgram extends AbstractProgram {
       returnType,
       cmt,
       ...(fuzzOptions ? { fuzzOptions } : {}),
+      ...(putTargets && putTargets.length > 0 ? { putTargets } : {}),
     };
   } // fn: getFunctionFromNode
 
@@ -3211,6 +3276,16 @@ export class PythonProgram extends AbstractProgram {
       );
     }
 
+    if (typeRef.typeRefName === "FuzzTestResult") {
+      typeRef.type = {
+        type: ArgTag.OBJECT,
+        dims: 0,
+        children: [],
+        resolved: true,
+      };
+      return typeRef;
+    }
+
     // Resolve standard builtin types
     switch (typeRef.typeRefName) {
       case "int":
@@ -3264,6 +3339,10 @@ export class PythonProgram extends AbstractProgram {
           resolved: true,
         };
         return typeRef;
+      case "type":
+      case "Type":
+      case "builtins.type":
+      case "typing.Type":
       case "None":
       case "NoneType":
       case "none":

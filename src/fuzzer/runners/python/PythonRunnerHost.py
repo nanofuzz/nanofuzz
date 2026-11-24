@@ -1,6 +1,23 @@
 # autopep8: off
 from PythonIpc import unwrap_jsonn, sanitize_output, default_serializer, pack_payload
 import sys
+
+# Temporarily isolate sys.path during host startup so host dependencies
+# (logging, asyncio, coverage, etc.) resolve from standard library / site-packages
+# rather than being shadowed by user project files (e.g. a user logging.py in PYTHONPATH).
+_bootstrap_orig_sys_path = list(sys.path)
+_base_p = sys.base_prefix.replace("\\", "/").rstrip("/").lower()
+_pref_p = sys.prefix.replace("\\", "/").rstrip("/").lower()
+_script_dir = sys.path[0] if sys.path else ""
+
+_stdlib_paths = []
+for _p in sys.path[1:]:
+    _norm_p = _p.replace("\\", "/").rstrip("/").lower()
+    if _p and (_norm_p.startswith(_base_p) or _norm_p.startswith(_pref_p)):
+        _stdlib_paths.append(_p)
+
+sys.path = ([_script_dir] if _script_dir else []) + _stdlib_paths
+
 from typing import Any, Literal, List, Tuple, Union, TypedDict, NotRequired, Optional, cast
 import signal
 
@@ -94,6 +111,11 @@ finally:
     # Remove _VENDOR_DIR from sys.path so PUT (Program Under Test) cannot import from it
     sys.path = [p for p in sys.path if os.path.realpath(
         p) != os.path.realpath(_VENDOR_DIR)]
+
+# Restore original user sys.path (including PYTHONPATH entries) now that host dependencies are loaded
+_clean_user_paths = [p for p in _bootstrap_orig_sys_path if os.path.realpath(
+    p) != os.path.realpath(_VENDOR_DIR)]
+sys.path = _clean_user_paths
 
 _NANOFUZZ_VENDOR_MODULE_NAMES = (
     set(sys.modules.keys()) - _sys_modules_before) | {"msgpack", "coverage"}
@@ -313,17 +335,33 @@ def call_with_timeout(fn: Any, args: List[Any], timeout_ms: int) -> Any:
 
 
 def loadPythonFn(filename: str, modulename: str, fn: str) -> Tuple[Union[RunnerErrorResult, None], Any]:
+    env_root = os.environ.get("NANOFUZZ_PROJECT_ROOT")
+    if env_root and os.path.isdir(env_root):
+        env_src = os.path.join(env_root, "src")
+        if os.path.isdir(env_src) and env_src not in sys.path:
+            sys.path.insert(0, env_src)
+        if env_root not in sys.path:
+            sys.path.insert(0, env_root)
+
     rootDir = os.path.dirname(filename)
     curr = os.path.abspath(rootDir)
     while curr:
+        src_dir = os.path.join(curr, "src")
+        if os.path.isdir(src_dir) and src_dir not in sys.path:
+            sys.path.insert(0, src_dir)
         if curr not in sys.path:
-            sys.path.insert(0, curr)
+            sys.path.append(curr)
         parent = os.path.dirname(curr)
         if parent == curr:
             break
         curr = parent
 
-    spec = importlib.util.spec_from_file_location(modulename, filename)
+    load_modulename = (
+        f"_nanofuzz_put_{modulename}"
+        if (hasattr(sys, "stdlib_module_names") and modulename in sys.stdlib_module_names) or modulename in sys.modules
+        else modulename
+    )
+    spec = importlib.util.spec_from_file_location(load_modulename, filename)
     if spec is None:
         return (RunnerErrorResult(
             tag="error",
@@ -335,7 +373,7 @@ def loadPythonFn(filename: str, modulename: str, fn: str) -> Tuple[Union[RunnerE
     module = importlib.util.module_from_spec(spec)
 
     try:
-        sys.modules[modulename] = module
+        sys.modules[load_modulename] = module
         with redirect_stdout(io.StringIO()) as f:
             if spec.loader is None:
                 return (RunnerErrorResult(
@@ -347,8 +385,17 @@ def loadPythonFn(filename: str, modulename: str, fn: str) -> Tuple[Union[RunnerE
                 ), None)
             with isolate_put_environment():
                 spec.loader.exec_module(module)
-        return (None, getattr(module, fn))
-    except Exception as e:
+        target = getattr(module, fn)
+        if not callable(target):
+            return (RunnerErrorResult(
+                tag="error",
+                name="PythonRunnerHostError",
+                message=f"'{fn}' is not callable in {filename}",
+                source="host",
+                seq=-1
+            ), None)
+        return (None, target)
+    except (Exception, SystemExit) as e:
         return (RunnerErrorResult(
             tag="error",
             name="PythonPutLoadError",
@@ -583,6 +630,21 @@ def static_coverage_all(cov: coverage.Coverage, filenames: List[str]) -> dict[st
 VALID_COVERAGE_SCOPES = ("project", "project directimports")
 
 
+def find_project_root(path_str: str) -> str:
+    """Finds the actual project root directory by walking upwards until marker files or git root."""
+    env_root = os.environ.get("NANOFUZZ_PROJECT_ROOT")
+    if env_root and os.path.isdir(env_root):
+        return os.path.abspath(env_root)
+    curr = os.path.abspath(path_str)
+    if os.path.isfile(curr):
+        curr = os.path.dirname(curr)
+    while curr != os.path.dirname(curr):
+        if any(os.path.exists(os.path.join(curr, m)) for m in ("pyproject.toml", "setup.py", "setup.cfg", ".git")):
+            return curr
+        curr = os.path.dirname(curr)
+    return os.path.dirname(os.path.abspath(path_str))
+
+
 def is_under(root: str, path: str) -> bool:
     """
     Returns whether `path` is `root` or sits beneath it.
@@ -611,7 +673,20 @@ def program_files(
         raise ValueError(
             f"Invalid coverage_scope '{coverage_scope}'. Allowed values: {VALID_COVERAGE_SCOPES}"
         )
-    root = os.path.dirname(filename)
+
+    include_env = os.environ.get("NANOFUZZ_COVERAGE_INCLUDE_FILES")
+    if include_env:
+        raw_includes = json.loads(include_env)
+        proj_root = os.path.realpath(os.environ.get("NANOFUZZ_PROJECT_ROOT", os.getcwd()))
+        target_files = [
+            os.path.realpath(os.path.join(proj_root, f)) if not os.path.isabs(f) else os.path.realpath(f)
+            for f in raw_includes
+        ]
+        existing_targets = [f for f in target_files if os.path.exists(f)]
+        if existing_targets:
+            return sorted(existing_targets)
+
+    root = find_project_root(filename)
     stdlib_path = os.path.normcase(
         os.path.realpath(sysconfig.get_path("stdlib")))
 
@@ -641,17 +716,16 @@ def program_files(
             continue
 
         is_site_pkg = "site-packages" in parts_lower or "dist-packages" in parts_lower
-        is_venv_internal = any(p in (".venv", "venv", "env")
-                               for p in parts_lower) and not is_site_pkg
-        is_stdlib = os.path.normcase(modfile).startswith(
-            stdlib_path) and not is_site_pkg
+        is_venv = any(p in (".venv", "venv", "env")
+                      for p in parts_lower) and not is_site_pkg
+        is_stdlib = os.path.normcase(modfile).startswith(stdlib_path) and not is_site_pkg
 
         # Group C: Exclude Python Standard Library and virtualenv internals
-        if is_venv_internal or is_stdlib:
+        if is_venv or is_stdlib:
             continue
 
         # Group A: Local project files
-        if is_under(root, modfile):
+        if not is_site_pkg and is_under(root, modfile):
             files.add(modfile)
             continue
 
@@ -826,6 +900,10 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
         logging.getLogger().setLevel(logging.CRITICAL + 1)
 
     timeout_ms = input.get("timeout", 0)
+
+    extra_env = input.get("env")
+    if extra_env and isinstance(extra_env, dict):
+        os.environ.update(extra_env)
 
     if coverage_enabled:
         cov.get_data().erase()
@@ -1025,7 +1103,30 @@ def put_result(result: RunnerResult) -> None:
 
 
 def send_msg(data: Union[RunnerResult, str, dict[str, Any]]) -> None:
-    msg = cast(bytes, pack_payload(data))
+    try:
+        msg = cast(bytes, pack_payload(data))
+    except Exception as e:
+        seq = -1
+        if isinstance(data, dict):
+            seq = data.get("seq", -1)
+        err_res: RunnerErrorResult = {
+            "tag": "error",
+            "name": type(e).__name__,
+            "message": f"Serialization failure: {str(e)}",
+            "source": "host",
+            "stack": traceback.format_exc(),
+            "seq": seq,
+        }
+        try:
+            msg = cast(bytes, pack_payload(err_res))
+        except Exception:
+            msg = cast(bytes, pack_payload({
+                "tag": "error",
+                "name": "SerializationError",
+                "message": "Critical serialization failure",
+                "source": "host",
+                "seq": seq,
+            }))
     logging.debug(f"[{pid}]  - Writing {len(msg)} bytes")
     real_stdout.write(struct.pack('>I', len(msg)))  # payload size
     real_stdout.write(msg)  # payload
@@ -1080,13 +1181,6 @@ if __name__ == "__main__":
             logging.debug(
                 f"[{pid}] Loading function '{fnname}' in {filename} (respawn)")
             [loadError, fn] = loadPythonFn(filename, modulename, fnname)
-            if (loadError is not None):
-                logging.debug(f"[{pid}]  - Unable to load")
-            else:
-                logging.debug(f"[{pid}]  - Loaded function")
-
-            covInfo = {}
-            initialCoverage = {}
         elif collect_static:
             # Start temporary coverage tracer before loading module so static coverage is captured.
             init_cov = coverage.Coverage(branch=True, data_file=None)
@@ -1096,13 +1190,28 @@ if __name__ == "__main__":
             # or a callable function
             logging.debug(f"[{pid}] Loading function '{fnname}' in {filename}")
             [loadError, fn] = loadPythonFn(filename, modulename, fnname)
-            if (loadError is not None):
-                logging.debug(f"[{pid}]  - Unable to load")
-            else:
-                logging.debug(f"[{pid}]  - Loaded function")
-
             init_cov.stop()
+        else:
+            # Load function without enabling coverage tracer at startup
+            logging.debug(f"[{pid}] Loading function '{fnname}' in {filename}")
+            [loadError, fn] = loadPythonFn(filename, modulename, fnname)
 
+        if loadError is not None:
+            logging.debug(f"[{pid}]  - Unable to load: {loadError}")
+            _startup_hb.stop()
+            send_msg(loadError)
+            try:
+                sys.stdin.buffer.read()
+            except Exception:
+                pass
+            sys.exit(0)
+
+        logging.debug(f"[{pid}]  - Loaded function")
+
+        if is_respawn:
+            covInfo = {}
+            initialCoverage = {}
+        elif collect_static:
             pgm_files = program_files(
                 filename, coverage_scope, direct_packages)
             cov = coverage.Coverage(
@@ -1124,14 +1233,6 @@ if __name__ == "__main__":
                     info["arcs"] = arcs
                 initialCoverage[file] = info
         else:
-            # Load function without enabling coverage tracer at startup
-            logging.debug(f"[{pid}] Loading function '{fnname}' in {filename}")
-            [loadError, fn] = loadPythonFn(filename, modulename, fnname)
-            if (loadError is not None):
-                logging.debug(f"[{pid}]  - Unable to load")
-            else:
-                logging.debug(f"[{pid}]  - Loaded function")
-
             # Re-query program_files now that imports are loaded
             pgm_files = program_files(
                 filename, coverage_scope, direct_packages)
@@ -1161,6 +1262,22 @@ if __name__ == "__main__":
         cov.stop()
         cov.get_data().erase()
         logging.debug(f"[{pid}] Pre-warmed coverage tracer")
+    except Exception as e:
+        _startup_hb.stop()
+        err_res: RunnerErrorResult = {
+            "tag": "error",
+            "name": "PythonRunnerHostError",
+            "message": str(e),
+            "source": "host",
+            "stack": traceback.format_exc(),
+            "seq": -1
+        }
+        send_msg(err_res)
+        try:
+            sys.stdin.buffer.read()
+        except Exception:
+            pass
+        sys.exit(0)
     finally:
         _startup_hb.stop()
 
@@ -1176,9 +1293,5 @@ if __name__ == "__main__":
     # Start the run loop
     while True:
         logging.debug(f"[{pid}] Top of main loop")
-        if (loadError == None):
-            put_result(run_put(get_inputs(), filename, fnname, fn,
-                       cov, covInfo, pgm_files))  # Call the put
-        else:
-            get_inputs()
-            put_result(loadError)  # Return the load error
+        put_result(run_put(get_inputs(), filename, fnname, fn,
+                   cov, covInfo, pgm_files))  # Call the put

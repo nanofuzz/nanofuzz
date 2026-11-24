@@ -5,6 +5,7 @@ import { ArgTag } from "../Types";
 import { PythonProgram } from "./PythonProgram";
 import seedrandom from "seedrandom";
 import * as fs from "fs";
+import * as os from "os";
 import * as path from "path";
 import * as Parser from "../../adapters/ParserAdapter";
 
@@ -229,7 +230,7 @@ type MixedColumn = list[int | str]`,
 type Lookup = typing.Dict[str, float]
 type Labels = set[str]
 type TaggedScores = dict[str, int | str]
-type MaybeScores = Optional[dict[str, int]]`,
+type WrappedScores = Union[dict[str, int]]`,
       "python"
     ).types;
 
@@ -254,16 +255,37 @@ type MaybeScores = Optional[dict[str, int]]`,
         (child) => child.type?.type
       )
     ).toEqual([ArgTag.NUMBER, ArgTag.STRING]);
-    expect(types["MaybeScores"].type?.type).toEqual(ArgTag.DICTIONARY);
+    expect(types["WrappedScores"].type?.type).toEqual(ArgTag.DICTIONARY);
   });
 
   it("collapses singleton annotation unions", () => {
     const types = ProgramFactory.fromSource(
-      () => "type MaybeCount = Optional[int]",
+      () => "type Count = Union[int]",
       "python"
     ).types;
 
-    expect(types["MaybeCount"].type?.type).toEqual(ArgTag.NUMBER);
+    expect(types["Count"].type?.type).toEqual(ArgTag.NUMBER);
+  });
+
+  it("gives `Optional[T]` the same None arm as `T | None`", () => {
+    const functions = ProgramFactory.fromSource(
+      () => `def optional(value: Optional[int]) -> None:
+    pass
+
+def piped(value: int | None) -> None:
+    pass`,
+      "python"
+    ).functionsExported;
+
+    expect(functions["optional"].getRef().args?.[0].type).toEqual(
+      functions["piped"].getRef().args?.[0].type
+    );
+    expect(
+      functions["optional"]
+        .getArgDefs()[0]
+        .getChildren()
+        .map((child) => child.getType())
+    ).toEqual([ArgTag.NUMBER, ArgTag.LITERAL]);
   });
 
   it("extracts TypedDict annotations as fixed objects", () => {
@@ -2343,5 +2365,237 @@ def greeting_transformer(*args: MyTuple):
       ["args_0", "str"],
       ["args_1", "int"],
     ]);
+  });
+
+  it("resolves prng, Callable, and FuzzTestResult in companion functions without error", () => {
+    const pgm = ProgramFactory.fromSource(
+      () => `from typing import Callable, Literal
+from nanofuzz_runtime import FuzzTestResult
+
+def fuzz_test_generator(prng: Callable[[], float]) -> tuple[float]:
+    return (prng(),)
+
+def fuzz_test_validator(r: FuzzTestResult) -> Literal["pass", "fail"]:
+    return "pass"
+`,
+      "python"
+    );
+
+    expect(pgm.functionsNotSupported["fuzz_test_generator"]).toBeDefined();
+    expect(pgm.functionsNotSupported["fuzz_test_generator"].argument).toEqual(
+      "prng"
+    );
+    expect(pgm.functionsExported["fuzz_test_validator"]).toBeDefined();
+    expect(
+      pgm.functionsExported["fuzz_test_validator"].getArgDefs()[0].getName()
+    ).toEqual("r");
+  });
+
+  it("resolves built-in type annotations (type, Optional[type], type[T]) without throwing unresolved TypeRef", () => {
+    const pgm = ProgramFactory.fromSource(
+      () => `from typing import Optional, Type
+
+def fn_with_type(target_cls: type, opt_cls: Optional[type] = None) -> type:
+    return target_cls
+
+def fn_with_generic_type(cls: Type[int]) -> None:
+    pass
+`,
+      "python"
+    );
+
+    const fns = pgm.functionsExported;
+    expect(fns["fn_with_type"]).toBeDefined();
+    expect(fns["fn_with_type"].getArgDefs()[0].getName()).toEqual("target_cls");
+    expect(fns["fn_with_type"].getArgDefs()[0].getType()).toEqual(
+      ArgTag.OBJECT
+    );
+    expect(fns["fn_with_type"].getArgDefs()[1].getName()).toEqual("opt_cls");
+    expect(fns["fn_with_type"].getArgDefs()[1].getType()).toEqual(ArgTag.UNION);
+
+    expect(fns["fn_with_generic_type"]).toBeDefined();
+    expect(fns["fn_with_generic_type"].getArgDefs()[0].getType()).toEqual(
+      ArgTag.OBJECT
+    );
+  });
+
+  it("non-root child programs lazily resolve supported functions and categorize unsupported ones without throwing", () => {
+    const tmpDir = fs.mkdtempSync(
+      path.join(fs.realpathSync(os.tmpdir()), "nanofuzz-py-lazy-func-test-")
+    );
+    try {
+      const rootPy = path.join(tmpDir, "root_app.py");
+      const childPy = path.join(tmpDir, "child_lib.py");
+
+      fs.writeFileSync(
+        childPy,
+        `from typing import IO
+
+def valid_helper(n: int) -> int:
+    return n * 2
+
+def stream_helper(file: IO[str]) -> str:
+    return file.read()
+`
+      );
+
+      fs.writeFileSync(
+        rootPy,
+        `import child_lib
+
+def main_target(x: int) -> int:
+    return child_lib.valid_helper(x)
+`
+      );
+
+      const rootProg = ProgramFactory.fromFile(rootPy);
+      const childProg = ProgramFactory.fromFile(
+        childPy,
+        undefined,
+        undefined,
+        rootProg.root
+      );
+
+      expect(childProg.isRoot()).toBeFalse();
+      expect(childProg.functions["valid_helper"]).toBeDefined();
+      expect(childProg.functions["valid_helper"].getArgDefs()[0].getName()).toBe("n");
+      expect(childProg.functions["stream_helper"]).toBeUndefined();
+      expect(childProg.functionsNotSupported["stream_helper"]).toBeDefined();
+      expect(childProg.functionsNotSupported["stream_helper"].argument).toBe("file");
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("extracts @put decorator with single and multiple targets", () => {
+    const pgm = ProgramFactory.fromSource(
+      () => `
+from nanofuzz_runtime import put
+
+@put(TreeValue, DerivationTree)
+def fuzz_multi_targets(x: int):
+    pass
+
+@put("parse_string")
+def fuzz_string_target(s: str):
+    pass
+
+def regular_fn(x: int):
+    """
+    Docstring with @put(serialize, deserialize)
+    """
+    pass
+`,
+      "python"
+    );
+
+    const fns = pgm.functionsExported;
+    expect(fns["fuzz_multi_targets"]).toBeDefined();
+    expect(fns["fuzz_multi_targets"].getPutTargets()).toEqual([
+      "TreeValue",
+      "DerivationTree",
+    ]);
+
+    expect(fns["fuzz_string_target"]).toBeDefined();
+    expect(fns["fuzz_string_target"].getPutTargets()).toEqual(["parse_string"]);
+
+    expect(fns["regular_fn"]).toBeDefined();
+    expect(fns["regular_fn"].getPutTargets()).toEqual([
+      "serialize",
+      "deserialize",
+    ]);
+  });
+
+  it("resolvePutTargets resolves imported targets from external files", () => {
+    const tmpDir = fs.mkdtempSync(
+      path.join(fs.realpathSync(os.tmpdir()), "nanofuzz-py-put-resolve-test-")
+    );
+    try {
+      const putFile = path.join(tmpDir, "my_put.py");
+      const harnessFile = path.join(tmpDir, "harness.py");
+
+      fs.writeFileSync(
+        putFile,
+        `def parse_input(data: str) -> int:
+    return len(data)
+`
+      );
+
+      fs.writeFileSync(
+        harnessFile,
+        `from my_put import parse_input
+from nanofuzz_runtime import put
+
+@put(parse_input)
+def fuzz_harness(data: str):
+    assert parse_input(data) >= 0
+`
+      );
+
+      const prog = ProgramFactory.fromFile(harnessFile);
+      const fn = prog.functionsExported["fuzz_harness"];
+      expect(fn).toBeDefined();
+      expect(fn.getPutTargets()).toEqual(["parse_input"]);
+
+      const resolved = prog.resolvePutTargets(fn.getPutTargets());
+      expect(resolved.length).toBe(1);
+      expect(resolved[0].filePath).toBe(putFile);
+      expect(resolved[0].targetName).toBe("parse_input");
+      expect(resolved[0].src).toContain("def parse_input");
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("extracts and resolves PUT targets across all 5 benchmark study harnesses", () => {
+    const harnesses = [
+      {
+        file: "benchmark/harnesses/nanofuzz_harness_TreeValue.py",
+        fn: "fuzz_TreeValue",
+        expectedTargets: ["TreeValue"],
+        expectedResolvedPathSubstr: "tree_value.py",
+      },
+      {
+        file: "benchmark/harnesses/nanofuzz_harness_DerivationTree.py",
+        fn: "fuzz_DerivationTree",
+        expectedTargets: ["DerivationTree"],
+        expectedResolvedPathSubstr: "tree.py",
+      },
+      {
+        file: "benchmark/harnesses/nanofuzz_harness__distance_norm.py",
+        fn: "fuzz__distance_norm",
+        expectedTargets: ["target_distance_norm", "target_sigmoid"],
+        expectedResolvedPathSubstr: "comparison.py",
+      },
+      {
+        file: "benchmark/harnesses/nanofuzz_harness_make_def.py",
+        fn: "fuzz_make_def",
+        expectedTargets: ["make_def"],
+        expectedResolvedPathSubstr: "stdlib.py",
+      },
+      {
+        file: "benchmark/harnesses/nanofuzz_harness_parse.py",
+        fn: "fuzz_parse",
+        expectedTargets: ["parse_string"],
+        expectedResolvedPathSubstr: "parse.py",
+      },
+    ];
+
+    for (const h of harnesses) {
+      const fullPath = path.resolve(h.file);
+      expect(fs.existsSync(fullPath)).toBeTrue();
+
+      const prog = ProgramFactory.fromFile(fullPath);
+      const fn = prog.functionsExported[h.fn];
+      expect(fn).toBeDefined();
+
+      const putTargets = fn.getPutTargets();
+      expect(putTargets).toEqual(h.expectedTargets);
+
+      const resolved = prog.resolvePutTargets(putTargets);
+      expect(resolved.length).toBeGreaterThanOrEqual(1);
+      expect(resolved[0].filePath).toContain(h.expectedResolvedPathSubstr);
+      expect(resolved[0].src.length).toBeGreaterThan(0);
+    }
   });
 });

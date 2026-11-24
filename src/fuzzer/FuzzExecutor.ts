@@ -155,7 +155,8 @@ export class FuzzExecutor {
     worker: FuzzWorkerContext,
     genTime: number = 0,
     transformTime: number = 0,
-    cancelFn?: () => boolean
+    cancelFn?: () => boolean,
+    env?: Record<string, string>
   ): Promise<FuzzExecutionOutput | undefined> {
     const result: FuzzTestResult = this._createInitialResult(
       candidate,
@@ -192,7 +193,8 @@ export class FuzzExecutor {
           worker.runner.run(
             result.input.map((e) => e.value),
             Math.max(this._options.fnTimeout, 0),
-            validatorNames
+            validatorNames,
+            env
           ),
         this._getRemainingSuiteTime(),
         cancelCheck

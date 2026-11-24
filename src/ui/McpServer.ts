@@ -86,7 +86,7 @@ export async function createMcpServer(
         .string()
         .optional()
         .describe(
-          "The language model name or family currently used by the calling agent (e.g. 'gemini-2.0-flash', 'gemini-3.7-flash', 'claude-3.5-sonnet', 'gpt-4o'). Always pass your own model name or family here so NaNofuzz uses the same AI model for input generation."
+          "The language model name or family of the calling agent. Always pass your own active model name or family here so NaNofuzz routes to the matching model."
         ),
       vendor: z
         .string()
@@ -263,7 +263,7 @@ export async function createMcpServer(
       model: z
         .string()
         .describe(
-          "The calling agent's language model family/name (e.g. 'gemini-2.0-flash', 'claude-3.5-sonnet', 'gpt-4o'). Required."
+          "The calling agent's language model family/name. Required."
         ),
       vendor: z
         .string()

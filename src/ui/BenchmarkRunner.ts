@@ -7,7 +7,12 @@ import * as Config from "../Config";
 import { isKeyedObject } from "../Util";
 import { sessionManager } from "./FindBugsSessionManager";
 import { formatDuration } from "./FuzzTextFormatter";
-import { clearCachedRawResultsForPath } from "./Agent";
+import {
+  clearCachedRawResultsForPath,
+  registerExcludedCoverageFiles,
+  clearExcludedCoverageFiles,
+  setTargetCoverageFiles,
+} from "./Agent";
 
 // ============================================================================
 // Configuration
@@ -19,17 +24,178 @@ const SOURCE_REPO = resolveSourceRepo();
 
 const BENCHMARK_DIR = path.join(WORKSPACE_ROOT, "benchmark");
 const WORKTREES_DIR = path.join(BENCHMARK_DIR, "worktrees");
-const RESULTS_DIR = path.join(BENCHMARK_DIR, "results");
-const REPORTS_DIR = RESULTS_DIR;
-const TELEMETRY_DIR = path.join(RESULTS_DIR, "telemetry");
+export const BASE_RESULTS_DIR = path.join(BENCHMARK_DIR, "results");
 
-const SCORING_SHEETS_DIR = path.join(RESULTS_DIR, "scoring_sheets");
-const DATA_CSV_PATH = path.join(RESULTS_DIR, "data.csv");
-const SURVEY_RESPONSES_CSV_PATH = path.join(
-  RESULTS_DIR,
-  "survey_responses.csv"
-);
-const STATE_JSON_PATH = path.join(RESULTS_DIR, "benchmark_state.json");
+export interface BenchmarkRunContext {
+  runDir: string;
+  resultsDir: string;
+  reportsDir: string;
+  telemetryDir: string;
+  scoringSheetsDir: string;
+  artifactsDir: string;
+  partsDir: string;
+  dataCsvPath: string;
+  surveyResponsesCsvPath: string;
+  stateJsonPath: string;
+  dashboardPath: string;
+}
+
+export function formatDatestamp(date: Date = new Date()): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const yyyy = date.getFullYear();
+  const mm = pad(date.getMonth() + 1);
+  const dd = pad(date.getDate());
+  const hh = pad(date.getHours());
+  const min = pad(date.getMinutes());
+  const ss = pad(date.getSeconds());
+  return `${yyyy}${mm}${dd}_${hh}${min}${ss}`;
+}
+
+export function createRunContext(targetDir?: string): BenchmarkRunContext {
+  const runDir =
+    targetDir ?? path.join(BASE_RESULTS_DIR, formatDatestamp());
+  const resultsDir = path.join(runDir, "results");
+
+  return {
+    runDir,
+    resultsDir,
+    reportsDir: path.join(runDir, "artifacts"),
+    telemetryDir: path.join(runDir, "telemetry"),
+    scoringSheetsDir: path.join(runDir, "artifacts"),
+    artifactsDir: path.join(runDir, "artifacts"),
+    partsDir: path.join(resultsDir, "parts"),
+    dataCsvPath: path.join(resultsDir, "data.csv"),
+    surveyResponsesCsvPath: path.join(resultsDir, "survey_responses.csv"),
+    stateJsonPath: path.join(runDir, "benchmark_state.json"),
+    dashboardPath: path.join(runDir, "DASHBOARD.md"),
+  };
+}
+
+let activeRunContext: BenchmarkRunContext = createRunContext();
+
+export function getActiveRunContext(): BenchmarkRunContext {
+  return activeRunContext;
+}
+
+export function setActiveRunContext(ctx: BenchmarkRunContext): void {
+  activeRunContext = ctx;
+}
+
+export function getRunDir(): string {
+  return activeRunContext.runDir;
+}
+
+export function getResultsDir(): string {
+  return activeRunContext.resultsDir;
+}
+
+export function getReportsDir(): string {
+  return activeRunContext.reportsDir;
+}
+
+export function getTelemetryDir(): string {
+  return activeRunContext.telemetryDir;
+}
+
+export function getScoringSheetsDir(): string {
+  return activeRunContext.scoringSheetsDir;
+}
+
+export function getArtifactsDir(): string {
+  return activeRunContext.artifactsDir;
+}
+
+export function getPartsDir(): string {
+  return activeRunContext.partsDir;
+}
+
+export function getDataCsvPath(): string {
+  return activeRunContext.dataCsvPath;
+}
+
+export function getSurveyResponsesCsvPath(): string {
+  return activeRunContext.surveyResponsesCsvPath;
+}
+
+export function getStateJsonPath(): string {
+  return activeRunContext.stateJsonPath;
+}
+
+export function getDashboardPath(): string {
+  return activeRunContext.dashboardPath;
+}
+
+export function updateLatestSymlink(
+  targetDir: string,
+  baseDir: string = BASE_RESULTS_DIR
+): void {
+  try {
+    const symlinkPath = path.join(baseDir, "latest");
+    try {
+      const stat = fs.lstatSync(symlinkPath);
+      if (stat) {
+        fs.unlinkSync(symlinkPath);
+      }
+    } catch {
+      // Path did not exist, nothing to unlink
+    }
+    const relTarget = path.basename(targetDir);
+    fs.symlinkSync(relTarget, symlinkPath, "dir");
+  } catch (err: unknown) {
+    log(`[WARN] Could not update latest symlink: ${String(err)}`);
+  }
+}
+
+export function mirrorLatestResultsToRoot(
+  ctx: BenchmarkRunContext,
+  baseDir: string = BASE_RESULTS_DIR
+): void {
+  try {
+    updateLatestSymlink(ctx.runDir, baseDir);
+  } catch {
+    // Non-fatal
+  }
+}
+
+export function findLatestUnfinishedRun(
+  baseDir: string = BASE_RESULTS_DIR
+): string | undefined {
+  if (!fs.existsSync(baseDir)) {
+    return undefined;
+  }
+  const entries = fs.readdirSync(baseDir, { withFileTypes: true });
+  // Filter for datestamp directory names (e.g. 20261110_045329)
+  const datestampDirs = entries
+    .filter((e) => e.isDirectory() && /^\d{8}_\d{6}$/.test(e.name))
+    .map((e) => e.name)
+    .sort((a, b) => b.localeCompare(a)); // Sort descending by folder name (datestamp)
+
+  for (const dirName of datestampDirs) {
+    const fullPath = path.join(baseDir, dirName);
+    const stateFile = path.join(fullPath, "benchmark_state.json");
+    if (!fs.existsSync(stateFile)) {
+      return fullPath;
+    }
+    try {
+      const state = JSON.parse(fs.readFileSync(stateFile, "utf8"));
+      if (Array.isArray(state) && state.length > 0) {
+        const hasUnfinished = state.some(
+          (item: BenchmarkScheduleItemState) =>
+            !item || item.status !== "completed"
+        );
+        if (hasUnfinished) {
+          return fullPath;
+        }
+      } else {
+        return fullPath;
+      }
+    } catch {
+      return fullPath;
+    }
+  }
+
+  return undefined;
+}
 const RUBRIC_JSON_PATH = path.join(
   WORKSPACE_ROOT,
   "benchmark",
@@ -41,6 +207,7 @@ const rubricData = loadBenchmarkRubric(RUBRIC_JSON_PATH);
 export const TARGET_NAME = rubricData.targetMetadata.name;
 export const TARGET_COMMIT = rubricData.targetMetadata.commit;
 export const TARGET_VERSION = rubricData.targetMetadata.version;
+export const TARGET_LANGUAGE = rubricData.targetMetadata.language || "python";
 export const BENCHMARK_TASKS = rubricData.tasks;
 export type BenchmarkTaskName = string;
 export const GROUND_TRUTH_BUGS = rubricData.groundTruthBugs;
@@ -49,16 +216,19 @@ export const ALL_GROUND_TRUTH_BUG_IDS = rubricData.allGroundTruthBugIds;
 export const CONCURRENCY_LANES = getAutoConcurrencyLanes();
 export const MAX_DEEP_FUZZ_SLOTS = getAutoDeepFuzzSlots();
 
-const ENGINES = ["nanofuzz", "hypothesis", "hypofuzz"] as const;
-const SOURCES = ["tests", "docs", "all"] as const;
+type AllEngines = "nanofuzz" | "hypothesis" | "hypofuzz";
+type AllSources = "tests" | "docs" | "all";
+
+const ENGINES = ["nanofuzz", "hypothesis"] as const;
+const SOURCES = ["all"] as const;
 
 export interface BenchmarkRunSpec {
   participant: string; // e.g. "P01", "P02", ...
   sequence: number;
   replicate: number;
   task: BenchmarkTaskName;
-  engine: (typeof ENGINES)[number];
-  source: (typeof SOURCES)[number];
+  engine: AllEngines;
+  source: AllSources;
   targetScope: string[];
   reportFilename: string;
   reportPath: string;
@@ -67,9 +237,27 @@ export interface BenchmarkRunSpec {
 let outputChannel: vscode.OutputChannel | undefined;
 let activeCts: vscode.CancellationTokenSource | undefined;
 
+function cast<T>(val: unknown): T;
+function cast(val: unknown): unknown {
+  return val;
+} // fn: cast
+
 function getOutput(): vscode.OutputChannel {
   if (!outputChannel) {
-    outputChannel = vscode.window.createOutputChannel("NaNofuzz Benchmark");
+    if (typeof vscode.window?.createOutputChannel === "function") {
+      outputChannel = vscode.window.createOutputChannel("NaNofuzz Benchmark");
+    } else {
+      outputChannel = cast<vscode.OutputChannel>({
+        name: "NaNofuzz Benchmark",
+        append: () => {},
+        appendLine: () => {},
+        clear: () => {},
+        show: () => {},
+        hide: () => {},
+        dispose: () => {},
+        replace: () => {},
+      });
+    }
   }
   return outputChannel;
 }
@@ -87,6 +275,56 @@ function log(msg: string): void {
 function logRaw(msg: string): void {
   getOutput().appendLine(msg);
 } // fn: logRaw
+
+const DEFAULT_LLM_REQUEST_TIMEOUT_MS = 400_000; // 400 seconds timeout per LLM stream (well beyond max observed successful duration)
+
+/**
+ * Executes a Language Model sendRequest with streaming consumption wrapped in an abort timeout.
+ * If the connection stalls or drops without ending the stream within timeoutMs, the linked cancellation
+ * token source fires and the stream loop aborts with a transient timeout error.
+ */
+async function sendRequestWithTimeout<T>(
+  model: vscode.LanguageModelChat,
+  messages: vscode.LanguageModelChatMessage[],
+  options: vscode.LanguageModelChatRequestOptions,
+  consumeStream: (response: vscode.LanguageModelChatResponse) => Promise<T>,
+  token?: vscode.CancellationToken,
+  timeoutMs: number = DEFAULT_LLM_REQUEST_TIMEOUT_MS
+): Promise<T> {
+  const linkedCts = new vscode.CancellationTokenSource();
+  let timer: NodeJS.Timeout | undefined;
+  let unregisterParentCancel: vscode.Disposable | undefined;
+
+  if (token) {
+    if (token.isCancellationRequested) {
+      linkedCts.cancel();
+    } else {
+      unregisterParentCancel = token.onCancellationRequested(() => {
+        linkedCts.cancel();
+      });
+    }
+  }
+
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      linkedCts.cancel();
+      reject(new Error(`LLM stream timed out after ${Math.round(timeoutMs / 1000)}s with no completion (ETIMEDOUT)`));
+    }, timeoutMs);
+  });
+
+  try {
+    const responsePromise = (async () => {
+      const response = await model.sendRequest(messages, options, linkedCts.token);
+      return await consumeStream(response);
+    })();
+
+    return await Promise.race([responsePromise, timeoutPromise]);
+  } finally {
+    if (timer) clearTimeout(timer);
+    if (unregisterParentCancel) unregisterParentCancel.dispose();
+    linkedCts.dispose();
+  }
+} // fn: sendRequestWithTimeout
 
 /**
  * Cancels any actively running benchmark matrix session.
@@ -132,7 +370,7 @@ function seededShuffle<T>(arr: T[], seedStr: string): T[] {
 }
 
 export function generateBenchmarkSchedule(
-  replicates: 1 | 3 = 1
+  replicates: number = 15
 ): BenchmarkRunSpec[] {
   const reps = Array.from({ length: replicates }, (_, i) => i + 1);
   const runs: Omit<BenchmarkRunSpec, "sequence" | "participant">[] = [];
@@ -158,14 +396,14 @@ export function generateBenchmarkSchedule(
   const shuffled = seededShuffle(runs, SEED);
   return shuffled.map((r, idx) => {
     const seq = idx + 1;
-    const participant = `P${String(seq).padStart(2, "0")}`;
+    const participant = `P${String(seq).padStart(3, "0")}`;
     const reportFilename = `${participant}.md`;
     return {
       ...r,
       sequence: seq,
       participant,
       reportFilename,
-      reportPath: path.join(REPORTS_DIR, reportFilename),
+      reportPath: path.join(getArtifactsDir(), participant, reportFilename),
     };
   });
 }
@@ -179,8 +417,8 @@ export interface BenchmarkScheduleItemState {
   sequence: number;
   replicate: number;
   task: BenchmarkTaskName;
-  engine: (typeof ENGINES)[number];
-  source: (typeof SOURCES)[number];
+  engine: AllEngines;
+  source: AllSources;
   reportFilename: string;
   status: "pending" | "running" | "completed" | "failed";
   completedAt?: string;
@@ -203,23 +441,37 @@ export function loadCompletedParticipants(): Map<
   const completed = new Map<string, BenchmarkScheduleItemState>();
 
   // Recover from benchmark_state.json if present
-  if (fs.existsSync(STATE_JSON_PATH)) {
-    const parsed = JSON.parse(fs.readFileSync(STATE_JSON_PATH, "utf8"));
+  if (fs.existsSync(getStateJsonPath())) {
+    const parsed = JSON.parse(fs.readFileSync(getStateJsonPath(), "utf8"));
     if (Array.isArray(parsed)) {
       for (const item of parsed) {
         if (item && item.participant && item.status === "completed") {
-          completed.set(item.participant, item);
+          const reportPath = path.join(
+            getArtifactsDir(),
+            item.participant,
+            item.reportFilename || `${item.participant}.md`
+          );
+          const legacyPath = path.join(
+            activeRunContext.runDir,
+            item.reportFilename || `${item.participant}.md`
+          );
+          const hasReport =
+            (fs.existsSync(reportPath) && fs.statSync(reportPath).size > 0) ||
+            (fs.existsSync(legacyPath) && fs.statSync(legacyPath).size > 0);
+          if (hasReport) {
+            completed.set(item.participant, item);
+          }
         }
       }
     }
   }
 
   // Discover from telemetry JSON files on disk (ground truth completed runs)
-  if (fs.existsSync(TELEMETRY_DIR)) {
-    const files = fs.readdirSync(TELEMETRY_DIR);
+  if (fs.existsSync(getTelemetryDir())) {
+    const files = fs.readdirSync(getTelemetryDir());
     for (const file of files) {
       if (!file.endsWith(".telemetry.json")) continue;
-      const filePath = path.join(TELEMETRY_DIR, file);
+      const filePath = path.join(getTelemetryDir(), file);
       const t = JSON.parse(fs.readFileSync(filePath, "utf8"));
       const hasDeep =
         Array.isArray(t.fuzzRuns) &&
@@ -228,12 +480,28 @@ export function loadCompletedParticipants(): Map<
             (r.suiteTimeout ?? 0) >= 300000 &&
             (r.maxTests === 0 || r.maxTests === Number.MAX_SAFE_INTEGER)
         );
+      const reportPath = path.join(
+        getArtifactsDir(),
+        t.participant,
+        t.reportFilename || `${t.participant}.md`
+      );
+      const legacyPath = path.join(
+        activeRunContext.runDir,
+        t.reportFilename || `${t.participant}.md`
+      );
+      const hasReport =
+        (fs.existsSync(reportPath) && fs.statSync(reportPath).size > 0) ||
+        (fs.existsSync(legacyPath) && fs.statSync(legacyPath).size > 0);
+      const hasSurvey = Boolean(t.survey);
+
       if (
         t &&
         t.participant &&
         !t.error &&
         t.success !== false &&
         hasDeep &&
+        hasReport &&
+        hasSurvey &&
         !completed.has(t.participant)
       ) {
         const taskName = t.task;
@@ -269,6 +537,80 @@ export function loadCompletedParticipants(): Map<
     }
   }
 
+  // Ground-truth recovery from data.csv: populate exact scores, bugs, and durations
+  const csvPath = getDataCsvPath();
+  if (fs.existsSync(csvPath)) {
+    try {
+      const csvLines = fs.readFileSync(csvPath, "utf8").split("\n");
+      if (csvLines.length > 1) {
+        const header = csvLines[0].split(",").map((c) => c.trim());
+        const pIdx = header.indexOf("Participant");
+        const scoreIdx = header.indexOf("NormalizedScore");
+        const elicitedIdx = header.indexOf("BugsElicited");
+        const totalIdx = header.indexOf("TaskBugCount");
+        const elapsedIdx = header.indexOf("ElapsedSec");
+        const taskIdx = header.indexOf("Task");
+        const engineIdx = header.indexOf("Tool");
+        const sourceIdx = header.indexOf("InvariantSource");
+        const repIdx = header.indexOf("Replicate");
+        const seqIdx = header.indexOf("Sequence");
+
+        for (let i = 1; i < csvLines.length; i++) {
+          const line = csvLines[i].trim();
+          if (!line) continue;
+          const cols = line.split(",").map((c) => c.trim());
+          const pid = pIdx >= 0 ? cols[pIdx] : "";
+          if (!pid) continue;
+
+          const existing = completed.get(pid);
+          const score = scoreIdx >= 0 && cols[scoreIdx] !== "" && cols[scoreIdx] !== "N/A"
+            ? cols[scoreIdx]
+            : undefined;
+          const bugsElicited = elicitedIdx >= 0 && cols[elicitedIdx] !== ""
+            ? Number(cols[elicitedIdx])
+            : undefined;
+          const taskBugCount = totalIdx >= 0 && cols[totalIdx] !== ""
+            ? Number(cols[totalIdx])
+            : undefined;
+          const durationSec = elapsedIdx >= 0 && cols[elapsedIdx] !== ""
+            ? Number(cols[elapsedIdx])
+            : undefined;
+
+          if (existing) {
+            if (score !== undefined) existing.score = score;
+            if (bugsElicited !== undefined && !isNaN(bugsElicited)) existing.bugsElicited = bugsElicited;
+            if (taskBugCount !== undefined && !isNaN(taskBugCount)) existing.taskBugCount = taskBugCount;
+            if (durationSec !== undefined && !isNaN(durationSec)) existing.durationSec = durationSec;
+          } else {
+            completed.set(pid, {
+              participant: pid,
+              sequence: seqIdx >= 0 ? Number(cols[seqIdx]) : 0,
+              replicate: repIdx >= 0 ? Number(cols[repIdx]) : 1,
+              task: taskIdx >= 0 ? cols[taskIdx] : "",
+              engine: cast<(typeof ENGINES)[number]>(
+                engineIdx >= 0 ? cols[engineIdx] : "nanofuzz"
+              ),
+              source: cast<(typeof SOURCES)[number]>(
+                sourceIdx >= 0 ? cols[sourceIdx] : "all"
+              ),
+              reportFilename: `${pid}.md`,
+              status: "completed",
+              durationSec,
+              score,
+              bugsElicited,
+              taskBugCount,
+            });
+          }
+        }
+      }
+    } catch (err) {
+      throw new Error(
+        `Critical recovery error: Failed to parse ground-truth dataset '${csvPath}': ${String(err)}`,
+        { cause: err }
+      );
+    }
+  }
+
   return completed;
 } // fn: loadCompletedParticipants
 
@@ -282,8 +624,8 @@ export function saveBenchmarkState(
   schedule: BenchmarkRunSpec[],
   completedMap: Map<string, BenchmarkScheduleItemState>
 ): void {
-  if (!fs.existsSync(RESULTS_DIR)) {
-    fs.mkdirSync(RESULTS_DIR, { recursive: true });
+  if (!fs.existsSync(getResultsDir())) {
+    fs.mkdirSync(getResultsDir(), { recursive: true });
   }
   const stateList: BenchmarkScheduleItemState[] = schedule.map((s) => {
     const done = completedMap.get(s.participant);
@@ -301,7 +643,11 @@ export function saveBenchmarkState(
       status: "pending",
     };
   });
-  fs.writeFileSync(STATE_JSON_PATH, JSON.stringify(stateList, null, 2), "utf8");
+  fs.writeFileSync(
+    getStateJsonPath(),
+    JSON.stringify(stateList, null, 2),
+    "utf8"
+  );
 } // fn: saveBenchmarkState
 
 // ============================================================================
@@ -310,6 +656,7 @@ export function saveBenchmarkState(
 
 export interface ParticipantSurvey {
   realistic: number; // 1-5 Likert
+  taskConfidence: number; // 1-5 Likert: Confidence finding all pairs/defects
   sus1: number; // 1-5 Likert
   sus2: number;
   sus3: number;
@@ -377,6 +724,7 @@ function writeSurveyResponsesCsv(
     "Sequence",
     "Date",
     "Realistic",
+    "TaskConfidence",
     "SUS_Score",
     "SUS1_FrequentUse",
     "SUS2_Complexity",
@@ -406,6 +754,7 @@ function writeSurveyResponsesCsv(
     String(run.sequence),
     new Date().toISOString().split("T")[0],
     String(survey.realistic),
+    String(survey.taskConfidence),
     survey.susScore.toFixed(1),
     String(survey.sus1),
     String(survey.sus2),
@@ -425,21 +774,21 @@ function writeSurveyResponsesCsv(
   ];
 
   fileWriteChain = fileWriteChain.then(async () => {
-    if (!fs.existsSync(REPORTS_DIR)) {
-      fs.mkdirSync(REPORTS_DIR, { recursive: true });
+    if (!fs.existsSync(getReportsDir())) {
+      fs.mkdirSync(getReportsDir(), { recursive: true });
     }
 
-    const fileExists = fs.existsSync(SURVEY_RESPONSES_CSV_PATH);
+    const fileExists = fs.existsSync(getSurveyResponsesCsvPath());
     if (!fileExists) {
       fs.writeFileSync(
-        SURVEY_RESPONSES_CSV_PATH,
+        getSurveyResponsesCsvPath(),
         headerCols.join(",") + "\n",
         "utf8"
       );
     }
 
     fs.appendFileSync(
-      SURVEY_RESPONSES_CSV_PATH,
+      getSurveyResponsesCsvPath(),
       rowCols.join(",") + "\n",
       "utf8"
     );
@@ -449,38 +798,803 @@ function writeSurveyResponsesCsv(
   });
 } // fn: writeSurveyResponsesCsv
 
+export interface CollectSurveyOptions {
+  model: vscode.LanguageModelChat;
+  messages: vscode.LanguageModelChatMessage[];
+  run: BenchmarkRunSpec;
+  prefix?: string;
+  laneId?: number;
+  token?: vscode.CancellationToken;
+  maxSurveyRetries?: number;
+  baseDelayMs?: number;
+  writeCsv?: boolean;
+  onRetry?: (attempt: number, error: string) => void;
+}
+
+export async function collectPostTaskSurvey(
+  options: CollectSurveyOptions
+): Promise<{
+  survey: ParticipantSurvey | undefined;
+  rawSurveyOutputs: string[];
+}> {
+  const {
+    model,
+    messages,
+    run,
+    token,
+    prefix = `[${run.participant}]`,
+    maxSurveyRetries = 15,
+    baseDelayMs = 3000,
+    writeCsv = true,
+    onRetry,
+  } = options;
+
+  let survey: ParticipantSurvey | undefined;
+  const rawSurveyOutputs: string[] = [];
+
+  const surveyPrompt = [
+    "The bug hunting session and fuzz testing run are now complete.",
+    "",
+    "Please complete this standardized post-task evaluation survey regarding your experience performing this testing task with this tool.",
+    "Respond strictly with a JSON object in a ```json codeblock containing the following fields:",
+    "",
+    "### Part 1: Qualitative Experience & Reflection",
+    "- `toolHelpfulFeedback`: String describing whether and why the tool was helpful or effective in testing.",
+    "- `toolUsabilityFeedback`: String describing whether and why the tool was easy or hard to use, taking into account any crashes, errors, or friction you experienced.",
+    "- `workflowFitFeedback`: String describing how well the tool fit into your test and debug workflow.",
+    "- `toolImprovementFeedback`: String with feedback/suggestions to improve the testing tool.",
+    "- `studyImprovementFeedback`: String with feedback/suggestions to improve this or future studies.",
+    "- `realistic`: Integer rating from 1 (Strongly Disagree) to 5 (Strongly Agree) for statement: 'I thought the testing tasks in this study resemble tasks I might encounter outside the study.'",
+    "- `taskConfidence`: Integer rating from 1 to 5 describing how confident you are that you accurately found all the pairs/defects in the code above (1 = Not at all Confident, 2 = Slightly Confident, 3 = Somewhat Confident, 4 = Moderately Confident, 5 = Extremely Confident).",
+    "",
+    "### Part 2: System Usability Scale (SUS)",
+    "Reflecting on your experience above, provide an integer rating from 1 (Strongly Disagree) to 5 (Strongly Agree) for each statement:",
+    "",
+    "Positive Statements (1 = Strongly Disagree to 5 = Strongly Agree):",
+    "- `sus1`: Integer 1-5 ('I think that I would like to use this system frequently.')",
+    "- `sus3`: Integer 1-5 ('I thought the system was easy to use.')",
+    "- `sus5`: Integer 1-5 ('I found the various functions in this system were well integrated.')",
+    "- `sus7`: Integer 1-5 ('I would imagine that most people would learn to use this system very quickly.')",
+    "- `sus9`: Integer 1-5 ('I felt very confident using the system.')",
+    "",
+    "Negative Statements (1 = Strongly Disagree to 5 = Strongly Agree):",
+    "- `sus2`: Integer 1-5 ('I found the system unnecessarily complex.')",
+    "- `sus4`: Integer 1-5 ('I think that I would need technical support to use this system.')",
+    "- `sus6`: Integer 1-5 ('I thought there was too much inconsistency in this system.')",
+    "- `sus8`: Integer 1-5 ('I found the system very cumbersome to use.')",
+    "- `sus10`: Integer 1-5 ('I needed to learn a lot of things before I could get going with this system.')",
+  ].join("\n");
+
+  let surveyAttempts = 0;
+
+  const surveyMessages = [
+    ...messages,
+    vscode.LanguageModelChatMessage.User(surveyPrompt),
+  ];
+
+  while (surveyAttempts < maxSurveyRetries && !survey) {
+    if (token?.isCancellationRequested) {
+      log(`  ${prefix} [CANCEL] Survey cancelled by user.`);
+      break;
+    }
+
+    surveyAttempts++;
+    let surveyRawText: string;
+
+    try {
+      surveyRawText = await sendRequestWithTimeout(
+        model,
+        surveyMessages,
+        { tools: [] },
+        async (surveyResponse) => {
+          let text = "";
+          for await (const chunk of surveyResponse.stream) {
+            if (chunk instanceof vscode.LanguageModelTextPart) {
+              text += chunk.value;
+            }
+          }
+          return text;
+        },
+        token,
+        400_000
+      );
+      rawSurveyOutputs.push(surveyRawText);
+
+      // Verify we got non-empty content from the stream
+      if (!surveyRawText.trim()) {
+        throw new Error("Empty response received from language model stream.");
+      }
+
+      // Primary: JSON block extraction
+      const jsonMatch =
+        surveyRawText.match(/```(?:json)?\s*([\s\S]*?)\s*```/) ||
+        surveyRawText.match(/(\{[\s\S]*\})/);
+
+      if (jsonMatch) {
+        try {
+          const parsed = JSON.parse(jsonMatch[1]);
+          const validateLikertStrict = (v: unknown, fieldName: string): number => {
+            const n = Number(v);
+            if (v === undefined || v === null || isNaN(n) || !Number.isInteger(n) || n < 1 || n > 5) {
+              throw new Error(`Invalid or missing ${fieldName}: expected integer between 1 and 5, got ${JSON.stringify(v)}`);
+            }
+            return n;
+          };
+
+          const susResponses = {
+            sus1: validateLikertStrict(parsed.sus1, "sus1"),
+            sus2: validateLikertStrict(parsed.sus2, "sus2"),
+            sus3: validateLikertStrict(parsed.sus3, "sus3"),
+            sus4: validateLikertStrict(parsed.sus4, "sus4"),
+            sus5: validateLikertStrict(parsed.sus5, "sus5"),
+            sus6: validateLikertStrict(parsed.sus6, "sus6"),
+            sus7: validateLikertStrict(parsed.sus7, "sus7"),
+            sus8: validateLikertStrict(parsed.sus8, "sus8"),
+            sus9: validateLikertStrict(parsed.sus9, "sus9"),
+            sus10: validateLikertStrict(parsed.sus10, "sus10"),
+          };
+
+          const taskConfidence = validateLikertStrict(parsed.taskConfidence, "taskConfidence");
+
+          const computedSus = computeSusScore(susResponses);
+
+          survey = {
+            realistic: validateLikertStrict(parsed.realistic, "realistic"),
+            taskConfidence,
+            ...susResponses,
+            susScore: computedSus,
+            toolHelpfulFeedback: String(
+              parsed.toolHelpfulFeedback || ""
+            ).trim(),
+            toolUsabilityFeedback: String(
+              parsed.toolUsabilityFeedback || ""
+            ).trim(),
+            workflowFitFeedback: String(
+              parsed.workflowFitFeedback || ""
+            ).trim(),
+            toolImprovementFeedback: String(
+              parsed.toolImprovementFeedback || ""
+            ).trim(),
+            studyImprovementFeedback: String(
+              parsed.studyImprovementFeedback || ""
+            ).trim(),
+          };
+
+          if (writeCsv && survey) {
+            writeSurveyResponsesCsv(run, survey);
+          }
+          break;
+        } catch {
+          // JSON parsing of matched block failed, fall through to reprompt
+        }
+      }
+
+      // If response was non-empty text but could not be parsed as JSON, reprompt with assistant turn
+      if (!survey && surveyAttempts < maxSurveyRetries) {
+        surveyMessages.push(
+          vscode.LanguageModelChatMessage.Assistant(surveyRawText)
+        );
+        surveyMessages.push(
+          vscode.LanguageModelChatMessage.User(
+            "Your survey response was malformed. You MUST return ONLY a JSON object in a ```json codeblock containing the required keys: realistic, sus1..sus10, toolHelpfulFeedback, toolUsabilityFeedback, workflowFitFeedback, toolImprovementFeedback, studyImprovementFeedback."
+          )
+        );
+        log(
+          `  ${prefix} [REPROMPT] Survey response malformed. Reprompting agent (attempt ${surveyAttempts}/${maxSurveyRetries})...`
+        );
+        if (baseDelayMs > 0) {
+          const delay = Math.min(
+            60000,
+            baseDelayMs * Math.pow(1.6, surveyAttempts - 1)
+          );
+          const delayMs = delay + Math.floor(Math.random() * 3000);
+          await new Promise((res) => setTimeout(res, delayMs));
+        }
+      }
+    } catch (err: unknown) {
+      if (token?.isCancellationRequested) {
+        log(`  ${prefix} [CANCEL] Survey request cancelled by user.`);
+        break;
+      }
+
+      const errStr = String(err);
+
+      // Check if context length was exceeded
+      const isTokenLimitExceeded =
+        errStr.includes("exceeds the maximum number of tokens") ||
+        errStr.includes("maximum number of tokens allowed") ||
+        errStr.includes("input token count") ||
+        errStr.includes("context_length_exceeded") ||
+        errStr.includes("prompt is too long");
+
+      if (isTokenLimitExceeded) {
+        const initialTurns = Math.floor((surveyMessages.length - 1) / 2);
+        if (initialTurns > 1) {
+          const targetTurns = Math.max(1, Math.floor(initialTurns * 0.75));
+          const turnsToPrune = initialTurns - targetTurns;
+          surveyMessages.splice(1, turnsToPrune * 2);
+          log(
+            `  ${prefix} [PRUNE] Context token limit exceeded in survey. Pruned oldest ${turnsToPrune} turns. Resending survey request...`
+          );
+          surveyAttempts = Math.max(0, surveyAttempts - 1);
+          continue;
+        }
+      }
+
+      const isTransient =
+        errStr.includes("503") ||
+        errStr.includes("429") ||
+        errStr.includes("UNAVAILABLE") ||
+        errStr.includes("RESOURCE_EXHAUSTED") ||
+        errStr.includes("high demand") ||
+        errStr.includes("Empty response") ||
+        errStr.includes("ECONNRESET") ||
+        errStr.includes("ETIMEDOUT") ||
+        errStr.includes("terminated") ||
+        errStr.includes("fetch failed") ||
+        errStr.includes("network") ||
+        errStr.includes("socket hang up");
+
+      if (!isTransient || surveyAttempts >= maxSurveyRetries) {
+        log(
+          `  ${prefix} [FAILED SURVEY] Post-task survey failed (attempt ${surveyAttempts}/${maxSurveyRetries}): ${errStr}`
+        );
+        break;
+      }
+
+      if (onRetry) {
+        onRetry(surveyAttempts, errStr);
+      }
+      if (baseDelayMs > 0) {
+        const delay = Math.min(
+          60000,
+          baseDelayMs * Math.pow(1.6, surveyAttempts - 1)
+        );
+        const delayMs = delay + Math.floor(Math.random() * 3000);
+        log(
+          `  ${prefix} [RETRY SURVEY] Model busy/empty stream (attempt ${surveyAttempts}/${maxSurveyRetries}): ${errStr}. Waiting ${Math.round(delayMs / 1000)}s before retry...`
+        );
+        await new Promise((res) => setTimeout(res, delayMs));
+      }
+    }
+  }
+
+  return { survey, rawSurveyOutputs };
+} // fn: collectPostTaskSurvey
+
 // ============================================================================
 // Bug Scoring & data.csv Exporter
 // ============================================================================
 
-interface BugEvaluationResult {
-  bug: GroundTruthBug;
-  elicited: number; // 1 or 0
-  reported: number; // 1 or 0
-  generator: string;
+export interface ModelIdentity {
+  id: string;
+  name: string;
+  vendor: string;
+  family?: string;
+  version?: string;
 }
 
-function evaluateBugsForParticipant(
+export function getModelIdentity(
+  m?: vscode.LanguageModelChat
+): ModelIdentity | undefined {
+  if (!m) return undefined;
+  return {
+    id: m.id,
+    name: m.name,
+    vendor: m.vendor,
+    family: m.family,
+    version: m.version,
+  };
+}
+
+export interface JurySlot {
+  slot: number; // 1, 2, 3
+  requested: string;
+  model?: vscode.LanguageModelChat;
+  actualModel?: ModelIdentity;
+}
+
+export interface JuryPanel {
+  slots?: JurySlot[];
+  gemini?: vscode.LanguageModelChat;
+  claude?: vscode.LanguageModelChat;
+  gpt4o?: vscode.LanguageModelChat;
+}
+
+export interface JurorRating {
+  slot?: number;
+  juror: string; // actual model identifier or slot name
+  requested?: string;
+  modelInfo?: ModelIdentity;
+  elicitedInReport: boolean;
+  creditEarned: number;
+  deduction: number;
+  netScore: number;
+  evidenceQuote: string;
+  rationale: string;
+}
+
+export interface JurorScoreEntry {
+  slot?: number;
+  requestedModel?: string;
+  actualModel?: ModelIdentity;
+  netScore: number;
+  credit: number;
+  deduction: number;
+  rationale?: string;
+  modelInfo?: ModelIdentity;
+}
+
+export interface BugEvaluationResult {
+  bug: GroundTruthBug;
+  elicited: number; // 1 or 0
+  detected?: number; // 1 or 0
+  detectionType?: string;
+  reported: number; // 1 or 0
+  generator: string;
+  creditEarned?: number;
+  deduction?: number;
+  netScore?: number;
+  evidenceQuote?: string;
+  rationale?: string;
+  jurorScores?: Record<string, JurorScoreEntry>;
+  consensusMethod?: "poll_protocol_b_median" | "single_model";
+}
+
+export async function selectJuryModels(
+  primaryModel?: vscode.LanguageModelChat
+): Promise<JuryPanel> {
+  const configuredModels = Config.get<string[]>(
+    "nanofuzz.benchmark.juryModels",
+    ["gemini-3.8-flash", "claude-sonnet-5.5", "gpt-4o-mini"]
+  );
+
+  const slots: JurySlot[] = configuredModels.map((target, idx) => ({
+    slot: idx + 1,
+    requested: target,
+  }));
+
+  if (!vscode.lm || typeof vscode.lm.selectChatModels !== "function") {
+    if (primaryModel && slots.length > 0) {
+      slots[0].model = primaryModel;
+      slots[0].actualModel = getModelIdentity(primaryModel);
+    }
+    return {
+      slots,
+      gemini: slots[0]?.model,
+    };
+  }
+
+  const all = await vscode.lm.selectChatModels();
+
+  for (const s of slots) {
+    const target = s.requested.trim();
+    if (!target) continue;
+
+    // Slot 1: prefer primaryModel if it's already the primary agent model and matches
+    if (s.slot === 1 && primaryModel) {
+      const pid = primaryModel.id.toLowerCase();
+      const t = target.toLowerCase();
+      if (
+        pid === t ||
+        pid.includes(t) ||
+        (t.includes("gemini") && pid.includes("gemini"))
+      ) {
+        s.model = primaryModel;
+        s.actualModel = getModelIdentity(primaryModel);
+        continue;
+      }
+    }
+
+    const t = target.toLowerCase();
+    // Exact match on id, name, or family
+    let matched =
+      all.find((m) => m.id === target || m.id.toLowerCase() === t) ||
+      all.find((m) => m.name === target || m.name?.toLowerCase() === t) ||
+      all.find((m) => m.family === target || m.family?.toLowerCase() === t);
+
+    // Structured vendor/path match (e.g. "gemini/Gemini-Paid/models/gemini-3.8-flash")
+    if (!matched) {
+      matched = all.find((m) => {
+        const matchesId =
+          target.endsWith(m.id) || t.endsWith(m.id.toLowerCase());
+        const matchesVendor = !m.vendor || t.includes(m.vendor.toLowerCase());
+        return matchesId && matchesVendor;
+      });
+    }
+
+    if (matched) {
+      s.model = matched;
+      s.actualModel = getModelIdentity(matched);
+    } else {
+      log(
+        `[JURY] [ERROR] Configured model '${target}' for Slot ${s.slot} was not found among available models: ` +
+          all.map((m) => `${m.vendor}:${m.id}`).join(", ")
+      );
+    }
+  }
+
+  if (slots.length > 0 && !slots[0].model && primaryModel) {
+    slots[0].model = primaryModel;
+    slots[0].actualModel = getModelIdentity(primaryModel);
+  }
+
+  const fmtSlot = (s: JurySlot) =>
+    `Slot ${s.slot} (requested: '${s.requested}'): ` +
+    (s.actualModel
+      ? `actual='${s.actualModel.id}' (name: '${s.actualModel.name}', vendor: '${s.actualModel.vendor}')`
+      : `actual='none'`);
+
+  log(
+    `[JURY] Initialized ${slots.length}-slot evaluation jury from config:\n` +
+      slots.map((s) => `  - ${fmtSlot(s)}`).join("\n")
+  );
+
+  return {
+    slots,
+    gemini: slots[0]?.model,
+    claude: slots[1]?.model,
+    gpt4o: slots[2]?.model,
+  };
+}
+
+/**
+ * Validates that all configured jury slots in 'nanofuzz.benchmark.juryModels'
+ * successfully resolved to real models in VS Code. Fails with a critical error if any model is missing.
+ */
+export async function validateJuryModels(
+  primaryModel?: vscode.LanguageModelChat
+): Promise<JuryPanel> {
+  const jury = await selectJuryModels(primaryModel);
+  const unempaneled = (jury.slots || []).filter((s) => !s.model);
+  if (unempaneled.length > 0) {
+    let availableStr = "none";
+    if (vscode.lm && typeof vscode.lm.selectChatModels === "function") {
+      const all = await vscode.lm.selectChatModels();
+      availableStr = all.map((m) => `${m.vendor}:${m.id}`).join(", ");
+    }
+    const err =
+      `CRITICAL: Jury configuration error. The following juror model(s) from 'nanofuzz.benchmark.juryModels' could not be resolved: ` +
+      unempaneled.map((s) => `Slot ${s.slot} ('${s.requested}')`).join(", ") +
+      `. Available models in VS Code: [${availableStr}]. Check your settings before running.`;
+    log(`[JURY] [FATAL] ${err}`);
+    if (vscode.window && typeof vscode.window.showErrorMessage === "function") {
+      vscode.window.showErrorMessage(err);
+    }
+    throw new Error(err);
+  }
+  return jury;
+}
+
+export function computeProtocolBMedian(ratings: JurorRating[]): {
+  creditEarned: number;
+  deduction: number;
+  netScore: number;
+  elicitedInReport: boolean;
+  evidenceQuote: string;
+  rationale: string;
+  jurorScores: Record<string, JurorScoreEntry>;
+  consensusMethod: "poll_protocol_b_median" | "single_model";
+} {
+  if (ratings.length === 0) {
+    return {
+      creditEarned: 0,
+      deduction: 0,
+      netScore: 0,
+      elicitedInReport: false,
+      evidenceQuote: "",
+      rationale: "No jurors available.",
+      jurorScores: {},
+      consensusMethod: "single_model",
+    };
+  }
+
+  const jurorScores: Record<string, JurorScoreEntry> = {};
+  for (const r of ratings) {
+    const entry: JurorScoreEntry = {
+      slot: r.slot,
+      requestedModel: r.requested,
+      actualModel: r.modelInfo,
+      netScore: r.netScore,
+      credit: r.creditEarned,
+      deduction: r.deduction,
+      rationale: r.rationale,
+      modelInfo: r.modelInfo,
+    };
+    if (r.slot) {
+      jurorScores[`slot${r.slot}`] = entry;
+      if (r.slot === 1 && !jurorScores.gemini) jurorScores.gemini = entry;
+      else if (r.slot === 2 && !jurorScores.claude) jurorScores.claude = entry;
+      else if (r.slot === 3 && !jurorScores.gpt4o) jurorScores.gpt4o = entry;
+    }
+    if (r.juror && !jurorScores[r.juror]) {
+      jurorScores[r.juror] = entry;
+    }
+  }
+
+  if (ratings.length === 1) {
+    const single = ratings[0];
+    return {
+      creditEarned: single.creditEarned,
+      deduction: single.deduction,
+      netScore: single.netScore,
+      elicitedInReport: single.elicitedInReport,
+      evidenceQuote: single.evidenceQuote,
+      rationale: single.rationale,
+      jurorScores,
+      consensusMethod: "single_model",
+    };
+  }
+
+  // Median voting across the 3-model jury (Verga et al., 2024)
+  const sortedByNet = [...ratings].sort((a, b) => a.netScore - b.netScore);
+  const midIdx = Math.floor(sortedByNet.length / 2);
+  const medianRating = sortedByNet[midIdx];
+
+  const sortedCredits = [...ratings]
+    .map((r) => r.creditEarned)
+    .sort((a, b) => a - b);
+  const sortedDeductions = [...ratings]
+    .map((r) => r.deduction)
+    .sort((a, b) => a - b);
+  const medianCredit = sortedCredits[Math.floor(sortedCredits.length / 2)];
+  const medianDeduction =
+    sortedDeductions[Math.floor(sortedDeductions.length / 2)];
+
+  // Plurality: defect reported by at least half of the jury
+  const elicitedCount = ratings.filter((r) => r.elicitedInReport).length;
+  const elicitedInReport = elicitedCount >= Math.ceil(ratings.length / 2);
+
+  const jurorBreakdown = ratings
+    .map((r) => {
+      const label = r.modelInfo?.id || (r.slot ? `Slot ${r.slot}` : r.juror);
+      return `${label}:${r.netScore > 0 ? `+${r.netScore}` : r.netScore}`;
+    })
+    .join(", ");
+
+  return {
+    creditEarned: medianCredit,
+    deduction: medianDeduction,
+    netScore: medianRating.netScore,
+    elicitedInReport,
+    evidenceQuote: medianRating.evidenceQuote,
+    rationale: `[PoLL Protocol B Median: ${medianRating.netScore} (${jurorBreakdown})] ${medianRating.rationale}`,
+    jurorScores,
+    consensusMethod: "poll_protocol_b_median",
+  };
+}
+
+async function querySingleJuror(
+  model: vscode.LanguageModelChat,
+  slot: number,
+  requested: string,
+  prompt: string,
+  token?: vscode.CancellationToken
+): Promise<JurorRating> {
+  const modelInfo = getModelIdentity(model);
+  const actualId = modelInfo?.id || `slot-${slot}`;
+  let creditEarned = 0;
+  let deduction = 0;
+  let netScore = 0;
+  let elicitedInReport = false;
+  let evidenceQuote = "";
+  let rationale = "";
+
+  try {
+    const rawText = await sendRequestWithTimeout(
+      model,
+      [vscode.LanguageModelChatMessage.User(prompt)],
+      { tools: [] },
+      async (response) => {
+        let text = "";
+        for await (const chunk of response.stream) {
+          if (chunk instanceof vscode.LanguageModelTextPart) {
+            text += chunk.value;
+          }
+        }
+        return text;
+      },
+      token,
+      400_000
+    );
+
+    const jsonMatch =
+      rawText.match(/```(?:json)?\s*([\s\S]*?)\s*```/) ||
+      rawText.match(/(\{[\s\S]*\})/);
+
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[1]);
+      elicitedInReport = Boolean(parsed.elicited_in_report);
+      creditEarned = Number(parsed.credit_earned) || 0;
+      deduction = Number(parsed.deduction) || 0;
+      netScore = Number(parsed.net_score) || creditEarned - deduction;
+      evidenceQuote = String(parsed.evidence_quote || "");
+      rationale = String(parsed.rationale || "");
+    }
+  } catch (err: unknown) {
+    log(
+      `[JUDGE] [WARN] Juror Slot ${slot} (${actualId}) evaluation error: ${String(err)}`
+    );
+  }
+
+  return {
+    slot,
+    juror: actualId,
+    requested,
+    modelInfo,
+    elicitedInReport,
+    creditEarned,
+    deduction,
+    netScore,
+    evidenceQuote,
+    rationale,
+  };
+}
+
+function buildJudgePrompt(
+  taskName: string,
+  bug: GroundTruthBug,
+  reportText: string
+): string {
+  return [
+    "You are an expert empirical software testing researcher scoring an autonomous agent's bug report according to the formal TerzoN study rubric.",
+    "",
+    `### Task Program:`,
+    `${taskName}`,
+    "",
+    `### Ground Truth Defect Under Evaluation:`,
+    `- Bug ID: ${bug.id}`,
+    `- Summary: ${bug.name}`,
+    `- Primary Exception / Symptom: ${bug.exceptionClass || "Exception / Failure"}`,
+    `- Expected Exact Failure Domain (D*): ${bug.exactFailureDomain || ""}`,
+    `- Partial Failure Domain (Strict Subset): ${bug.partialFailureDomain || ""}`,
+    `- Safe / Allowed Domain (Valid Inputs): ${bug.safeValidDomain || ""}`,
+    `- Overgeneralization Triggers: ${bug.overgeneralizationTriggers || ""}`,
+    "",
+    `### Agent's Submitted Bug Report:`,
+    '"""',
+    reportText,
+    '"""',
+    "",
+    `### Scoring Rules (TerzoN Rubric: Net Score range -0.5 to +1.0):`,
+    `1. Credit Earned:`,
+    `   - +1.0: The report explicitly identifies this defect AND characterizes the full failure domain D* accurately.`,
+    `   - +0.5: The report identifies this defect, but only describes a strict subset of D* (under-generalization), or describes the crash symptom with only a single concrete example without identifying the general boundary.`,
+    `   -  0.0: The report does not mention this defect, or attributes the crash to an unrelated cause.`,
+    "",
+    `2. Deduction (Overgeneralization Penalty):`,
+    `   - -0.5 deduction: The agent's described domain includes allowed/safe inputs where the program behaves correctly (falsely claiming non-bugs fail).`,
+    `   -  0.0 deduction: No over-generalization into safe input territory.`,
+    "",
+    `3. Net Score:`,
+    `   net_score = credit_earned - deduction`,
+    `   Allowable net scores per bug: +1.0, +0.5, 0.0, -0.5.`,
+    "",
+    "Return STRICTLY a JSON object in a ```json codeblock:",
+    "```json",
+    "{",
+    `  "bug_id": "${bug.id}",`,
+    '  "elicited_in_report": true,',
+    '  "credit_earned": 1.0,',
+    '  "deduction": 0.0,',
+    '  "net_score": 1.0,',
+    '  "evidence_quote": "Exact quote from agent report",',
+    '  "rationale": "Concise justification for score category."',
+    "}",
+    "```",
+  ].join("\n");
+}
+
+export async function evaluateBugsWithLlmJudge(
+  modelOrJury: vscode.LanguageModelChat | JuryPanel,
   task: BenchmarkTaskName,
-  _reportText: string,
-  _fuzzRuns: Array<{
+  reportText: string,
+  fuzzRuns: Array<{
     functionName: string;
     failedTests: number;
     exceptions: number;
     generatorName?: string;
     details?: string;
-  }>
-): BugEvaluationResult[] {
+  }>,
+  token?: vscode.CancellationToken
+): Promise<BugEvaluationResult[]> {
   const taskBugs = GROUND_TRUTH_BUGS[task] || [];
-  return taskBugs.map((bug) => ({
-    bug,
-    elicited: 0,
-    reported: 0,
-    generator: "PENDING_EVAL",
-  }));
+  const failingRuns = fuzzRuns.filter(
+    (r) => (r.failedTests ?? 0) > 0 || (r.exceptions ?? 0) > 0
+  );
+  const generatorName =
+    failingRuns.find((r) => r.generatorName)?.generatorName || "NaNofuzz";
+
+  if (!reportText.trim()) {
+    return taskBugs.map((bug) => ({
+      bug,
+      elicited: 0,
+      reported: 0,
+      generator: "None",
+      creditEarned: 0,
+      deduction: 0,
+      netScore: 0,
+      evidenceQuote: "",
+      rationale: "No report generated.",
+      jurorScores: {},
+      consensusMethod: "poll_protocol_b_median",
+    }));
+  }
+
+  const jury: JuryPanel =
+    "sendRequest" in modelOrJury
+      ? {
+          slots: [
+            {
+              slot: 1,
+              requested: "primary",
+              model: modelOrJury,
+              actualModel: getModelIdentity(modelOrJury),
+            },
+          ],
+          gemini: modelOrJury,
+        }
+      : modelOrJury;
+
+  const results: BugEvaluationResult[] = [];
+
+  for (const bug of taskBugs) {
+    const prompt = buildJudgePrompt(task, bug, reportText);
+
+    const jurorQueries: Promise<JurorRating>[] = [];
+    if (jury.slots && Array.isArray(jury.slots) && jury.slots.length > 0) {
+      for (const s of jury.slots) {
+        if (s.model) {
+          jurorQueries.push(
+            querySingleJuror(s.model, s.slot, s.requested, prompt, token)
+          );
+        }
+      }
+    } else {
+      if (jury.gemini) {
+        jurorQueries.push(
+          querySingleJuror(jury.gemini, 1, "gemini-3.8-flash", prompt, token)
+        );
+      }
+      if (jury.claude) {
+        jurorQueries.push(
+          querySingleJuror(jury.claude, 2, "claude-3.5-sonnet", prompt, token)
+        );
+      }
+      if (jury.gpt4o) {
+        jurorQueries.push(
+          querySingleJuror(jury.gpt4o, 3, "gpt-4o", prompt, token)
+        );
+      }
+    }
+
+    const ratings = await Promise.all(jurorQueries);
+    const consensus = computeProtocolBMedian(ratings);
+
+    const reported =
+      consensus.elicitedInReport && consensus.creditEarned > 0 ? 1 : 0;
+    const elicited = failingRuns.length > 0 && reported === 1 ? 1 : 0;
+    const generator = elicited === 1 ? generatorName : "None";
+
+    results.push({
+      bug,
+      elicited,
+      reported,
+      generator,
+      creditEarned: consensus.creditEarned,
+      deduction: consensus.deduction,
+      netScore: consensus.netScore,
+      evidenceQuote: consensus.evidenceQuote,
+      rationale: consensus.rationale,
+      jurorScores: consensus.jurorScores,
+      consensusMethod: consensus.consensusMethod,
+    });
+  }
+
+  return results;
 }
 
-function writeScoringSheet(
+export function writeScoringSheet(
   run: BenchmarkRunSpec,
   evalResults: BugEvaluationResult[],
   normalizedScore: string,
@@ -488,8 +1602,8 @@ function writeScoringSheet(
   splits: ParticipantPhaseSplits,
   survey?: ParticipantSurvey
 ): void {
-  if (!fs.existsSync(SCORING_SHEETS_DIR)) {
-    fs.mkdirSync(SCORING_SHEETS_DIR, { recursive: true });
+  if (!fs.existsSync(getScoringSheetsDir())) {
+    fs.mkdirSync(getScoringSheetsDir(), { recursive: true });
   }
 
   const lines = [
@@ -523,20 +1637,90 @@ function writeScoringSheet(
     );
   }
 
-  lines.push(
-    "",
-    `## Ground-Truth Defect Scoring Breakdown`,
-    "",
-    `| Bug ID | Defect Name | Elicited? | Reported? | Eliciting Generator |`,
-    `| :--- | :--- | :---: | :---: | :--- |`
+  const hasJuryBreakdown = evalResults.some(
+    (r) => r.jurorScores && Object.keys(r.jurorScores).length > 1
   );
 
-  for (const r of evalResults) {
-    const elIcon = r.elicited === 1 ? "1" : "0";
-    const repIcon = r.reported === 1 ? "0" : "0";
+  if (hasJuryBreakdown) {
+    const jurorScores =
+      evalResults.find((r) => r.jurorScores)?.jurorScores || {};
+    const s1 = jurorScores.slot1 || jurorScores.gemini;
+    const s2 = jurorScores.slot2 || jurorScores.claude;
+    const s3 = jurorScores.slot3 || jurorScores.gpt4o;
+
+    const s1Info = s1?.actualModel || s1?.modelInfo;
+    const s2Info = s2?.actualModel || s2?.modelInfo;
+    const s3Info = s3?.actualModel || s3?.modelInfo;
+
+    const s1Id = s1Info?.id || "slot-1";
+    const s2Id = s2Info?.id || "slot-2";
+    const s3Id = s3Info?.id || "slot-3";
+
+    const s1Vendor = s1Info?.vendor ? ` (${s1Info.vendor})` : "";
+    const s2Vendor = s2Info?.vendor ? ` (${s2Info.vendor})` : "";
+    const s3Vendor = s3Info?.vendor ? ` (${s3Info.vendor})` : "";
+
+    const s1Req = s1?.requestedModel
+      ? ` [Requested: \`${s1.requestedModel}\`]`
+      : "";
+    const s2Req = s2?.requestedModel
+      ? ` [Requested: \`${s2.requestedModel}\`]`
+      : "";
+    const s3Req = s3?.requestedModel
+      ? ` [Requested: \`${s3.requestedModel}\`]`
+      : "";
+
     lines.push(
-      `| \`${r.bug.id}\` | ${r.bug.name} | ${elIcon} | ${repIcon} | \`${r.generator}\` |`
+      "",
+      `## Ground-Truth Defect Scoring Breakdown (PoLL Protocol B Jury)`,
+      "",
+      `- **Slot 1**: \`${s1Id}\`${s1Vendor}${s1Req}`,
+      `- **Slot 2**: \`${s2Id}\`${s2Vendor}${s2Req}`,
+      `- **Slot 3**: \`${s3Id}\`${s3Vendor}${s3Req}`,
+      "",
+      `| Bug ID | Defect Name | Elicited? | Reported? | ${s1Id} | ${s2Id} | ${s3Id} | Median Net | Generator |`,
+      `| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :--- |`
     );
+
+    for (const r of evalResults) {
+      const elIcon = r.elicited === 1 ? "1" : "0";
+      const repIcon = r.reported === 1 ? "1" : "0";
+      const scores = r.jurorScores || {};
+      const fmt = (val: number | undefined) =>
+        val !== undefined
+          ? val > 0
+            ? `+${val.toFixed(1)}`
+            : val.toFixed(1)
+          : "-";
+      const v1 = fmt((scores.slot1 || scores.gemini)?.netScore);
+      const v2 = fmt((scores.slot2 || scores.claude)?.netScore);
+      const v3 = fmt((scores.slot3 || scores.gpt4o)?.netScore);
+      const net = (r.netScore ?? (r.reported === 1 ? 1.0 : 0.0)).toFixed(1);
+      lines.push(
+        `| \`${r.bug.id}\` | ${r.bug.name} | ${elIcon} | ${repIcon} | ${v1} | ${v2} | ${v3} | ${net} | \`${r.generator}\` |`
+      );
+    }
+  } else {
+    lines.push(
+      "",
+      `## Ground-Truth Defect Scoring Breakdown`,
+      "",
+      `| Bug ID | Defect Name | Elicited? | Detected? | Credit | Penalty | Net Score | Eliciting Generator |`,
+      `| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :--- |`
+    );
+
+    for (const r of evalResults) {
+      const elIcon = r.elicited === 1 ? "1" : "0";
+      const detIcon = r.detected === 1 ? "1" : "0";
+      const credit = (r.creditEarned ?? (r.reported === 1 ? 1.0 : 0.0)).toFixed(
+        1
+      );
+      const deduction = (r.deduction ?? 0.0).toFixed(1);
+      const net = (r.netScore ?? (r.reported === 1 ? 1.0 : 0.0)).toFixed(1);
+      lines.push(
+        `| \`${r.bug.id}\` | ${r.bug.name} | ${elIcon} | ${detIcon} | ${credit} | ${deduction} | ${net} | \`${r.generator}\` |`
+      );
+    }
   }
 
   if (survey) {
@@ -569,8 +1753,10 @@ function writeScoringSheet(
   }
 
   lines.push("");
+  const participantArtifactsDir = path.join(getArtifactsDir(), run.participant);
+  fs.mkdirSync(participantArtifactsDir, { recursive: true });
   const sheetPath = path.join(
-    SCORING_SHEETS_DIR,
+    participantArtifactsDir,
     `scoring_sheet_${run.participant}.md`
   );
   fs.writeFileSync(sheetPath, lines.join("\n"), "utf8");
@@ -587,6 +1773,8 @@ function appendToDataCsv(
   totalFuzzRuns: number,
   totalTests: number,
   branchCoverage: number,
+  branchesCovered: number = 0,
+  branchesTotal: number = 0,
   survey?: ParticipantSurvey
 ): void {
   const headerCols = [
@@ -626,11 +1814,15 @@ function appendToDataCsv(
     "TotalFuzzRuns",
     "TotalTestsExecuted",
     "BranchCoveragePct",
+    "BranchesCovered",
+    "BranchesTotal",
     "TaskBugCount",
     "BugsElicited",
+    "BugsDetected",
     "NormalizedScore",
     "Accuracy",
     "Realistic",
+    "TaskConfidence",
     "SUS_Score",
     "SUS1",
     "SUS2",
@@ -649,12 +1841,20 @@ function appendToDataCsv(
 
   const taskBugCount = evalResults.length;
   const bugsElicited = evalResults.filter((r) => r.elicited === 1).length;
+  const bugsDetected = evalResults.filter((r) => r.detected === 1).length;
   const score =
     taskBugCount > 0 ? (bugsElicited / taskBugCount).toFixed(3) : "0.000";
 
-  const bugsReported = evalResults.filter((r) => r.reported === 1).length;
-  const accuracy =
-    taskBugCount > 0 ? (bugsReported / taskBugCount).toFixed(3) : "0.000";
+  const totalNetScore = evalResults.reduce(
+    (sum, r) => sum + (r.netScore ?? (r.reported === 1 ? 1.0 : 0.0)),
+    0
+  );
+  const hasAccuracyScores =
+    evalResults.length > 0 &&
+    evalResults.some((r) => r.netScore !== undefined);
+  const accuracy = hasAccuracyScores
+    ? Math.max(-0.5, Math.min(1.0, totalNetScore / taskBugCount)).toFixed(3)
+    : "N/A";
 
   const generators = evalResults
     .filter((r) => r.elicited === 1)
@@ -669,6 +1869,12 @@ function appendToDataCsv(
     }
     return "#N/A";
   });
+
+  const reportPath = run.reportPath || path.join(getReportsDir(), run.reportFilename);
+  const hasBugReport =
+    fs.existsSync(reportPath) && fs.statSync(reportPath).size > 0;
+  const isIncomplete = !hasBugReport || !survey;
+  const statusStr = isIncomplete ? "INCOMPLETE" : "COMPLETED";
 
   const rowCols = [
     run.participant,
@@ -707,11 +1913,15 @@ function appendToDataCsv(
     String(totalFuzzRuns),
     String(totalTests),
     branchCoverage.toFixed(1),
+    String(branchesCovered),
+    String(branchesTotal),
     String(taskBugCount),
     String(bugsElicited),
+    String(bugsDetected),
     score,
     accuracy,
     survey ? String(survey.realistic) : "",
+    survey ? String(survey.taskConfidence) : "",
     survey ? survey.susScore.toFixed(1) : "",
     survey ? String(survey.sus1) : "",
     survey ? String(survey.sus2) : "",
@@ -724,26 +1934,26 @@ function appendToDataCsv(
     survey ? String(survey.sus9) : "",
     survey ? String(survey.sus10) : "",
     `"${generators || "None"}"`,
-    "INCOMPLETE",
+    statusStr,
     ...bugCols,
   ];
 
   fileWriteChain = fileWriteChain.then(async () => {
-    if (!fs.existsSync(REPORTS_DIR)) {
-      fs.mkdirSync(REPORTS_DIR, { recursive: true });
+    if (!fs.existsSync(getReportsDir())) {
+      fs.mkdirSync(getReportsDir(), { recursive: true });
     }
 
-    const fileExists = fs.existsSync(DATA_CSV_PATH);
+    const fileExists = fs.existsSync(getDataCsvPath());
     if (!fileExists) {
-      fs.writeFileSync(DATA_CSV_PATH, headerCols.join(",") + "\n", "utf8");
+      fs.writeFileSync(getDataCsvPath(), headerCols.join(",") + "\n", "utf8");
     }
 
-    fs.appendFileSync(DATA_CSV_PATH, rowCols.join(",") + "\n", "utf8");
+    fs.appendFileSync(getDataCsvPath(), rowCols.join(",") + "\n", "utf8");
     log(
       `[DATA] Recorded ${run.participant} row in data.csv (Score: ${score}, SUS: ${survey ? survey.susScore.toFixed(1) : "N/A"})`
     );
 
-    // Write individual participant scoring sheet
+    // Write individual participant scoring sheet into artifacts/<participant>/
     writeScoringSheet(run, evalResults, score, durationSec, splits, survey);
   });
 } // fn: appendToDataCsv
@@ -756,9 +1966,9 @@ export function initializeConcurrentWorktrees(
   lanes: number = CONCURRENCY_LANES
 ): void {
   fs.mkdirSync(WORKTREES_DIR, { recursive: true });
-  fs.mkdirSync(RESULTS_DIR, { recursive: true });
-  fs.mkdirSync(TELEMETRY_DIR, { recursive: true });
-  fs.mkdirSync(SCORING_SHEETS_DIR, { recursive: true });
+  fs.mkdirSync(getResultsDir(), { recursive: true });
+  fs.mkdirSync(getTelemetryDir(), { recursive: true });
+  fs.mkdirSync(getArtifactsDir(), { recursive: true });
 
   execSync(`git -C "${SOURCE_REPO}" worktree prune`, { stdio: "pipe" });
 
@@ -808,6 +2018,8 @@ export function cleanLane(laneId: number): void {
 
   // De-reference cached raw fuzz results to allow V8 garbage collection
   clearCachedRawResultsForPath(wtPath);
+  clearExcludedCoverageFiles(wtPath);
+  delete process.env.NANOFUZZ_COVERAGE_INCLUDE_FILES;
 } // fn: cleanLane
 
 export function cleanTargetRepo(): void {
@@ -817,10 +2029,14 @@ export function cleanTargetRepo(): void {
 } // fn: cleanTargetRepo
 
 export function configureRunSettings(): void {
-  // Pre-approve workspace edits so no modal dialogs appear
+  // Pre-approve workspace edits and suppress tool confirmation dialogs in benchmark mode
   Config.override("chat.tools.edits.autoApprove", {
     "**/*": true,
   });
+  Config.override("nanofuzz.benchmarkMode", true);
+  Config.override("nanofuzz.fuzzer.coverageScope", "project");
+  Config.override("nanofuzz.experimental.findBugs.deepTimeoutMs", 60000);
+  Config.override("nanofuzz.experimental.findBugs.maxRetries", 4);
 }
 
 // ============================================================================
@@ -831,8 +2047,17 @@ export async function runSingleBenchmarkSession(
   run: BenchmarkRunSpec,
   totalRuns: number,
   laneId: number = 1,
-  token?: vscode.CancellationToken
-): Promise<{ success: boolean; durationSec: number; error?: string }> {
+  token?: vscode.CancellationToken,
+  customModel?: vscode.LanguageModelChat
+): Promise<{
+  success: boolean;
+  incomplete?: boolean;
+  durationSec: number;
+  score?: string;
+  bugsElicited?: number;
+  taskBugCount?: number;
+  error?: string;
+}> {
   const t0 = Date.now();
   const prefix = `[${run.participant} (L${laneId})]`;
   const laneRepoPath = path.join(WORKTREES_DIR, `w${laneId}`);
@@ -852,7 +2077,58 @@ export async function runSingleBenchmarkSession(
 
   // Clean lane worktree, reset session state, and apply settings
   cleanLane(laneId);
+
+  const elicitationLogPath = path.join(laneRepoPath, "elicited_bugs.json");
+  if (fs.existsSync(elicitationLogPath)) {
+    try {
+      fs.unlinkSync(elicitationLogPath);
+    } catch {
+      // Non-fatal
+    }
+  }
+
+  const laneSrc = path.join(laneRepoPath, "src");
+  const scriptsDir = path.join(WORKSPACE_ROOT, "benchmark", "scripts");
+  const currentPyPath = process.env.PYTHONPATH
+    ? process.env.PYTHONPATH.split(path.delimiter)
+    : [];
+  const neededPaths = [laneSrc, scriptsDir].filter(
+    (p) => fs.existsSync(p) && !currentPyPath.includes(p)
+  );
+  if (neededPaths.length > 0) {
+    process.env.PYTHONPATH = [...neededPaths, ...currentPyPath].join(path.delimiter);
+  }
+  process.env.NANOFUZZ_PROJECT_ROOT = laneRepoPath;
+  process.env.NANOFUZZ_DYNAMIC_BUG_ELICITATION = "1";
+  const laneVenv = path.join(laneRepoPath, ".venv");
+  if (fs.existsSync(laneVenv)) {
+    process.env.VIRTUAL_ENV = laneVenv;
+  }
+  process.env.SKBUILD_EDITABLE_SKIP = path.join(
+    WORKSPACE_ROOT,
+    "benchmark",
+    "target",
+    "build"
+  );
+
+  // Load target coverage files for this task if defined in target_coverage_files.json
+  try {
+    const mapFile = path.join(WORKSPACE_ROOT, "benchmark", "scripts", "target_coverage_files.json");
+    if (fs.existsSync(mapFile)) {
+      const mapData = JSON.parse(fs.readFileSync(mapFile, "utf8"));
+      if (Array.isArray(mapData[run.task])) {
+        const absTargets = mapData[run.task].map((rel: string) => path.join(laneRepoPath, rel));
+        setTargetCoverageFiles(absTargets, laneRepoPath);
+        process.env.NANOFUZZ_COVERAGE_INCLUDE_FILES = JSON.stringify(absTargets);
+        process.env.NANOFUZZ_PROJECT_ROOT = laneRepoPath;
+      }
+    }
+  } catch {
+    // Ignore map load error
+  }
+
   sessionManager.clear(sessionId);
+  const sessionCreatedFiles = new Set<string>();
   sessionManager.getOrCreateSession(
     sessionId,
     run.engine,
@@ -860,7 +2136,9 @@ export async function runSingleBenchmarkSession(
     1,
     "init",
     run.targetScope,
-    laneRepoPath
+    laneRepoPath,
+    true,
+    run.reportPath
   );
   configureRunSettings();
 
@@ -884,45 +2162,54 @@ export async function runSingleBenchmarkSession(
     return `${prefix} [Phase ${p}]`;
   };
 
-  // Select Chat Model: Strictly require Gemini 3.8 Flash under "Google (paid)" / vendor "gemini"
-  if (!vscode.lm || typeof vscode.lm.selectChatModels !== "function") {
-    throw new Error(
-      "vscode.lm API is not available. Please ensure VS Code with Copilot is active."
-    );
-  }
+  const selectChatModel = async (): Promise<vscode.LanguageModelChat> => {
+    if (!vscode.lm || typeof vscode.lm.selectChatModels !== "function") {
+      throw new Error(
+        "vscode.lm API is not available. Please ensure VS Code with Copilot is active."
+      );
+    }
 
-  const all = await vscode.lm.selectChatModels();
-  let models = all.filter(
-    (m) =>
-      (m.id === "gemini-3.8-flash" ||
-        m.family === "gemini-3.8-flash" ||
-        m.name?.includes("3.8") ||
-        m.id.includes("gemini-3.8-flash")) &&
-      (m.vendor.toLowerCase() === "gemini" ||
-        m.vendor.toLowerCase() === "google" ||
-        m.name?.includes("paid") ||
-        (isKeyedObject(m) &&
-          typeof m.vendorDisplayName === "string" &&
-          m.vendorDisplayName.includes("paid")))
-  );
-
-  if (!models || models.length === 0) {
-    models = all.filter(
+    const all = await vscode.lm.selectChatModels();
+    let models = all.filter(
       (m) =>
-        m.id === "gemini-3.8-flash" ||
-        m.family === "gemini-3.8-flash" ||
-        m.id.includes("gemini-3.8-flash")
+        (m.id === "gemini-3.8-flash" ||
+          m.family === "gemini-3.8-flash" ||
+          m.name?.includes("3.8") ||
+          m.id.includes("gemini-3.8-flash")) &&
+        (m.vendor.toLowerCase() === "gemini" ||
+          m.vendor.toLowerCase() === "google" ||
+          m.name?.includes("paid") ||
+          (isKeyedObject(m) &&
+            typeof m.vendorDisplayName === "string" &&
+            m.vendorDisplayName.includes("paid")))
     );
-  }
 
-  if (!models || models.length === 0) {
-    throw new Error(
-      "CRITICAL: Required model 'Gemini 3.8 Flash' under Google (paid) / gemini not found. Available models: " +
-        all.map((m) => `${m.vendor}:${m.id || m.name}`).join(", ")
-    );
-  }
+    if (!models || models.length === 0) {
+      models = all.filter(
+        (m) =>
+          m.id === "gemini-3.8-flash" ||
+          m.family === "gemini-3.8-flash" ||
+          m.id.includes("gemini-3.8-flash")
+      );
+    }
 
-  const model = models[0];
+    if (!models || models.length === 0) {
+      throw new Error(
+        "CRITICAL: Required model 'Gemini 3.8 Flash' under Google (paid) / gemini not found. Available models: " +
+          all.map((m) => `${m.vendor}:${m.id || m.name}`).join(", ")
+      );
+    }
+
+    return models[0];
+  };
+
+  // Select Chat Model: Strictly require Gemini 3.8 Flash under "Google (paid)" / vendor "gemini"
+  let model: vscode.LanguageModelChat;
+  if (customModel) {
+    model = customModel;
+  } else {
+    model = await selectChatModel();
+  }
   log(
     `${prefix} Using Chat Model: ${model.vendor} / ${model.name || model.family || model.id}`
   );
@@ -932,7 +2219,6 @@ export async function runSingleBenchmarkSession(
     "nanofuzz_listTargets",
     "nanofuzz_fuzzFunction",
     "nanofuzz_findBugs",
-    "nanofuzz_shrinkInputs",
     "manage_todo_list",
     "read_file",
     "copilot_readFile",
@@ -959,12 +2245,14 @@ export async function runSingleBenchmarkSession(
   // Clean, focused task prompt
   const initialPrompt = [
     `Target Repository: ${laneRepoPath}`,
+    `Target Language: ${TARGET_LANGUAGE}`,
     `Target Task Entrypoint: ${run.task}`,
     `Testing Engine: ${run.engine}`,
     `Invariant Source: ${run.source}`,
     `Session ID: ${sessionId}`,
     "",
-    `Use NaNofuzz to find bugs in the entrypoint '${run.task}' in ${TARGET_NAME} located at ${laneRepoPath}.`,
+    `Use NaNofuzz to find bugs in the entrypoint '${run.task}' in ${TARGET_NAME} (${TARGET_LANGUAGE}) located at ${laneRepoPath}.`,
+    `LANGUAGE REQUIREMENT: Because ${TARGET_NAME} is a Python codebase, all test harnesses and test files you create MUST be Python files (.py). Do NOT create TypeScript, JavaScript, or other wrapper files.`,
     `STRICT WORKSPACE BOUNDARY: All file operations (read_file, create_file, replace_string_in_file, list_dir, file_search, grep_search) MUST be confined strictly within '${laneRepoPath}'. NEVER attempt to read or access files outside '${laneRepoPath}' (such as other lanes, benchmark telemetry, or the outer nanofuzz workspace). Any access outside '${laneRepoPath}' will be automatically denied.`,
     `(when calling nanofuzz_findBugs, always include statePayload: { sessionId: "${sessionId}" }; after the find_bugs workflow completes, save your bug report to '${run.reportPath}')`,
   ].join("\n");
@@ -1016,7 +2304,7 @@ export async function runSingleBenchmarkSession(
 
   const recordedToolEvents: Array<{
     tool: string;
-    args: unknown;
+    args: Record<string, unknown>;
     timestamp: string;
     result?: string;
     shrinkSteps?: number;
@@ -1051,6 +2339,7 @@ export async function runSingleBenchmarkSession(
     let streamSucceeded = false;
     let attempt = 0;
     const maxRetries = 20;
+    let incidentStart: number | null = null;
 
     while (!streamSucceeded) {
       if (token?.isCancellationRequested) {
@@ -1067,22 +2356,44 @@ export async function runSingleBenchmarkSession(
       assistantText = "";
       toolCalls = [];
       allParts = [];
+      const reqStart = Date.now();
+
+      // On retries, re-acquire model reference in case VS Code chat provider reloaded
+      if (attempt > 1 && !customModel && typeof vscode.lm?.selectChatModels === "function") {
+        try {
+          model = await selectChatModel();
+        } catch (reselectErr: unknown) {
+          log(`  ${tag()} [WARN] Model re-selection during retry failed: ${String(reselectErr)}`);
+        }
+      }
 
       try {
-        const response = await model.sendRequest(
+        const streamResult = await sendRequestWithTimeout(
+          model,
           messages,
           { tools: availableTools },
-          token
+          async (response) => {
+            const streamedParts: AssistantStreamPart[] = [];
+            let streamedText = "";
+            const streamedTools: vscode.LanguageModelToolCallPart[] = [];
+
+            for await (const part of response.stream) {
+              streamedParts.push(cast<AssistantStreamPart>(part));
+              if (part instanceof vscode.LanguageModelTextPart) {
+                streamedText += part.value;
+              } else if (part instanceof vscode.LanguageModelToolCallPart) {
+                streamedTools.push(part);
+              }
+            }
+            return { streamedParts, streamedText, streamedTools };
+          },
+          token,
+          400_000
         );
 
-        for await (const part of response.stream) {
-          allParts.push(cast<AssistantStreamPart>(part));
-          if (part instanceof vscode.LanguageModelTextPart) {
-            assistantText += part.value;
-          } else if (part instanceof vscode.LanguageModelToolCallPart) {
-            toolCalls.push(part);
-          }
-        }
+        allParts = streamResult.streamedParts;
+        assistantText = streamResult.streamedText;
+        toolCalls = streamResult.streamedTools;
 
         // Verify we got a non-empty turn (not a silent empty drop)
         if (toolCalls.length === 0 && !assistantText.trim()) {
@@ -1092,6 +2403,15 @@ export async function runSingleBenchmarkSession(
         }
 
         streamSucceeded = true;
+        if (incidentStart !== null) {
+          const incidentWaitMs = Math.max(0, reqStart - incidentStart);
+          totalRetryWaitMs += incidentWaitMs;
+          phaseRetryWaitMs += incidentWaitMs;
+          log(
+            `  ${tag()} [RETRY RESOLVED] Recovered after ${Math.round(incidentWaitMs / 1000)}s total retry incident wait (discounted from active time).`
+          );
+          incidentStart = null;
+        }
       } catch (err: unknown) {
         if (token?.isCancellationRequested) {
           log(`  ${tag()} [CANCEL] Request cancelled by user.`);
@@ -1138,10 +2458,13 @@ export async function runSingleBenchmarkSession(
           errStr.includes("Empty response") ||
           errStr.includes("ECONNRESET") ||
           errStr.includes("ETIMEDOUT") ||
+          errStr.includes("timed out") ||
           errStr.includes("terminated") ||
           errStr.includes("fetch failed") ||
           errStr.includes("network") ||
-          errStr.includes("socket hang up");
+          errStr.includes("socket hang up") ||
+          errStr.includes("not registered") ||
+          errStr.includes("Chat provider");
 
         if (!isTransient || attempt >= maxRetries) {
           log(
@@ -1155,13 +2478,15 @@ export async function runSingleBenchmarkSession(
           };
         }
 
+        if (incidentStart === null) {
+          incidentStart = reqStart;
+        }
+
         totalRetryAttempts++;
         dashboardTracker.updateRetries(laneId, totalRetryAttempts);
         // Exponential backoff with jitter for 503 / 429 / busy spikes
         const baseDelay = Math.min(60000, 3000 * Math.pow(1.6, attempt - 1));
         const delayMs = baseDelay + Math.floor(Math.random() * 3000);
-        totalRetryWaitMs += delayMs;
-        phaseRetryWaitMs += delayMs;
         log(
           `  ${tag()} [RETRY] Model busy (attempt ${attempt}/${maxRetries}): ${errStr}. Waiting ${Math.round(delayMs / 1000)}s before retry...`
         );
@@ -1171,7 +2496,10 @@ export async function runSingleBenchmarkSession(
 
     // Filter out internal usage data parts before passing to Assistant history
     const assistantParts = allParts.filter((p) => {
-      if (p instanceof vscode.LanguageModelDataPart) {
+      if (
+        vscode.LanguageModelDataPart &&
+        p instanceof vscode.LanguageModelDataPart
+      ) {
         const mime = p.mimeType.toLowerCase();
         if (
           mime === "usage" ||
@@ -1186,14 +2514,16 @@ export async function runSingleBenchmarkSession(
     });
 
     // Append Assistant response to history preserving all raw stream parts (including LanguageModelThinkingPart)
-    if (assistantParts.length > 0) {
-      messages.push(
-        new vscode.LanguageModelChatMessage(
-          vscode.LanguageModelChatMessageRole.Assistant,
-          assistantParts
-        )
-      );
-    } else if (assistantText) {
+    try {
+      if (assistantParts.length > 0) {
+        const role = vscode.LanguageModelChatMessageRole?.Assistant ?? 2;
+        messages.push(
+          new vscode.LanguageModelChatMessage(role, assistantParts)
+        );
+      } else if (assistantText) {
+        messages.push(vscode.LanguageModelChatMessage.Assistant(assistantText));
+      }
+    } catch {
       messages.push(vscode.LanguageModelChatMessage.Assistant(assistantText));
     }
 
@@ -1236,10 +2566,11 @@ export async function runSingleBenchmarkSession(
         ? call.input
         : {};
       const toolName = call.name;
+      let isOwnReportFile = false;
 
       const eventRecord: {
         tool: string;
-        args: unknown;
+        args: Record<string, unknown>;
         timestamp: string;
         result?: string;
         shrinkSteps?: number;
@@ -1255,6 +2586,8 @@ export async function runSingleBenchmarkSession(
       // Log structured turn feedback to console and enforce lane isolation
       if (toolName === "nanofuzz_findBugs") {
         toolInput.targetPath = laneRepoPath;
+        toolInput.model = model.id;
+        toolInput.vendor = model.vendor;
         if (!isKeyedObject(toolInput.statePayload)) {
           toolInput.statePayload = {};
         }
@@ -1262,6 +2595,8 @@ export async function runSingleBenchmarkSession(
         // UNCONDITIONALLY bind sessionId to the runner session so findBugs and fuzzFunction never desync
         sp.sessionId = sessionId;
         sp.targetRepoPath = laneRepoPath;
+        sp.benchmarkMode = true;
+        sp.reportPath = run.reportPath;
         if (!sp.tool) sp.tool = run.engine;
         if (!sp.invariantSource) sp.invariantSource = run.source;
         if (!sp.targetScope) sp.targetScope = run.targetScope;
@@ -1278,12 +2613,76 @@ export async function runSingleBenchmarkSession(
         log(`  ${tag(`${step} (${p})`)} State: ${p}${stage}${fn}`);
       } else if (toolName === "nanofuzz_fuzzFunction") {
         toolInput.sessionId = sessionId;
+        toolInput.coverageScope = "project";
+        toolInput.model = model.id;
+        toolInput.vendor = model.vendor;
+        const canonicalLanePrefix = laneRepoPath.endsWith(path.sep)
+          ? laneRepoPath
+          : laneRepoPath + path.sep;
+
         if (typeof toolInput.filePath === "string") {
           const raw = toolInput.filePath.trim();
-          toolInput.filePath = path.isAbsolute(raw)
+          const resolved = path.isAbsolute(raw)
             ? path.resolve(raw)
             : path.resolve(laneRepoPath, raw);
+          toolInput.filePath =
+            resolved === laneRepoPath || resolved.startsWith(canonicalLanePrefix)
+              ? resolved
+              : path.resolve(laneRepoPath, path.basename(resolved));
         }
+
+        const expectedHarnessRel =
+          run.engine === "nanofuzz"
+            ? `nanofuzz_harness_${run.task}.py`
+            : path.join("tests", `test_pbt_${run.task}.py`);
+        const cleanTask = run.task.replace(/^_+/, "");
+        const expectedHarnessFn =
+          run.engine === "nanofuzz"
+            ? `fuzz_${cleanTask}`
+            : `test_${cleanTask}`;
+
+        if (
+          typeof toolInput.filePath === "string" &&
+          fs.existsSync(toolInput.filePath) &&
+          !sessionCreatedFiles.has(path.resolve(toolInput.filePath))
+        ) {
+          resultText = `Execution Blocked: '${toolInput.filePath}' is a pre-existing repository file, not a test harness. You should be testing '${expectedHarnessRel}' (function '${expectedHarnessFn}') instead.`;
+          eventRecord.result = resultText;
+          toolResults.push(
+            new vscode.LanguageModelToolResultPart(call.callId, [
+              new vscode.LanguageModelTextPart(resultText),
+            ])
+          );
+          continue;
+        }
+
+        if (typeof toolInput.exportFilePath === "string") {
+          const rawExport = toolInput.exportFilePath.trim();
+          const resolvedExport = path.isAbsolute(rawExport)
+            ? path.resolve(rawExport)
+            : path.resolve(laneRepoPath, rawExport);
+          toolInput.exportFilePath =
+            resolvedExport === laneRepoPath || resolvedExport.startsWith(canonicalLanePrefix)
+              ? resolvedExport
+              : path.resolve(laneRepoPath, path.basename(resolvedExport));
+        }
+
+        if (
+          TARGET_LANGUAGE === "python" &&
+          typeof toolInput.filePath === "string" &&
+          (toolInput.filePath.endsWith(".ts") ||
+            toolInput.filePath.endsWith(".js"))
+        ) {
+          resultText = `Invalid test file '${toolInput.filePath}'. The target project is Python. You MUST write your test harness and run tests using a Python (.py) file, not TypeScript or JavaScript.`;
+          eventRecord.result = resultText;
+          toolResults.push(
+            new vscode.LanguageModelToolResultPart(call.callId, [
+              new vscode.LanguageModelTextPart(resultText),
+            ])
+          );
+          continue;
+        }
+
         const fn = toolInput.functionName || "";
         const maxTests =
           toolInput.maxTests === 0
@@ -1293,20 +2692,34 @@ export async function runSingleBenchmarkSession(
         log(`  ${tag()} Fuzzing: ${fn} (${maxTests}, timeout=${to}s)`);
       } else if (toolName === "nanofuzz_shrinkInputs") {
         toolInput.sessionId = sessionId;
+        const canonicalLanePrefix = laneRepoPath.endsWith(path.sep)
+          ? laneRepoPath
+          : laneRepoPath + path.sep;
         if (typeof toolInput.filePath === "string") {
           const raw = toolInput.filePath.trim();
-          toolInput.filePath = path.isAbsolute(raw)
+          const resolved = path.isAbsolute(raw)
             ? path.resolve(raw)
             : path.resolve(laneRepoPath, raw);
+          toolInput.filePath =
+            resolved === laneRepoPath || resolved.startsWith(canonicalLanePrefix)
+              ? resolved
+              : path.resolve(laneRepoPath, path.basename(resolved));
         }
         const fn = toolInput.functionName || "";
         log(`  ${tag()} Shrinking inputs for: ${fn}`);
       } else if (toolName === "nanofuzz_listTargets") {
+        const canonicalLanePrefix = laneRepoPath.endsWith(path.sep)
+          ? laneRepoPath
+          : laneRepoPath + path.sep;
         if (typeof toolInput.filePath === "string") {
           const raw = toolInput.filePath.trim();
-          toolInput.filePath = path.isAbsolute(raw)
+          const resolved = path.isAbsolute(raw)
             ? path.resolve(raw)
             : path.resolve(laneRepoPath, raw);
+          toolInput.filePath =
+            resolved === laneRepoPath || resolved.startsWith(canonicalLanePrefix)
+              ? resolved
+              : path.resolve(laneRepoPath, path.basename(resolved));
         }
         const rel = String(toolInput.filePath || "")
           .split("/")
@@ -1336,9 +2749,10 @@ export async function runSingleBenchmarkSession(
 
         // Intercept and reject any attempts to read/modify files outside the lane worktree
         // (EXCEPTION: reading, writing, or updating ONLY this participant's own assigned bug report file at run.reportPath)
-        const isOwnReportFile =
+        isOwnReportFile =
           typeof toolInput.filePath === "string" &&
-          path.resolve(toolInput.filePath) === path.resolve(run.reportPath);
+          (path.resolve(toolInput.filePath) === path.resolve(run.reportPath) ||
+            path.basename(toolInput.filePath) === run.reportFilename);
 
         const isInsideLane =
           typeof toolInput.filePath === "string" &&
@@ -1419,13 +2833,24 @@ export async function runSingleBenchmarkSession(
         typeof toolInput.filePath === "string"
       ) {
         try {
-          const targetFile = toolInput.filePath;
-          const content =
-            typeof toolInput.content === "string" ? toolInput.content : "";
-          fs.mkdirSync(path.dirname(targetFile), { recursive: true });
-          fs.writeFileSync(targetFile, content, "utf8");
-          resultText = `File created successfully at ${targetFile}`;
-          toolSucceeded = true;
+          const rawPath = isOwnReportFile ? run.reportPath : toolInput.filePath;
+          const targetFile = path.isAbsolute(rawPath)
+            ? rawPath
+            : path.join(laneRepoPath, rawPath);
+          const resolvedTarget = path.resolve(targetFile);
+          if (fs.existsSync(resolvedTarget) && !sessionCreatedFiles.has(resolvedTarget)) {
+            resultText = `Permission Denied: Modifying pre-existing repository file '${targetFile}' is prohibited. You can only create new files or edit files created in this session.`;
+            toolSucceeded = false;
+          } else {
+            const content =
+              typeof toolInput.content === "string" ? toolInput.content : "";
+            fs.mkdirSync(path.dirname(targetFile), { recursive: true });
+            fs.writeFileSync(targetFile, content, "utf8");
+            sessionCreatedFiles.add(resolvedTarget);
+            registerExcludedCoverageFiles([targetFile], laneRepoPath);
+            resultText = `File created successfully at ${targetFile}`;
+            toolSucceeded = true;
+          }
         } catch (err: unknown) {
           dashboardTracker.incrementToolError(laneId);
           resultText = `File creation error: ${String(err)}`;
@@ -1438,33 +2863,41 @@ export async function runSingleBenchmarkSession(
         typeof toolInput.filePath === "string"
       ) {
         try {
-          const targetFile = toolInput.filePath;
-          const oldStr =
-            typeof toolInput.oldString === "string"
-              ? toolInput.oldString
-              : typeof toolInput.existingString === "string"
-                ? toolInput.existingString
-                : "";
-          const newStr =
-            typeof toolInput.newString === "string"
-              ? toolInput.newString
-              : typeof toolInput.replacement === "string"
-                ? toolInput.replacement
-                : "";
-
-          if (!fs.existsSync(targetFile)) {
+          const targetFile = path.isAbsolute(toolInput.filePath)
+            ? toolInput.filePath
+            : path.join(laneRepoPath, toolInput.filePath);
+          const resolvedTarget = path.resolve(targetFile);
+          if (!fs.existsSync(resolvedTarget)) {
             resultText = `File not found: ${targetFile}`;
-          } else if (!oldStr) {
-            resultText = "No oldString specified to replace.";
+          } else if (!sessionCreatedFiles.has(resolvedTarget)) {
+            resultText = `Permission Denied: Modifying pre-existing repository file '${targetFile}' is prohibited. You can only edit files created in this session.`;
+            toolSucceeded = false;
           } else {
-            const originalContent = fs.readFileSync(targetFile, "utf8");
-            if (!originalContent.includes(oldStr)) {
-              resultText = `Could not find exact oldString in ${targetFile}`;
+            const oldStr =
+              typeof toolInput.oldString === "string"
+                ? toolInput.oldString
+                : typeof toolInput.existingString === "string"
+                  ? toolInput.existingString
+                  : "";
+            const newStr =
+              typeof toolInput.newString === "string"
+                ? toolInput.newString
+                : typeof toolInput.replacement === "string"
+                  ? toolInput.replacement
+                  : "";
+
+            if (!oldStr) {
+              resultText = "No oldString specified to replace.";
             } else {
-              const updatedContent = originalContent.replace(oldStr, newStr);
-              fs.writeFileSync(targetFile, updatedContent, "utf8");
-              resultText = `Successfully replaced string in ${targetFile}`;
-              toolSucceeded = true;
+              const originalContent = fs.readFileSync(targetFile, "utf8");
+              if (!originalContent.includes(oldStr)) {
+                resultText = `Could not find exact oldString in ${targetFile}`;
+              } else {
+                const updatedContent = originalContent.replace(oldStr, newStr);
+                fs.writeFileSync(targetFile, updatedContent, "utf8");
+                resultText = `Successfully replaced string in ${targetFile}`;
+                toolSucceeded = true;
+              }
             }
           }
         } catch (err: unknown) {
@@ -1575,7 +3008,8 @@ export async function runSingleBenchmarkSession(
 
       const cappedResultText =
         resultText.length > 50000
-          ? resultText.slice(0, 50000) + "\n\n... [Output truncated to 50,000 characters]"
+          ? resultText.slice(0, 50000) +
+            "\n\n... [Output truncated to 50,000 characters]"
           : resultText;
 
       toolResults.push(
@@ -1689,157 +3123,116 @@ export async function runSingleBenchmarkSession(
   };
 
   // Evaluate ground-truth bugs elicited & reported for this participant
-  const reportContent = fs.existsSync(run.reportPath)
-    ? fs.readFileSync(run.reportPath, "utf8")
-    : "";
-
   const activeSession = sessionManager.getSession(sessionId, laneRepoPath);
   const fuzzRuns = activeSession?.fuzzRuns || [];
-  const evalResults = evaluateBugsForParticipant(
-    run.task,
-    reportContent,
-    fuzzRuns
-  );
+
+  const elicitedMap = new Map<
+    string,
+    { bug_id: string; elicited: number; detected: number; detection_type?: string; generator: string; args: string[] }
+  >();
+
+  if (fs.existsSync(elicitationLogPath)) {
+    try {
+      const fd = fs.openSync(elicitationLogPath, "r");
+      const bufSize = 64 * 1024;
+      const buf = Buffer.alloc(bufSize);
+      let remainder = "";
+      let bytesRead = 0;
+      const processLine = (line: string) => {
+        if (!line.trim()) return;
+        const entry = JSON.parse(line);
+        if (entry.bug_id) {
+          const prev = elicitedMap.get(entry.bug_id);
+          const wasDetected = Number(entry.detected) === 1 ? 1 : 0;
+          if (!prev) {
+            elicitedMap.set(entry.bug_id, {
+              bug_id: entry.bug_id,
+              elicited: 1,
+              detected: wasDetected,
+              detection_type: entry.detection_type,
+              generator: entry.generator || "None",
+              args: entry.args || [],
+            });
+          } else if (wasDetected && !prev.detected) {
+            prev.detected = 1;
+            prev.detection_type = entry.detection_type;
+          }
+        }
+      };
+
+      while ((bytesRead = fs.readSync(fd, buf, 0, bufSize, null)) > 0) {
+        const chunk = remainder + buf.toString("utf8", 0, bytesRead);
+        const lines = chunk.split("\n");
+        remainder = lines.pop() ?? "";
+        for (const line of lines) {
+          processLine(line);
+        }
+      }
+      if (remainder.trim()) {
+        processLine(remainder);
+      }
+      fs.closeSync(fd);
+    } catch (err) {
+      log(`[ELICITATION] [WARN] Could not parse ${elicitationLogPath}: ${String(err)}`);
+    }
+  }
+
+  const evalResults: BugEvaluationResult[] = (
+    GROUND_TRUTH_BUGS[run.task] || []
+  ).map((bug) => {
+    const hit = elicitedMap.get(bug.id);
+    const elicited = hit ? 1 : 0;
+    const detected = hit ? hit.detected : 0;
+    const generator = hit ? hit.generator : "None";
+    return {
+      bug,
+      elicited,
+      detected,
+      detectionType: hit?.detection_type,
+      reported: 0,
+      generator,
+      creditEarned: elicited ? 1.0 : 0.0,
+      deduction: 0.0,
+      netScore: elicited ? 1.0 : 0.0,
+      evidenceQuote: hit && hit.args ? `Trigger args: ${hit.args.join(", ")}` : "",
+      rationale: hit
+        ? `[Dynamic Elicitation] Elicited via ${generator}${hit.detected ? ` (Detected: ${hit.detection_type || "Yes"})` : " (Undetected)"}`
+        : "No eliciting input generated.",
+      jurorScores: {},
+    };
+  });
 
   const totalTests = fuzzRuns.reduce((sum, r) => sum + r.totalTests, 0);
-  const branchCoverage =
-    fuzzRuns.length > 0
-      ? Math.max(...fuzzRuns.map((r) => r.branchCoveragePct ?? 0))
-      : 0;
+
+  // Peak branch coverage and its associated numerator/denominator
+  let branchCoverage = 0;
+  let branchesCovered = 0;
+  let branchesTotal = 0;
+
+  if (fuzzRuns.length > 0) {
+    const sortedByCov = [...fuzzRuns].sort(
+      (a, b) => (b.branchCoveragePct ?? 0) - (a.branchCoveragePct ?? 0)
+    );
+    const peakRun = sortedByCov[0];
+    branchCoverage = peakRun.branchCoveragePct ?? 0;
+    branchesCovered = peakRun.branchesCovered ?? 0;
+    branchesTotal = peakRun.branchesTotal ?? 0;
+  }
 
   // Conduct Post-Task Survey & SUS Evaluation with the Agent
-  let survey: ParticipantSurvey | undefined;
-  const rawSurveyOutputs: string[] = [];
-  try {
-    const surveyPrompt = [
-      "The bug hunting session and fuzz testing run are now complete.",
-      "",
-      "Please complete this standardized post-task evaluation survey regarding your experience performing this testing task with this tool.",
-      "Respond strictly with a JSON object in a ```json codeblock containing the following fields:",
-      "",
-      "- `realistic`: Integer rating from 1 (Strongly Disagree) to 5 (Strongly Agree) for statement: 'I thought the testing tasks in this study resemble tasks I might encounter outside the study.'",
-      "- `sus1`: Integer 1-5 ('I think that I would like to use this system frequently.')",
-      "- `sus2`: Integer 1-5 ('I found the system unnecessarily complex.')",
-      "- `sus3`: Integer 1-5 ('I thought the system was easy to use.')",
-      "- `sus4`: Integer 1-5 ('I think that I would need technical support to use this system.')",
-      "- `sus5`: Integer 1-5 ('I found the various functions in this system were well integrated.')",
-      "- `sus6`: Integer 1-5 ('I thought there was too much inconsistency in this system.')",
-      "- `sus7`: Integer 1-5 ('I would imagine that most people would learn to use this system very quickly.')",
-      "- `sus8`: Integer 1-5 ('I found the system very cumbersome to use.')",
-      "- `sus9`: Integer 1-5 ('I felt very confident using the system.')",
-      "- `sus10`: Integer 1-5 ('I needed to learn a lot of things before I could get going with this system.')",
-      "- `toolHelpfulFeedback`: String describing whether and why the tool was helpful or effective in testing.",
-      "- `toolUsabilityFeedback`: String describing whether and why the tool was easy or hard to use.",
-      "- `workflowFitFeedback`: String describing how well the tool fit into your test and debug workflow.",
-      "- `toolImprovementFeedback`: String with feedback/suggestions to improve the testing tool.",
-      "- `studyImprovementFeedback`: String with feedback/suggestions to improve this or future studies.",
-    ].join("\n");
-
-    let surveyAttempts = 0;
-    const maxSurveyAttempts = 3;
-
-    const surveyMessages = [
-      ...messages,
-      vscode.LanguageModelChatMessage.User(surveyPrompt),
-    ];
-
-    while (surveyAttempts < maxSurveyAttempts && !survey) {
-      surveyAttempts++;
-      let surveyRawText = "";
-
-      const surveyResponse = await model.sendRequest(
-        surveyMessages,
-        { tools: [] },
-        token
-      );
-
-      for await (const chunk of surveyResponse.stream) {
-        if (chunk instanceof vscode.LanguageModelTextPart) {
-          surveyRawText += chunk.value;
-        }
-      }
-      rawSurveyOutputs.push(surveyRawText);
-
-      const jsonMatch =
-        surveyRawText.match(/```(?:json)?\s*([\s\S]*?)\s*```/) ||
-        surveyRawText.match(/(\{[\s\S]*\})/);
-
-      if (jsonMatch) {
-        try {
-          const parsed = JSON.parse(jsonMatch[1]);
-          const clampLikert = (v: unknown): number => {
-            const n = Number(v);
-            if (isNaN(n) || n < 1) return 3;
-            if (n > 5) return 5;
-            return Math.round(n);
-          };
-
-          const susResponses = {
-            sus1: clampLikert(parsed.sus1),
-            sus2: clampLikert(parsed.sus2),
-            sus3: clampLikert(parsed.sus3),
-            sus4: clampLikert(parsed.sus4),
-            sus5: clampLikert(parsed.sus5),
-            sus6: clampLikert(parsed.sus6),
-            sus7: clampLikert(parsed.sus7),
-            sus8: clampLikert(parsed.sus8),
-            sus9: clampLikert(parsed.sus9),
-            sus10: clampLikert(parsed.sus10),
-          };
-
-          const computedSus = computeSusScore(susResponses);
-
-          survey = {
-            realistic: clampLikert(parsed.realistic),
-            ...susResponses,
-            susScore: computedSus,
-            toolHelpfulFeedback: String(
-              parsed.toolHelpfulFeedback || ""
-            ).trim(),
-            toolUsabilityFeedback: String(
-              parsed.toolUsabilityFeedback || ""
-            ).trim(),
-            workflowFitFeedback: String(
-              parsed.workflowFitFeedback || ""
-            ).trim(),
-            toolImprovementFeedback: String(
-              parsed.toolImprovementFeedback || ""
-            ).trim(),
-            studyImprovementFeedback: String(
-              parsed.studyImprovementFeedback || ""
-            ).trim(),
-          };
-
-          writeSurveyResponsesCsv(run, survey);
-          break;
-        } catch {
-          // JSON parsing of matched block failed, fall through to reprompt
-        }
-      }
-
-      if (!survey && surveyAttempts < maxSurveyAttempts) {
-        if (surveyRawText.trim().length > 0) {
-          surveyMessages.push(
-            vscode.LanguageModelChatMessage.Assistant(surveyRawText)
-          );
-        }
-        surveyMessages.push(
-          vscode.LanguageModelChatMessage.User(
-            "Your survey response was malformed or empty. You MUST return ONLY a JSON object in a ```json codeblock containing the required keys: realistic, sus1..sus10, toolHelpfulFeedback, toolUsabilityFeedback, workflowFitFeedback, toolImprovementFeedback, studyImprovementFeedback."
-          )
-        );
-        log(
-          `  ${prefix} [REPROMPT] Survey response malformed. Reprompting agent (attempt ${surveyAttempts}/${maxSurveyAttempts})...`
-        );
-        // Backoff delay before retry
-        await new Promise((res) => setTimeout(res, 3000));
-      }
-    }
-  } catch (err: unknown) {
-    log(
-      `  ${prefix} [WARN] Failed to collect post-task survey: ${String(err)}`
-    );
-  }
+  const { survey, rawSurveyOutputs } = await collectPostTaskSurvey({
+    model,
+    messages,
+    run,
+    prefix,
+    laneId,
+    token,
+    maxSurveyRetries: 15,
+    onRetry: () => {
+      totalRetryAttempts++;
+      dashboardTracker.updateRetries(laneId, totalRetryAttempts);
+    },
+  });
 
   // Append row to data.csv and generate scoring sheet
   appendToDataCsv(
@@ -1853,16 +3246,18 @@ export async function runSingleBenchmarkSession(
     fuzzRuns.length,
     totalTests,
     branchCoverage,
+    branchesCovered,
+    branchesTotal,
     survey
   );
 
   // Save structured telemetry file
-  if (!fs.existsSync(TELEMETRY_DIR)) {
-    fs.mkdirSync(TELEMETRY_DIR, { recursive: true });
+  if (!fs.existsSync(getTelemetryDir())) {
+    fs.mkdirSync(getTelemetryDir(), { recursive: true });
   }
   const baseName = run.reportFilename.replace(/\.md$/, "");
   const telemetryJsonPath = path.join(
-    TELEMETRY_DIR,
+    getTelemetryDir(),
     `${baseName}.telemetry.json`
   );
   const telemetryData = {
@@ -1876,6 +3271,8 @@ export async function runSingleBenchmarkSession(
     targetScope: run.targetScope,
     targetCommit: TARGET_COMMIT,
     targetVersion: TARGET_VERSION,
+    agentModel: getModelIdentity(model),
+    juryPanel: undefined,
     reportFilename: run.reportFilename,
     durationSeconds: durationSec,
     activeExecutionSeconds: activeSec,
@@ -1914,6 +3311,43 @@ export async function runSingleBenchmarkSession(
   );
   log(`${prefix} Saved telemetry: ${path.basename(telemetryJsonPath)}`);
 
+  // Preserve participant artifacts (harnesses, reproducer tests, etc.) before cleaning lane
+  const participantArtifactsDir = path.join(getArtifactsDir(), run.participant);
+  fs.mkdirSync(participantArtifactsDir, { recursive: true });
+  if (fs.existsSync(path.join(laneRepoPath, ".git"))) {
+    const status = execSync("git status --porcelain -uall", {
+      cwd: laneRepoPath,
+      encoding: "utf8",
+    });
+    for (const line of status.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      const relPath = trimmed.slice(3).trim();
+      if (relPath.endsWith(".md")) continue;
+      const srcPath = path.join(laneRepoPath, relPath);
+      const dstPath = path.join(participantArtifactsDir, relPath);
+      if (fs.existsSync(srcPath) && fs.statSync(srcPath).isFile()) {
+        fs.mkdirSync(path.dirname(dstPath), { recursive: true });
+        fs.copyFileSync(srcPath, dstPath);
+      }
+    }
+  } else if (fs.existsSync(laneRepoPath)) {
+    const entries = fs.readdirSync(laneRepoPath, {
+      recursive: true,
+      withFileTypes: true,
+    });
+    for (const entry of entries) {
+      if (entry.isFile() && !entry.name.endsWith(".md")) {
+        const dir = entry.parentPath ?? laneRepoPath;
+        const fullPath = path.join(dir, entry.name);
+        const relPath = path.relative(laneRepoPath, fullPath);
+        const dstPath = path.join(participantArtifactsDir, relPath);
+        fs.mkdirSync(path.dirname(dstPath), { recursive: true });
+        fs.copyFileSync(fullPath, dstPath);
+      }
+    }
+  }
+
   // Clean target lane worktree
   log(`${prefix} Cleaning lane ${laneId} worktree...`);
   cleanLane(laneId);
@@ -1943,18 +3377,39 @@ export async function runSingleBenchmarkSession(
   log(
     `[SUCCESS] ${prefix} Completed in ${mm}m ${ss}s! Score: ${score} (${run.reportFilename})\n`
   );
-  return { success: true, durationSec };
+  await fileWriteChain;
+  sessionManager.clear(sessionId);
+  cleanLane(laneId);
+  return {
+    success: true,
+    durationSec,
+    score,
+    bugsElicited: evalResults.filter((r) => r.elicited === 1).length,
+    taskBugCount: evalResults.length,
+  };
 }
 
 // ============================================================================
-// Master Orchestrator (45 or 135 Runs)
+// Master Orchestrator (45, 90, or 135 Runs)
 // ============================================================================
 
 export async function runBenchmarkMatrix(
-  replicates: 1 | 3 = 1,
-  concurrency: number = CONCURRENCY_LANES
+  replicates: number = 15,
+  concurrency: number = CONCURRENCY_LANES,
+  recoverDir?: string
 ): Promise<void> {
+  // Validate that jury models are fully resolvable before starting benchmark runs
+  // await validateJuryModels();
+
+  if (recoverDir) {
+    activeRunContext = createRunContext(recoverDir);
+  } else {
+    activeRunContext = createRunContext();
+  }
   initializeConcurrentWorktrees(concurrency);
+  updateLatestSymlink(activeRunContext.resultsDir);
+  mirrorLatestResultsToRoot(activeRunContext);
+
   const schedule = generateBenchmarkSchedule(replicates);
   const totalRuns = schedule.length;
 
@@ -2008,7 +3463,7 @@ export async function runBenchmarkMatrix(
     `Base Repo: ${SOURCE_REPO} (${TARGET_VERSION} @ ${TARGET_COMMIT.slice(0, 8)})`
   );
   log(`Worktrees: ${WORKTREES_DIR}/w1 ... w${concurrency}`);
-  log(`Results Directory: ${RESULTS_DIR}`);
+  log(`Results Directory: ${getResultsDir()}`);
   log(`Factorial Tasks: ${BENCHMARK_TASKS.join(", ")}`);
   log(`Engines: ${ENGINES.join(", ")} | Sources: ${SOURCES.join(", ")}`);
   log(
@@ -2087,6 +3542,9 @@ export async function runBenchmarkMatrix(
             reportFilename: run.reportFilename,
             status: "completed",
             durationSec: res.durationSec,
+            score: res.score,
+            bugsElicited: res.bugsElicited,
+            taskBugCount: res.taskBugCount,
             completedAt: new Date().toISOString(),
           });
           saveBenchmarkState(schedule, completedMap);
@@ -2169,10 +3627,411 @@ export async function runBenchmarkMatrix(
   );
 
   // Run statistical analysis and regenerate dissertation tables/figures
-  runAnalysisPipeline();
+  runAnalysisPipeline(activeRunContext);
 } // fn: runBenchmarkMatrix
 
-export function runAnalysisPipeline(): void {
+export async function recoverBenchmarkMatrix(
+  concurrency: number = CONCURRENCY_LANES
+): Promise<void> {
+  const unfinishedDir = findLatestUnfinishedRun(BASE_RESULTS_DIR);
+  if (!unfinishedDir) {
+    const msg =
+      "No unfinished benchmark run found in benchmark/results/. All runs are complete.";
+    if (
+      vscode.window &&
+      typeof vscode.window.showInformationMessage === "function"
+    ) {
+      vscode.window.showInformationMessage(msg);
+    }
+    log(`[RECOVER] ${msg}`);
+    return;
+  }
+
+  const dirName = path.basename(unfinishedDir);
+  log(`[RECOVER] Resuming unfinished benchmark run: ${dirName}`);
+
+  const statePath = path.join(unfinishedDir, "benchmark_state.json");
+  let replicates: 1 | 2 | 3 = 1;
+  if (fs.existsSync(statePath)) {
+    try {
+      const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
+      if (Array.isArray(state) && state.length > 90) {
+        replicates = 3;
+      } else if (Array.isArray(state) && state.length > 45) {
+        replicates = 2;
+      }
+    } catch {
+      replicates = 1;
+    }
+  }
+
+  await runBenchmarkMatrix(replicates, concurrency, unfinishedDir);
+} // fn: recoverBenchmarkMatrix
+
+export function generateSmoketestSchedule(): BenchmarkRunSpec[] {
+  const specs: { task: BenchmarkTaskName; engine: AllEngines }[] = [
+    { task: "make_def", engine: "nanofuzz" },
+    { task: "TreeValue", engine: "nanofuzz" },
+    { task: "make_def", engine: "hypofuzz" },
+    { task: "TreeValue", engine: "hypofuzz" },
+    { task: "make_def", engine: "hypothesis" },
+    { task: "TreeValue", engine: "hypothesis" },
+  ];
+  const runs: Omit<BenchmarkRunSpec, "sequence" | "participant">[] = [];
+
+  for (const s of specs) {
+    runs.push({
+      replicate: 1,
+      task: s.task,
+      engine: s.engine,
+      source: "all",
+      targetScope: [s.task],
+      reportFilename: "",
+      reportPath: "",
+    });
+  }
+
+  return runs.map((r, idx) => {
+    const seq = idx + 1;
+    const participant = `P${String(seq).padStart(2, "0")}`;
+    const reportFilename = `${participant}.md`;
+    return {
+      ...r,
+      sequence: seq,
+      participant,
+      reportFilename,
+      reportPath: path.join(getArtifactsDir(), participant, reportFilename),
+    };
+  });
+}
+
+export async function runBenchmarkSmoketest(
+  concurrency: number = 6
+): Promise<void> {
+  activeRunContext = createRunContext();
+  initializeConcurrentWorktrees(concurrency);
+  updateLatestSymlink(activeRunContext.resultsDir);
+  mirrorLatestResultsToRoot(activeRunContext);
+
+  // Fast smoketest overrides: 30s deep fuzzing timeout and max 2 retries
+  Config.override("nanofuzz.experimental.findBugs.deepTimeoutMs", 30000);
+  Config.override("nanofuzz.experimental.findBugs.maxRetries", 2);
+
+  const schedule = generateSmoketestSchedule();
+
+  if (activeCts) {
+    activeCts.cancel();
+    activeCts.dispose();
+  }
+  activeCts = new vscode.CancellationTokenSource();
+  const token = activeCts.token;
+
+  const totalRuns = schedule.length;
+  dashboardTracker.startMatrix(totalRuns, []);
+  getOutput().show(true);
+
+  log(
+    "================================================================================"
+  );
+  log(
+    `[SMOKETEST] Starting Fast 6-Task Smoketest (30s deep timeout x 2 retries): P01 (nanofuzz make_def), P02 (nanofuzz TreeValue), P03 (hypofuzz make_def), P04 (hypofuzz TreeValue), P05 (hypothesis make_def), P06 (hypothesis TreeValue)`
+  );
+  log(`Results Directory: ${getResultsDir()}`);
+  log(
+    "================================================================================\n"
+  );
+
+  let nextQueueIndex = 0;
+  const results: {
+    participant: string;
+    lane: number;
+    task: string;
+    engine: string;
+    source: string;
+    replicate: number;
+    durationSec: number;
+    success: boolean;
+  }[] = [];
+
+  async function laneWorker(laneId: number): Promise<void> {
+    while (nextQueueIndex < schedule.length) {
+      if (token.isCancellationRequested) break;
+      const runIndex = nextQueueIndex++;
+      if (runIndex >= schedule.length) break;
+      const run = schedule[runIndex];
+
+      const sessionStart = Date.now();
+      try {
+        const res = await runSingleBenchmarkSession(
+          run,
+          totalRuns,
+          laneId,
+          token
+        );
+        results.push({
+          participant: run.participant,
+          lane: laneId,
+          task: run.task,
+          engine: run.engine,
+          source: run.source,
+          replicate: run.replicate,
+          durationSec: res.durationSec,
+          success: res.success,
+        });
+      } catch (err: unknown) {
+        const crashDurationSec = Math.floor((Date.now() - sessionStart) / 1000);
+        log(
+          `[FAILED] [Lane ${laneId}] Participant ${run.participant} crashed after ${crashDurationSec}s with error: ${String(err)}`
+        );
+        cleanLane(laneId);
+        dashboardTracker.sessionFinished(laneId, {
+          participant: run.participant,
+          lane: laneId,
+          task: run.task,
+          engine: run.engine,
+          source: run.source,
+          replicate: run.replicate,
+          durationSec: crashDurationSec,
+          success: false,
+          error: String(err),
+        });
+        results.push({
+          participant: run.participant,
+          lane: laneId,
+          task: run.task,
+          engine: run.engine,
+          source: run.source,
+          replicate: run.replicate,
+          durationSec: crashDurationSec,
+          success: false,
+        });
+      }
+    }
+  }
+
+  try {
+    const laneWorkers: Promise<void>[] = [];
+    for (let l = 1; l <= concurrency; l++) {
+      laneWorkers.push(laneWorker(l));
+    }
+    await Promise.all(laneWorkers);
+  } finally {
+    dashboardTracker.dispose();
+    if (activeCts?.token === token) {
+      activeCts.dispose();
+      activeCts = undefined;
+    }
+  }
+
+  // Print final summary table
+  results.sort((a, b) => a.participant.localeCompare(b.participant));
+  log(
+    "\n================================================================================"
+  );
+  log("SMOKETEST COMPLETE: SUMMARY OF ALL PARTICIPANTS");
+  log(
+    "================================================================================"
+  );
+  log("| ID | Lane | Task | Engine | Source | Duration | Status |");
+  log("| :-: | :--: | :--- | :----: | :----: | :------: | :----: |");
+  for (const r of results) {
+    const dur = `${Math.floor(r.durationSec / 60)}m ${r.durationSec % 60}s`;
+    const st = r.success ? "[PASS]" : "[FAIL]";
+    log(
+      `| ${r.participant} | Lane ${r.lane} | ${r.task} | ${r.engine} | ${r.source} | ${dur} | ${st} |`
+    );
+  }
+  log(
+    "================================================================================\n"
+  );
+
+  runAnalysisPipeline(activeRunContext);
+} // fn: runBenchmarkSmoketest
+
+export function generateAbTestSchedule(
+  task: BenchmarkTaskName = "TreeValue",
+  totalTasks: number = 7
+): BenchmarkRunSpec[] {
+  const runs: Omit<BenchmarkRunSpec, "sequence" | "participant">[] = [];
+
+  for (let i = 0; i < totalTasks; i++) {
+    runs.push({
+      replicate: 1,
+      task,
+      engine: "nanofuzz",
+      source: "all",
+      targetScope: [task],
+      reportFilename: "",
+      reportPath: "",
+    });
+  }
+
+  return runs.map((r, idx) => {
+    const seq = idx + 1;
+    const participant = `P${String(seq).padStart(2, "0")}`;
+    const reportFilename = `${participant}.md`;
+    return {
+      ...r,
+      sequence: seq,
+      participant,
+      reportFilename,
+      reportPath: path.join(getArtifactsDir(), participant, reportFilename),
+    };
+  });
+}
+
+export async function runBenchmarkAbTest(
+  concurrency: number = CONCURRENCY_LANES
+): Promise<void> {
+  activeRunContext = createRunContext();
+  initializeConcurrentWorktrees(concurrency);
+  updateLatestSymlink(activeRunContext.resultsDir);
+  mirrorLatestResultsToRoot(activeRunContext);
+
+  // Overrides: 60s (1m) deep fuzzing timeout and 4 retries
+  Config.override("nanofuzz.experimental.findBugs.deepTimeoutMs", 60000);
+  Config.override("nanofuzz.experimental.findBugs.maxRetries", 4);
+
+  const schedule = generateAbTestSchedule("TreeValue", 7);
+
+  if (activeCts) {
+    activeCts.cancel();
+    activeCts.dispose();
+  }
+  activeCts = new vscode.CancellationTokenSource();
+  const token = activeCts.token;
+
+  const totalRuns = schedule.length;
+  dashboardTracker.startMatrix(totalRuns, []);
+  getOutput().show(true);
+
+  log(
+    "================================================================================"
+  );
+  log(
+    `[BENCHMARK] Starting 7-Participant NaNofuzz Smoketest (TreeValue, all source, 1m deep x 4 retries, 1 counterexample, ${concurrency} concurrent lanes)`
+  );
+  log(`Results Directory: ${getResultsDir()}`);
+  log(
+    "================================================================================\n"
+  );
+
+  let nextQueueIndex = 0;
+  const results: {
+    participant: string;
+    lane: number;
+    task: string;
+    engine: string;
+    source: string;
+    replicate: number;
+    durationSec: number;
+    success: boolean;
+  }[] = [];
+
+  async function laneWorker(laneId: number): Promise<void> {
+    while (nextQueueIndex < schedule.length) {
+      if (token.isCancellationRequested) break;
+      const runIndex = nextQueueIndex++;
+      const run = schedule[runIndex];
+      const sessionStart = Date.now();
+      try {
+        const res = await runSingleBenchmarkSession(
+          run,
+          totalRuns,
+          laneId,
+          token
+        );
+        results.push({
+          participant: run.participant,
+          lane: laneId,
+          task: run.task,
+          engine: run.engine,
+          source: run.source,
+          replicate: run.replicate,
+          durationSec: res.durationSec,
+          success: res.success,
+        });
+      } catch (err: unknown) {
+        const crashDurationSec = Math.floor((Date.now() - sessionStart) / 1000);
+        log(
+          `[FAILED] [Lane ${laneId}] Participant ${run.participant} crashed after ${crashDurationSec}s with error: ${String(err)}`
+        );
+        cleanLane(laneId);
+        dashboardTracker.sessionFinished(laneId, {
+          participant: run.participant,
+          lane: laneId,
+          task: run.task,
+          engine: run.engine,
+          source: run.source,
+          replicate: run.replicate,
+          durationSec: crashDurationSec,
+          success: false,
+          error: String(err),
+        });
+        results.push({
+          participant: run.participant,
+          lane: laneId,
+          task: run.task,
+          engine: run.engine,
+          source: run.source,
+          replicate: run.replicate,
+          durationSec: crashDurationSec,
+          success: false,
+        });
+      }
+    }
+  }
+
+  try {
+    const laneWorkers: Promise<void>[] = [];
+    for (let l = 1; l <= concurrency; l++) {
+      laneWorkers.push(laneWorker(l));
+    }
+    await Promise.all(laneWorkers);
+  } finally {
+    dashboardTracker.dispose();
+    if (activeCts?.token === token) {
+      activeCts.dispose();
+      activeCts = undefined;
+    }
+  }
+
+  // Print final summary table
+  results.sort((a, b) => a.participant.localeCompare(b.participant));
+  log(
+    "\n================================================================================"
+  );
+  log("A/B STUDY COMPLETE: SUMMARY OF ALL PARTICIPANTS");
+  log(
+    "================================================================================"
+  );
+  log("| ID | Lane | Task | Engine | Source | Duration | Status |");
+  log("| :-: | :--: | :--- | :----: | :----: | :------: | :----: |");
+  for (const r of results) {
+    const dur = `${Math.floor(r.durationSec / 60)}m ${r.durationSec % 60}s`;
+    const st = r.success ? "[PASS]" : "[FAIL]";
+    log(
+      `| ${r.participant} | Lane ${r.lane} | ${r.task} | ${r.engine} | ${r.source} | ${dur} | ${st} |`
+    );
+  }
+  log(
+    "================================================================================\n"
+  );
+
+  runAnalysisPipeline(activeRunContext);
+} // fn: runBenchmarkAbTest
+
+export function runAnalysisPipeline(
+  runContext: BenchmarkRunContext = activeRunContext
+): void {
+  const targetVenvPython = path.join(
+    WORKSPACE_ROOT,
+    "benchmark",
+    "target",
+    ".venv",
+    "bin",
+    "python"
+  );
   const localVenvPython = path.join(WORKSPACE_ROOT, ".venv", "bin", "python");
   const analysisVenvPython = path.resolve(
     WORKSPACE_ROOT,
@@ -2182,37 +4041,100 @@ export function runAnalysisPipeline(): void {
     "bin",
     "python"
   );
-  const pythonBin = fs.existsSync(localVenvPython)
-    ? localVenvPython
-    : fs.existsSync(analysisVenvPython)
-      ? analysisVenvPython
-      : "python3";
+  const pythonBin = fs.existsSync(targetVenvPython)
+    ? targetVenvPython
+    : fs.existsSync(localVenvPython)
+      ? localVenvPython
+      : fs.existsSync(analysisVenvPython)
+        ? analysisVenvPython
+        : "python3";
 
-  const scriptCandidates = [
-    path.join(WORKSPACE_ROOT, "benchmark", "scripts", "analyze_quarton.py"),
-    path.join(WORKSPACE_ROOT, "scripts", "analyze_quarton.py"),
-  ];
-  const scriptPath =
-    scriptCandidates.find((cand) => fs.existsSync(cand)) ?? scriptCandidates[0];
-  if (!fs.existsSync(scriptPath)) {
-    log(`[ANALYSIS] [WARN] Analysis script not found at ${scriptPath}`);
-    return;
-  }
+  /*
+  const scoreAccuracyScript = path.join(
+    WORKSPACE_ROOT,
+    "benchmark",
+    "scripts",
+    "score_accuracy.py"
+  );
+  */
+  const analyzeQuartonScript = path.join(
+    WORKSPACE_ROOT,
+    "benchmark",
+    "scripts",
+    "analyze_quarton.py"
+  );
 
-  log("[ANALYSIS] Running QuartoN dissertation analysis pipeline...");
-  try {
-    const stdout = execSync(`"${pythonBin}" "${scriptPath}"`, {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    for (const line of stdout.split("\n")) {
-      if (line.trim()) {
-        log(`  ${line}`);
+  const venvSitePackages = path.join(
+    WORKSPACE_ROOT,
+    "benchmark",
+    "target",
+    ".venv",
+    "lib",
+    "python3.13",
+    "site-packages"
+  );
+  const execEnv = {
+    ...process.env,
+    PYTHONPATH: fs.existsSync(venvSitePackages)
+      ? `${venvSitePackages}${path.delimiter}${process.env.PYTHONPATH || ""}`
+      : process.env.PYTHONPATH,
+  };
+
+  // Dual-rater accuracy scoring engine (disabled: LLM jury removed)
+  /*
+  if (fs.existsSync(scoreAccuracyScript)) {
+    log(
+      "[ANALYSIS] Running dual-rater accuracy scoring engine (score_accuracy.py)..."
+    );
+    try {
+      const stdout = execSync(
+        `"${pythonBin}" "${scoreAccuracyScript}" --reports-dir "${runContext.reportsDir}" --data-csv "${runContext.dataCsvPath}"`,
+        {
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "pipe"],
+          env: execEnv,
+        }
+      );
+      for (const line of stdout.split("\n")) {
+        if (line.trim()) {
+          log(`  ${line}`);
+        }
       }
+    } catch (err: unknown) {
+      log(`  [ANALYSIS] [WARN] Accuracy scoring engine error: ${String(err)}`);
     }
-  } catch (err: unknown) {
-    log(`  [ANALYSIS] [WARN] Analysis pipeline error: ${String(err)}`);
   }
+  */
+
+  // Run QuartoN dissertation analysis pipeline (Table 5.3, 5.4, 5.5, Figure 5.4)
+  if (fs.existsSync(analyzeQuartonScript)) {
+    log(
+      "[ANALYSIS] Running QuartoN dissertation analysis pipeline (analyze_quarton.py)..."
+    );
+    try {
+      const partsDir = runContext.partsDir;
+      if (!fs.existsSync(partsDir)) {
+        fs.mkdirSync(partsDir, { recursive: true });
+      }
+      const stdout = execSync(
+        `"${pythonBin}" "${analyzeQuartonScript}" --data "${runContext.dataCsvPath}" --survey "${runContext.surveyResponsesCsvPath}" --parts-dir "${partsDir}"`,
+        {
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "pipe"],
+          env: execEnv,
+        }
+      );
+      for (const line of stdout.split("\n")) {
+        if (line.trim()) {
+          log(`  ${line}`);
+        }
+      }
+    } catch (err: unknown) {
+      log(`  [ANALYSIS] [WARN] Analysis pipeline error: ${String(err)}`);
+    }
+  }
+
+  mirrorLatestResultsToRoot(runContext);
 } // fn: runAnalysisPipeline
 
 // -------------------------------------------------------------------------- //
@@ -2619,10 +4541,23 @@ class BenchmarkDashboardTracker {
       return;
     }
     if (!this._statusBarItem) {
-      this._statusBarItem = vscode.window.createStatusBarItem(
-        vscode.StatusBarAlignment.Left,
-        100
-      );
+      if (
+        typeof vscode.window?.createStatusBarItem === "function" &&
+        vscode.StatusBarAlignment?.Left !== undefined
+      ) {
+        this._statusBarItem = vscode.window.createStatusBarItem(
+          vscode.StatusBarAlignment.Left,
+          100
+        );
+      } else {
+        this._statusBarItem = cast<vscode.StatusBarItem>({
+          text: "",
+          tooltip: "",
+          show: () => {},
+          hide: () => {},
+          dispose: () => {},
+        });
+      }
     }
     const completed = this._finished.length;
     const total = this._totalRuns;
@@ -2635,17 +4570,21 @@ class BenchmarkDashboardTracker {
     );
 
     this._statusBarItem.text = `$(beaker) NaNofuzz: ${completed}/${total} (${pct}%) ${etaStr}`;
-    const md = new vscode.MarkdownString(this.renderMarkdownTooltip());
-    md.isTrusted = true;
-    this._statusBarItem.tooltip = md;
+    if (typeof vscode.MarkdownString === "function") {
+      const md = new vscode.MarkdownString(this.renderMarkdownTooltip());
+      md.isTrusted = true;
+      this._statusBarItem.tooltip = md;
+    } else {
+      this._statusBarItem.tooltip = this.renderMarkdownTooltip();
+    }
     this._statusBarItem.show();
   } // fn: updateStatusBar
 
   public writeDashboardFile(): void {
-    if (!fs.existsSync(RESULTS_DIR)) {
-      fs.mkdirSync(RESULTS_DIR, { recursive: true });
+    if (!fs.existsSync(getResultsDir())) {
+      fs.mkdirSync(getResultsDir(), { recursive: true });
     }
-    const dashboardPath = path.join(RESULTS_DIR, "DASHBOARD.md");
+    const dashboardPath = getDashboardPath();
     const content = [
       `# NaNofuzz Benchmark Execution Dashboard`,
       ``,
@@ -2655,6 +4594,7 @@ class BenchmarkDashboardTracker {
       ``,
     ].join("\n");
     fs.writeFileSync(dashboardPath, content, "utf8");
+    mirrorLatestResultsToRoot(activeRunContext);
   } // fn: writeDashboardFile
 
   public dispose(): void {
@@ -2783,11 +4723,6 @@ type AssistantStreamPart =
   | vscode.LanguageModelToolCallPart
   | vscode.LanguageModelDataPart;
 
-function cast<T>(val: unknown): T;
-function cast(val: unknown): unknown {
-  return val;
-} // fn: cast
-
 function resolveWorkspaceRoot(): string {
   const folders = vscode.workspace?.workspaceFolders;
   if (folders && folders.length > 0) {
@@ -2858,7 +4793,11 @@ interface BenchmarkRubricJson {
           id?: string;
           name?: string;
           description?: string;
-          matchPatterns?: string[];
+          exception_class?: string;
+          exact_failure_domain?: string;
+          partial_failure_domain?: string;
+          safe_valid_domain?: string;
+          overgeneralization_triggers?: string;
         }
       >;
     }
@@ -2869,7 +4808,11 @@ export interface GroundTruthBug {
   id: string;
   name: string;
   description: string;
-  matchPatterns: RegExp[];
+  exceptionClass?: string;
+  exactFailureDomain?: string;
+  partialFailureDomain?: string;
+  safeValidDomain?: string;
+  overgeneralizationTriggers?: string;
 }
 
 interface LoadedBenchmarkRubric {
@@ -2923,14 +4866,15 @@ function loadBenchmarkRubric(jsonPath: string): LoadedBenchmarkRubric {
         const id = bugSpec.id || bugKey;
         const name = bugSpec.name || bugKey;
         const description = bugSpec.description || name;
-        const patterns: RegExp[] = Array.isArray(bugSpec.matchPatterns)
-          ? bugSpec.matchPatterns.map((p) => new RegExp(p, "i"))
-          : [new RegExp(id, "i"), new RegExp(name, "i")];
         bugList.push({
           id,
           name,
           description,
-          matchPatterns: patterns,
+          exceptionClass: bugSpec.exception_class,
+          exactFailureDomain: bugSpec.exact_failure_domain,
+          partialFailureDomain: bugSpec.partial_failure_domain,
+          safeValidDomain: bugSpec.safe_valid_domain,
+          overgeneralizationTriggers: bugSpec.overgeneralization_triggers,
         });
         if (!allBugIds.includes(id)) {
           allBugIds.push(id);

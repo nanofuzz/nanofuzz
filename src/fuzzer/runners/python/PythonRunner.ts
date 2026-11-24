@@ -22,6 +22,7 @@ import { findInAncestor, isError } from "../../Util";
 import { PutTimeoutName } from "../AbstractHost";
 import { PythonHost, PythonEnv } from "./PythonHost";
 import * as ChildProcess from "node:child_process";
+import { getTargetCoverageFiles } from "../../../ui/Agent";
 
 /**
  * Python runner
@@ -101,7 +102,8 @@ export class PythonRunner extends AbstractRunner {
   public async run(
     inputs: unknown[],
     timeout: number | undefined = 0,
-    validators: string[] = []
+    validators: string[] = [],
+    env?: Record<string, string>
   ): Promise<RunnerResult> {
     const thisSeq = this._seq++;
     if (this._runDepth++ > 0) {
@@ -125,6 +127,7 @@ export class PythonRunner extends AbstractRunner {
         typeHints,
         timeout: timeout ?? 0,
         validators: validators.length > 0 ? validators : undefined,
+        env,
         collect: {
           coverageData: this._coverageEnabled ? true : undefined,
           debugData: debugEnabled ? true : undefined,
@@ -320,21 +323,21 @@ export class PythonRunner extends AbstractRunner {
       }
     }
 
-    // Append own own modules to PYTHONPATH if needed
-    if (pythonEnv.libs && !pythonEnv.env.PYTHONPATH?.includes(pythonEnv.libs)) {
-      pythonEnv.env.PYTHONPATH =
-        (pythonEnv.env.PYTHONPATH ?? "") +
-        (process.platform === "win32" ? ";" : ":") +
-        pythonEnv.libs;
-    }
-
     // Build PYTHONPATH entries for resolving user project packages and nanofuzz_runtime
     const pyPaths: string[] = [];
 
-    // Target file's ancestor directories
+    // Target file's ancestor directories (and src/ layout directories)
     let currPyDir = path.resolve(path.dirname(filename));
     while (currPyDir) {
       pyPaths.push(currPyDir);
+      const srcSubdir = path.join(currPyDir, "src");
+      if (fs.existsSync(srcSubdir)) {
+        pyPaths.push(srcSubdir);
+      }
+      const targetSrc = path.join(currPyDir, "target", "src");
+      if (fs.existsSync(targetSrc)) {
+        pyPaths.push(targetSrc);
+      }
       const parent = path.dirname(currPyDir);
       if (parent === currPyDir) break;
       currPyDir = parent;
@@ -354,10 +357,6 @@ export class PythonRunner extends AbstractRunner {
       }
     } catch {
       // ignore
-    }
-
-    if (pythonEnv.libs) {
-      pyPaths.push(pythonEnv.libs);
     }
 
     const currModuleDir = path.dirname(path.resolve(module.filename));
@@ -450,12 +449,14 @@ export class PythonRunner extends AbstractRunner {
 
     pythonEnv.interpreter = PythonRunner.resolveInterpreter(
       pythonEnv.interpreter,
-      pythonEnv.env
+      pythonEnv.env,
+      path.dirname(filename)
     );
     if (pythonEnv.venv) {
       pythonEnv.venv.interpreter = PythonRunner.resolveInterpreter(
         pythonEnv.venv.interpreter,
-        pythonEnv.env
+        pythonEnv.env,
+        path.dirname(filename)
       );
     }
 
@@ -521,9 +522,41 @@ export class PythonRunner extends AbstractRunner {
    */
   public static resolveInterpreter(
     candidate: string = "python3",
-    env?: Record<string, string | undefined>
+    env?: Record<string, string | undefined>,
+    contextDir?: string
   ): string {
     const candidates: string[] = [];
+
+    const isGeneric =
+      !candidate ||
+      candidate === "python3" ||
+      candidate === "python" ||
+      candidate === "python3.exe" ||
+      candidate === "python.exe";
+
+    if (isGeneric) {
+      if (process.env.NANOFUZZ_PYTHON_PATH) {
+        candidates.push(process.env.NANOFUZZ_PYTHON_PATH);
+      }
+      if (process.env.VIRTUAL_ENV) {
+        const binName = process.platform === "win32" ? "python.exe" : "python3";
+        const venvBin = path.join(
+          process.env.VIRTUAL_ENV,
+          process.platform === "win32" ? "Scripts" : "bin",
+          binName
+        );
+        candidates.push(venvBin);
+      }
+      const searchDirs: string[] = [];
+      if (contextDir) searchDirs.push(contextDir);
+      searchDirs.push(process.cwd());
+      for (const dir of searchDirs) {
+        const venvPy = findVenvPython(dir);
+        if (venvPy && !candidates.includes(venvPy)) {
+          candidates.push(venvPy);
+        }
+      }
+    }
 
     if (candidate) {
       if (candidate.endsWith("python") || candidate.endsWith("python.exe")) {
@@ -669,12 +702,8 @@ export class PythonRunner extends AbstractRunner {
       scopeConfig.target.includes("directimports") &&
       fs.existsSync(this._filename)
     ) {
-      try {
-        const program = ProgramFactory.fromFile(this._filename);
-        directPkgs = extractDirectPackages(program.imports);
-      } catch {
-        // Fall back gracefully if file resolution or parsing fails
-      }
+      const program = ProgramFactory.fromFile(this._filename);
+      directPkgs = extractDirectPackages(program.imports);
     }
 
     const args = [
@@ -690,10 +719,28 @@ export class PythonRunner extends AbstractRunner {
       isRespawn ? "respawn" : String(collectStaticCoverage),
     ];
 
+    const activeTargets = getTargetCoverageFiles(this._filename);
+    const hostEnv = { ...this._pythonEnv.env };
+    if (activeTargets && activeTargets.size > 0) {
+      hostEnv.NANOFUZZ_COVERAGE_INCLUDE_FILES = JSON.stringify(
+        Array.from(activeTargets)
+      );
+    } else if (process.env.NANOFUZZ_COVERAGE_INCLUDE_FILES) {
+      hostEnv.NANOFUZZ_COVERAGE_INCLUDE_FILES =
+        process.env.NANOFUZZ_COVERAGE_INCLUDE_FILES;
+    }
+    if (process.env.NANOFUZZ_PROJECT_ROOT) {
+      hostEnv.NANOFUZZ_PROJECT_ROOT = process.env.NANOFUZZ_PROJECT_ROOT;
+    }
+    const resolvedPythonEnv: PythonEnv = {
+      ...this._pythonEnv,
+      env: hostEnv,
+    };
+
     const host = new PythonHost(
       args,
       path.dirname(module.filename),
-      this._pythonEnv
+      resolvedPythonEnv
     );
 
     const hostStartupTimeout = Config.get<number>(
@@ -703,7 +750,7 @@ export class PythonRunner extends AbstractRunner {
 
     // a longer timeout tolerance for the host to pre-warm the coverage
     const rawOkBuf = await host.getResponseBuffer(hostStartupTimeout);
-    const okcode = JSONN.unpack<string>(rawOkBuf);
+    const okcode = JSONN.unpack<unknown>(rawOkBuf);
     if (okcode === "READY") {
       this._host = host;
 
@@ -736,6 +783,23 @@ export class PythonRunner extends AbstractRunner {
       return host;
     } else {
       host.kill();
+      if (
+        isRecord(okcode) &&
+        (okcode.tag === "error" || typeof okcode.message === "string")
+      ) {
+        const message =
+          typeof okcode.message === "string"
+            ? okcode.message
+            : "Python runner host failed to load";
+        const err = new Error(message);
+        if (typeof okcode.name === "string") {
+          err.name = okcode.name;
+        }
+        if (typeof okcode.stack === "string") {
+          err.stack = okcode.stack;
+        }
+        throw err;
+      }
       throw new Error(`PythonHost not ready (okcode: ${String(okcode)})`);
     }
   } // get: host
@@ -757,6 +821,31 @@ export class PythonRunner extends AbstractRunner {
     }
   } // fn: _killHost
 } // class: PythonRunner
+
+/**
+ * Searches for a virtual environment Python executable in ancestor directories.
+ *
+ * @param startDir the starting directory
+ * @returns absolute path to python executable, or null if not found
+ */
+function findVenvPython(startDir: string): string | null {
+  for (const venvName of [".venv", "venv", "env"]) {
+    const venvDir = findInAncestor(startDir, venvName);
+    if (venvDir) {
+      for (const binName of ["python3", "python", "python.exe"]) {
+        const binPath = path.join(
+          venvDir,
+          process.platform === "win32" ? "Scripts" : "bin",
+          binName
+        );
+        if (fs.existsSync(binPath)) {
+          return binPath;
+        }
+      }
+    }
+  }
+  return null;
+} // fn: findVenvPython
 
 /**
  * Finds the Python library directory

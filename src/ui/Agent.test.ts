@@ -445,7 +445,7 @@ describe("Agent", () => {
         harnessErrors: [],
         timers: { gen: 0, transform: 0, run: 1 },
         category: "exception",
-        interestingReasons: [],
+        interestingReasons: ["FailedTestMeasure"],
       },
       {
         pinned: false,
@@ -936,6 +936,21 @@ def py_double(x: int) -> int:
     );
   });
 
+  it("runFuzz: exportSuite disables shrinking for benchmark sessions", async () => {
+    const result = await runFuzz({
+      filePath: tsFixture,
+      functionName: "testCoverageOneFile",
+      maxTests: 20,
+      suiteTimeout: 3000,
+      exportSuite: true,
+      sessionId: "bench-w1-P01-testCoverageOneFile",
+    });
+
+    expect(result.status).toBe("success");
+    expect(result.testSuiteCode).toBeDefined();
+    expect(result.testSuiteCode).toContain("describe(");
+  });
+
   it("runFuzz: exportFilePath writes synthesized test suite directly to file", async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-export-test-"));
     try {
@@ -1137,10 +1152,10 @@ def py_double(x: int) -> int:
     expect(summary).toContain("AI (copilot)");
   });
 
-  it("runFuzz: enableCopilotAi with custom vendor and model", async () => {
-    Config.override("nanofuzz.ai.provider", "anthropic");
-    Config.override("nanofuzz.ai.model", "claude-3-opus");
-    Config.override("nanofuzz.ai.vendor", "anthropic");
+  it("runFuzz: enableCopilotAi piggybacks when provider is disabled and restores config", async () => {
+    Config.override("nanofuzz.ai.provider", "disabled");
+    Config.override("nanofuzz.ai.model", "");
+    Config.override("nanofuzz.ai.vendor", "");
 
     const result = await runFuzz({
       filePath: tsFixture,
@@ -1153,9 +1168,9 @@ def py_double(x: int) -> int:
     });
 
     expect(result.status).toBe("success");
-    expect(Config.get("nanofuzz.ai.provider", "disabled")).toBe("anthropic");
-    expect(Config.get("nanofuzz.ai.model", "")).toBe("claude-3-opus");
-    expect(Config.get("nanofuzz.ai.vendor", "")).toBe("anthropic");
+    expect(Config.get("nanofuzz.ai.provider", "disabled")).toBe("disabled");
+    expect(Config.get("nanofuzz.ai.model", "")).toBe("");
+    expect(Config.get("nanofuzz.ai.vendor", "")).toBe("");
   });
 
   it("resolveFilePath: relative and file URI", () => {
@@ -1322,6 +1337,21 @@ def py_double(x: int) -> int:
     expect(summary).toContain("line(s) 12-13 (partially covered)");
     expect(summary).toContain("`unreachedHelper` in");
     expect(summary).toContain("line(s) 14 (unreached)");
+  });
+
+  it("listTargets on tree_value.py parses functions with 'type' and 'Optional[type]' annotations without error", async () => {
+    const treeValuePath = path.resolve(process.cwd(), "benchmark/target/src/fandango/language/tree_value.py");
+    if (!fs.existsSync(treeValuePath)) {
+      pending("Skipping: benchmark target tree_value.py not present in environment.");
+      return;
+    }
+    const result = await listTargets(treeValuePath);
+    expect(result.language).toBe("python");
+    expect(result.functions.length).toBeGreaterThan(0);
+    const names = result.functions.map((f) => f.name);
+    expect(names).toContain("_str_to_bytes");
+    expect(names).toContain("_get_exclusive_base_type_method_is_implemented_for");
+    expect(names).toContain("decorator");
   });
 
   it("runFuzz: captures coverage frontier functions and generator diagnostics", async () => {

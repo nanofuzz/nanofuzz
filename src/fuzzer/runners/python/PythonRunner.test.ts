@@ -758,6 +758,91 @@ def slow_fn(x: int) -> int:
     }
   });
 
+  it("executes without naming conflict when a file named logging.py exists in project directory", async () => {
+    const tmpDir = getTmpDir("nanofuzz-logging-py-");
+    const loggingPath = path.join(tmpDir, "logging.py");
+    fs.writeFileSync(
+      loggingPath,
+      `def custom_log(msg: str) -> str:
+    return f"[CUSTOM] {msg}"
+`
+    );
+
+    const pyPath = path.join(tmpDir, "calc.py");
+    const pyCode = `import logging
+
+def compute(x: int) -> int:
+    logging.info("computing")
+    return x * 3
+`;
+    fs.writeFileSync(pyPath, pyCode);
+
+    try {
+      const program = ProgramFactory.fromSource(() => pyCode, "python", pyPath);
+      const fnDef = program.functionsExported["compute"];
+      const env = createFuzzEnv(fnDef);
+
+      const runner = new PythonRunner(pyPath, "compute", env);
+      await runner.onRunStart();
+
+      const res = await runner.run([7], 10000);
+      await runner.onRunEnd();
+
+      expect(res.result.tag).toBe("value");
+      if (res.result.tag === "value") {
+        expect(res.result.value).toBe(21);
+      }
+    } finally {
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // Ignore
+      }
+    }
+  });
+
+  it("can directly fuzz a file named logging.py without naming conflicts", async () => {
+    const tmpDir = getTmpDir("nanofuzz-target-logging-py-");
+    const pyPath = path.join(tmpDir, "logging.py");
+    const pyCode = `def format_log(level: str, msg: str) -> str:
+    return f"[{level.upper()}] {msg}"
+`;
+    fs.writeFileSync(pyPath, pyCode);
+
+    try {
+      const program = ProgramFactory.fromSource(() => pyCode, "python", pyPath);
+      const fnDef = program.functionsExported["format_log"];
+      const env = createFuzzEnv(fnDef);
+
+      const runner = new PythonRunner(pyPath, "format_log", env);
+      await runner.onRunStart();
+
+      const res = await runner.run(["info", "hello world"], 10000);
+      await runner.onRunEnd();
+
+      expect(res.result.tag).toBe("value");
+      if (res.result.tag === "value") {
+        expect(res.result.value).toBe("[INFO] hello world");
+      }
+    } finally {
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // Ignore
+      }
+    }
+  });
+
   it("coverage scope: 'project' vs 'project directimports'", async () => {
     const normalizePath = (p: string): string => {
       try {
@@ -925,6 +1010,76 @@ def calculate(x: int) -> int:
       );
     } finally {
       Config.override("nanofuzz.fuzzer.coverageScope", "project static");
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // Ignore
+      }
+    }
+  }, 30000);
+
+  it("fails immediately on startup if Python module import fails", async () => {
+    const tmpDir = getTmpDir("nanofuzz-import-fail-");
+    const pyPath = path.join(tmpDir, "bad_import.py");
+    const pyCode = `import non_existent_dummy_module_987654321
+
+def fn(x: int) -> int:
+    return x + 1
+`;
+    fs.writeFileSync(pyPath, pyCode);
+
+    try {
+      const program = ProgramFactory.fromSource(
+        () => pyCode,
+        "python",
+        pyPath
+      );
+      const fnDef = program.functionsExported["fn"];
+      const env = createFuzzEnv(fnDef);
+
+      const runner = new PythonRunner(pyPath, "fn", env);
+      await expectAsync(runner.onRunStart()).toBeRejectedWithError(
+        /non_existent_dummy_module_987654321/
+      );
+    } finally {
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // Ignore
+      }
+    }
+  }, 30000);
+
+  it("fails immediately on startup if target function is not callable or not found", async () => {
+    const tmpDir = getTmpDir("nanofuzz-noncallable-");
+    const pyPath = path.join(tmpDir, "non_callable.py");
+    const pyCode = `fn = 42\n`;
+    fs.writeFileSync(pyPath, pyCode);
+
+    try {
+      const program = ProgramFactory.fromSource(
+        () => pyCode,
+        "python",
+        pyPath
+      );
+      const fnDef = program.functionsExported["fn"];
+      const env = createFuzzEnv(fnDef);
+
+      const runner = new PythonRunner(pyPath, "fn", env);
+      await expectAsync(runner.onRunStart()).toBeRejectedWithError(
+        /'fn' is not callable/
+      );
+    } finally {
       try {
         fs.rmSync(tmpDir, {
           recursive: true,
@@ -1610,6 +1765,54 @@ async def async_hang():
       await runner.onRunEnd();
 
       expect(res.result.tag).toBe("timeout");
+    } finally {
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // Ignore
+      }
+    }
+  });
+
+  it("serialization error: returns an error result over IPC when Python output exceeds MessagePack integer limits", async () => {
+    const tmpDir = getTmpDir("nanofuzz-overflow-py-");
+    const pyPath = path.join(tmpDir, "overflow_test.py");
+    const pyCode = `
+def return_huge_int() -> int:
+    return 10 ** 400
+`;
+    fs.writeFileSync(pyPath, pyCode);
+
+    try {
+      const srcCode = `
+def return_huge_int() -> int:
+    pass
+`;
+      const program = ProgramFactory.fromSource(
+        () => srcCode,
+        "python",
+        pyPath
+      );
+      const fnDef = program.functionsExported["return_huge_int"];
+      const env = createFuzzEnv(fnDef);
+
+      const runner = new PythonRunner(pyPath, "return_huge_int", env);
+      await runner.onRunStart();
+
+      const res = await runner.run([], 5000);
+      await runner.onRunEnd();
+
+      console.log("ACTUAL res.result:", res.result);
+      expect(res.result.tag).toBe("error");
+      if (res.result.tag === "error") {
+        expect(res.result.name).toBe("OverflowError");
+        expect(res.result.message).toContain("Serialization failure");
+      }
     } finally {
       try {
         fs.rmSync(tmpDir, {

@@ -72,7 +72,15 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
   protected _pretransformedInputs: Set<string> = new Set(); // Pre-transformer candidate hashes
   protected _fnTimeout!: number; // Timeout for function/transformer execution
   protected _lastInputSubgenIndex = 0; // Subgen index for last generated input
+  protected _cancelFn?: () => boolean; // Call/run-scoped cancellation or budget expiration check
   public static readonly INJECTED = "injected";
+
+  /**
+   * Sets the call/run-scoped cancellation or budget expiration check.
+   */
+  public set cancelFn(fn: (() => boolean) | undefined) {
+    this._cancelFn = fn;
+  } // setter: cancelFn
 
   /**
    * Creates a new composite input generator, which subsumes multiple concrete input
@@ -281,12 +289,17 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     }
 
     while (this._permitSubgens || this._hasPrioritySubgen()) {
+      if (this._cancelFn?.()) {
+        this.suppressGenerators();
+        throw new GeneratorExhaustedError();
+      }
+
       if (this.nextable() !== "now" && this.nextable() !== "now!") {
         throw new GeneratorExhaustedError();
       }
       const { candidate, genCost } = this._generateCandidate();
 
-      // Injected inputs from HumanInputGenerator bpass the dupe check
+      // Injected inputs from SeedInputGenerator bypass the dupe check
       if (candidate.injected) {
         return this._acceptCandidate(candidate);
       }
@@ -317,6 +330,11 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     }
 
     while (this._permitSubgens || this._hasPrioritySubgen()) {
+      if (this._cancelFn?.()) {
+        this.suppressGenerators();
+        throw new GeneratorExhaustedError();
+      }
+
       if (this.nextable() === "soon") {
         const ready = await this.waitForNextInput();
         if (!ready) {
@@ -334,7 +352,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
         selectedSubgen,
       } = this._generateCandidate();
 
-      // Injected inputs from HumanInputGenerator are always processed and never dupe-skipped or transformed
+      // Injected inputs from SeedInputGenerator are always processed and never dupe-skipped or transformed
       if (untransformedCandidate.injected) {
         return this._acceptCandidate(untransformedCandidate);
       }
@@ -801,10 +819,9 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
    */
   public override onRunStart(
     gen: boolean,
-    injectedInputs: (FuzzPinnedTest | Omit<InputAndSource, "tick">)[] = [],
-    transformRunner?: AbstractRunner,
-    fnTimeout: number = 0,
-    maxDupeInputs: number = 0,
+    injectedInputs: (FuzzPinnedTest | Omit<InputAndSource, "tick">)[],
+    transformRunner: AbstractRunner | undefined,
+    fuzzOptions: FuzzOptions,
     userGenRunner?: AbstractRunner
   ): void {
     this._dupesSequential = 0;
@@ -818,8 +835,8 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
       this._transformerName = newTransformerName;
     }
     this._transformRunner = transformRunner;
-    this._fnTimeout = fnTimeout;
-    this._maxDupeInputs = maxDupeInputs;
+    this._fnTimeout = fuzzOptions.fnTimeout;
+    this._maxDupeInputs = fuzzOptions.maxDupeInputs;
 
     this._loadConfig();
     this._scheduler.onRunStart();
@@ -829,8 +846,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
         gen && this._activeSubgens[subgen],
         injectedInputs,
         transformRunner,
-        fnTimeout,
-        maxDupeInputs,
+        fuzzOptions,
         userGenRunner
       );
     }

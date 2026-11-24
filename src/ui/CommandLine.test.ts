@@ -223,7 +223,6 @@ describe("cli:", () => {
     const res = await runCli([
       targetFile,
       "sampleFn",
-      "--clear-compile-cache",
       "--max-tests",
       "1",
       "--seed",
@@ -232,15 +231,13 @@ describe("cli:", () => {
 
     expect(res.status).toBe(0);
     const targetIdx = res.stdout.indexOf("Target:");
-    const cacheClearedIdx = res.stdout.indexOf(" - Compile cache cleared");
     const compileIdx = res.stdout.indexOf(" - Compile...:");
     const instrumentIdx = res.stdout.indexOf(" - Instrument:");
     const inputsIdx = res.stdout.indexOf("Inputs:");
     const onlineIdx = res.stdout.indexOf("Online:");
 
     expect(targetIdx).toBeGreaterThanOrEqual(0);
-    expect(cacheClearedIdx).toBeGreaterThan(targetIdx);
-    expect(compileIdx).toBeGreaterThan(cacheClearedIdx);
+    expect(compileIdx).toBeGreaterThan(targetIdx);
     expect(instrumentIdx).toBeGreaterThan(compileIdx);
     expect(inputsIdx).toBeGreaterThan(instrumentIdx);
     expect(onlineIdx).toBeGreaterThan(inputsIdx);
@@ -868,6 +865,41 @@ describe("cli:", () => {
     expect(res.stdout).not.toContain("AI");
   });
 
+  it("accepts --ai-policy seed and configures nanofuzz.ai.policy", async () => {
+    const outputFile = path.join(tmpDir, "ai_policy_seed.json5");
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testCoverageOneFile";
+
+    const res = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--ai-policy",
+      "seed",
+      "--max-tests",
+      "1",
+    ]);
+
+    expect(res.status).toBe(0);
+    expect(Config.get("nanofuzz.ai.policy", "eager")).toBe("seed");
+  });
+
+  it("rejects invalid --ai-policy", async () => {
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testCoverageOneFile";
+
+    const res = await runCli([
+      targetFile,
+      targetFn,
+      "--ai-policy",
+      "invalid_policy",
+    ]);
+
+    expect(res.status).toBe(4);
+    expect(res.stderr).toContain("Invalid ai policy 'invalid_policy'");
+  });
+
   it("reflects disabled input generators in inputs line", async () => {
     const outputFile = path.join(tmpDir, "disabled_generators_online.json5");
     const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
@@ -1457,6 +1489,7 @@ describe("cli:", () => {
       expect(res.stderr).toMatch(/@ \d+s/);
       expect(res.stderr).toMatch(/(inputs\/s|inputs\/min)/);
       expect(res.stderr).toMatch(/(execs\/s|inputs\/min)/);
+      expect(res.stderr).toMatch(/\d+% sys cpu/);
       expect(res.stderr).toMatch(/Results \[.*Passed:/);
     } finally {
       Object.defineProperty(process.stderr, "isTTY", {
@@ -1971,7 +2004,7 @@ def ${targetFn}(n: int) -> int:
     }
   });
 
-  it("--output-results: verifies retention modes (all, failures, none)", async () => {
+  it("--output-results: verifies retention modes (all, interesting, failures, none)", async () => {
     const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
     const targetFn = "testStandardVoidLiteralArgs"; // passing target
 
@@ -1994,6 +2027,34 @@ def ${targetFn}(n: int) -> int:
       fs.readFileSync(outFileAll, "utf8")
     );
     expect(dataAll.results.length).toBe(5);
+
+    // 1b. Mode: interesting -> records only interesting results and failures
+    const outFileInteresting = path.join(tmpDir, "out_results_interesting.json5");
+    const resInteresting = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outFileInteresting,
+      "--output-results",
+      "interesting",
+      "--max-tests",
+      "5",
+      "--seed",
+      "cli_seed_ret_interesting",
+    ]);
+    expect(resInteresting.status).toBe(0);
+    const dataInteresting = JSON5.parse<FuzzTestResults>(
+      fs.readFileSync(outFileInteresting, "utf8")
+    );
+    expect(dataInteresting.results.length).toBeGreaterThan(0);
+    expect(dataInteresting.results.length).toBeLessThan(5);
+    expect(
+      dataInteresting.results.every(
+        (r) =>
+          Boolean(r.interestingReasons && r.interestingReasons.length > 0) ||
+          r.category !== "ok"
+      )
+    ).toBeTrue();
 
     // 2. Mode: failures (default) -> passing target records 0 results
     const outFileFailures = path.join(tmpDir, "out_results_failures.json5");
@@ -2391,6 +2452,129 @@ export function calc(x: number): number {
     expect(data.stats.outcomes.total).toBe(7);
     // maxFailures was NOT in the file, so it used CLI default (1), NOT the extension default (0)
     expect(data.env.options.maxFailures).toBe(1);
+  });
+
+  it("--config-file: loads explicit configuration file when specified", async () => {
+    const tsFile = path.join(tmpDir, "custom_config_example.ts");
+    const customConfigFile = path.join(tmpDir, "custom_seeds.json5");
+    const outFile = path.join(tmpDir, "custom_config_out.json5");
+    fs.writeFileSync(
+      tsFile,
+      `
+export function myFunc(x: number): number {
+  return x + 10;
+}
+`,
+      "utf8"
+    );
+    fs.writeFileSync(
+      customConfigFile,
+      JSON.stringify({
+        version: "0.4.0",
+        functions: {
+          myFunc: {
+            options: {
+              maxTests: 3,
+            },
+            validators: [],
+            isVoid: false,
+            tests: {
+              '{"value":[5]}': {
+                input: [
+                  { name: "x", offset: 0, value: 5, origin: { type: "user" } },
+                ],
+                output: [],
+                pinned: true,
+              },
+            },
+          },
+        },
+      }),
+      "utf8"
+    );
+
+    const res = await runCli([
+      tsFile,
+      "myFunc",
+      "--config-file",
+      customConfigFile,
+      "--output-file",
+      outFile,
+      "--seed",
+      "cli_seed_custom_config",
+    ]);
+
+    expect(res.status).toBe(0);
+    expect(res.stdout).toContain("Inputs: Inject");
+    const data = JSON5.parse<FuzzTestResults>(fs.readFileSync(outFile, "utf8"));
+    expect(data.env.options.maxTests).toBe(3);
+  });
+
+  it("--no-seed-input-generator: disables pinned seed test injection even when present in config", async () => {
+    const tsFile = path.join(tmpDir, "seed_toggle_example.ts");
+    const jsonFile = path.join(tmpDir, "seed_toggle_example.ts.nano.json5");
+    const outFile = path.join(tmpDir, "seed_toggle_out.json5");
+    fs.writeFileSync(
+      tsFile,
+      `
+export function myFunc(x: number): number {
+  return x * 3;
+}
+`,
+      "utf8"
+    );
+    fs.writeFileSync(
+      jsonFile,
+      JSON.stringify({
+        version: "0.4.0",
+        functions: {
+          myFunc: {
+            options: {},
+            validators: [],
+            isVoid: false,
+            tests: {
+              '{"value":[2]}': {
+                input: [
+                  { name: "x", offset: 0, value: 2, origin: { type: "user" } },
+                ],
+                output: [],
+                pinned: true,
+              },
+            },
+          },
+        },
+      }),
+      "utf8"
+    );
+
+    // Run without --no-seed-input-generator: Inject is present
+    const resEnabled = await runCli([
+      tsFile,
+      "myFunc",
+      "--max-tests",
+      "5",
+      "--seed",
+      "cli_seed_seeds_enabled",
+    ]);
+    expect(resEnabled.status).toBe(0);
+    expect(resEnabled.stdout).toContain("Inputs: Inject");
+
+    // Run with --no-seed-input-generator: Inject is omitted
+    const resDisabled = await runCli([
+      tsFile,
+      "myFunc",
+      "--no-seed-input-generator",
+      "--output-file",
+      outFile,
+      "--max-tests",
+      "5",
+      "--seed",
+      "cli_seed_seeds_disabled",
+    ]);
+    expect(resDisabled.status).toBe(0);
+    expect(resDisabled.stdout).not.toContain("Inputs: Inject");
+    const data = JSON5.parse<FuzzTestResults>(fs.readFileSync(outFile, "utf8"));
+    expect(data.stats.counters.inputsInjected).toBe(0);
   });
 
   it("options in .nano.json5 take precedence over in-source @settings", async () => {
@@ -2906,39 +3090,6 @@ export function myPutValidator(r: FuzzTestResult): "pass" | "fail" | "unknown" {
     ]);
     expect(resAi.status).toBe(0);
   });
-
-  /*
-   * Commented out so the cache clear does not step on other running tests
-   *
-  it("--clear-compile-cache", async () => {
-    const outputFile = path.join(tmpDir, "clear_cache_output.json5");
-    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
-    const targetFn = "testCoverageOneFile";
-
-    // First run to populate cache
-    const res1 = await runCli([targetFile, targetFn, "--max-tests", "5"]);
-    expect(res1.status).toBe(0);
-
-    // Second run with --clear-compile-cache flag
-    const res2 = await runCli([
-      targetFile,
-      targetFn,
-      "--output-file",
-      outputFile,
-      "--clear-compile-cache",
-      "--max-tests",
-      "5",
-    ]);
-
-    expect(res2.status).toBe(0);
-    expect(fs.existsSync(outputFile)).toBeTrue();
-
-    const outputData = JSON5.parse<FuzzTestResults>(
-      fs.readFileSync(outputFile, "utf8")
-    );
-    expect(outputData.results.length).toBeGreaterThan(0);
-  });
-  */
 });
 
 function getFnNameAndModule(fnObj: unknown): {

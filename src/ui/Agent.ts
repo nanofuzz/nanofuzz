@@ -70,62 +70,6 @@ export {
   FuzzerCodeSnippet,
 };
 
-// Cached raw results from previous fuzzing runs by normalized module + function name
-const _rawResultsCache = new Map<string, FuzzTestResults>();
-
-/**
- * Returns the cache key for storing raw fuzz results.
- */
-function getRawResultsCacheKey(filePath: string, functionName: string): string {
-  return `${normalizePathForKey(filePath)}::${functionName}`;
-} // fn: getRawResultsCacheKey
-
-/**
- * Caches the raw fuzz results for a module and function.
- */
-export function cacheRawResults(
-  filePath: string,
-  functionName: string,
-  results: FuzzTestResults
-): void {
-  _rawResultsCache.set(getRawResultsCacheKey(filePath, functionName), results);
-} // fn: cacheRawResults
-
-/**
- * Retrieves cached raw fuzz results for a module and function, if available.
- */
-export function getCachedRawResults(
-  filePath: string,
-  functionName: string
-): FuzzTestResults | undefined {
-  return _rawResultsCache.get(getRawResultsCacheKey(filePath, functionName));
-} // fn: getCachedRawResults
-
-/**
- * Clears the raw results cache (primarily for tests).
- */
-export function clearCachedRawResults(): void {
-  _rawResultsCache.clear();
-} // fn: clearCachedRawResults
-
-/**
- * Removes cached raw results for a specific path prefix or file.
- *
- * @param pathPrefix directory or file path prefix
- */
-export function clearCachedRawResultsForPath(pathPrefix: string): void {
-  const norm = normalizePathForKey(pathPrefix);
-  for (const key of _rawResultsCache.keys()) {
-    if (key.startsWith(norm)) {
-      _rawResultsCache.delete(key);
-    }
-  }
-} // fn: clearCachedRawResultsForPath
-
-// -------------------------------------------------------------------------- //
-// Primary Public API
-// -------------------------------------------------------------------------- //
-
 /**
  * Resolves a target file path against absolute paths, file URIs, VS Code workspace folders, or process.cwd().
  *
@@ -578,29 +522,39 @@ export async function runFuzz(
     throw new Error(`Target file does not exist: ${options.filePath}`);
   }
 
-  const currentProvider = Config.get<string>(
+  const configuredProvider = Config.get<string>(
     "nanofuzz.ai.provider",
     "disabled"
   );
-  const currentModel = Config.get<string>("nanofuzz.ai.model", "");
-  const currentVendor = Config.get<string>("nanofuzz.ai.vendor", "");
+  const configuredModel = Config.get<string>("nanofuzz.ai.model", "");
+  const configuredVendor = Config.get<string>("nanofuzz.ai.vendor", "");
   const currentCoverageScope = Config.get<string>(
     "nanofuzz.fuzzer.coverageScope",
     "project static"
   );
-  const shouldAutoEnableCopilot = Boolean(options.enableCopilotAi);
+
+  // Behavior rules:
+  // 1. When NOT called by an agent (options.isAgentCall !== true):
+  //    - If provider is "disabled", AI generator is disabled.
+  //    - If provider is configured (!== "disabled"), AI generator uses configured settings.
+  // 2. When called by an agent (options.isAgentCall === true):
+  //    - If provider is "disabled", piggyback on the agent's provider/model (options.vendor, options.model).
+  //    - If provider is configured (!== "disabled"), use the user-configured provider/model.
+  const isAgentCall = Boolean(options.isAgentCall || options.enableCopilotAi);
+  const shouldPiggyback = isAgentCall && configuredProvider === "disabled";
+
   let releaseDeepFuzz: (() => void) | undefined;
   const fuzzStartTime = Date.now();
 
   try {
-    if (shouldAutoEnableCopilot) {
+    if (shouldPiggyback) {
       Config.override("nanofuzz.ai.provider", "copilot");
-    }
-    if (options.model) {
-      Config.override("nanofuzz.ai.model", options.model);
-    }
-    if (options.vendor) {
-      Config.override("nanofuzz.ai.vendor", options.vendor);
+      if (options.model) {
+        Config.override("nanofuzz.ai.model", options.model);
+      }
+      if (options.vendor) {
+        Config.override("nanofuzz.ai.vendor", options.vendor);
+      }
     }
     if (options.coverageScope) {
       Config.override("nanofuzz.fuzzer.coverageScope", options.coverageScope);
@@ -633,8 +587,10 @@ export async function runFuzz(
     if (experimentalTool === "hypothesis" || experimentalTool === "hypofuzz") {
       const runnerOptions: AgentFuzzOptions = {
         ...options,
-        // Limit smoke tests (non-deep runs) to 1 worker process
-        workers: !isDeepFuzzingRun ? 1 : options.workers,
+        // Limit smoke tests (non-deep runs) to 1 worker process; budget deep runs across slots
+        workers: !isDeepFuzzingRun
+          ? 1
+          : (options.workers ?? getWorkersPerDeepSlot()),
       };
       const runner = new HypothesisRunner(
         runnerOptions,
@@ -661,6 +617,8 @@ export async function runFuzz(
           maxTests: options.maxTests ?? 0,
           statementCoveragePct: result.coverage?.statementCoveragePercent,
           branchCoveragePct: result.coverage?.branchCoveragePercent,
+          branchesCovered: result.coverage?.branchesCovered,
+          branchesTotal: result.coverage?.branchesTotal,
           deepSlotWaitMs,
           generatorName:
             result.primaryCounterexample?.origin ??
@@ -699,7 +657,7 @@ export async function runFuzz(
       ...(fnFuzzOptions?.generators ?? {}),
       ...(fnConfig.options?.generators ?? {}),
       ...options.generators,
-      ...(shouldAutoEnableCopilot &&
+      ...(isAgentCall &&
       options.generators?.AiInputGenerator?.enabled === undefined
         ? { AiInputGenerator: { enabled: true } }
         : {}),
@@ -787,14 +745,24 @@ export async function runFuzz(
         : undefined,
     });
 
+    const isBenchRun =
+      Config.get<boolean>("nanofuzz.benchmarkMode", false) ||
+      Boolean(options.sessionId?.startsWith("bench-")) ||
+      Boolean(session?.sessionId?.startsWith("bench-"));
+
     const executionOptions: FuzzExecutionOptions = {
       engine: "auto",
-      // Limit smoke tests (non-deep runs) to 1 worker process
+      // Limit smoke tests (non-deep runs) to 1 worker process; budget deep runs across slots
       workers: !isDeepFuzzingRun
         ? 1
-        : (options.workers ??
-          Config.get<number | "auto">("nanofuzz.fuzzer.workers", "auto")),
-      outputResults: options.outputResults ?? "all",
+        : (options.workers ?? getWorkersPerDeepSlot()),
+      outputResults:
+        options.outputResults ??
+        (options.exportSuite || options.exportFilePath
+          ? "interesting"
+          : isBenchRun || isDeepFuzzingRun
+            ? "failures"
+            : "all"),
       precompile: false,
     };
 
@@ -847,11 +815,12 @@ export async function runFuzz(
       const outPath = options.exportFilePath
         ? resolveFilePath(options.exportFilePath)
         : undefined;
+      const shouldShrinkSuite = !options.sessionId?.startsWith("bench-");
       testSuiteCode = await synthesizeTestSuite(
         resolvedPath,
         options.functionName,
         rawResults,
-        { shrink: true, outputFilename: outPath }
+        { shrink: shouldShrinkSuite, outputFilename: outPath }
       );
 
       if (outPath && testSuiteCode) {
@@ -866,8 +835,10 @@ export async function runFuzz(
 
     const generatorDiagnostics = tester.getInputGeneratorDiagnostics();
 
-    // Cache the raw results for immediate display via showResults / FuzzPanel
-    cacheRawResults(resolvedPath, options.functionName, rawResults);
+    // Cache the raw results for immediate display via showResults / FuzzPanel (suppressed in benchmark/deep runs)
+    if (!isBenchRun) {
+      cacheRawResults(resolvedPath, options.functionName, rawResults);
+    }
 
     const formatted = await formatFuzzResult(
       rawResults,
@@ -903,6 +874,8 @@ export async function runFuzz(
         maxTests: options.maxTests ?? normalizedOptions.maxTests,
         statementCoveragePct: cov?.statementCoveragePercent,
         branchCoveragePct: cov?.branchCoveragePercent,
+        branchesCovered: cov?.branchesCovered,
+        branchesTotal: cov?.branchesTotal,
         deepSlotWaitMs,
         generatorName: formatted.primaryCounterexample?.origin,
         details:
@@ -952,14 +925,10 @@ export async function runFuzz(
     };
   } finally {
     releaseDeepFuzz?.();
-    if (shouldAutoEnableCopilot) {
-      Config.override("nanofuzz.ai.provider", currentProvider);
-    }
-    if (options.model) {
-      Config.override("nanofuzz.ai.model", currentModel);
-    }
-    if (options.vendor) {
-      Config.override("nanofuzz.ai.vendor", currentVendor);
+    if (shouldPiggyback) {
+      Config.override("nanofuzz.ai.provider", configuredProvider);
+      Config.override("nanofuzz.ai.model", configuredModel);
+      Config.override("nanofuzz.ai.vendor", configuredVendor);
     }
     if (options.coverageScope) {
       Config.override("nanofuzz.fuzzer.coverageScope", currentCoverageScope);
@@ -1568,6 +1537,157 @@ export async function synthesizeTestSuite(
   }
 } // fn: synthesizeTestSuite
 
+// Scoped target coverage files and excluded files by root directory to prevent cross-lane race conditions
+const _targetCoverageFilesByRoot = new Map<string, Set<string>>();
+const _excludedCoverageFilesByRoot = new Map<string, Set<string>>();
+
+const _defaultTargetCoverageFiles = new Set<string>();
+const _defaultExcludedCoverageFiles = new Set<string>();
+
+function findRootForPath(p: string): string {
+  let curr = path.resolve(p);
+  try {
+    if (fs.existsSync(curr) && fs.statSync(curr).isFile()) {
+      curr = path.dirname(curr);
+    }
+  } catch {
+    curr = path.dirname(curr);
+  }
+  while (curr !== path.dirname(curr)) {
+    if (
+      fs.existsSync(path.join(curr, ".git")) ||
+      fs.existsSync(path.join(curr, ".venv")) ||
+      fs.existsSync(path.join(curr, "pyproject.toml"))
+    ) {
+      return curr;
+    }
+    curr = path.dirname(curr);
+  }
+  return path.resolve(p);
+}
+
+/**
+ * Sets an explicit whitelist of target files to evaluate coverage on.
+ * When set, only files in this list will be counted in coverage metrics.
+ *
+ * @param filePaths array or set of allowed target file paths
+ * @param rootPath optional project root or lane worktree path to scope targets
+ */
+export function setTargetCoverageFiles(
+  filePaths?: string[] | Set<string>,
+  rootPath?: string
+): void {
+  const arr = filePaths ? Array.from(filePaths) : [];
+  const root = rootPath
+    ? path.resolve(rootPath)
+    : arr.length > 0
+      ? findRootForPath(arr[0])
+      : undefined;
+
+  if (!filePaths || arr.length === 0) {
+    if (root) {
+      _targetCoverageFilesByRoot.delete(root);
+    } else {
+      _targetCoverageFilesByRoot.clear();
+      _defaultTargetCoverageFiles.clear();
+    }
+    return;
+  }
+
+  const set = new Set<string>();
+  for (const fp of arr) {
+    set.add(path.resolve(fp));
+  }
+
+  if (root) {
+    _targetCoverageFilesByRoot.set(root, set);
+  }
+  _defaultTargetCoverageFiles.clear();
+  for (const fp of set) {
+    _defaultTargetCoverageFiles.add(fp);
+  }
+} // fn: setTargetCoverageFiles
+
+/**
+ * Returns the currently active whitelist of target coverage files, if any.
+ *
+ * @param contextPath optional file or directory path to look up lane-scoped targets
+ */
+export function getTargetCoverageFiles(
+  contextPath?: string
+): Set<string> | undefined {
+  if (contextPath) {
+    const root = findRootForPath(contextPath);
+    const scoped = _targetCoverageFilesByRoot.get(root);
+    if (scoped && scoped.size > 0) {
+      return scoped;
+    }
+  }
+  return _defaultTargetCoverageFiles.size > 0
+    ? _defaultTargetCoverageFiles
+    : undefined;
+} // fn: getTargetCoverageFiles
+
+/**
+ * Registers one or more file paths to be explicitly excluded from coverage metrics evaluation.
+ *
+ * @param filePaths absolute or relative file paths to exclude
+ * @param rootPath optional project root or lane worktree path to scope exclusions
+ */
+export function registerExcludedCoverageFiles(
+  filePaths: string[] | Set<string>,
+  rootPath?: string
+): void {
+  const arr = Array.from(filePaths);
+  const root = rootPath
+    ? path.resolve(rootPath)
+    : arr.length > 0
+      ? findRootForPath(arr[0])
+      : undefined;
+
+  for (const fp of arr) {
+    const resolved = path.resolve(fp);
+    _defaultExcludedCoverageFiles.add(resolved);
+    if (root) {
+      let scoped = _excludedCoverageFilesByRoot.get(root);
+      if (!scoped) {
+        scoped = new Set<string>();
+        _excludedCoverageFilesByRoot.set(root, scoped);
+      }
+      scoped.add(resolved);
+    }
+  }
+} // fn: registerExcludedCoverageFiles
+
+/**
+ * Clears the registry of excluded coverage files.
+ *
+ * @param rootPath optional project root or lane worktree path to selectively clear
+ */
+export function clearExcludedCoverageFiles(rootPath?: string): void {
+  if (rootPath) {
+    const root = path.resolve(rootPath);
+    const rootPrefix = root.endsWith(path.sep) ? root : root + path.sep;
+    _targetCoverageFilesByRoot.delete(root);
+    _excludedCoverageFilesByRoot.delete(root);
+    for (const fp of _defaultExcludedCoverageFiles) {
+      if (fp === root || fp.startsWith(rootPrefix)) {
+        _defaultExcludedCoverageFiles.delete(fp);
+      }
+    }
+    for (const fp of _defaultTargetCoverageFiles) {
+      if (fp === root || fp.startsWith(rootPrefix)) {
+        _defaultTargetCoverageFiles.delete(fp);
+      }
+    }
+  } else {
+    _defaultExcludedCoverageFiles.clear();
+    _defaultTargetCoverageFiles.clear();
+    _targetCoverageFilesByRoot.clear();
+    _excludedCoverageFilesByRoot.clear();
+  }
+} // fn: clearExcludedCoverageFiles
+
 /**
  * Computes coverage summary statistics from FuzzTestResults.
  */
@@ -1581,20 +1701,60 @@ export async function getCoverageSummary(
 
   try {
     const covStats: CodeCoverageMeasureStats = await coverageFn();
-    const counters = covStats.counters;
 
-    const stmtTotal = counters.statementsTotal;
-    const stmtCovered = counters.statementsCovered;
+    // Exclude explicitly registered created files (e.g. test harnesses)
+    // and test fixtures (conftest.py), and restrict to target coverage files if configured.
+    const nonHarnessFiles = (covStats.files || []).filter((f) => {
+      const resolved = path.resolve(f.path);
+      const root = findRootForPath(resolved);
+      const targetWhitelist =
+        _targetCoverageFilesByRoot.get(root) ??
+        (_defaultTargetCoverageFiles.size > 0
+          ? _defaultTargetCoverageFiles
+          : undefined);
+
+      if (targetWhitelist && !targetWhitelist.has(resolved)) {
+        return false;
+      }
+
+      const exclusions =
+        _excludedCoverageFilesByRoot.get(root) ?? _defaultExcludedCoverageFiles;
+      if (exclusions && exclusions.has(resolved)) {
+        return false;
+      }
+      if (path.basename(resolved) === "conftest.py") {
+        return false;
+      }
+      return true;
+    });
+
+    // If project files exist alongside the harness, compute metrics strictly on the project files.
+    // If only the harness was tested (e.g. standalone test), fall back to global counters.
+    const useFiltered = nonHarnessFiles.length > 0;
+    const stmtTotal = useFiltered
+      ? nonHarnessFiles.reduce((s, f) => s + f.counters.statementsTotal, 0)
+      : covStats.counters.statementsTotal;
+    const stmtCovered = useFiltered
+      ? nonHarnessFiles.reduce((s, f) => s + f.counters.statementsCovered, 0)
+      : covStats.counters.statementsCovered;
     const stmtPct =
       stmtTotal > 0 ? Math.round((stmtCovered / stmtTotal) * 10000) / 100 : 100;
 
-    const brTotal = counters.branchesTotal;
-    const brCovered = counters.branchesCovered;
+    const brTotal = useFiltered
+      ? nonHarnessFiles.reduce((s, f) => s + f.counters.branchesTotal, 0)
+      : covStats.counters.branchesTotal;
+    const brCovered = useFiltered
+      ? nonHarnessFiles.reduce((s, f) => s + f.counters.branchesCovered, 0)
+      : covStats.counters.branchesCovered;
     const brPct =
       brTotal > 0 ? Math.round((brCovered / brTotal) * 10000) / 100 : 100;
 
-    const fnTotal = counters.functionsTotal;
-    const fnCovered = counters.functionsCovered;
+    const fnTotal = useFiltered
+      ? nonHarnessFiles.reduce((s, f) => s + f.counters.functionsTotal, 0)
+      : covStats.counters.functionsTotal;
+    const fnCovered = useFiltered
+      ? nonHarnessFiles.reduce((s, f) => s + f.counters.functionsCovered, 0)
+      : covStats.counters.functionsCovered;
     const fnPct =
       fnTotal > 0 ? Math.round((fnCovered / fnTotal) * 10000) / 100 : 100;
 
@@ -2123,6 +2283,7 @@ export type AgentFuzzOptions = {
   inputs?: (Record<string, unknown> | unknown[])[];
   tests?: (AgentTestCase | Record<string, unknown> | unknown[])[];
   enableCopilotAi?: boolean;
+  isAgentCall?: boolean;
   noConfigFile?: boolean;
   exportSuite?: boolean;
   exportFilePath?: string;
@@ -2485,6 +2646,58 @@ function coerceAgentInputForArgDef(
   }
 } // fn: coerceAgentInputForArgDef
 
+// Cached raw results from previous fuzzing runs by normalized module + function name
+const _rawResultsCache = new Map<string, FuzzTestResults>();
+
+/**
+ * Returns the cache key for storing raw fuzz results.
+ */
+function getRawResultsCacheKey(filePath: string, functionName: string): string {
+  return `${normalizePathForKey(filePath)}::${functionName}`;
+} // fn: getRawResultsCacheKey
+
+/**
+ * Caches the raw fuzz results for a module and function.
+ */
+export function cacheRawResults(
+  filePath: string,
+  functionName: string,
+  results: FuzzTestResults
+): void {
+  _rawResultsCache.set(getRawResultsCacheKey(filePath, functionName), results);
+} // fn: cacheRawResults
+
+/**
+ * Retrieves cached raw fuzz results for a module and function, if available.
+ */
+export function getCachedRawResults(
+  filePath: string,
+  functionName: string
+): FuzzTestResults | undefined {
+  return _rawResultsCache.get(getRawResultsCacheKey(filePath, functionName));
+} // fn: getCachedRawResults
+
+/**
+ * Clears the raw results cache (primarily for tests).
+ */
+export function clearCachedRawResults(): void {
+  _rawResultsCache.clear();
+} // fn: clearCachedRawResults
+
+/**
+ * Removes cached raw results for a specific path prefix or file.
+ *
+ * @param pathPrefix directory or file path prefix
+ */
+export function clearCachedRawResultsForPath(pathPrefix: string): void {
+  const norm = normalizePathForKey(pathPrefix);
+  for (const key of _rawResultsCache.keys()) {
+    if (key.startsWith(norm)) {
+      _rawResultsCache.delete(key);
+    }
+  }
+} // fn: clearCachedRawResultsForPath
+
 /**
  * Asynchronous counting semaphore for concurrency throttling.
  */
@@ -2586,7 +2799,7 @@ export class AsyncSemaphore {
   } // fn: _release
 } // class: AsyncSemaphore
 
-function getAutoDeepSlots(): number {
+export function getAutoDeepSlots(): number {
   if (process.env.BENCHMARK_DEEP_SLOTS) {
     const val = parseInt(process.env.BENCHMARK_DEEP_SLOTS, 10);
     if (!isNaN(val) && val >= 1) return val;
@@ -2597,5 +2810,38 @@ function getAutoDeepSlots(): number {
       : os.cpus().length;
   return Math.max(1, Math.floor(cpus / 4));
 } // fn: getAutoDeepSlots
+
+/**
+ * Calculates the budgeted worker process concurrency per active deep fuzzing slot.
+ *
+ * Prevents CPU over-saturation during multi-lane concurrent benchmark or exploration runs:
+ * - If the user explicitly configured 'nanofuzz.fuzzer.workers' to a numeric value >= 1, that value is respected.
+ * - Otherwise ('auto'), partitions available system CPU cores evenly across concurrent deep fuzzing slots,
+ *   holding back a reserve of 1-2 cores (1 core for <= 4 CPUs, 2 cores for > 4 CPUs) for OS operations,
+ *   editor tasks, and concurrent Phase 4 smoke test executions:
+ *
+ *     workersPerSlot = max(1, floor((cpus - reserve) / slots))
+ *
+ * For example:
+ * - On 18 cores with 4 slots: reserve = 2 -> floor((18 - 2) / 4) = 4 workers/slot (16 total deep workers, 2 cores free).
+ * - On 8 cores with 2 slots: reserve = 2 -> floor((8 - 2) / 2) = 3 workers/slot (6 total deep workers, 2 cores free).
+ * - On 4 cores with 1 slot: reserve = 1 -> floor((4 - 1) / 1) = 3 workers/slot (3 total deep workers, 1 core free).
+ * - On 2 cores with 1 slot: reserve = 1 -> floor((2 - 1) / 1) = 1 worker/slot (1 worker, 1 core free).
+ *
+ * @returns number of worker processes to allocate per deep fuzzing runner instance
+ */
+export function getWorkersPerDeepSlot(): number {
+  if (Config.get<string>("nanofuzz.fuzzer.workers", "auto") !== "auto") {
+    const custom = Config.get<number>("nanofuzz.fuzzer.workers", 1);
+    if (typeof custom === "number" && custom >= 1) return custom;
+  }
+  const cpus =
+    typeof os.availableParallelism === "function"
+      ? os.availableParallelism()
+      : os.cpus().length;
+  const slots = getAutoDeepSlots();
+  const reserve = cpus <= 4 ? 1 : 2;
+  return Math.max(1, Math.floor(Math.max(1, cpus - reserve) / slots));
+} // fn: getWorkersPerDeepSlot
 
 export const deepFuzzSemaphore = new AsyncSemaphore(getAutoDeepSlots());

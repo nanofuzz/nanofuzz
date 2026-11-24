@@ -126,4 +126,70 @@ func Add(a int, b int) int {
     const nameCap = matches[0].captures.find((c) => c.name === "fn.name");
     expect(nameCap?.node.text).toBe("Add");
   });
+
+  it("parses Rust code (tree-sitter-rust 0.24.0) into a valid syntax tree and executes a query", () => {
+    const rustSrc = `
+pub fn add(a: i32, b: i32) -> i32 {
+    a + b
+}
+`;
+    const tree = Parser.parse("rust", rustSrc);
+    expect(tree).not.toBeNull();
+    expect(tree?.rootNode.type).toBe("source_file");
+    const fnItem = tree?.rootNode.descendantsOfType("function_item")[0];
+    expect(fnItem).toBeDefined();
+
+    const q = Parser.query(
+      "rust",
+      `
+(function_item
+  name: (identifier) @fn.name
+  parameters: (parameters) @fn.params
+  return_type: (_) @fn.return) @fn.item
+`
+    );
+    const matches = q.matches(tree!.rootNode);
+    expect(matches.length).toBe(1);
+    const nameCap = matches[0].captures.find((c) => c.name === "fn.name");
+    expect(nameCap?.node.text).toBe("add");
+  });
+
+  it("parses Python code into a valid syntax tree and executes a query", () => {
+    const pySrc = `
+def multiply(x: int, y: int) -> int:
+    return x * y
+`;
+    const tree = Parser.parse("python", pySrc);
+    expect(tree).not.toBeNull();
+    expect(tree?.rootNode.type).toBe("module");
+    const fnDef = tree?.rootNode.descendantsOfType("function_definition")[0];
+    expect(fnDef).toBeDefined();
+
+    const q = Parser.query(
+      "python",
+      `
+(function_definition
+  name: (identifier) @fn.name
+  parameters: (parameters) @fn.params
+  return_type: (type) @fn.return) @fn.item
+`
+    );
+    const matches = q.matches(tree!.rootNode);
+    expect(matches.length).toBe(1);
+    const nameCap = matches[0].captures.find((c) => c.name === "fn.name");
+    expect(nameCap?.node.text).toBe("multiply");
+  });
+
+  it("parses TypeScript code into a valid syntax tree", () => {
+    const tsSrc = `
+export function greet(name: string): string {
+    return \`Hello, \${name}\`;
+}
+`;
+    const tree = Parser.parse("typescript", tsSrc);
+    expect(tree).not.toBeNull();
+    expect(tree?.rootNode.type).toBe("program");
+    const fnDecl = tree?.rootNode.descendantsOfType("function_declaration")[0];
+    expect(fnDecl).toBeDefined();
+  });
 });

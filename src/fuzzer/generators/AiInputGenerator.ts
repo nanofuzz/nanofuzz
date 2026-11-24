@@ -15,7 +15,13 @@ import {
 } from "../adapters/LlmAdapter";
 import { ArgDef } from "../analysis/ArgDef";
 import { FunctionDef } from "../analysis/FunctionDef";
-import { FuzzTestResults, InputAndSource } from "../Types";
+import {
+  FuzzOptions,
+  FuzzPinnedTest,
+  FuzzTestResults,
+  InputAndSource,
+} from "../Types";
+import { AbstractRunner } from "../runners/AbstractRunner";
 import { InputGeneratorStatsAi, LlmQueryResult, NextableStatus } from "./Types";
 import { ArgDefValidator } from "../analysis/ArgDefValidator";
 import { ArgDefTokenEstimator } from "../analysis/ArgDefTokenEstimator";
@@ -34,7 +40,11 @@ import {
   SampledFrontierTarget,
   formatFrontierContext,
 } from "../analysis/CoverageFrontierSampler";
+import * as ProgramFactory from "../analysis/ProgramFactory";
 import { Leaderboard } from "./Leaderboard";
+
+// Maximum model calls allowed when policy is 'seed'
+const MAX_SEED_CALLS = 3;
 
 /**
  * Generates new inputs using a large language model
@@ -54,6 +64,13 @@ export class AiInputGenerator extends AbstractInputGenerator {
   protected _targetAttempts: Record<string, number> = {}; // Historical attempts per target function to decay weight
   protected _leaderboard?: Leaderboard<InputAndSource>; // Running list of interesting inputs
   protected _validator: ArgDefValidator; // Validator for argument constraints
+  protected _policy: AiPolicy = "eager"; // AI input generation policy: 'eager' or 'seed'
+  protected _disabledReason?: string; // Reason why AI generator was disabled for this run
+  protected _putSources: {
+    filePath: string;
+    src: string;
+    targetName: string;
+  }[] = []; // Resolved Program Under Test (PUT) target sources
 
   public constructor(
     fn: FunctionDef,
@@ -72,7 +89,28 @@ export class AiInputGenerator extends AbstractInputGenerator {
     this._validator = new ArgDefValidator(this._specs);
     this._tokensPerInput = this._estimateTokensPerInput();
     this._requestedInputCount = this._getRequestedInputCount();
+    this._putSources = this._resolvePutSources();
   } // fn: constructor
+
+  /**
+   * Resolves source files for any Program Under Test (PUT) targets declared on the function.
+   */
+  protected _resolvePutSources(): {
+    filePath: string;
+    src: string;
+    targetName: string;
+  }[] {
+    const putTargets = this._fn.getPutTargets();
+    if (putTargets.length === 0) {
+      return [];
+    }
+    try {
+      const prog = ProgramFactory.fromFile(this._fn.getModule());
+      return prog.resolvePutTargets(putTargets);
+    } catch {
+      return [];
+    }
+  } // fn: _resolvePutSources
 
   /**
    * Returns the human-readable name for the AI input generator
@@ -87,8 +125,15 @@ export class AiInputGenerator extends AbstractInputGenerator {
    * @returns 'now' if generator inputs are available, 'soon' if pending, false otherwise
    */
   public override nextable(): NextableStatus {
+    if (this._disabledReason || LlmAdapter.isAbandoned || this._exhausted) {
+      return false;
+    }
     if (this._inputQueue.length) {
+      const canRefill =
+        this._policy === "eager" ||
+        (this._policy === "seed" && this._stats.calls.sent < MAX_SEED_CALLS);
       if (
+        canRefill &&
         this._inputQueue.length < getChunkSize() &&
         !this._callsPending &&
         this._llm &&
@@ -98,11 +143,13 @@ export class AiInputGenerator extends AbstractInputGenerator {
         this._getMoreInputs();
       }
       return "now";
-    } else if (LlmAdapter.isAbandoned || this._exhausted) {
-      return false;
     } else if (this._callsPending) {
       return "soon";
-    } else if (this._llm) {
+    } else if (
+      this._llm &&
+      (this._policy === "eager" ||
+        (this._policy === "seed" && this._stats.calls.sent < MAX_SEED_CALLS))
+    ) {
       this._getMoreInputs();
       return this._callsPending ? "soon" : false;
     } else {
@@ -115,6 +162,9 @@ export class AiInputGenerator extends AbstractInputGenerator {
    * or encounters configuration/execution errors.
    */
   public override getDiagnostics(): string[] {
+    if (this._disabledReason) {
+      return [this._disabledReason];
+    }
     if (!LlmAdapter.isConfigured()) {
       return [];
     }
@@ -165,12 +215,52 @@ export class AiInputGenerator extends AbstractInputGenerator {
    *
    * @param `active` indicates if inputs are expected this run
    */
-  public onRunStart(active: boolean): void {
+  public override onRunStart(
+    active: boolean,
+    _injectedInputs: (FuzzPinnedTest | Omit<InputAndSource, "tick">)[],
+    _transformRunner: AbstractRunner | undefined,
+    fuzzOptions: FuzzOptions,
+    _userGenRunner?: AbstractRunner
+  ): void {
     this._exhausted = false;
     this._targetAttempts = {};
     this._validator = new ArgDefValidator(this._specs);
     this._tokensPerInput = this._estimateTokensPerInput();
     this._requestedInputCount = this._getRequestedInputCount();
+    this._policy = Config.get<AiPolicy>("nanofuzz.ai.policy", "eager");
+
+    const suiteTimeout = fuzzOptions.suiteTimeout;
+    const maxTests = fuzzOptions.maxTests;
+    const cacheMode = Config.get<string>(
+      "nanofuzz.ai.cacheMode",
+      "passthrough"
+    );
+    const isMockOrCache = cacheMode !== "passthrough";
+    const isShortTime =
+      !isMockOrCache && suiteTimeout > 0 && suiteTimeout < 3000;
+    const isFewTests = !isMockOrCache && maxTests > 0 && maxTests < 1000;
+
+    if (isShortTime && isFewTests) {
+      this._disabledReason = "disabled for short runs (<3s, <1k tests)";
+      this._exhausted = true;
+      this._llm = undefined;
+      this._inputQueue = [];
+      return;
+    } else if (isShortTime) {
+      this._disabledReason = "disabled for short runs (<3s)";
+      this._exhausted = true;
+      this._llm = undefined;
+      this._inputQueue = [];
+      return;
+    } else if (isFewTests) {
+      this._disabledReason = "disabled for short runs (<1k tests)";
+      this._exhausted = true;
+      this._llm = undefined;
+      this._inputQueue = [];
+      return;
+    } else {
+      this._disabledReason = undefined;
+    }
 
     // Abandon back-end if stale or no longer configured
     if (
@@ -215,7 +305,11 @@ export class AiInputGenerator extends AbstractInputGenerator {
     if (inputToReturn === undefined) {
       throw new Error(`next() not allowed when isAvailable()===false`);
     }
+    const canRefill =
+      this._policy === "eager" ||
+      (this._policy === "seed" && this._stats.calls.sent < MAX_SEED_CALLS);
     if (
+      canRefill &&
       this._inputQueue.length < getChunkSize() &&
       !this._callsPending &&
       this._llm &&
@@ -276,10 +370,12 @@ export class AiInputGenerator extends AbstractInputGenerator {
   protected _getMoreInputs(): void {
     // Let any prior calls finish before making a new one
     if (
+      this._disabledReason ||
       this._callsPending ||
       this._exhausted ||
       !this._llm ||
-      LlmAdapter.isAbandoned
+      LlmAdapter.isAbandoned ||
+      (this._policy === "seed" && this._stats.calls.sent >= MAX_SEED_CALLS)
     ) {
       return;
     }
@@ -356,7 +452,9 @@ export class AiInputGenerator extends AbstractInputGenerator {
           this._stats.calls.sent,
           uncoveredInfo,
           frontierTarget,
-          this._leaderboard
+          this._leaderboard,
+          undefined,
+          this._putSources
         );
 
         try {
@@ -831,6 +929,13 @@ export class AiInputGenerator extends AbstractInputGenerator {
   } // getter: stats
 
   /**
+   * Returns the configured AI generator policy ('eager' or 'seed')
+   */
+  public get policy(): AiPolicy {
+    return this._policy;
+  } // getter: policy
+
+  /**
    * Cleanup and flush in-flight LLM requests if in a recording cache mode
    */
   public override async onRunEnd(results?: FuzzTestResults): Promise<void> {
@@ -1008,12 +1113,30 @@ export const prompt = {
     uncoveredInfo?: UncoveredCoverageInfo,
     frontierTarget?: SampledFrontierTarget,
     leaderboard?: Leaderboard<InputAndSource>,
-    maxBackfeedTokens?: number
+    maxBackfeedTokens?: number,
+    putSources?: { filePath: string; src: string; targetName: string }[]
   ): string => {
     const fnRef = fn.getRef();
     const spec = (fn.getCmt() ?? "").replaceAll("```", "\\`\\`\\`");
     const fnSrc = fnRef.src.replaceAll("```", "\\`\\`\\`");
     const escapedModuleSrc = moduleSrc.replaceAll("```", "\\`\\`\\`");
+
+    let putContext = "";
+    if (putSources && putSources.length > 0) {
+      const externalPutSources = putSources.filter(
+        (s) => path.resolve(s.filePath) !== path.resolve(fnRef.module)
+      );
+      if (externalPutSources.length > 0) {
+        const putBlocks = externalPutSources.map((s) => {
+          const displayPath = path.isAbsolute(s.filePath)
+            ? path.relative(process.cwd(), s.filePath) || s.filePath
+            : s.filePath;
+          const escapedSrc = s.src.replaceAll("```", "\\`\\`\\`");
+          return `// File: ${displayPath}\n\`\`\`${fnRef.lang}\n${escapedSrc}\n\`\`\``;
+        });
+        putContext = `The implementation of the Program Under Test (PUT) called by this harness:\n${putBlocks.join("\n\n")}\n\n`;
+      }
+    }
 
     const backfeed = Config.get<boolean>(
       "nanofuzz.ai.backfeedPriorInputs",
@@ -1119,6 +1242,7 @@ ${escapedModuleSrc}
             spec.length +
             fnSrc.length +
             escapedModuleSrc.length +
+            putContext.length +
             coverageContext.length +
             500;
           const estimatedBaseTokens = Math.ceil(baseChars / 3.5);
@@ -1206,8 +1330,15 @@ The "${fnRef.name}" program:
 ${fnSrc}
 \`\`\`
 
-${moduleContext}${directives.length ? `Important details about the program's inputs:\n${directives.map((d) => ` - ${d}\n`).join("")}` : ""} 
+${putContext}${moduleContext}${directives.length ? `Important details about the program's inputs:\n${directives.map((d) => ` - ${d}\n`).join("")}` : ""} 
 
 ${coverageContext}${backfeedSection}`;
   },
 };
+
+/**
+ * Policy governing how the AI input generator expends requests:
+ * - "eager": continuous generation at maximum throughput
+ * - "seed": generates an initial batch of inputs and then stops
+ */
+export type AiPolicy = "eager" | "seed";

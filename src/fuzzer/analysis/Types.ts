@@ -58,6 +58,7 @@ export type FunctionRef = {
   returnType?: TypeRef; // Return type of the function
   cmt?: string; // Docstring comment of the function
   fuzzOptions?: Partial<FuzzOptions>; // Options for this function
+  putTargets?: string[]; // Program Under Test (PUT) target symbols if this function is a test harness
 };
 
 /**

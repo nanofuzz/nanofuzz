@@ -1,6 +1,11 @@
 import seedrandom from "seedrandom";
 import { ArgDef } from "../analysis/ArgDef";
-import { FuzzPinnedTest, FuzzTestResults, InputAndSource } from "./../Types";
+import {
+  FuzzOptions,
+  FuzzPinnedTest,
+  FuzzTestResults,
+  InputAndSource,
+} from "./../Types";
 import { InputGeneratorStats, NextableStatus } from "./Types";
 import { AbstractRunner } from "../runners/AbstractRunner";
 
@@ -11,6 +16,7 @@ export abstract class AbstractInputGenerator {
   protected _specs: ArgDef[]; // ArgDef specs that describe inputs.
   protected _prng; // pseudo random number generator
   protected _pendingPromise?: Promise<boolean>; // Pending promise for async input generation
+  protected _name: string; // Cached canonical generator name
 
   /**
    * Create a new input generator
@@ -22,13 +28,15 @@ export abstract class AbstractInputGenerator {
     this._specs = specs;
     this._prng =
       rngSeed && rngSeed.length > 0 ? seedrandom(rngSeed) : seedrandom();
+    const cname = this.constructor.name;
+    this._name = cname.startsWith("_") ? cname.slice(1) : cname; // ty esbuild
   } // fn: constructor
 
   /**
    * Returns the input generator's name
    */
   public get name(): string {
-    return this.constructor.name;
+    return this._name;
   } // property: get name
 
   /**
@@ -101,10 +109,9 @@ export abstract class AbstractInputGenerator {
    */
   public onRunStart(
     _active: boolean,
-    _injectedInputs: (FuzzPinnedTest | Omit<InputAndSource, "tick">)[] = [],
-    _transformRunner?: AbstractRunner,
-    _fnTimeout: number = 0,
-    _maxDupeInputs: number = 0,
+    _injectedInputs: (FuzzPinnedTest | Omit<InputAndSource, "tick">)[],
+    _transformRunner: AbstractRunner | undefined,
+    _fuzzOptions: FuzzOptions,
     _userGenRunner?: AbstractRunner
   ): void {
     return;
