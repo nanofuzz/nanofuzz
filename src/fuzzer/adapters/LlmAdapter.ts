@@ -347,27 +347,81 @@ export class LlmAdapter {
               );
             }
 
-            const selector: vscode.LanguageModelChatSelector = {};
-            if (cfg.vendor) {
-              selector.vendor = cfg.vendor;
-            }
-            if (modelName) {
-              selector.family = modelName;
-            }
-
-            let models = await vscode.lm.selectChatModels(
-              Object.keys(selector).length > 0 ? selector : undefined
-            );
-            if (!models || models.length === 0) {
-              models = await vscode.lm.selectChatModels();
-            }
-            if (!models || models.length === 0) {
+            const allModels = await vscode.lm.selectChatModels();
+            if (!allModels || allModels.length === 0) {
               throw new Error(
                 "No Language Models available in VS Code. Ensure a model provider is installed and active in VS Code."
               );
             }
 
-            const model = models[0];
+            // Match strictly against requested vendor and model without silent fallbacks
+            let matched: vscode.LanguageModelChat | undefined;
+            if (modelName) {
+              const mNorm = modelName.toLowerCase().replace(/[^a-z0-9]/g, "");
+              const vNorm = (cfg.vendor || "")
+                .toLowerCase()
+                .replace(/[^a-z0-9]/g, "");
+
+              matched = allModels.find((m) => {
+                const f = (m.family || "")
+                  .toLowerCase()
+                  .replace(/[^a-z0-9]/g, "");
+                const n = (m.name || "")
+                  .toLowerCase()
+                  .replace(/[^a-z0-9]/g, "");
+                const id = (m.id || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+                const v = (m.vendor || "")
+                  .toLowerCase()
+                  .replace(/[^a-z0-9]/g, "");
+
+                const vendorMatches =
+                  !vNorm ||
+                  v === vNorm ||
+                  v.includes(vNorm) ||
+                  vNorm.includes(v);
+                const modelMatches =
+                  id === mNorm ||
+                  f === mNorm ||
+                  n === mNorm ||
+                  id.includes(mNorm) ||
+                  f.includes(mNorm) ||
+                  n.includes(mNorm);
+                return vendorMatches && modelMatches;
+              });
+
+              if (!matched) {
+                matched = allModels.find((m) => {
+                  const f = (m.family || "")
+                    .toLowerCase()
+                    .replace(/[^a-z0-9]/g, "");
+                  const n = (m.name || "")
+                    .toLowerCase()
+                    .replace(/[^a-z0-9]/g, "");
+                  const id = (m.id || "")
+                    .toLowerCase()
+                    .replace(/[^a-z0-9]/g, "");
+                  return (
+                    id === mNorm ||
+                    f === mNorm ||
+                    n === mNorm ||
+                    id.includes(mNorm) ||
+                    f.includes(mNorm) ||
+                    n.includes(mNorm)
+                  );
+                });
+              }
+            }
+
+            if (!matched) {
+              const available = allModels
+                .map((m) => `${m.vendor}:${m.id}`)
+                .join(", ");
+              throw new Error(
+                `Requested model '${modelName}' (vendor: '${cfg.vendor}') not found in VS Code. Available models: [${available}]. Refusing to substitute an arbitrary fallback.`
+              );
+            }
+
+            const model = matched;
             if (LlmAdapter.isDebugConfigured()) {
               console.log(
                 `[NaNofuzz Copilot AI] Sending query (${model.vendor}/${model.name || model.id || "copilot"}):\n${promptArr.join("\n")}`
@@ -652,10 +706,12 @@ export class LlmAdapter {
     cacheFile: string;
     cacheDelay: string;
   } {
+    const provider = LlmAdapter._getConfigValue<string>("provider", "disabled");
     return {
-      provider: LlmAdapter._getConfigValue("provider", "disabled"),
+      provider,
       modelName: LlmAdapter._getConfigValue("model", ""),
-      vendor: LlmAdapter._getConfigValue("vendor", ""),
+      vendor:
+        provider === "copilot" ? LlmAdapter._getConfigValue("vendor", "") : "",
       apiKey: LlmAdapter._getConfigValue("apiKey", ""),
       endpoint: LlmAdapter._getConfigValue("endpoint", ""),
       requestTimeout: LlmAdapter._getConfigValue<number>(

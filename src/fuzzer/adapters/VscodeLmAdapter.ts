@@ -41,7 +41,7 @@ export async function resolveMatchingModel(
 
   let candidates = allModels;
 
-  // 1. If vendor is specified, attempt vendor filtering
+  // If vendor is specified, attempt vendor filtering
   if (vendor) {
     const vNorm = vendor.toLowerCase().replace(/[^a-z0-9]/g, "");
     const vendorMatches = allModels.filter((m) => {
@@ -54,15 +54,18 @@ export async function resolveMatchingModel(
     }
   }
 
-  // 2. If model is specified, attempt model name/family/id matching
-  let selected = candidates[0];
+  // If model is specified, attempt model name/family/id matching without arbitrary default fallback
+  let selected: vscode.LanguageModelChat | undefined;
   if (model) {
     const mNorm = model.toLowerCase().replace(/[^a-z0-9]/g, "");
-    const matched = candidates.find((m) => {
+    selected = candidates.find((m) => {
       const f = (m.family || "").toLowerCase().replace(/[^a-z0-9]/g, "");
       const n = (m.name || "").toLowerCase().replace(/[^a-z0-9]/g, "");
       const i = (m.id || "").toLowerCase().replace(/[^a-z0-9]/g, "");
       return (
+        f === mNorm ||
+        n === mNorm ||
+        i === mNorm ||
         f.includes(mNorm) ||
         n.includes(mNorm) ||
         i.includes(mNorm) ||
@@ -72,15 +75,16 @@ export async function resolveMatchingModel(
       );
     });
 
-    if (matched) {
-      selected = matched;
-    } else if (candidates !== allModels) {
+    if (!selected && candidates !== allModels) {
       // Check across all vendors if the vendor filter was too restrictive
-      const globalMatch = allModels.find((m) => {
+      selected = allModels.find((m) => {
         const f = (m.family || "").toLowerCase().replace(/[^a-z0-9]/g, "");
         const n = (m.name || "").toLowerCase().replace(/[^a-z0-9]/g, "");
         const i = (m.id || "").toLowerCase().replace(/[^a-z0-9]/g, "");
         return (
+          f === mNorm ||
+          n === mNorm ||
+          i === mNorm ||
           f.includes(mNorm) ||
           n.includes(mNorm) ||
           i.includes(mNorm) ||
@@ -89,10 +93,16 @@ export async function resolveMatchingModel(
           mNorm.includes(i)
         );
       });
-      if (globalMatch) {
-        selected = globalMatch;
-      }
     }
+
+    if (!selected) {
+      const available = allModels.map((m) => `${m.vendor}:${m.id}`).join(", ");
+      throw new Error(
+        `Requested model '${model}' (vendor: '${vendor}') not found in VS Code. Available models: [${available}]. Refusing to substitute an arbitrary fallback.`
+      );
+    }
+  } else {
+    selected = candidates[0];
   }
 
   return {
@@ -185,7 +195,7 @@ export class FuzzFunctionTool implements vscode.LanguageModelTool<FuzzFunctionIn
         exportFilePath,
         coverageScope,
         useTransformer,
-        enableCopilotAi: true,
+        isAgentCall: true,
       },
       () => token.isCancellationRequested
     );
