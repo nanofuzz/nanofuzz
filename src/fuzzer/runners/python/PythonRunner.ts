@@ -21,6 +21,7 @@ import * as fs from "node:fs";
 import { findInAncestor, isError } from "../../Util";
 import { PutTimeoutName } from "../AbstractHost";
 import { PythonHost, PythonEnv } from "./PythonHost";
+import { pythonModuleFor } from "./PythonModule";
 import * as ChildProcess from "node:child_process";
 
 /**
@@ -306,6 +307,7 @@ export class PythonRunner extends AbstractRunner {
       env: { ...process.env },
       libs: findPythonLibDir(path.dirname(module.filename)),
       paths: [],
+      module: pythonModuleFor(filename),
       // The interpreter that VS Code's Python extension uses for the file, or
       // else python3 on PATH (e.g., in the CLI, from an activated virtual
       // environment)
@@ -331,33 +333,13 @@ export class PythonRunner extends AbstractRunner {
         pythonEnv.libs;
     }
 
-    // Build PYTHONPATH entries for resolving user project packages and nanofuzz_runtime
+    // Build PYTHONPATH entries for resolving nanofuzz_runtime. The program's
+    // own directories do not go on PYTHONPATH: Python searches it before the
+    // standard library, even while it starts up, so a module named like a
+    // standard library module (e.g., a `logging.py` or an `encodings.py`)
+    // would shadow it. Instead, the runner host puts the program's source root
+    // on sys.path once it has started (see `PythonModule`).
     const pyPaths: string[] = [];
-
-    // Target file's ancestor directories
-    let currPyDir = path.resolve(path.dirname(filename));
-    while (currPyDir) {
-      pyPaths.push(currPyDir);
-      const parent = path.dirname(currPyDir);
-      if (parent === currPyDir) break;
-      currPyDir = parent;
-    }
-
-    // Open workspace folders
-    try {
-      const workspaceFolders = vscode.workspace?.workspaceFolders ?? [];
-      for (const folder of workspaceFolders) {
-        let wsDir = path.resolve(folder.uri.fsPath);
-        while (wsDir) {
-          pyPaths.push(wsDir);
-          const parent = path.dirname(wsDir);
-          if (parent === wsDir) break;
-          wsDir = parent;
-        }
-      }
-    } catch {
-      // ignore
-    }
 
     if (pythonEnv.libs) {
       pyPaths.push(pythonEnv.libs);
@@ -391,7 +373,11 @@ export class PythonRunner extends AbstractRunner {
       pythonEnv.env
     );
 
-    pythonEnv.paths = PythonRunner._pathsFor(pythonEnv);
+    // The program's sys.path, as the runner host sets it up
+    pythonEnv.paths = Object.freeze([
+      pythonEnv.module.sourceRoot,
+      ...PythonRunner._pathsFor(pythonEnv),
+    ]);
 
     const frozenEnv = Object.freeze(pythonEnv);
     PythonRunner._envs.set(filename, {
@@ -416,17 +402,19 @@ export class PythonRunner extends AbstractRunner {
     }
 
     try {
+      // Prints sys.path separated by null characters (`\0`), using nothing but
+      // `sys`, which is built into the interpreter: any other module (e.g.,
+      // `json`) could be shadowed by one on the search path, such as a
+      // `json.py` on the user's PYTHONPATH
       const output = ChildProcess.execFileSync(
         interpreter,
-        ["-c", "import sys, json; print(json.dumps(sys.path))"],
+        [
+          "-c",
+          "import sys; sys.stdout.buffer.write('\\0'.join(sys.path).encode('utf-8', 'surrogateescape'))",
+        ],
         { encoding: "utf8", env: pythonEnv.env }
       );
-      const entries: unknown = JSON.parse(output);
-      const paths = Array.isArray(entries)
-        ? Object.freeze(
-            entries.filter((e) => typeof e === "string" && e !== "")
-          )
-        : [];
+      const paths = Object.freeze(output.split("\0").filter((e) => e !== ""));
       PythonRunner._paths.set(interpreter, {
         paths,
         expiresAt: Date.now() + 10000,
@@ -576,7 +564,6 @@ export class PythonRunner extends AbstractRunner {
       )
     );
 
-    const filenameBase = path.basename(this._filename);
     const coverageScopeRaw = Config.get<unknown>(
       "nanofuzz.fuzzer.coverageScope",
       "project static"
@@ -605,14 +592,12 @@ export class PythonRunner extends AbstractRunner {
     const args = [
       runnerHost,
       this._filename,
-      filenameBase.substring(
-        0,
-        filenameBase.length - path.extname(filenameBase).length
-      ),
+      this._pythonEnv.module.name,
       this._fn,
       scopeConfig.target,
       JSON.stringify(directPkgs),
       isRespawn ? "respawn" : String(collectStaticCoverage),
+      this._pythonEnv.module.sourceRoot,
     ];
 
     const host = new PythonHost(
