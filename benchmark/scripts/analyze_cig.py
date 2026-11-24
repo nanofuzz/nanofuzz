@@ -1039,7 +1039,7 @@ def generate_cig_generator_table(run_dir: str, out_path: str, df: Optional[pd.Da
         r"  \setlength{\tabcolsep}{4pt}",
         r"  \definecolor{bettergreen}{RGB}{169,223,192}",
         r"  \definecolor{worsered}{RGB}{245,183,177}",
-        r"  \caption{Task Program Bugs by Eliciting and (Originating) Input Generator for SCRAM}",
+        r"  \caption[Task Program Bugs by Eliciting and (Originating) Input Generator]{Task Program Bugs by Eliciting and (Originating) Input Generator for SCRAM}",
         r"  \label{quarton:tab:generators}",
         r"  \begin{tabular}{l | *{5}{>{\centering\arraybackslash}p{2.1cm}}}",
         r"    \toprule",
