@@ -630,40 +630,41 @@ export class ArgDefMutator {
               });
             }
 
-            const charSet = options.strCharset;
+            const chars = Array.from(value);
+            const charSet = Array.from(options.strCharset);
             const rChar = charSet[Math.floor(prng() * charSet.length)];
 
-            if (value.length > 0) {
-              const rPos = Math.floor(prng() * value.length);
-              strProposals.push(
-                {
-                  name: "string-deleteOneChar",
-                  value: `${value.slice(0, rPos)}${value.slice(rPos + 1)}`,
-                  path: [...subInput.subPath],
-                  simplifies: true,
-                },
-                {
-                  name: "string-replaceOneChar",
-                  value: `${value.slice(0, rPos)}${rChar}${value.slice(
-                    rPos + 1
-                  )}`,
-                  path: [...subInput.subPath],
-                }
-              );
+            if (chars.length > 0) {
+              const rPos = Math.floor(prng() * chars.length);
+              const delChars = [...chars];
+              delChars.splice(rPos, 1);
+              strProposals.push({
+                name: "string-deleteOneChar",
+                value: delChars.join(""),
+                path: [...subInput.subPath],
+                simplifies: true,
+              });
+
+              const repChars = [...chars];
+              repChars[rPos] = rChar;
+              strProposals.push({
+                name: "string-replaceOneChar",
+                value: repChars.join(""),
+                path: [...subInput.subPath],
+              });
             }
 
-            const insertPos = Math.floor(prng() * (value.length + 1));
+            const insertPos = Math.floor(prng() * (chars.length + 1));
+            const insChars = [...chars];
+            insChars.splice(insertPos, 0, rChar);
             strProposals.push({
               name: "string-insertOneChar",
-              value: `${value.slice(0, insertPos)}${rChar}${value.slice(
-                insertPos
-              )}`,
+              value: insChars.join(""),
               path: [...subInput.subPath],
               simplifies: false,
             });
 
             // Unicode code-point-aware reversal
-            const chars = Array.from(value);
             if (chars.length >= 2) {
               const reversed = [...chars].reverse().join("");
               if (reversed !== value) {
