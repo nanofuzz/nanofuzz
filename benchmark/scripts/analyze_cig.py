@@ -466,8 +466,8 @@ def generate_generator_usage_plot(df: pd.DataFrame, run_dir: str, out_path: str)
             overall_shares[g] += task_shares[tname][g] / float(len(tasks_ordered))
     task_shares["Overall"] = overall_shares
 
-    fig, axs = plt.subplots(3, 2, figsize=(8.8, 8.2), sharex=True, sharey=True)
-    fig.subplots_adjust(left=0.08, right=0.98, top=0.92, bottom=0.08, hspace=0.30, wspace=0.18)
+    fig, axs = plt.subplots(3, 2, figsize=(8.0, 9.8), sharex=True, sharey=True)
+    fig.subplots_adjust(left=0.08, right=0.98, top=0.93, bottom=0.06, hspace=0.32, wspace=0.18)
 
     flat_axs = axs.flatten()
     all_panels = tasks_ordered + ["Overall"]
@@ -1172,15 +1172,22 @@ def generate_provenance_listing(run_dir: str, out_path: str, df: Optional[pd.Dat
             with open(mpk_path, "rb") as f:
                 d = msgpack.unpackb(f.read())
             by_tick = {item.get("tick"): item for item in d.get("interesting", {}).get("inputs", [])}
-            curr_tick = 2048
-            chain = []
-            while curr_tick is not None:
-                obj = by_tick.get(curr_tick)
-                if not obj:
-                    break
-                chain.append((curr_tick, obj))
-                curr_tick = obj.get("input", {}).get("source", {}).get("tick")
-            chain.reverse()
+
+            # Trace backwards from each leaf to find the longest provenance chain
+            def trace_back(leaf_tick):
+                c = []
+                curr = leaf_tick
+                while curr is not None:
+                    obj = by_tick.get(curr)
+                    if not obj:
+                        break
+                    c.append((curr, obj))
+                    curr = obj.get("input", {}).get("source", {}).get("tick")
+                c.reverse()
+                return c
+
+            chains = [trace_back(t) for t in by_tick]
+            chain = max(chains, key=len) if chains else []
 
             if chain:
                 prev_vals = None
@@ -1199,37 +1206,70 @@ def generate_provenance_listing(run_dir: str, out_path: str, df: Optional[pd.Dat
                     muts = ", ".join(src.get("steps", {}).get("mutators", []))
 
                     if i == 0:
-                        header = f"Origin: CustomInputGenerator[{fn_name}]"
-                    elif i == len(chain) - 1:
-                        header = f"Elicit: MutationInputGenerator[{muts}]"
+                        origin_name = "SeedInput" if "Seed" in selected["chain"] else f"CustomInputGenerator[{fn_name}]"
+                        header = f"Step {i}: Origin: {origin_name}"
                     else:
-                        header = f"Mutate: MutationInputGenerator[{muts}]"
+                        header = f"Step {i}: Mutate: MutationInputGenerator[{muts}]"
 
                     formatted_lines.append(header)
+
+                    ARROW_COL = 46
+                    def add_line(field_name, field_val, arrow_text=""):
+                        prefix = f"  {field_name:<17} {field_val}"
+                        if arrow_text:
+                            formatted_lines.append(f"{prefix:<{ARROW_COL}}{arrow_text}")
+                        else:
+                            formatted_lines.append(prefix)
 
                     n_spec = ""
                     n_cstr = ""
                     n_ustd = ""
-                    if prev_vals:
-                        if u_std != prev_vals[2]:
-                            n_ustd = "                          <-- mutated to False"
-                        if c_str != prev_vals[1]:
-                            if i == len(chain) - 1:
-                                n_cstr = "                    <-- inserted '#' token (ELICITS BUG)"
-                            elif i == 2 and c_str == "":
-                                n_cstr = "                             <-- truncated to empty string"
-                            elif i == 3:
-                                n_cstr = "                      <-- inserted block"
+                    n_chk = ""
+                    n_sym = ""
 
-                    spec_escaped = spec.replace("\n", "\\n")
-                    formatted_lines.append(f"  spec:            \"{spec_escaped}\"{n_spec}")
-                    formatted_lines.append(f"  constraint_str:  \"{c_str}\"{n_cstr}")
-                    formatted_lines.append(f"  use_stdlib:      {u_std}{n_ustd}")
-                    formatted_lines.append(f"  check:           {chk}")
-                    formatted_lines.append(f"  start_symbol:    \"{sym}\"")
-                    formatted_lines.append("")
+                    if prev_vals:
+                        if spec != prev_vals[0]:
+                            n_spec = "<-- mutated spec"
+                        if c_str != prev_vals[1]:
+                            if c_str == "":
+                                n_cstr = "<-- truncated to empty string"
+                            elif len(c_str) < len(prev_vals[1]):
+                                n_cstr = "<-- deleted characters"
+                            elif len(c_str) > len(prev_vals[1]):
+                                n_cstr = "<-- inserted block"
+                            else:
+                                n_cstr = "<-- replaced/jumbled chars"
+                        if u_std != prev_vals[2]:
+                            n_ustd = f"<-- mutated to {u_std}"
+                        if chk != prev_vals[3]:
+                            n_chk = f"<-- mutated to {chk}"
+                        if sym != prev_vals[4]:
+                            if sym == "":
+                                n_sym = "<-- truncated to empty string"
+                            elif len(sym) < len(prev_vals[4]):
+                                n_sym = "<-- deleted characters"
+                            else:
+                                n_sym = "<-- replaced/jumbled chars"
+
+                    spec_escaped = str(spec).replace("\n", "\\n")
+                    add_line("spec:", f"\"{spec_escaped}\"", n_spec)
+                    add_line("constraint_str:", f"\"{c_str}\"", n_cstr)
+                    add_line("use_stdlib:", f"{u_std}", n_ustd)
+                    add_line("check:", f"{chk}", n_chk)
+                    add_line("start_symbol:", f"\"{sym}\"", n_sym)
 
                     prev_vals = (spec, c_str, u_std, chk, sym)
+
+                # Final eliciting mutation step
+                step_idx = len(chain)
+                elicit_muts = selected["chain"].split("->")[-1].replace("Mutation", "").strip("[]")
+                formatted_lines.append(f"Step {step_idx}: Elicit: MutationInputGenerator[{elicit_muts}]")
+                spec_str = str(prev_vals[0]).replace("\n", "\\n")
+                add_line("spec:", f"\"{spec_str}\"")
+                add_line("constraint_str:", f"\"{prev_vals[1]}#\"", "<-- inserted '#' token (ELICITS BUG)")
+                add_line("use_stdlib:", f"{prev_vals[2]}")
+                add_line("check:", f"{prev_vals[3]}")
+                add_line("start_symbol:", f"\"{prev_vals[4]}\"")
         except Exception as err:
             import traceback
             traceback.print_exc()
@@ -1323,7 +1363,9 @@ def generate_data_quarton_tex(df: pd.DataFrame, out_path: str, stats: dict):
     int_cov_sd = stats.get(int_tr, {}).get("All", {}).get("BranchCoveragePct", {}).get("sd", np.nan)
 
     cov_delta = (int_cov_m / ctl_cov_m - 1.0) if (not np.isnan(ctl_cov_m) and ctl_cov_m > 0 and not np.isnan(int_cov_m)) else 0.0
-    p_cov = stats.get(int_tr, {}).get("All", {}).get("BranchCoveragePct", {}).get("pvalue", np.nan)
+    p_cov = stats.get(int_tr, {}).get("All", {}).get("BranchCoveragePct", {}).get("mann_whitney_p", np.nan)
+    if np.isnan(p_cov):
+        p_cov = stats.get(int_tr, {}).get("All", {}).get("BranchCoveragePct", {}).get("pvalue", np.nan)
 
     ctl_el_m = stats.get(ctl_tr, {}).get("All", {}).get("BugsElicited", {}).get("mean", np.nan)
     ctl_el_sd = stats.get(ctl_tr, {}).get("All", {}).get("BugsElicited", {}).get("sd", np.nan)

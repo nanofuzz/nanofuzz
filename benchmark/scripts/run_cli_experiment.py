@@ -12,9 +12,6 @@ import sys
 import time
 from typing import Any
 
-import msgpack
-import pandas as pd
-
 # Auto-re-execute using target .venv python if target venv is present and current interpreter lacks msgpack/pandas
 _VENV_PY = os.path.abspath(os.path.join(os.path.dirname(
     __file__), "..", "target", ".venv", "bin", "python"))
@@ -24,6 +21,9 @@ if os.path.exists(_VENV_PY) and os.path.realpath(sys.executable) != os.path.real
         import pandas  # noqa: F401
     except ImportError:
         os.execv(_VENV_PY, [_VENV_PY] + sys.argv)
+
+import msgpack
+import pandas as pd
 
 """
 NaNofuzz CLI Empirical Generator Evaluation Driver
