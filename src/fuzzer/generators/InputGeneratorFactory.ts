@@ -1,6 +1,6 @@
 import { FunctionDef } from "../analysis/FunctionDef";
 import { AbstractInputGenerator } from "./AbstractInputGenerator";
-import { HumanInputGenerator } from "./HumanInputGenerator";
+import { SeedInputGenerator } from "./SeedInputGenerator";
 import { Leaderboard } from "./Leaderboard";
 import { MutationInputGenerator } from "./MutationInputGenerator";
 import { RandomInputGenerator } from "./RandomInputGenerator";
@@ -45,7 +45,7 @@ export function InputGeneratorFactory(
     (m): m is CoverageMeasure => m.name === "CoverageMeasure"
   );
   return [
-    new HumanInputGenerator(fn.getArgDefs(), rngSeed),
+    new SeedInputGenerator(fn.getArgDefs(), rngSeed),
     new RandomInputGenerator(fn.getArgDefs(), rngSeed),
     new MutationInputGenerator(
       fn.getArgDefs(),
