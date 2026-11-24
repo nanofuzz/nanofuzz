@@ -12,6 +12,8 @@ import { isError } from "../Util";
  * defined in the same module and language as the function under test.
  */
 export class UserInputGenerator extends AbstractInputGenerator {
+  protected static readonly MAX_CONSECUTIVE_FAILURES = 5;
+
   protected _fn: FunctionDef; // Target function under test
   protected _userGenRunner?: AbstractRunner; // Test runner for user generator function
   protected _active = false; // Whether generator is active for current run
@@ -22,6 +24,8 @@ export class UserInputGenerator extends AbstractInputGenerator {
   protected _tickCount = 0; // Iteration count for PRNG seeding
   protected _fnTimeout = 0; // Execution timeout per generator call
   protected _rngSeed?: string; // Random number generator seed
+  protected _failureTicks: number[] = []; // Ticks at which generator execution failed
+  protected _consecutiveFailures = 0; // Consecutive failure streak, resets on success
 
   public constructor(
     fn: FunctionDef,
@@ -42,6 +46,27 @@ export class UserInputGenerator extends AbstractInputGenerator {
   public override get humanName(): string {
     return "User";
   } // property: get humanName
+
+  /**
+   * Returns recorded ticks where generator execution failed or timed out.
+   */
+  public get failureTicks(): readonly number[] {
+    return this._failureTicks;
+  } // property: get failureTicks
+
+  /**
+   * Returns total count of failures recorded.
+   */
+  public get failureCount(): number {
+    return this._failureTicks.length;
+  } // property: get failureCount
+
+  /**
+   * Returns current consecutive failure streak.
+   */
+  public get consecutiveFailures(): number {
+    return this._consecutiveFailures;
+  } // property: get consecutiveFailures
 
   /**
    * User-provided inputs bypass input transformers.
@@ -149,6 +174,8 @@ export class UserInputGenerator extends AbstractInputGenerator {
     this._callsPending = 0;
     this._pendingPromise = undefined;
     this._pendingError = undefined;
+    this._failureTicks = [];
+    this._consecutiveFailures = 0;
     this._fnTimeout = fuzzOptions.fnTimeout;
     if (userGenRunner !== undefined) {
       this._userGenRunner = userGenRunner;
@@ -189,28 +216,47 @@ export class UserInputGenerator extends AbstractInputGenerator {
     });
 
     const runner = this._userGenRunner;
-    const effectiveTimeout = Math.max(this._fnTimeout * 5, 5000);
+    const effectiveTimeout = Math.max(this._fnTimeout * 10, 30000);
     const runnerPromise = runner.run([prngArg], effectiveTimeout);
 
     runnerPromise
       .then((res: RunnerResult) => {
-        if (res.result.tag === "skip") {
-          throw new Error(
-            `UserInputGenerator '${runner.name}' threw UnsatisfiedAssumption which is not allowed in input generators: ${res.result.message}`
-          );
-        }
+        if (
+          res.result.tag === "skip" ||
+          res.result.tag === "error" ||
+          res.result.tag === "timeout"
+        ) {
+          this._consecutiveFailures++;
+          this._failureTicks.push(this._tickCount);
 
-        if (res.result.tag === "error") {
-          const stack = res.result.stack ? `\n${res.result.stack}` : "";
-          throw new Error(
-            `UserInputGenerator '${runner.name}' threw an error: ${res.result.name}: ${res.result.message}${stack}`
-          );
-        }
+          let errorMsg: string;
+          if (res.result.tag === "skip") {
+            errorMsg = `UserInputGenerator '${runner.name}' threw UnsatisfiedAssumption which is not allowed in input generators: ${res.result.message}`;
+          } else if (res.result.tag === "error") {
+            const stack = res.result.stack ? `\n${res.result.stack}` : "";
+            errorMsg = `UserInputGenerator '${runner.name}' threw an error: ${res.result.name}: ${res.result.message}${stack}`;
+          } else {
+            errorMsg = `UserInputGenerator '${runner.name}' timed out exceeding ${effectiveTimeout} ms`;
+          }
 
-        if (res.result.tag === "timeout") {
-          throw new Error(
-            `UserInputGenerator '${runner.name}' timed out exceeding ${effectiveTimeout} ms`
-          );
+          if (
+            this._consecutiveFailures >=
+            UserInputGenerator.MAX_CONSECUTIVE_FAILURES
+          ) {
+            this._exhausted = true;
+            this._pendingError = new Error(errorMsg);
+          } else {
+            // Attempt retry
+            if (
+              this._active &&
+              this._userGenRunner &&
+              !this._exhausted &&
+              this._inputQueue.length < 3
+            ) {
+              this._getMoreInputs();
+            }
+          }
+          return;
         }
 
         if (res.result.tag === "value") {
@@ -223,10 +269,21 @@ export class UserInputGenerator extends AbstractInputGenerator {
           }
 
           if (!Array.isArray(rawVal)) {
-            throw new Error(
-              `UserInputGenerator '${runner.name}' must return an array/tuple of arguments (or undefined when exhausted), but returned: ${JSONN.stringify(rawVal)}`
-            );
+            this._consecutiveFailures++;
+            this._failureTicks.push(this._tickCount);
+            const errMsg = `UserInputGenerator '${runner.name}' must return an array/tuple of arguments (or undefined when exhausted), but returned: ${JSONN.stringify(rawVal)}`;
+            if (
+              this._consecutiveFailures >=
+              UserInputGenerator.MAX_CONSECUTIVE_FAILURES
+            ) {
+              this._exhausted = true;
+              this._pendingError = new Error(errMsg);
+            }
+            return;
           }
+
+          // Successful input generated: reset consecutive failures counter!
+          this._consecutiveFailures = 0;
 
           const argDefs = this._fn.getArgDefs();
           const wrappedValues: ArgValueTypeWrapped[] = argDefs.map(
