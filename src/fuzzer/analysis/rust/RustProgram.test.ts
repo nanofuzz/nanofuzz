@@ -584,4 +584,44 @@ pub fn test_fn() {}
       fs.rmSync(tmp, { recursive: true, force: true });
     }
   });
+
+  it("non-root child programs lazily resolve supported functions and categorize unsupported ones without throwing", () => {
+    const tmpDir = fs.mkdtempSync(
+      path.join(fs.realpathSync(os.tmpdir()), "nanofuzz-rust-lazy-func-test-")
+    );
+    try {
+      const rootRs = path.join(tmpDir, "lib.rs");
+      const childRs = path.join(tmpDir, "child_mod.rs");
+
+      fs.writeFileSync(
+        childRs,
+        `pub fn valid_child(x: i32) -> i32 { x * 2 }
+pub fn unsupported_generic<T>(val: T) -> T { val }
+`
+      );
+
+      fs.writeFileSync(
+        rootRs,
+        `mod child_mod;
+pub fn main_target(n: i32) -> i32 { child_mod::valid_child(n) }
+`
+      );
+
+      const rootProg = ProgramFactory.fromFile(rootRs);
+      const childProg = ProgramFactory.fromFile(
+        childRs,
+        undefined,
+        undefined,
+        rootProg.root
+      );
+
+      expect(childProg.isRoot()).toBeFalse();
+      expect(childProg.functions["valid_child"]).toBeDefined();
+      expect(childProg.functions["valid_child"].getArgDefs()[0].getName()).toBe("x");
+      expect(childProg.functions["unsupported_generic"]).toBeUndefined();
+      expect(childProg.functionsNotSupported["unsupported_generic"]).toBeDefined();
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
 });
