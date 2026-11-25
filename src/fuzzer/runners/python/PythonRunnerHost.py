@@ -692,6 +692,7 @@ def program_files(
         )
     root = os.path.realpath(source_root) if source_root else os.path.dirname(filename)
 
+    # Explicit file whitelist override (e.g. CLI or benchmark harness targeting a specific PUT file)
     include_env = os.environ.get("NANOFUZZ_COVERAGE_INCLUDE_FILES")
     if include_env:
         raw_includes = json.loads(include_env)
