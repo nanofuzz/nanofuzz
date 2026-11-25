@@ -2004,7 +2004,7 @@ def ${targetFn}(n: int) -> int:
     }
   });
 
-  it("--output-results: verifies retention modes (all, failures, none)", async () => {
+  it("--output-results: verifies retention modes (all, interesting, failures, none)", async () => {
     const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
     const targetFn = "testStandardVoidLiteralArgs"; // passing target
 
@@ -2027,6 +2027,34 @@ def ${targetFn}(n: int) -> int:
       fs.readFileSync(outFileAll, "utf8")
     );
     expect(dataAll.results.length).toBe(5);
+
+    // 1b. Mode: interesting -> records only interesting results and failures
+    const outFileInteresting = path.join(tmpDir, "out_results_interesting.json5");
+    const resInteresting = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outFileInteresting,
+      "--output-results",
+      "interesting",
+      "--max-tests",
+      "5",
+      "--seed",
+      "cli_seed_ret_interesting",
+    ]);
+    expect(resInteresting.status).toBe(0);
+    const dataInteresting = JSON5.parse<FuzzTestResults>(
+      fs.readFileSync(outFileInteresting, "utf8")
+    );
+    expect(dataInteresting.results.length).toBeGreaterThan(0);
+    expect(dataInteresting.results.length).toBeLessThan(5);
+    expect(
+      dataInteresting.results.every(
+        (r) =>
+          Boolean(r.interestingReasons && r.interestingReasons.length > 0) ||
+          r.category !== "ok"
+      )
+    ).toBeTrue();
 
     // 2. Mode: failures (default) -> passing target records 0 results
     const outFileFailures = path.join(tmpDir, "out_results_failures.json5");
