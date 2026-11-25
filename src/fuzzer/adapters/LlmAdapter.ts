@@ -2,6 +2,7 @@ import vscode from "vscode";
 import seedrandom from "seedrandom";
 import * as Config from "../../Config";
 import * as JSONN from "../../Jsonn";
+import { isRecord } from "../../Util";
 import * as nodellm from "@node-llm/core";
 import * as telemetry from "../../telemetry/Telemetry";
 import * as zod from "zod/v4";
@@ -18,11 +19,6 @@ import {
 // Default system prompt if none is provided
 const DEFAULT_SYSTEM_PROMPT =
   "You are an experienced software engineer who writes efficient tests that thoroughly evaluate the correctness of programs. You are aware of the important differences between a programming language's various equality operators.";
-
-// Helper function to check if a value is a Record object
-function isRecord(val: unknown): val is Record<string, unknown> {
-  return typeof val === "object" && val !== null && !Array.isArray(val);
-}
 
 // Cleans internal JSON schema fields ($schema, $defs, additionalProperties: boolean) that Gemini API rejects
 function cleanJsonSchema(
