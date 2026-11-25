@@ -72,7 +72,15 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
   protected _pretransformedInputs: Set<string> = new Set(); // Pre-transformer candidate hashes
   protected _fnTimeout!: number; // Timeout for function/transformer execution
   protected _lastInputSubgenIndex = 0; // Subgen index for last generated input
+  protected _cancelFn?: () => boolean; // Call/run-scoped cancellation or budget expiration check
   public static readonly INJECTED = "injected";
+
+  /**
+   * Sets the call/run-scoped cancellation or budget expiration check.
+   */
+  public set cancelFn(fn: (() => boolean) | undefined) {
+    this._cancelFn = fn;
+  } // setter: cancelFn
 
   /**
    * Creates a new composite input generator, which subsumes multiple concrete input
@@ -281,6 +289,11 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     }
 
     while (this._permitSubgens || this._hasPrioritySubgen()) {
+      if (!this._hasPrioritySubgen() && this._cancelFn?.()) {
+        this.suppressGenerators();
+        throw new GeneratorExhaustedError();
+      }
+
       if (this.nextable() !== "now" && this.nextable() !== "now!") {
         throw new GeneratorExhaustedError();
       }
@@ -317,6 +330,11 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     }
 
     while (this._permitSubgens || this._hasPrioritySubgen()) {
+      if (!this._hasPrioritySubgen() && this._cancelFn?.()) {
+        this.suppressGenerators();
+        throw new GeneratorExhaustedError();
+      }
+
       if (this.nextable() === "soon") {
         const ready = await this.waitForNextInput();
         if (!ready) {

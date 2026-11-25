@@ -1612,4 +1612,123 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
     expect<unknown>(result.value[0].value).toBe(99);
     expect(cig.dupesGenerated).toBe(1);
   });
+
+  describe("cancelFn lifecycle & priority subgen behavior", () => {
+    it("drains priority/injected inputs even when cancelFn returns true, then exhausts on next generation", () => {
+      const program = ProgramFactory.fromSource(
+        () => `export function dummyFn(x: number) {}`,
+        "typescript"
+      );
+      const fnDef = program.functionsExported["dummyFn"];
+      const genStats = createGenStats();
+      const options = createGenOptions();
+      const leaderboard = new Leaderboard<InputAndSource>();
+      const allInputs = new Map<string, unknown>();
+
+      const injected: InputAndSource[] = [
+        {
+          tick: 0,
+          value: [{ tag: "ArgValueTypeWrapped", value: 1 }],
+          source: { type: "user" },
+          injected: true,
+        },
+        {
+          tick: 0,
+          value: [{ tag: "ArgValueTypeWrapped", value: 2 }],
+          source: { type: "user" },
+          injected: true,
+        },
+      ];
+
+      const cig = new CompositeInputGenerator(
+        options,
+        fnDef,
+        "test-seed",
+        [],
+        leaderboard,
+        genStats,
+        allInputs,
+        program.src
+      );
+
+      cig.onRunStart(
+        true,
+        injected,
+        undefined,
+        createTestFuzzOptions({ maxDupeInputs: 100 })
+      );
+
+      // cancelFn returns true immediately from the start
+      cig.cancelFn = () => true;
+
+      // 1. First injected input must be delivered
+      const inp1 = cig.next();
+      expect(inp1.injected).toBeTrue();
+      expect<unknown>(inp1.value[0].value).toBe(1);
+
+      // 2. Second injected input must be delivered
+      const inp2 = cig.next();
+      expect(inp2.injected).toBeTrue();
+      expect<unknown>(inp2.value[0].value).toBe(2);
+
+      // 3. Injected inputs are exhausted. cancelFn takes effect on generative path:
+      // must suppress generators and throw GeneratorExhaustedError
+      expect(() => cig.next()).toThrowMatching(
+        (e) => e instanceof GeneratorExhaustedError
+      );
+      expect(cig.nextable()).toBe(false);
+    });
+
+    it("nextTransformed() drains priority/injected inputs before cancelFn exhausts", async () => {
+      const program = ProgramFactory.fromSource(
+        () => `export function dummyFn(x: number) {}`,
+        "typescript"
+      );
+      const fnDef = program.functionsExported["dummyFn"];
+      const genStats = createGenStats();
+      const options = createGenOptions();
+      const leaderboard = new Leaderboard<InputAndSource>();
+      const allInputs = new Map<string, unknown>();
+
+      const injected: InputAndSource[] = [
+        {
+          tick: 0,
+          value: [{ tag: "ArgValueTypeWrapped", value: 10 }],
+          source: { type: "user" },
+          injected: true,
+        },
+      ];
+
+      const cig = new CompositeInputGenerator(
+        options,
+        fnDef,
+        "test-seed",
+        [],
+        leaderboard,
+        genStats,
+        allInputs,
+        program.src
+      );
+
+      cig.onRunStart(
+        true,
+        injected,
+        undefined,
+        createTestFuzzOptions({ maxDupeInputs: 100 })
+      );
+
+      cig.cancelFn = () => true;
+
+      // 1. Injected delivered
+      const inp1 = await cig.nextTransformed();
+      expect(inp1.injected).toBeTrue();
+      expect<unknown>(inp1.value[0].value).toBe(10);
+
+      // 2. Next generative call throws GeneratorExhaustedError
+      await expectAsync(cig.nextTransformed()).toBeRejectedWith(
+        jasmine.any(GeneratorExhaustedError)
+      );
+      expect(cig.nextable()).toBe(false);
+    });
+  });
 });

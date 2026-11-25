@@ -411,6 +411,19 @@ export class FuzzerV3 {
     try {
       this._state = "running";
 
+      this._compositeInputGenerator.cancelFn = () => {
+        if (cancelFn?.()) return true;
+        if (this._options.suiteTimeout > 0 && this._stats.startGenTime > 0) {
+          if (
+            performance.now() - this._stats.startGenTime >=
+            this._options.suiteTimeout
+          ) {
+            return true;
+          }
+        }
+        return false;
+      };
+
       const stopReason = await this._runMultiWorkerPipeline(
         injectTests.length,
         mode,

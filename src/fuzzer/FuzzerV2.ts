@@ -393,6 +393,19 @@ export class FuzzerV2 {
     }
 
     try {
+      this._compositeInputGenerator.cancelFn = () => {
+        if (cancelFn()) return true;
+        if (this._options.suiteTimeout > 0 && this._stats!.startGenTime > 0) {
+          if (
+            performance.now() - this._stats!.startGenTime >=
+            this._options.suiteTimeout
+          ) {
+            return true;
+          }
+        }
+        return false;
+      };
+
       while (true) {
         stillInjecting =
           this._stats.currentRun.counters.inputsInjected < injectTests.length;
