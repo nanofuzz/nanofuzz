@@ -10,6 +10,7 @@ import { CoverageMapData, FileCoverageData } from "istanbul-lib-coverage";
 import { isRecordOfFileCoverageData } from "../../measures/CoverageMeasure";
 import { FuzzEnv } from "../../Types";
 import { normalizePathForKey } from "../../Util";
+import { isRecord } from "../../../Util";
 import * as JSONN from "../../../Jsonn";
 import * as Config from "../../../Config";
 import * as ProgramFactory from "../../analysis/ProgramFactory";
@@ -449,7 +450,3 @@ type JavaHostResponse = {
   jacocoCoverage?: Record<string, JacocoClassCoverage>;
   coverageError?: string;
 };
-
-function isRecord(val: unknown): val is Record<string, unknown> {
-  return typeof val === "object" && val !== null;
-} // fn: isRecord

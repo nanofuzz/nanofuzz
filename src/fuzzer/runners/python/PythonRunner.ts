@@ -19,6 +19,7 @@ import * as Config from "../../../Config";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import { findInAncestor, isError } from "../../Util";
+import { isRecord } from "../../../Util";
 import { PutTimeoutName } from "../AbstractHost";
 import { PythonHost, PythonEnv } from "./PythonHost";
 import { pythonModuleFor } from "./PythonModule";
@@ -982,10 +983,6 @@ export type BranchExit = {
   dest: number; // arc target, for matching against `Arc`s
   line: number; // where to display this exit
 };
-
-function isRecord(val: unknown): val is Record<string, unknown> {
-  return typeof val === "object" && val !== null;
-}
 
 function isNumberArray(val: unknown): val is number[] {
   return Array.isArray(val) && val.every((item) => typeof item === "number");

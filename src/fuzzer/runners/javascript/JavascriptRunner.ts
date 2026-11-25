@@ -21,6 +21,7 @@ import {
   BranchMapping,
 } from "istanbul-lib-coverage";
 import { findInAncestor, isError, normalizePathForKey } from "../../Util";
+import { isRecord } from "../../../Util";
 import { parseCoverageScope } from "../../measures/Util";
 import { PutTimeoutName } from "../AbstractHost";
 import * as CompilerFactory from "../../compilers/CompilerFactory";
@@ -671,7 +672,3 @@ function extractDirectPackages(
 
   return Array.from(packages);
 } // fn: extractDirectPackages
-
-function isRecord(val: unknown): val is Record<string, unknown> {
-  return typeof val === "object" && val !== null;
-} // fn: isRecord
