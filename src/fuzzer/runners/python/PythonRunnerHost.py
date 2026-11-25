@@ -629,21 +629,6 @@ def static_coverage_all(cov: coverage.Coverage, filenames: List[str]) -> dict[st
 VALID_COVERAGE_SCOPES = ("project", "project directimports")
 
 
-def find_project_root(path_str: str) -> str:
-    """Finds the actual project root directory by walking upwards until marker files or git root."""
-    env_root = os.environ.get("NANOFUZZ_PROJECT_ROOT")
-    if env_root and os.path.isdir(env_root):
-        return os.path.abspath(env_root)
-    curr = os.path.abspath(path_str)
-    if os.path.isfile(curr):
-        curr = os.path.dirname(curr)
-    while curr != os.path.dirname(curr):
-        if any(os.path.exists(os.path.join(curr, m)) for m in ("pyproject.toml", "setup.py", "setup.cfg", ".git")):
-            return curr
-        curr = os.path.dirname(curr)
-    return os.path.dirname(os.path.abspath(path_str))
-
-
 def is_under(root: str, path: str) -> bool:
     """
     Returns whether `path` is `root` or sits beneath it.
@@ -656,7 +641,8 @@ def is_under(root: str, path: str) -> bool:
 def program_files(
     filename: str,
     coverage_scope: str = "project",
-    direct_packages: Optional[List[str]] = None
+    direct_packages: Optional[List[str]] = None,
+    source_root: Optional[str] = None,
 ) -> List[str]:
     """
     Returns the files the program under test is made of based on three groups:
@@ -673,19 +659,18 @@ def program_files(
             f"Invalid coverage_scope '{coverage_scope}'. Allowed values: {VALID_COVERAGE_SCOPES}"
         )
 
+    root = os.path.realpath(source_root) if source_root else os.path.dirname(filename)
+
     include_env = os.environ.get("NANOFUZZ_COVERAGE_INCLUDE_FILES")
     if include_env:
         raw_includes = json.loads(include_env)
-        proj_root = os.path.realpath(os.environ.get("NANOFUZZ_PROJECT_ROOT", os.getcwd()))
         target_files = [
-            os.path.realpath(os.path.join(proj_root, f)) if not os.path.isabs(f) else os.path.realpath(f)
+            os.path.realpath(f) if os.path.isabs(f) else os.path.realpath(os.path.join(root, f))
             for f in raw_includes
         ]
         existing_targets = [f for f in target_files if os.path.exists(f)]
         if existing_targets:
             return sorted(existing_targets)
-
-    root = find_project_root(filename)
     stdlib_path = os.path.normcase(
         os.path.realpath(sysconfig.get_path("stdlib")))
 
@@ -1181,7 +1166,8 @@ if __name__ == "__main__":
             else ("static" in coverage_scope and not is_respawn)
         )
 
-        pgm_files = program_files(filename, coverage_scope, direct_packages)
+        pgm_files = program_files(
+            filename, coverage_scope, direct_packages, source_root)
 
         # One in-memory coverage instance for the whole run.
         cov = coverage.Coverage(include=pgm_files, branch=True, data_file=None)

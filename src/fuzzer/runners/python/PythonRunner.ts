@@ -329,14 +329,6 @@ export class PythonRunner extends AbstractRunner {
       }
     }
 
-    // Append own own modules to PYTHONPATH if needed
-    if (pythonEnv.libs && !pythonEnv.env.PYTHONPATH?.includes(pythonEnv.libs)) {
-      pythonEnv.env.PYTHONPATH =
-        (pythonEnv.env.PYTHONPATH ?? "") +
-        (process.platform === "win32" ? ";" : ":") +
-        pythonEnv.libs;
-    }
-
     // Build PYTHONPATH entries for resolving nanofuzz_runtime. The program's
     // own directories do not go on PYTHONPATH: Python searches it before the
     // standard library, even while it starts up, so a module named like a
@@ -344,10 +336,6 @@ export class PythonRunner extends AbstractRunner {
     // would shadow it. Instead, the runner host puts the program's source root
     // on sys.path once it has started (see `PythonModule`).
     const pyPaths: string[] = [];
-
-    if (pythonEnv.libs) {
-      pyPaths.push(pythonEnv.libs);
-    }
 
     const currModuleDir = path.dirname(path.resolve(module.filename));
     const projectRoot = findInAncestor(currModuleDir, "package.json");
