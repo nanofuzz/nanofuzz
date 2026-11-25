@@ -266,6 +266,28 @@ describe("FuzzConfigStore", () => {
     expect(args[1].getOptions().numInteger).toBe(true);
   });
 
+  it("applies string argument overrides when strCharset is undefined/omitted", () => {
+    const srcFile = path.join(tmpDir, "testOverridesNoCharset.ts");
+    fs.writeFileSync(
+      srcFile,
+      "export function testOverridesNoCharset(s: string): boolean { return s.length > 0; }"
+    );
+    const program = ProgramFactory.fromFile(srcFile);
+    const fnDef = program.functionsExported["testOverridesNoCharset"];
+    expect(fnDef).toBeDefined();
+
+    const dftArgDefaults = FuzzConfigStore.getDefaultFuzzOptions().argDefaults;
+    FuzzConfigStore.applyArgOverrides(
+      fnDef,
+      [{ string: { minStrLen: 2, maxStrLen: 8 } }],
+      dftArgDefaults
+    );
+
+    const args = fnDef.getArgDefs();
+    expect(args[0].getOptions().strLength).toEqual({ min: 2, max: 8 });
+    expect(args[0].getOptions().strCharset).toBe(dftArgDefaults.strCharset);
+  });
+
   it("throws error for unknown schema version", () => {
     const futureData = {
       version: "99.0.0",

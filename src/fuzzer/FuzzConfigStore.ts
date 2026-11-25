@@ -717,7 +717,7 @@ export class FuzzConfigStore {
                 max: Number(thisOverride.string.maxStrLen),
               },
               strCharset:
-                thisOverride.string.strCharset === ""
+                (thisOverride.string.strCharset ?? "") === ""
                   ? argDefaults.strCharset
                   : decodeEscapeSequences(thisOverride.string.strCharset),
               strRegex: thisOverride.string.strRegex,
