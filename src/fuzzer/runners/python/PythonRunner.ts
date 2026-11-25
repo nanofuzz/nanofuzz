@@ -370,7 +370,8 @@ export class PythonRunner extends AbstractRunner {
 
     pythonEnv.interpreter = PythonRunner.resolveInterpreter(
       pythonEnv.interpreter,
-      pythonEnv.env
+      pythonEnv.env,
+      path.dirname(filename)
     );
 
     // The program's sys.path, as the runner host sets it up
@@ -432,18 +433,67 @@ export class PythonRunner extends AbstractRunner {
   } //fn: _pathsFor
 
   /**
-   * Resolves the python executable. Tries python3 first, then falls back
-   * to python if python3 is not found or executable.
+   * Resolves the Python interpreter. If an explicit candidate path is provided
+   * (e.g. from VS Code's Python extension), it is used directly.
    *
-   * @param candidate Preferred python executable or path
+   * If a generic command name is provided (e.g. "python3" or "python" in CLI mode),
+   * resolution checks in order:
+   *  1. NANOFUZZ_PYTHON_PATH environment variable override
+   *  2. Active shell VIRTUAL_ENV environment variable
+   *  3. Virtual environments (.venv, venv, env) in contextDir or cwd ancestor directories
+   *  4. System python3 / python on PATH
+   *
+   * @param candidate Preferred python executable or command (defaults to "python3")
    * @param env Environment variables to use when probing executable
+   * @param contextDir Target file directory to begin ancestor virtualenv search
    * @returns Resolved python executable command or path
    */
   public static resolveInterpreter(
     candidate: string = "python3",
-    env?: Record<string, string | undefined>
+    env?: Record<string, string | undefined>,
+    contextDir?: string
   ): string {
     const candidates: string[] = [];
+
+    // When candidate is generic ("python3" or "python"), an explicit interpreter was not
+    // provided by VS Code (e.g., running via the CLI or headless). Discover the project's
+    // virtual environment before falling back to the system interpreter.
+    const isGeneric =
+      !candidate ||
+      candidate === "python3" ||
+      candidate === "python" ||
+      candidate === "python3.exe" ||
+      candidate === "python.exe";
+
+    if (isGeneric) {
+      if (process.env.NANOFUZZ_PYTHON_PATH) {
+        candidates.push(process.env.NANOFUZZ_PYTHON_PATH);
+      }
+      if (process.env.VIRTUAL_ENV) {
+        const binNames =
+          process.platform === "win32" ? ["python.exe"] : ["python3", "python"];
+        for (const binName of binNames) {
+          const venvBin = path.join(
+            process.env.VIRTUAL_ENV,
+            process.platform === "win32" ? "Scripts" : "bin",
+            binName
+          );
+          if (fs.existsSync(venvBin)) {
+            candidates.push(venvBin);
+            break;
+          }
+        }
+      }
+      const searchDirs: string[] = [];
+      if (contextDir) searchDirs.push(contextDir);
+      searchDirs.push(process.cwd());
+      for (const dir of searchDirs) {
+        const venvPy = findVenvPython(dir);
+        if (venvPy && !candidates.includes(venvPy)) {
+          candidates.push(venvPy);
+        }
+      }
+    }
 
     if (candidate) {
       if (candidate.endsWith("python") || candidate.endsWith("python.exe")) {
@@ -684,6 +734,31 @@ export class PythonRunner extends AbstractRunner {
     }
   } // fn: _killHost
 } // class: PythonRunner
+
+/**
+ * Searches for a virtual environment Python executable in ancestor directories.
+ *
+ * @param startDir the starting directory
+ * @returns absolute path to python executable, or null if not found
+ */
+function findVenvPython(startDir: string): string | null {
+  for (const venvName of [".venv", "venv", "env"]) {
+    const venvDir = findInAncestor(startDir, venvName);
+    if (venvDir) {
+      for (const binName of ["python3", "python", "python.exe"]) {
+        const binPath = path.join(
+          venvDir,
+          process.platform === "win32" ? "Scripts" : "bin",
+          binName
+        );
+        if (fs.existsSync(binPath)) {
+          return binPath;
+        }
+      }
+    }
+  }
+  return null;
+} // fn: findVenvPython
 
 /**
  * Finds the Python library directory
