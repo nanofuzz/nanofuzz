@@ -100,7 +100,8 @@ export class RustRunner extends AbstractRunner {
   public async run(
     inputs: unknown[],
     timeout: number | undefined = 0,
-    validators: string[] = []
+    validators: string[] = [],
+    env?: Record<string, string>
   ): Promise<RunnerResult> {
     const thisSeq = this._seq++;
     let host: RustHost | undefined = undefined;
@@ -122,6 +123,7 @@ export class RustRunner extends AbstractRunner {
         args: inputs,
         timeout: timeout ?? 0,
         ...(validators.length > 0 ? { validators } : {}),
+        ...(env ? { env } : {}),
       };
 
       const encoded = JSONN.pack(input);

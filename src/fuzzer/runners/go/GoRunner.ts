@@ -106,7 +106,8 @@ export class GoRunner extends AbstractRunner {
   public async run(
     inputs: unknown[],
     timeout: number | undefined = 0,
-    validators: string[] = []
+    validators: string[] = [],
+    env?: Record<string, string>
   ): Promise<RunnerResult> {
     const thisSeq = this._seq++;
     let host: GoHost | undefined = undefined;
@@ -118,6 +119,7 @@ export class GoRunner extends AbstractRunner {
         seq: thisSeq,
         args: inputs,
         validators,
+        ...(env ? { env } : {}),
       };
 
       const payloadBytes = Buffer.from(JSON.stringify(input), "utf-8");

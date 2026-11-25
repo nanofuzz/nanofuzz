@@ -175,6 +175,18 @@ let () =
           | _ -> []
         in
 
+        (* Propagate dynamic environment variables (e.g. NANOFUZZ_PROVENANCE) *)
+        let () =
+          match find_key "env" msg with
+          | Msgpck.Map env_entries ->
+            List.iter (function
+              | (Msgpck.String k, Msgpck.String v) ->
+                (try Unix.putenv k v with _ -> ())
+              | _ -> ()
+            ) env_entries
+          | _ -> ()
+        in
+
         Coverage.reset ();
 
         (* Argument Conversions *)
