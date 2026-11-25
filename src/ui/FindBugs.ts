@@ -3,6 +3,7 @@ import { resolveFilePath, getToolName } from "./Agent";
 import * as Config from "../Config";
 import { determineWorkerCount } from "../fuzzer/Util";
 import { sessionManager } from "./FindBugsSessionManager";
+import { isRecord } from "../Util";
 
 /**
  * Coordinates multi-turn guidance for discovering new bugs across a target repository.
@@ -1330,7 +1331,3 @@ export function targetMatchesEntrypoint(
 
   return false;
 } // fn: targetMatchesEntrypoint
-
-function isRecord(val: unknown): val is Record<string, unknown> {
-  return typeof val === "object" && val !== null && !Array.isArray(val);
-} // fn: isRecord

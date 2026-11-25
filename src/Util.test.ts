@@ -3,6 +3,7 @@ import {
   decodeEscapeSequences,
   removeTickFromOrigin,
   deepFreeze,
+  isRecord,
 } from "./Util";
 import { FuzzValueOrigin } from "./fuzzer/Types";
 
@@ -49,5 +50,19 @@ describe("src/Util escape sequence encoder/decoder", () => {
     });
     const res2 = removeTickFromOrigin(frozenOrigin);
     expect("tick" in res2).toBeFalse();
+  });
+
+  it("isRecord correctly identifies plain object records and rejects non-records", () => {
+    expect(isRecord({})).toBeTrue();
+    expect(isRecord({ a: 1, b: "two" })).toBeTrue();
+    expect(isRecord(Object.create(null))).toBeTrue();
+
+    expect(isRecord(null)).toBeFalse();
+    expect(isRecord(undefined)).toBeFalse();
+    expect(isRecord([])).toBeFalse();
+    expect(isRecord([1, 2, 3])).toBeFalse();
+    expect(isRecord("string")).toBeFalse();
+    expect(isRecord(123)).toBeFalse();
+    expect(isRecord(true)).toBeFalse();
   });
 });

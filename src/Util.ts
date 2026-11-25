@@ -31,6 +31,16 @@ export function isKeyedObject(obj: unknown): obj is Record<string, unknown> {
 } // fn: isKeyedObject
 
 /**
+ * Type guard for a non-null, non-array object record.
+ *
+ * @param val the value to check
+ * @returns true if val is a non-null, non-array object
+ */
+export function isRecord(val: unknown): val is Record<string, unknown> {
+  return typeof val === "object" && val !== null && !Array.isArray(val);
+} // fn: isRecord
+
+/**
  * Deeply freezes an object and its nested properties.
  * Plain objects and arrays are frozen with Object.freeze.
  * TypedArrays / Buffers / ArrayBuffers are preserved as native binary views
@@ -144,7 +154,7 @@ export function decodeEscapeSequences(str: string): string {
     if (str[i] === "\\" && i + 1 < str.length) {
       const rest = str.slice(i + 1);
 
-      // 1. Unicode code point escape \u{HEX}
+      // Unicode code point escape \u{HEX}
       const unicodeHexMatch = rest.match(/^u\{([0-9a-fA-F]+)\}/);
       if (unicodeHexMatch) {
         const cp = parseInt(unicodeHexMatch[1], 16);
@@ -155,7 +165,7 @@ export function decodeEscapeSequences(str: string): string {
         }
       }
 
-      // 2. Unicode 4-hex escape \uXXXX or 2-hex escape \xXX
+      // Unicode 4-hex escape \uXXXX or 2-hex escape \xXX
       const hexMatch = rest.match(/^(?:u([0-9a-fA-F]{4})|x([0-9a-fA-F]{2}))/);
       if (hexMatch) {
         const hex = hexMatch[1] ?? hexMatch[2];
@@ -167,7 +177,7 @@ export function decodeEscapeSequences(str: string): string {
         }
       }
 
-      // 3. Single-character escape sequences (\n, \r, \t, \0, \\)
+      // Single-character escape sequences (\n, \r, \t, \0, \\)
       const next = str[i + 1];
       switch (next) {
         case "\\":
