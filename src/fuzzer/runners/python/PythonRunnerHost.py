@@ -1,5 +1,4 @@
 # autopep8: off
-from PythonIpc import unwrap_jsonn, sanitize_output, default_serializer, pack_payload
 import sys
 
 # Temporarily isolate sys.path during host startup so host dependencies
@@ -117,15 +116,12 @@ _clean_user_paths = [p for p in _bootstrap_orig_sys_path if os.path.realpath(
     p) != os.path.realpath(_VENDOR_DIR)]
 sys.path = _clean_user_paths
 
-_NANOFUZZ_VENDOR_MODULE_NAMES = (
-    set(sys.modules.keys()) - _sys_modules_before) | {"msgpack", "coverage"}
+_NANOFUZZ_VENDOR_MODULE_NAMES = set(sys.modules.keys()) - _sys_modules_before
 
 _nanofuzz_sys_modules = {
     name: sys.modules[name]
     for name in _NANOFUZZ_VENDOR_MODULE_NAMES
-    if name in sys.modules
 }
-
 
 _put_sys_modules: dict[str, Any] = {}
 
@@ -405,6 +401,42 @@ def loadPythonFn(filename: str, modulename: str, fn: str) -> Tuple[Union[RunnerE
         ), None)
 
 
+def unwrap_jsonn(val: Any) -> Any:
+    PlaceHolderValueKey = "____JSONN____61581952310____VALUE____"
+    PlaceHolderBigIntKey = "____JSONN____61581952310____BIGINT____"
+    PlaceHolderUint8ArrayKey = "____JSONN____61581952310____UINT8ARRAY____"
+    PlaceHolderMapKey = "____JSONN____61581952310____MAP____"
+    PlaceHolderSetKey = "____JSONN____61581952310____SET____"
+    UndefinedValue = "__undefined__"
+
+    if isinstance(val, dict):
+        if val.get(PlaceHolderValueKey) == UndefinedValue:
+            return None
+        if PlaceHolderBigIntKey in val:
+            return int(val[PlaceHolderBigIntKey])
+        if PlaceHolderUint8ArrayKey in val:
+            return bytes(val[PlaceHolderUint8ArrayKey])
+        if PlaceHolderMapKey in val:
+            raw_entries = val[PlaceHolderMapKey]
+            if isinstance(raw_entries, list):
+                return {
+                    unwrap_jsonn(k): unwrap_jsonn(v)
+                    for entry in raw_entries
+                    if isinstance(entry, list) and len(entry) == 2
+                    for k, v in [entry]
+                }
+            return {}
+        if PlaceHolderSetKey in val:
+            raw_values = val[PlaceHolderSetKey]
+            if isinstance(raw_values, list):
+                return [unwrap_jsonn(x) for x in raw_values]
+            return []
+        return {k: unwrap_jsonn(v) for k, v in val.items()}
+    if isinstance(val, list):
+        return [unwrap_jsonn(x) for x in val]
+    return val
+
+
 _input_buf = bytearray()
 
 
@@ -658,7 +690,6 @@ def program_files(
         raise ValueError(
             f"Invalid coverage_scope '{coverage_scope}'. Allowed values: {VALID_COVERAGE_SCOPES}"
         )
-
     root = os.path.realpath(source_root) if source_root else os.path.dirname(filename)
 
     include_env = os.environ.get("NANOFUZZ_COVERAGE_INCLUDE_FILES")
@@ -671,6 +702,7 @@ def program_files(
         existing_targets = [f for f in target_files if os.path.exists(f)]
         if existing_targets:
             return sorted(existing_targets)
+
     stdlib_path = os.path.normcase(
         os.path.realpath(sysconfig.get_path("stdlib")))
 
@@ -689,23 +721,18 @@ def program_files(
         parts = modfile.split(os.sep)
         parts_lower = [p.lower() for p in parts]
 
-        # Always ignore bytecode cache, nanofuzz runner host files, and nanofuzz vendor dir
-        if (
-            "__pycache__" in parts_lower
-            or "_nanofuzz_python" in parts_lower
-            or "pythonrunnerhost.py" in parts_lower
-            or "pythonipc.py" in parts_lower
-            or "hypothesisrunnerhost.py" in parts_lower
-        ):
+        # Always ignore bytecode cache and nanofuzz vendor dir
+        if "__pycache__" in parts_lower or "_nanofuzz_python" in parts_lower:
             continue
 
         is_site_pkg = "site-packages" in parts_lower or "dist-packages" in parts_lower
-        is_venv = any(p in (".venv", "venv", "env")
-                      for p in parts_lower) and not is_site_pkg
-        is_stdlib = os.path.normcase(modfile).startswith(stdlib_path) and not is_site_pkg
+        is_venv_internal = any(p in (".venv", "venv", "env")
+                               for p in parts_lower) and not is_site_pkg
+        is_stdlib = os.path.normcase(modfile).startswith(
+            stdlib_path) and not is_site_pkg
 
         # Group C: Exclude Python Standard Library and virtualenv internals
-        if is_venv or is_stdlib:
+        if is_venv_internal or is_stdlib:
             continue
 
         # Group A: Local project files
@@ -844,6 +871,37 @@ def transform_arg(val: Any, hint: Any, arg_index: int = 0) -> Any:
         return val
 
     return val
+
+
+def sanitize_output(obj: Any) -> Any:
+    if isinstance(obj, (bytes, bytearray)):
+        return list(obj)
+    if isinstance(obj, (set, frozenset, tuple, list)):
+        return [sanitize_output(x) for x in obj]
+    if isinstance(obj, uuid.UUID):
+        return str(obj)
+    if isinstance(obj, dict):
+        res = {}
+        for k, v in obj.items():
+            s_k = sanitize_output(k)
+            if isinstance(s_k, list):
+                s_k = str(s_k)
+            elif not isinstance(s_k, (str, int, float, bool)) and s_k is not None:
+                s_k = str(s_k)
+            res[s_k] = sanitize_output(v)
+        return res
+    return obj
+
+
+def default_serializer(obj: Any) -> Any:
+    if isinstance(obj, (bytes, bytearray)):
+        return list(obj)
+    if isinstance(obj, (set, frozenset)):
+        return list(obj)
+    if isinstance(obj, uuid.UUID):
+        return str(obj)
+    raise TypeError(
+        f"Object of type {type(obj).__name__} is not serializable")
 
 
 _file_to_idx: dict[str, int] = {}
@@ -1214,7 +1272,7 @@ if __name__ == "__main__":
             initialCoverage = {}
         elif collect_static:
             pgm_files = program_files(
-                filename, coverage_scope, direct_packages)
+                filename, coverage_scope, direct_packages, source_root)
             cov = coverage.Coverage(
                 include=pgm_files, branch=True, data_file=None)
 
@@ -1236,7 +1294,7 @@ if __name__ == "__main__":
         else:
             # Re-query program_files now that imports are loaded
             pgm_files = program_files(
-                filename, coverage_scope, direct_packages)
+                filename, coverage_scope, direct_packages, source_root)
             cov = coverage.Coverage(
                 include=pgm_files, branch=True, data_file=None)
 

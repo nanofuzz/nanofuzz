@@ -1357,6 +1357,136 @@ def calculate(x: int) -> int:
     }
   }, 30000);
 
+  it("coverage scope: measures across package source_root", async () => {
+    const tmpDir = getTmpDir("nanofuzz-sourceroot-cov-");
+    const pkgDir = path.join(tmpDir, "mypkg");
+    const subDir = path.join(pkgDir, "sub");
+    fs.mkdirSync(subDir, { recursive: true });
+    fs.writeFileSync(path.join(pkgDir, "__init__.py"), "");
+    fs.writeFileSync(path.join(subDir, "__init__.py"), "");
+    fs.writeFileSync(
+      path.join(pkgDir, "core.py"),
+      `def compute(x: int) -> int:
+    if x > 0:
+        return x * 2
+    return -x
+`
+    );
+    const runnerPath = path.join(subDir, "harness.py");
+    fs.writeFileSync(
+      runnerPath,
+      `from mypkg.core import compute
+
+def test_fn(x: int) -> int:
+    return compute(x)
+`
+    );
+
+    try {
+      const program = ProgramFactory.fromFile(runnerPath);
+      const fnDef = program.functionsExported["test_fn"];
+      const env = createFuzzEnv(fnDef);
+
+      const runner = new PythonRunner(runnerPath, "test_fn", env, {
+        acceptsStaticCoverage: true,
+      });
+      await runner.onRunStart();
+      const res = await runner.run([5], 30000);
+      const cov = runner.coverageInfo;
+      await runner.onRunEnd();
+
+      expect(res.result.tag).toBe("value");
+      expect(cov).toBeDefined();
+      if (cov) {
+        const fileKeys = Object.keys(cov).map((p) => p.replace(/\\/g, "/"));
+        expect(fileKeys.some((f) => f.includes("core.py"))).toBeTrue();
+        expect(fileKeys.some((f) => f.includes("harness.py"))).toBeTrue();
+      }
+    } finally {
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // Ignore
+      }
+    }
+  }, 30000);
+
+  it("coverage scope: excludes in-tree site-packages", async () => {
+    const tmpDir = getTmpDir("nanofuzz-intree-sitepkg-");
+    const sitePkgDir = path.join(
+      tmpDir,
+      ".venv",
+      "lib",
+      "python3.13",
+      "site-packages",
+      "intree_mock_pkg"
+    );
+    fs.mkdirSync(sitePkgDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(sitePkgDir, "__init__.py"),
+      `def mock_lib_fn(x: int) -> int:
+    return x * 10
+`
+    );
+    const runnerPath = path.join(tmpDir, "app.py");
+    const parentSitePkg = path.dirname(sitePkgDir);
+    fs.writeFileSync(
+      runnerPath,
+      `import sys
+sys.path.insert(0, r"${parentSitePkg.replace(/\\/g, "/")}")
+from intree_mock_pkg import mock_lib_fn
+
+def run_app(x: int) -> int:
+    return mock_lib_fn(x)
+`
+    );
+
+    try {
+      const program = ProgramFactory.fromSource(
+        () => fs.readFileSync(runnerPath, "utf8"),
+        "python",
+        runnerPath
+      );
+      const fnDef = program.functionsExported["run_app"];
+      const env = createFuzzEnv(fnDef);
+
+      Config.override("nanofuzz.fuzzer.coverageScope", "project static");
+      const runner = new PythonRunner(runnerPath, "run_app", env, {
+        acceptsStaticCoverage: true,
+      });
+      await runner.onRunStart();
+      const res = await runner.run([2], 30000);
+      const cov = runner.coverageInfo;
+      await runner.onRunEnd();
+
+      expect(res.result.tag).toBe("value");
+      expect(cov).toBeDefined();
+      if (cov) {
+        const fileKeys = Object.keys(cov).map((p) => p.replace(/\\/g, "/"));
+        expect(fileKeys.some((f) => f.includes("app.py"))).toBeTrue();
+        expect(
+          fileKeys.some((f) => f.includes("intree_mock_pkg"))
+        ).toBeFalse();
+      }
+    } finally {
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // Ignore
+      }
+    }
+  }, 30000);
+
   it("fails immediately on startup if Python module import fails", async () => {
     const tmpDir = getTmpDir("nanofuzz-import-fail-");
     const pyPath = path.join(tmpDir, "bad_import.py");
