@@ -9,74 +9,6 @@ import {
 import * as crypto from "node:crypto";
 
 /**
- * Record of a single fuzz execution within a FindBugs session.
- */
-export type FuzzRunStatsSnapshot = {
-  functionName: string;
-  filePath: string;
-  timestamp: number;
-  totalTests: number;
-  passedTests: number;
-  failedTests: number;
-  erroredTests: number;
-  skippedTests: number;
-  timeouts: number;
-  exceptions: number;
-  durationMs: number;
-  suiteTimeout?: number;
-  maxTests?: number;
-  statementCoveragePct?: number;
-  branchCoveragePct?: number;
-  branchesCovered?: number;
-  branchesTotal?: number;
-  deepSlotWaitMs?: number;
-  generatorName?: string;
-  details?: string;
-  shrinkSteps?: number;
-  isPropertyTest?: boolean;
-};
-
-/**
- * Record of a phase transition.
- */
-export type PhaseTransitionRecord = {
-  phaseFrom: FindBugsPhase;
-  phaseTo: FindBugsPhase | "complete";
-  transitionTimestamp: number;
-  durationMs: number;
-  fuzzRunsCount: number;
-  testsExecuted: number;
-  failedTests: number;
-};
-
-/**
- * Complete state and telemetry data for a FindBugs workflow session.
- */
-export type WorkflowSession = {
-  sessionId: string;
-  tool: FindBugsTool;
-  invariantSource: FindBugsInvariantSource;
-  targetScope?: string[];
-  targetRepoPath?: string;
-  workerCount: number;
-  startedAt: number;
-  lastPhaseStartedAt: number;
-  currentPhase: FindBugsPhase;
-  totalDeepSlotWaitMs?: number;
-  entrypoints?: {
-    name: string;
-    filePath: string;
-    invariants: string[];
-    harnessFilePath?: string;
-    harnessFunctionName?: string;
-  }[];
-  fuzzRuns: FuzzRunStatsSnapshot[];
-  transitions: PhaseTransitionRecord[];
-  benchmarkMode?: boolean;
-  reportPath?: string;
-};
-
-/**
  * In-memory manager for active FindBugs workflow sessions.
  */
 class FindBugsSessionManager {
@@ -378,7 +310,8 @@ class FindBugsSessionManager {
     );
     const reqDuration = Math.floor(reqTimeout * 0.9);
     if ((r.suiteTimeout ?? 0) < reqTimeout) return false;
-    if (r.maxTests !== 0 && r.maxTests !== Number.MAX_SAFE_INTEGER) return false;
+    if (r.maxTests !== 0 && r.maxTests !== Number.MAX_SAFE_INTEGER)
+      return false;
 
     // 100% branch coverage allows early completion
     if (r.branchCoveragePct !== undefined && r.branchCoveragePct >= 100) {
@@ -543,3 +476,75 @@ function formatMs(ms: number): string {
   const remSec = Math.round(sec % 60);
   return `${min}m ${remSec}s`;
 } // fn: formatMs
+
+// -------------------------------------------------------------------------- //
+// Auxiliary Types
+// -------------------------------------------------------------------------- //
+
+/**
+ * Record of a single fuzz execution within a FindBugs session.
+ */
+export type FuzzRunStatsSnapshot = {
+  functionName: string;
+  filePath: string;
+  timestamp: number;
+  totalTests: number;
+  passedTests: number;
+  failedTests: number;
+  erroredTests: number;
+  skippedTests: number;
+  timeouts: number;
+  exceptions: number;
+  durationMs: number;
+  suiteTimeout?: number;
+  maxTests?: number;
+  statementCoveragePct?: number;
+  branchCoveragePct?: number;
+  branchesCovered?: number;
+  branchesTotal?: number;
+  deepSlotWaitMs?: number;
+  generatorName?: string;
+  details?: string;
+  shrinkSteps?: number;
+  isPropertyTest?: boolean;
+};
+
+/**
+ * Record of a phase transition.
+ */
+export type PhaseTransitionRecord = {
+  phaseFrom: FindBugsPhase;
+  phaseTo: FindBugsPhase | "complete";
+  transitionTimestamp: number;
+  durationMs: number;
+  fuzzRunsCount: number;
+  testsExecuted: number;
+  failedTests: number;
+};
+
+/**
+ * Complete state and telemetry data for a FindBugs workflow session.
+ */
+export type WorkflowSession = {
+  sessionId: string;
+  tool: FindBugsTool;
+  invariantSource: FindBugsInvariantSource;
+  targetScope?: string[];
+  targetRepoPath?: string;
+  workerCount: number;
+  startedAt: number;
+  lastPhaseStartedAt: number;
+  currentPhase: FindBugsPhase;
+  totalDeepSlotWaitMs?: number;
+  entrypoints?: {
+    name: string;
+    filePath: string;
+    invariants: string[];
+    harnessFilePath?: string;
+    harnessFunctionName?: string;
+  }[];
+  fuzzRuns: FuzzRunStatsSnapshot[];
+  transitions: PhaseTransitionRecord[];
+  benchmarkMode?: boolean;
+  reportPath?: string;
+};

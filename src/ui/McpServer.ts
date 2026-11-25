@@ -262,9 +262,7 @@ export async function createMcpServer(
         ),
       model: z
         .string()
-        .describe(
-          "The calling agent's language model family/name. Required."
-        ),
+        .describe("The calling agent's language model family/name. Required."),
       vendor: z
         .string()
         .describe(

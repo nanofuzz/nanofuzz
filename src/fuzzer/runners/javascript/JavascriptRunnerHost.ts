@@ -15,6 +15,7 @@ import { Worker } from "node:worker_threads";
 import { serialize, deserialize } from "node:v8";
 import { RunnerInput, TypeHint, ValidatorResult } from "../AbstractRunner";
 import { isError } from "../../Util";
+import { isRecord } from "../../../Util";
 
 const realStdoutWrite = process.stdout.write.bind(process.stdout);
 let stdinBuffer = Buffer.alloc(0);
@@ -845,10 +846,6 @@ function getNodeModulePaths(dir: string): string[] {
 
 function isNumberArray(val: unknown[]): val is number[] {
   return val.every((x) => typeof x === "number");
-}
-
-function isRecord(val: unknown): val is Record<string, unknown> {
-  return typeof val === "object" && val !== null;
 }
 
 function isEntryPair(val: unknown): val is [unknown, unknown] {

@@ -3,10 +3,7 @@ import { resolveFilePath, getToolName } from "./Agent";
 import * as Config from "../Config";
 import { determineWorkerCount } from "../fuzzer/Util";
 import { sessionManager } from "./FindBugsSessionManager";
-
-function isRecord(val: unknown): val is Record<string, unknown> {
-  return typeof val === "object" && val !== null && !Array.isArray(val);
-}
+import { isRecord } from "../Util";
 
 /**
  * Coordinates multi-turn guidance for discovering new bugs across a target repository.
@@ -368,9 +365,9 @@ export async function findBugs(
 
         throw new Error(
           `Execution Gate Blocked (Gate 3: Deep Fuzzing Required - Incomplete): ${detail}\n` +
-          `Stopping Requirement: Gate 3 requires either 100% branch coverage or all ${reqRetries} exploration retries completed.\n` +
-          `To proceed, invoke nanofuzz_fuzzFunction with timeoutMs: ${reqTimeout} (${reqMinStr}) and maxTests: 0 (continuous mode).\n\n` +
-          deepPrompt
+            `Stopping Requirement: Gate 3 requires either 100% branch coverage or all ${reqRetries} exploration retries completed.\n` +
+            `To proceed, invoke nanofuzz_fuzzFunction with timeoutMs: ${reqTimeout} (${reqMinStr}) and maxTests: 0 (continuous mode).\n\n` +
+            deepPrompt
         );
       }
 
@@ -448,9 +445,9 @@ export async function findBugs(
 
         throw new Error(
           `Execution Gate Blocked (Gate 3: Deep Fuzzing Required - Incomplete): ${detail}\n` +
-          `Stopping Requirement: Gate 3 requires either 100% branch coverage or all ${reqRetries} exploration retries completed.\n` +
-          `To proceed, invoke nanofuzz_fuzzFunction with timeoutMs: ${reqTimeout} (${reqMinStr}) and maxTests: 0 (continuous mode).\n\n` +
-          deepPrompt
+            `Stopping Requirement: Gate 3 requires either 100% branch coverage or all ${reqRetries} exploration retries completed.\n` +
+            `To proceed, invoke nanofuzz_fuzzFunction with timeoutMs: ${reqTimeout} (${reqMinStr}) and maxTests: 0 (continuous mode).\n\n` +
+            deepPrompt
         );
       }
 
@@ -811,38 +808,38 @@ function buildInvariantsGuidance(
     `### Instructions for Phase 3: Harness & Validator Synthesis [Engine: nanofuzz | Source: ${invariantSource}]`,
     "",
     `1. **Create Isolated Harness Files**:`,
-  `   - For each entrypoint or coupled group, create a dedicated harness file **inside the project root/source tree** (e.g. \`<projectRoot>/nanofuzz_harness_<entrypoint>.py\`).`,
-  `   - ⚠️ Do NOT place harness files in an external \`/tmp\` directory—language runners need project virtualenvs to resolve imports.`,
+    `   - For each entrypoint or coupled group, create a dedicated harness file **inside the project root/source tree** (e.g. \`<projectRoot>/nanofuzz_harness_<entrypoint>.py\`).`,
+    `   - ⚠️ Do NOT place harness files in an external \`/tmp\` directory—language runners need project virtualenvs to resolve imports.`,
     `   - Define a typed function (e.g. \`fuzz_<entrypoint>\`) that takes typed arguments and calls the target entrypoint.`,
     `   - ⚠️ **Naming for leading underscores**: For functions starting with underscores (e.g. \`_distance_norm\`), strip the leading underscore in the harness function name: define \`def fuzz_distance_norm(...)\` (not \`fuzz__distance_norm\`).`,
-  `   - ⚠️ **No Hardcoded Lookup Tables or Initial States**: NEVER pass an integer index into a hardcoded array of test inputs. Pass initial data directly as typed parameters so NaNofuzz can generate, mutate, and shrink them.`,
+    `   - ⚠️ **No Hardcoded Lookup Tables or Initial States**: NEVER pass an integer index into a hardcoded array of test inputs. Pass initial data directly as typed parameters so NaNofuzz can generate, mutate, and shrink them.`,
     "",
-  `2. **Formal Companion Function Interface Contracts**:`,
-  `   - **Target Harness Function**: \`def fuzz_<entrypoint>(param1: T1, param2: T2) -> ReturnType:\``,
-  `     - For unconstrained or generic parameters, type your harness parameters as a union of diverse primitive and collection types supported by your language (such as numbers, strings, booleans, arrays/lists, maps/dictionaries, or tuples/sets).`,
-  `     - For classes, complex types, or domain objects, specify the typed primitive or collection inputs needed to construct that object in your harness parameters, and then construct the object *inside* the harness function before passing it to the target function under test.`,
-  `   - **Input Transformer**: \`def fuzz_<entrypoint>_transformer(param1: T1, param2: T2) -> tuple[T1, T2]:\``,
-  `     - Input: Same parameters and types as the harness function.`,
-  `     - Filtering: Use \`assume(condition)\` from \`nanofuzz_runtime\` to discard invalid inputs.`,
-  `     - Return: MUST return an argument tuple strictly matching the target parameter order: \`(param1, param2)\`. For 1 arg, use a 1-tuple with trailing comma: \`(param1,)\`.`,
-  `   - **Custom Generator**: \`def fuzz_<entrypoint>_generator(prng: Callable[[], float]) -> tuple[T1, T2] | None:\``,
-  `     - Input: \`prng: Callable[[], float]\` yielding uniform random floats in \`[0.0, 1.0)\`.`,
-  `     - Return: MUST return an argument tuple strictly matching the target parameter order: \`(param1, param2)\`, or \`None\` when exhausted.`,
-  `     - ⚠️ Never call \`assume()\` inside the generator (generators must only sample and return tuples or None).`,
-  `   - **Property Validator**: \`def fuzz_<entrypoint>_validator(r: FuzzTestResult) -> Literal["pass", "fail", "unknown"]:\``,
-  `     - Input: \`r: FuzzTestResult\` where \`r['in']\` is a list of inputs (\`r['in'][0]\`, \`r['in'][1]\`), \`r.get('out')\` is the return value, and \`r.get('exception')\` is any exception.`,
-  `     - Return: Return \`"fail"\` if an unhandled exception occurred or invariant violated, else \`"pass"\`.`,
+    `2. **Formal Companion Function Interface Contracts**:`,
+    `   - **Target Harness Function**: \`def fuzz_<entrypoint>(param1: T1, param2: T2) -> ReturnType:\``,
+    `     - For unconstrained or generic parameters, type your harness parameters as a union of diverse primitive and collection types supported by your language (such as numbers, strings, booleans, arrays/lists, maps/dictionaries, or tuples/sets).`,
+    `     - For classes, complex types, or domain objects, specify the typed primitive or collection inputs needed to construct that object in your harness parameters, and then construct the object *inside* the harness function before passing it to the target function under test.`,
+    `   - **Input Transformer**: \`def fuzz_<entrypoint>_transformer(param1: T1, param2: T2) -> tuple[T1, T2]:\``,
+    `     - Input: Same parameters and types as the harness function.`,
+    `     - Filtering: Use \`assume(condition)\` from \`nanofuzz_runtime\` to discard invalid inputs.`,
+    `     - Return: MUST return an argument tuple strictly matching the target parameter order: \`(param1, param2)\`. For 1 arg, use a 1-tuple with trailing comma: \`(param1,)\`.`,
+    `   - **Custom Generator**: \`def fuzz_<entrypoint>_generator(prng: Callable[[], float]) -> tuple[T1, T2] | None:\``,
+    `     - Input: \`prng: Callable[[], float]\` yielding uniform random floats in \`[0.0, 1.0)\`.`,
+    `     - Return: MUST return an argument tuple strictly matching the target parameter order: \`(param1, param2)\`, or \`None\` when exhausted.`,
+    `     - ⚠️ Never call \`assume()\` inside the generator (generators must only sample and return tuples or None).`,
+    `   - **Property Validator**: \`def fuzz_<entrypoint>_validator(r: FuzzTestResult) -> Literal["pass", "fail", "unknown"]:\``,
+    `     - Input: \`r: FuzzTestResult\` where \`r['in']\` is a list of inputs (\`r['in'][0]\`, \`r['in'][1]\`), \`r.get('out')\` is the return value, and \`r.get('exception')\` is any exception.`,
+    `     - Return: Return \`"fail"\` if an unhandled exception occurred or invariant violated, else \`"pass"\`.`,
     "",
-  `3. **Runtime Imports**:`,
-  `   - Always import from runtime at the top of your harness file:`,
-  `     \`from nanofuzz_runtime import FuzzTestResult, UnsatisfiedAssumption, assume\``,
+    `3. **Runtime Imports**:`,
+    `   - Always import from runtime at the top of your harness file:`,
+    `     \`from nanofuzz_runtime import FuzzTestResult, UnsatisfiedAssumption, assume\``,
     "",
-  `4. **Seed Properties with Harvested Inputs**:`,
+    `4. **Seed Properties with Harvested Inputs**:`,
     `   - Collect your concrete seed inputs extracted in Phase 1 and format them as an array of parameter objects (e.g. \`[{"<param1>": <val1>, "<param2>": <val2>}]\`).`,
     `   - Pass these seeds in \`"inputs": [...]\` when invoking \`nanofuzz_fuzzFunction\`.`,
     `   - Constrain all integer seed inputs to safe numeric bounds between \`-2**53 + 1\` and \`2**53 - 1\` (approximately \`-9e15\` to \`9e15\`).`,
     "",
-  `5. **Next Step**:`,
+    `5. **Next Step**:`,
     `   - Call \`${toolName.toLowerCase()}_findBugs\` for your first entrypoint to begin Stage 1 smoke testing:`,
     "   ```json",
     "   {",
@@ -850,14 +847,14 @@ function buildInvariantsGuidance(
     `     "model": "${options.model}",`,
     `     "vendor": "${options.vendor}",`,
     '     "statePayload": {',
-  `       "sessionId": "${sessionId}",`,
-  '       "stage": "smoke",',
-  '       "harnessFilePath": "<path>",',
-  '       "functionName": "fuzz_<entrypoint>",',
-  '       "inputs": [{"<param1>": "<seedVal>"}]',
-  "     }",
-  "   }",
-  "   ```",
+    `       "sessionId": "${sessionId}",`,
+    '       "stage": "smoke",',
+    '       "harnessFilePath": "<path>",',
+    '       "functionName": "fuzz_<entrypoint>",',
+    '       "inputs": [{"<param1>": "<seedVal>"}]',
+    "     }",
+    "   }",
+    "   ```",
   ].join("\n");
 } // fn: buildInvariantsGuidance
 

@@ -902,23 +902,6 @@
               "experimental"
             ]
           },
-          "nanofuzz.benchmark.juryModels": {
-            "title": "Benchmark PoLL jury models",
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "default": [
-              "gemini-3.8-flash",
-              "claude-sonnet-5.5",
-              "gpt-4o-mini"
-            ],
-            "description": "Exact Language Model IDs to query for the 3-model evaluation jury panel slots.",
-            "tags": [
-              "experimental",
-              "benchmark"
-            ]
-          },
           "nanofuzz.generators.scheduler.impl": {
             "title": "Composite generator scheduler algorithm",
             "type": "string",
