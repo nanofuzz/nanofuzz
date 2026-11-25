@@ -96,6 +96,30 @@ TREATMENT_SHORT_TEXT = ["SCRAM", "S", "SR", "SRM",
                         "C", "CR", "CRM", "R", "A", "RA", "M", "RM", "RAM"]
 
 
+def get_cell_color_latex(val: float, max_val: float) -> str:
+    """
+    Auto-scales cell background color from red (0) through yellow (1 to 50%) to green (51% to 100%).
+    Red: RGB(245, 183, 177)
+    Yellow: RGB(254, 235, 156)
+    Green: RGB(169, 223, 192)
+    """
+    if val <= 0:
+        return r"\cellcolor{worsered}"
+    ratio = min(1.0, max(0.0, float(val) / float(max_val))
+                ) if max_val > 0 else 0.0
+    if ratio <= 0.5:
+        k = ratio / 0.5
+        r = int(245 + k * (254 - 245))
+        g = int(183 + k * (235 - 183))
+        b = int(177 + k * (156 - 177))
+    else:
+        k = (ratio - 0.5) / 0.5
+        r = int(254 + k * (169 - 254))
+        g = int(235 + k * (223 - 235))
+        b = int(156 + k * (192 - 156))
+    return f"\\cellcolor[RGB]{{{r},{g},{b}}}"
+
+
 def get_active_treatments(df: pd.DataFrame) -> List[str]:
     """Returns the ordered subset of recognized treatments present in the dataset."""
     if df.empty or "Treatment" not in df.columns:
@@ -310,25 +334,27 @@ def generate_pyplots(df: pd.DataFrame, pdf_paths: List[str]):
                 )
 
     mpl.rcParams["font.family"] = "serif"
-    mpl.rcParams["font.size"] = 7.5
+    mpl.rcParams["font.size"] = 8.5
     mpl.rcParams["axes.labelweight"] = "bold"
 
-    # Order PUTs for plots: parse, TreeValue, make_def, DerivationTree, _distance_norm
-    plot_tasks = ["parse", "TreeValue", "make_def", "DerivationTree", "_distance_norm"]
+    # Layout for Figure 6.6: 2 rows with GridSpec scaled taller to fill page height.
+    # Top row: parse and TreeValue. Bottom row: Overall Bug Candidate Elicitation Rate spanning both columns.
+    fig = plt.figure(figsize=(8.0, 10.5))
+    gs = fig.add_gridspec(2, 2, hspace=0.34, wspace=0.22,
+                          left=0.09, right=0.97, top=0.96, bottom=0.07)
 
-    # 3x2 grid of plots scaled for active treatments
-    fig, axs = plt.subplots(3, 2, figsize=(8.8, 9.6))
-    fig.subplots_adjust(left=0.08, right=0.97, top=0.95,
-                        bottom=0.08, hspace=0.48, wspace=0.28)
-    flat_axs = axs.flatten()
+    ax_parse = fig.add_subplot(gs[0, 0])
+    ax_tv = fig.add_subplot(gs[0, 1])
+    ax_overall = fig.add_subplot(gs[1, :])
 
-    def render_violin_cell(ax, data, group_labels, xlabel, ylabel, ylim):
+    def render_violin_cell(ax, data, group_labels, xlabel, ylabel, ylim, xtick_fontsize=8.0):
         ax.set_xticks(list(range(1, len(group_labels) + 1)))
-        ax.set_xticklabels(group_labels, rotation=45, ha="right", fontsize=5.8)
+        ax.set_xticklabels(group_labels, rotation=45,
+                           ha="right", fontsize=xtick_fontsize)
         ax.spines[:].set_visible(False)
         ax.tick_params(axis="both", which="both", bottom=False, left=False)
-        ax.set_xlabel(xlabel, fontsize=7.5, labelpad=4)
-        ax.set_ylabel(ylabel, fontsize=7)
+        ax.set_xlabel(xlabel, fontsize=10.0, labelpad=6)
+        ax.set_ylabel(ylabel, fontsize=9.5)
         if ylim:
             ax.set_ylim(ylim)
 
@@ -336,7 +362,89 @@ def generate_pyplots(df: pd.DataFrame, pdf_paths: List[str]):
             x = i + 1
             if len(vals) > 1:
                 try:
-                    v = ax.violinplot([vals], positions=[x], widths=0.6, showextrema=False)
+                    v = ax.violinplot([vals], positions=[x],
+                                      widths=0.6, showextrema=False)
+                    for pc in v.get("bodies", []):
+                        pc.set_facecolor("none")
+                        pc.set_edgecolor("black")
+                        pc.set_alpha(1.0)
+                        pc.set_linewidth(0.9)
+                except Exception:
+                    pass
+            if len(vals) > 0:
+                jitter = x + np.random.normal(0, 0.04, len(vals))
+                ax.scatter(jitter, vals, s=15, color="grey",
+                           alpha=0.5, edgecolors="none")
+                ax.scatter(x, np.mean(vals), s=36, color="black", zorder=3)
+
+    # parse
+    data_parse = [df[(df["Task"] == "parse") & (df["Treatment"] == t)]
+                  ["BranchCoveragePct"].dropna().values.astype(float) for t in active_treatments]
+    render_violin_cell(ax_parse, data_parse, active_treatments,
+                       f"(a) Branch Coverage: {put_mathtt('parse')}", "Branch Cov. (%)", (0, 105), xtick_fontsize=7.8)
+
+
+TreeValue
+data_tv = [df[(df["Task"] == "TreeValue") & (df["Treatment"] == t)]
+               ["BranchCoveragePct"].dropna().values.astype(float) for t in active_treatments]
+render_violin_cell(ax_tv, data_tv, active_treatments,
+                    f"(b) Branch Coverage: {put_mathtt('TreeValue')}", "Branch Cov. (%)", (0, 105), xtick_fontsize=7.8)
+
+ # Overall Bug Candidate Elicitation Rate across treatments (Measure 2) spanning both columns
+ data_bugs = [df[df["Treatment"] == t]["BugElicitationRate"].dropna(
+      ).values.astype(float) * 100.0 for t in active_treatments]
+  render_violin_cell(ax_overall, data_bugs, active_treatments,
+                      r"(c) Bug Candidate Elicitation Rate: Overall ($\Sigma$)", "Elicitation Rate (%)", (0, 105), xtick_fontsize=9.0)
+
+   for p in pdf_paths:
+        os.makedirs(os.path.dirname(os.path.abspath(p)), exist_ok=True)
+        fig.savefig(p, format="pdf", bbox_inches="tight")
+        print(f"[PLOT] Generated distribution plot: {p}")
+    plt.close(fig)
+
+    # Companion LaTeX figure wrapper for Figure 6.6
+    fig_tex_path = os.path.join(os.path.dirname(
+        os.path.abspath(pdf_paths[0])), "fig-quarton.tex")
+    fig_lines = [
+        r"\begin{figure*}[!htbp]",
+        r"  \centering",
+        r"  \includegraphics[width=\textwidth]{parts/pyplots-quarton.pdf}",
+        r"  \caption{\figquartoncaption}",
+        r"  \label{quarton:fig:pyplots}",
+        r"\end{figure*}",
+    ]
+    with open(fig_tex_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(fig_lines) + "\n")
+    print(f"[FIGURE] Generated main figure wrapper: {fig_tex_path}")
+
+
+def generate_standalone_task_plot(df: pd.DataFrame, task: str, out_pdf_path: str, caption_text: str):
+    """Generates a standalone half-page distribution plot for a single task program."""
+    if not HAS_MATPLOTLIB:
+        return
+    active_treatments = get_active_treatments(df)
+    fig, ax = plt.subplots(figsize=(7.5, 3.8))
+    fig.subplots_adjust(left=0.10, right=0.96, top=0.90, bottom=0.20)
+
+    data = [df[(df["Task"] == task) & (df["Treatment"] == t)]["BranchCoveragePct"].dropna(
+    ).values.astype(float) for t in active_treatments]
+
+    def render_violin_cell(ax, data, group_labels, xlabel, ylabel, ylim):
+        ax.set_xticks(list(range(1, len(group_labels) + 1)))
+        ax.set_xticklabels(group_labels, rotation=45, ha="right", fontsize=8.0)
+        ax.spines[:].set_visible(False)
+        ax.tick_params(axis="both", which="both", bottom=False, left=False)
+        ax.set_xlabel(xlabel, fontsize=9.0, labelpad=6)
+        ax.set_ylabel(ylabel, fontsize=8.5)
+        if ylim:
+            ax.set_ylim(ylim)
+
+        for i, vals in enumerate(data):
+            x = i + 1
+            if len(vals) > 1:
+                try:
+                    v = ax.violinplot([vals], positions=[x],
+                                      widths=0.6, showextrema=False)
                     for pc in v.get("bodies", []):
                         pc.set_facecolor("none")
                         pc.set_edgecolor("black")
@@ -346,36 +454,35 @@ def generate_pyplots(df: pd.DataFrame, pdf_paths: List[str]):
                     pass
             if len(vals) > 0:
                 jitter = x + np.random.normal(0, 0.04, len(vals))
-                ax.scatter(jitter, vals, s=8, color="grey",
+                ax.scatter(jitter, vals, s=12, color="grey",
                            alpha=0.5, edgecolors="none")
-                ax.scatter(x, np.mean(vals), s=26, color="black", zorder=3)
+                ax.scatter(x, np.mean(vals), s=32, color="black", zorder=3)
 
-    # First 5 plots: Branch Coverage for each PUT
-    for idx, task in enumerate(plot_tasks):
-        ax = flat_axs[idx]
-        data = []
-        for t in active_treatments:
-            sub = df[(df["Task"] == task) & (df["Treatment"] == t)]
-            vals = sub["BranchCoveragePct"].dropna().values.astype(float)
-            data.append(vals)
-        render_violin_cell(ax, data, active_treatments,
-                           f"(1) Branch Coverage\n{put_mathtt(task)}", "Branch Cov. (%)", (0, 105))
+    render_violin_cell(ax, data, active_treatments,
+                       f"(1) Branch Coverage: {put_mathtt(task)}", "Branch Cov. (%)", (0, 105))
 
-    # 6th plot: (2) Bug Elicitation Rate across treatments (Measure 2)
-    ax_last = flat_axs[5]
-    data_bugs = []
-    for t in active_treatments:
-        sub = df[df["Treatment"] == t]
-        vals = sub["BugElicitationRate"].dropna().values.astype(float) * 100.0
-        data_bugs.append(vals)
-    render_violin_cell(ax_last, data_bugs, active_treatments,
-                       "(2) Bug Elicitation Rate\nOverall ($\\Sigma$)", "Elicitation Rate (%)", (0, 105))
-
-    for p in pdf_paths:
-        os.makedirs(os.path.dirname(os.path.abspath(p)), exist_ok=True)
-        fig.savefig(p, format="pdf", bbox_inches="tight")
-        print(f"[PLOT] Generated distribution plot: {p}")
+    os.makedirs(os.path.dirname(os.path.abspath(out_pdf_path)), exist_ok=True)
+    fig.savefig(out_pdf_path, format="pdf", bbox_inches="tight")
     plt.close(fig)
+    print(f"[PLOT] Generated standalone plot for {task}: {out_pdf_path}")
+
+    # Companion LaTeX figure wrapper
+    base_name = os.path.splitext(os.path.basename(out_pdf_path))[0]
+    tex_name = base_name.replace("pyplots", "fig") + ".tex"
+    tex_path = os.path.join(os.path.dirname(
+        os.path.abspath(out_pdf_path)), tex_name)
+    pdf_rel = os.path.join("parts", os.path.basename(out_pdf_path))
+    fig_lines = [
+        r"\begin{figure}[!htbp]",
+        r"  \centering",
+        f"  \\includegraphics[width=\\columnwidth]{{{pdf_rel}}}",
+        f"  \\caption[{caption_text.split('.')[0]}]{{{caption_text}}}",
+        f"  \\label{{quarton:fig:pyplots-{task.lower().replace('_', '')}}}",
+        r"\end{figure}",
+    ]
+    with open(tex_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(fig_lines) + "\n")
+    print(f"[FIGURE] Generated standalone figure wrapper: {tex_path}")
 
 
 def generate_generator_usage_plot(df: pd.DataFrame, run_dir: str, out_path: str):
@@ -383,7 +490,8 @@ def generate_generator_usage_plot(df: pd.DataFrame, run_dir: str, out_path: str)
     if not HAS_MATPLOTLIB:
         return
 
-    scram_runs = df[df["Treatment"] == "SCRAM"] if not df.empty else pd.DataFrame()
+    scram_runs = df[df["Treatment"] ==
+                    "SCRAM"] if not df.empty else pd.DataFrame()
     gen_colors = {
         "Seed": "#4C72B0",
         "Custom": "#55A868",
@@ -404,7 +512,8 @@ def generate_generator_usage_plot(df: pd.DataFrame, run_dir: str, out_path: str)
     time_bins = np.linspace(0, 180, 181)
     bin_centers = (time_bins[:-1] + time_bins[1:]) / 2.0
 
-    tasks_ordered = ["parse", "TreeValue", "make_def", "DerivationTree", "_distance_norm"]
+    tasks_ordered = ["parse", "TreeValue", "make_def",
+                     "DerivationTree", "_distance_norm"]
     task_titles = {
         "parse": "parse",
         "TreeValue": "TreeValue",
@@ -415,7 +524,8 @@ def generate_generator_usage_plot(df: pd.DataFrame, run_dir: str, out_path: str)
     }
 
     # Collect per-task counts across 10 replicates of each PUT
-    task_counts = {t: {g: np.zeros(len(bin_centers)) for g in gen_order} for t in tasks_ordered}
+    task_counts = {t: {g: np.zeros(len(bin_centers))
+                       for g in gen_order} for t in tasks_ordered}
 
     for _, row in scram_runs.iterrows():
         rid = row["RunID"]
@@ -428,7 +538,8 @@ def generate_generator_usage_plot(df: pd.DataFrame, run_dir: str, out_path: str)
                 d = msgpack.unpackb(f.read())
         except Exception:
             continue
-        cig = d.get("stats", {}).get("generators", {}).get("CompositeInputGenerator", {})
+        cig = d.get("stats", {}).get("generators", {}).get(
+            "CompositeInputGenerator", {})
         cps = cig.get("checkpoints", [])
         n_cps = len(cps)
         if n_cps == 0:
@@ -451,7 +562,8 @@ def generate_generator_usage_plot(df: pd.DataFrame, run_dir: str, out_path: str)
         smoothed = {}
         tot_bin = np.zeros(len(bin_centers))
         for g in gen_order:
-            s = pd.Series(counts[g]).rolling(window, min_periods=1, center=True).mean().values
+            s = pd.Series(counts[g]).rolling(
+                window, min_periods=1, center=True).mean().values
             smoothed[g] = s
             tot_bin += s
         sh = {}
@@ -463,11 +575,13 @@ def generate_generator_usage_plot(df: pd.DataFrame, run_dir: str, out_path: str)
     overall_shares = {g: np.zeros(len(bin_centers)) for g in gen_order}
     for g in gen_order:
         for tname in tasks_ordered:
-            overall_shares[g] += task_shares[tname][g] / float(len(tasks_ordered))
+            overall_shares[g] += task_shares[tname][g] / \
+                float(len(tasks_ordered))
     task_shares["Overall"] = overall_shares
 
     fig, axs = plt.subplots(3, 2, figsize=(8.0, 9.8), sharex=True, sharey=True)
-    fig.subplots_adjust(left=0.08, right=0.98, top=0.93, bottom=0.06, hspace=0.32, wspace=0.18)
+    fig.subplots_adjust(left=0.08, right=0.98, top=0.89,
+                        bottom=0.06, hspace=0.32, wspace=0.18)
 
     flat_axs = axs.flatten()
     all_panels = tasks_ordered + ["Overall"]
@@ -478,21 +592,26 @@ def generate_generator_usage_plot(df: pd.DataFrame, run_dir: str, out_path: str)
         y_stack = [sh[g] for g in gen_order]
         colors = [gen_colors[g] for g in gen_order]
 
-        ax.stackplot(bin_centers, y_stack, colors=colors, alpha=0.9, edgecolor="white", linewidth=0.3)
+        ax.stackplot(bin_centers, y_stack, colors=colors,
+                     alpha=0.9, edgecolor="white", linewidth=0.3)
         ax.set_xlim(0, 180)
         ax.set_ylim(0, 100)
-        ax.set_title(task_titles[tname], fontsize=9.5, fontweight="bold", pad=4)
+        ax.set_title(task_titles[tname], fontsize=9.5,
+                     fontweight="bold", pad=4)
         ax.spines[:].set_visible(False)
         ax.grid(axis="x", linestyle="--", alpha=0.35)
-        ax.tick_params(axis="both", which="both", bottom=True, left=True, labelsize=7.5)
+        ax.tick_params(axis="both", which="both",
+                       bottom=True, left=True, labelsize=7.5)
 
         if idx % 2 == 0:
             ax.set_ylabel("Selection Share (%)", fontsize=8.5)
         if idx >= 4:
             ax.set_xlabel("Time (s)", fontsize=8.5)
 
-    legend_handles = [mpl.patches.Patch(facecolor=gen_colors[g], edgecolor="white", label=lbl) for g, lbl in zip(gen_order, labels)]
-    fig.legend(handles=legend_handles, loc="upper center", bbox_to_anchor=(0.52, 0.98), ncol=5, fontsize=8.5, frameon=False)
+    legend_handles = [mpl.patches.Patch(
+        facecolor=gen_colors[g], edgecolor="white", label=lbl) for g, lbl in zip(gen_order, labels)]
+    fig.legend(handles=legend_handles, loc="upper center", bbox_to_anchor=(
+        0.50, 0.985), ncol=5, fontsize=17.0, frameon=False, handlelength=2.5, handleheight=1.5)
 
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
     fig.savefig(out_path, format="pdf", bbox_inches="tight")
@@ -500,12 +619,13 @@ def generate_generator_usage_plot(df: pd.DataFrame, run_dir: str, out_path: str)
     print(f"[PLOT] Generated 3x2 Per-PUT Generator Usage Plot: {out_path}")
 
     # Companion LaTeX figure wrapper
-    tex_path = os.path.join(os.path.dirname(os.path.abspath(out_path)), "fig-quarton-generators.tex")
+    tex_path = os.path.join(os.path.dirname(
+        os.path.abspath(out_path)), "fig-quarton-generators.tex")
     fig_lines = [
         r"\begin{figure*}[!htbp]",
         r"  \centering",
         r"  \includegraphics[width=\textwidth]{parts/pyplots-quarton-generators.pdf}",
-        r"  \caption[Input generator scheduling share for each task program]{Input generator scheduling share for each task program, shown individually ($n=10$) and overall ($n=50$). Colored areas represent the proportion of generation turns allocated by the Multi-Armed Bandit scheduler.}",
+        r"  \caption[Input generator scheduling share for each task program]{\qgeneratorscaption\figquartongeneratorscomment{}}",
         r"  \label{quarton:fig:generators-by-put}",
         r"\end{figure*}",
     ]
@@ -570,10 +690,10 @@ def generate_cig_results_table(df: pd.DataFrame, out_path: str, stats: dict):
         r"  \setlength{\tabcolsep}{2pt}",
         r"  \definecolor{bettergreen}{RGB}{169,223,192}",
         r"  \definecolor{worsered}{RGB}{245,183,177}",
-        r"  \caption{Quantitative Task Results Summary for Measures 1--2 ($n=\qn$)}",
+        r"  \caption{Quantitative Task Results Summary for Measures 1--2 ($n=\qn$)\tabquartonresultscomment{}}",
         r"  \label{quarton:tab:results}",
         r"  \footnotesize",
-        r"  \begin{tabularx}{\textwidth}{l| *{4}{>{\raggedleft\arraybackslash}X >{\centering\arraybackslash}X |} >{\raggedleft\arraybackslash}X >{\centering\arraybackslash}X || >{\raggedleft\arraybackslash}X >{\centering\arraybackslash}X}",
+        r"  \begin{tabularx}{\textwidth}{l| *{4}{>{\centering\arraybackslash}X >{\centering\arraybackslash}X |} >{\centering\arraybackslash}X >{\centering\arraybackslash}X || >{\centering\arraybackslash}X >{\centering\arraybackslash}X}",
         r"    \toprule",
         "    & " + " & ".join(header_cols) +
         r" & \multicolumn{2}{c}{\textbf{Overall ($\Sigma$)}} \\",
@@ -602,15 +722,20 @@ def generate_cig_results_table(df: pd.DataFrame, out_path: str, stats: dict):
         for tr in active_treatments:
             label = TREATMENT_LABELS.get(tr, tr)
             row_items = [f"    {label}"]
-            ctl_m_all = stats.get(CONTROL_TREATMENT, {}).get("All", {}).get(col, {}).get("mean", np.nan)
+            ctl_m_all = stats.get(CONTROL_TREATMENT, {}).get(
+                "All", {}).get(col, {}).get("mean", np.nan)
             if not np.isnan(ctl_m_all):
                 ctl_m_all = ctl_m_all * scale
 
             for task in ordered_tasks:
-                m_val = stats.get(tr, {}).get(task, {}).get(col, {}).get("mean", np.nan)
-                sd_val = stats.get(tr, {}).get(task, {}).get(col, {}).get("sd", np.nan)
-                ctl_m = stats.get(CONTROL_TREATMENT, {}).get(task, {}).get(col, {}).get("mean", np.nan)
-                p_val = stats.get(tr, {}).get(task, {}).get(col, {}).get("pvalue", None)
+                m_val = stats.get(tr, {}).get(task, {}).get(
+                    col, {}).get("mean", np.nan)
+                sd_val = stats.get(tr, {}).get(
+                    task, {}).get(col, {}).get("sd", np.nan)
+                ctl_m = stats.get(CONTROL_TREATMENT, {}).get(
+                    task, {}).get(col, {}).get("mean", np.nan)
+                p_val = stats.get(tr, {}).get(task, {}).get(
+                    col, {}).get("pvalue", None)
                 if not np.isnan(m_val):
                     m_val = m_val * scale
                 if not np.isnan(sd_val):
@@ -621,9 +746,12 @@ def generate_cig_results_table(df: pd.DataFrame, out_path: str, stats: dict):
                 row_items.append(format_sig_cell(
                     tr, col, m_val, sd_val, ctl_m, p_val, dec, base_tool=CONTROL_TREATMENT))
 
-            all_m = stats.get(tr, {}).get("All", {}).get(col, {}).get("mean", np.nan)
-            all_sd = stats.get(tr, {}).get("All", {}).get(col, {}).get("sd", np.nan)
-            all_p_val = stats.get(tr, {}).get("All", {}).get(col, {}).get("pvalue", None)
+            all_m = stats.get(tr, {}).get("All", {}).get(
+                col, {}).get("mean", np.nan)
+            all_sd = stats.get(tr, {}).get(
+                "All", {}).get(col, {}).get("sd", np.nan)
+            all_p_val = stats.get(tr, {}).get(
+                "All", {}).get(col, {}).get("pvalue", None)
             if not np.isnan(all_m):
                 all_m = all_m * scale
             if not np.isnan(all_sd):
@@ -731,10 +859,13 @@ def generate_results_detail_table(df: pd.DataFrame, out_path: str, stats: dict):
 def generate_ttest_table(df: pd.DataFrame, out_path: str, stats: dict):
     """Generates formal hypothesis testing results table comparing treatments vs Control R."""
     active_treatments = get_active_treatments(df)
-    compare_treatments = [t for t in active_treatments if t != CONTROL_TREATMENT]
+    compare_treatments = [
+        t for t in active_treatments if t != CONTROL_TREATMENT]
 
-    s_ctl_cov = df[df["Treatment"] == CONTROL_TREATMENT]["BranchCoveragePct"].dropna().values if not df.empty else []
-    s_ctl_el = df[df["Treatment"] == CONTROL_TREATMENT]["BugElicitationRate"].dropna().values if not df.empty else []
+    s_ctl_cov = df[df["Treatment"] == CONTROL_TREATMENT]["BranchCoveragePct"].dropna(
+    ).values if not df.empty else []
+    s_ctl_el = df[df["Treatment"] == CONTROL_TREATMENT]["BugElicitationRate"].dropna(
+    ).values if not df.empty else []
 
     lines = [
         r"\begin{table*}[!htbp]",
@@ -743,7 +874,7 @@ def generate_ttest_table(df: pd.DataFrame, out_path: str, stats: dict):
         r"  \setlength{\tabcolsep}{3pt}",
         r"  \definecolor{bettergreen}{RGB}{169,223,192}",
         r"  \definecolor{worsered}{RGB}{245,183,177}",
-        r"  \caption{Statistical Significance of Treatment Effects vs.\ Control R ($n=\qn$)}",
+        r"  \caption{Statistical Significance of Treatment Effects vs.\ Control R ($n=\qn$)\tabquartonttestscomment{}}",
         r"  \label{quarton:tab:ttests}",
         r"  \resizebox{\textwidth}{!}{%",
         r"  \begin{tabular}{l | r c r | r c r}",
@@ -754,8 +885,10 @@ def generate_ttest_table(df: pd.DataFrame, out_path: str, stats: dict):
     ]
 
     for tr in compare_treatments:
-        s_tr_cov = df[df["Treatment"] == tr]["BranchCoveragePct"].dropna().values if not df.empty else []
-        s_tr_el = df[df["Treatment"] == tr]["BugElicitationRate"].dropna().values if not df.empty else []
+        s_tr_cov = df[df["Treatment"] == tr]["BranchCoveragePct"].dropna(
+        ).values if not df.empty else []
+        s_tr_el = df[df["Treatment"] == tr]["BugElicitationRate"].dropna(
+        ).values if not df.empty else []
 
         # Measure 1: Mann-Whitney U
         p_val_cov, u_stat = compute_mann_whitney(s_tr_cov, s_ctl_cov)
@@ -808,7 +941,8 @@ def generate_ttest_table(df: pd.DataFrame, out_path: str, stats: dict):
                 e2 = stat_str_el
                 e3 = f"{p_str_el}{star_el}"
 
-        lines.append(f"    \\textbf{{{tr}}} & {c1} & {c2} & {c3} & {e1} & {e2} & {e3} \\\\")
+        lines.append(
+            f"    \\textbf{{{tr}}} & {c1} & {c2} & {c3} & {e1} & {e2} & {e3} \\\\")
 
     lines.extend([
         r"    \bottomrule",
@@ -838,6 +972,8 @@ def generate_bugs_elicited_table(df: pd.DataFrame, out_path: str):
 
     active_treatments = get_active_treatments(df)
     num_tr = len(active_treatments)
+    num_reps = int(df["Replicate"].max(
+    )) if not df.empty and "Replicate" in df.columns and not df["Replicate"].dropna().empty else 30
     col_spec = "ll|" + "r" * num_tr
     tr_headers = " & ".join([f"\\textbf{{{tr}}}" for tr in active_treatments])
 
@@ -848,7 +984,7 @@ def generate_bugs_elicited_table(df: pd.DataFrame, out_path: str):
         r"  \footnotesize",
         r"  \definecolor{bettergreen}{RGB}{169,223,192}",
         r"  \definecolor{worsered}{RGB}{245,183,177}",
-        r"  \caption{Bug Elicitations by Task Program and Treatment}",
+        r"  \caption{Bug Elicitations by Task Program and Treatment\tabquartonbugscomment{}}",
         r"  \label{quarton:tab:bugs-elicited}",
         r"  \resizebox{\textwidth}{!}{%",
         f"  \\begin{{tabular}}{{{col_spec}}}",
@@ -886,7 +1022,7 @@ def generate_bugs_elicited_table(df: pd.DataFrame, out_path: str):
                 hits = 0
                 if bid in sub.columns:
                     hits = int((sub[bid] == 1).sum())
-                color_cell = f"\\cellcolor{{bettergreen}}{hits}" if hits > 0 else r"\cellcolor{worsered}0"
+                color_cell = f"{get_cell_color_latex(hits, num_reps)}{hits}"
                 counts.append(color_cell)
                 treatment_totals[t] += hits
                 if hits > 0:
@@ -900,12 +1036,13 @@ def generate_bugs_elicited_table(df: pd.DataFrame, out_path: str):
         len(rubric.get("tasks", {}).get(t, {}).get("bugs", {})) for t in TASKS)
     lines.extend([
         "    \\multicolumn{2}{l|}{\\textbf{Total Elicitations}} & " +
-        " & ".join(str(treatment_totals[t]) for t in active_treatments) + r" \\",
+        " & ".join(str(treatment_totals[t])
+                   for t in active_treatments) + r" \\",
         r"    \hline",
         f"    \\multicolumn{{2}}{{l|}}{{\\textbf{{Unique Bugs Elicited (out of {total_rubric_bugs})}}}} & " + " & ".join(
             str(treatment_unique[t]) for t in active_treatments) + r" \\",
         r"    \bottomrule",
-        f"    \\multicolumn{{{num_tr + 2}}}{{c}}{{\\footnotesize Green indicates the bug was elicited by the treatment; red indicates unelicited.}} \\\\",
+        f"    \\multicolumn{{{num_tr + 2}}}{{c}}{{\\footnotesize Color scale auto-scales from red (0) through yellow ($\\le$50\\% of repetitions) to green (100\\% elicitation).}} \\\\",
         r"  \end{tabular}%",
         r"  }",
         r"\end{table*}",
@@ -994,60 +1131,107 @@ def generate_cig_generator_table(run_dir: str, out_path: str, df: Optional[pd.Da
     with open(rubric_path, "r", encoding="utf-8") as f:
         rubric = json.load(f)
 
+    # Map each bug to its target task to prevent cross-task defect bleeding
+    bug_to_task = {}
+    for tsk, tinfo in rubric.get("tasks", {}).items():
+        for bid in tinfo.get("bugs", {}):
+            bug_to_task[bid] = tsk
+
+    rid_to_task = {}
     scram_run_ids = set()
+    num_reps = 30
     if df is not None and not df.empty and "RunID" in df.columns and "Treatment" in df.columns:
-        scram_run_ids = set(df[df["Treatment"] == "SCRAM"]["RunID"])
+        scram_df = df[df["Treatment"] == "SCRAM"]
+        scram_run_ids = set(scram_df["RunID"])
+        if "Task" in scram_df.columns:
+            rid_to_task = dict(zip(scram_df["RunID"], scram_df["Task"]))
+        if "Replicate" in df.columns and not df["Replicate"].dropna().empty:
+            num_reps = int(df["Replicate"].max())
 
-    artifact_pattern = os.path.join(
-        run_dir, "artifacts", "*", "elicited_bugs.json")
-    eliciting_counts: Dict[str, Dict[str, int]
-                           ] = defaultdict(lambda: defaultdict(int))
-    originating_counts: Dict[str, Dict[str, int]
-                             ] = defaultdict(lambda: defaultdict(int))
+    eliciting_runs: Dict[str, Dict[str, set]] = defaultdict(lambda: defaultdict(set))
+    originating_runs: Dict[str, Dict[str, set]] = defaultdict(lambda: defaultdict(set))
 
-    log_files = glob.glob(artifact_pattern)
-    for logf in log_files:
-        rid = os.path.basename(os.path.dirname(logf))
-        if scram_run_ids and rid not in scram_run_ids:
+    def clean_gen_name(g):
+        if not isinstance(g, str):
+            return "unknown"
+        gl = g.lower()
+        if "seed" in gl or gl == "user":
+            return "seed"
+        if "custom" in gl or "userinput" in gl:
+            return "custom"
+        if "random" in gl:
+            return "random"
+        if "ai" in gl or "gemini" in gl:
+            return "ai"
+        if "mutation" in gl:
+            return "mutation"
+        return "unknown"
+
+    for rid in scram_run_ids:
+        trial_task = rid_to_task.get(rid)
+        if not trial_task:
             continue
+        task_bugs = set(rubric.get("tasks", {}).get(trial_task, {}).get("bugs", {}).keys())
 
-        run_seen_el = set()
-        run_seen_orig = set()
-        with open(logf, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                entry = json.loads(line)
-                if entry.get("summary"):
-                    continue
-                bid = entry.get("bug_id")
-                gen_chain = entry.get("generator", "")
-                if bid and gen_chain:
-                    eliciting, originating = parse_generator_chain(gen_chain)
-                    if (bid, eliciting) not in run_seen_el:
-                        run_seen_el.add((bid, eliciting))
-                        eliciting_counts[bid][eliciting] += 1
-                    if (bid, originating) not in run_seen_orig:
-                        run_seen_orig.add((bid, originating))
-                        originating_counts[bid][originating] += 1
+        # 1. Direct eliciting counts from mpk test executions
+        mpk_path = os.path.join(run_dir, "artifacts", rid, f"{rid}.mpk")
+        if os.path.exists(mpk_path):
+            try:
+                with open(mpk_path, "rb") as mf:
+                    d = msgpack.unpack(mf)
+                for r in d.get("results", []):
+                    out_str = str(r.get("output", ""))
+                    for bid in task_bugs:
+                        if bid in out_str:
+                            inp = r.get("input", [])
+                            if inp:
+                                orig = inp[0].get("origin", {})
+                                gname = orig.get("generator", orig.get("type", "Unknown"))
+                                cg = clean_gen_name(gname)
+                                if cg in gen_keys:
+                                    eliciting_runs[bid][cg].add(rid)
+            except Exception:
+                pass
+
+        # 2. Lineage and originating counts from elicited_bugs.json
+        logf = os.path.join(run_dir, "artifacts", rid, "elicited_bugs.json")
+        if os.path.exists(logf):
+            try:
+                with open(logf, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        entry = json.loads(line)
+                        if entry.get("summary"):
+                            continue
+                        bid = entry.get("bug_id")
+                        if not bid or bid not in task_bugs:
+                            continue
+                        gen_chain = entry.get("generator", "")
+                        if gen_chain:
+                            eliciting, originating = parse_generator_chain(gen_chain)
+                            if eliciting in gen_keys:
+                                eliciting_runs[bid][eliciting].add(rid)
+                            if originating in gen_keys:
+                                originating_runs[bid][originating].add(rid)
+            except Exception:
+                pass
 
     lines = [
         r"\begin{table*}[!htbp]",
         r"  \centering",
         r"  \footnotesize",
-        r"  \setlength{\tabcolsep}{4pt}",
+        r"  \setlength{\tabcolsep}{3pt}",
         r"  \definecolor{bettergreen}{RGB}{169,223,192}",
         r"  \definecolor{worsered}{RGB}{245,183,177}",
-        r"  \caption[Task Program Bugs by Eliciting and (Originating) Input Generator]{Task Program Bugs by Eliciting and (Originating) Input Generator for SCRAM}",
+        r"  \caption[Task Program Bugs by Eliciting and (Originating) Input Generator]{Task Program Bugs by Eliciting and (Originating) Input Generator for SCRAM\tabquartongeneratorscomment{}}",
         r"  \label{quarton:tab:generators}",
-        r"  \begin{tabular}{l | *{5}{>{\centering\arraybackslash}p{2.1cm}}}",
+        r"  \begin{tabular}{l | *{5}{>{\centering\arraybackslash}p{1.7cm}}}",
         r"    \toprule",
         r"    & \multicolumn{5}{c}{\textbf{Eliciting and (Originating) Input Generator}} \\",
         r"    \multicolumn{1}{c|}{\textbf{Bug ID}} & \textbf{Seed} & \textbf{Custom} & \textbf{Random} & \textbf{AI} & \textbf{Mutation} \\",
     ]
-
-    gen_keys = ["seed", "custom", "random", "ai", "mutation"]
 
     # Order PUTs and bugs to match Table 6.6
     ordered_tasks = ORDERED_TASKS
@@ -1072,19 +1256,22 @@ def generate_cig_generator_table(run_dir: str, out_path: str, df: Optional[pd.Da
             escaped_bid = bid.replace("_", r"\_")
             cells = []
             for gtype in gen_keys:
-                el_cnt = eliciting_counts[bid][gtype]
-                orig_cnt = originating_counts[bid][gtype]
-                color = "bettergreen" if (
-                    el_cnt > 0 or orig_cnt > 0) else "worsered"
+                el_cnt = len(eliciting_runs[bid][gtype])
+                if gtype != "mutation":
+                    orig_cnt = max(el_cnt, len(originating_runs[bid][gtype]))
+                else:
+                    orig_cnt = 0
+                comb_cnt = el_cnt + orig_cnt
+                color_str = get_cell_color_latex(comb_cnt, num_reps)
                 cell_text = f"{el_cnt} ({orig_cnt})"
-                cells.append(f"\\cellcolor{{{color}}}{cell_text}")
+                cells.append(f"{color_str}{cell_text}")
             lines.append(
                 f"    \\texttt{{{escaped_bid}}} & " + " & ".join(cells) + r" \\")
 
     lines.extend([
         r"    \bottomrule",
-        r"    \multicolumn{6}{c}{\footnotesize Green indicates bug was elicited or originated; red indicates zero contributions.} \\",
-        r"    \multicolumn{6}{c}{\footnotesize Format: Eliciting (Originating). Originating inputs were mutated to produce the final eliciting input.} \\",
+        r"    \multicolumn{6}{l}{\footnotesize Shading: Red (0), Yellow ($\le$50\% of reps), Green (100\% elicitation/origination).} \\",
+        r"    \multicolumn{6}{l}{\footnotesize Format: Eliciting (Originating). Originating inputs were mutated to elicit the bug.} \\",
         r"  \end{tabular}",
         r"\end{table*}",
     ])
@@ -1154,7 +1341,8 @@ def generate_provenance_listing(run_dir: str, out_path: str, df: Optional[pd.Dat
             if orig in ("seed", "custom"):
                 target_candidates.append(c)
 
-    scram_targets = [c for c in target_candidates if df is not None and c["run_id"] in set(df[df["Treatment"] == "SCRAM"]["RunID"])]
+    scram_targets = [c for c in target_candidates if df is not None and c["run_id"] in set(
+        df[df["Treatment"] == "SCRAM"]["RunID"])]
     if scram_targets:
         selected = max(scram_targets, key=lambda x: x["steps"])
     elif target_candidates:
@@ -1164,14 +1352,16 @@ def generate_provenance_listing(run_dir: str, out_path: str, df: Optional[pd.Dat
 
     max_steps = selected["steps"]
 
-    mpk_path = os.path.join(run_dir, "artifacts", selected["run_id"], f"{selected['run_id']}.mpk")
+    mpk_path = os.path.join(run_dir, "artifacts",
+                            selected["run_id"], f"{selected['run_id']}.mpk")
     formatted_lines = []
 
     if os.path.exists(mpk_path):
         try:
             with open(mpk_path, "rb") as f:
                 d = msgpack.unpackb(f.read())
-            by_tick = {item.get("tick"): item for item in d.get("interesting", {}).get("inputs", [])}
+            by_tick = {item.get("tick"): item for item in d.get(
+                "interesting", {}).get("inputs", [])}
 
             # Trace backwards from each leaf to find the longest provenance chain
             def trace_back(leaf_tick):
@@ -1196,17 +1386,23 @@ def generate_provenance_listing(run_dir: str, out_path: str, df: Optional[pd.Dat
                     src = inp.get("source", {})
                     val = inp.get("value", [])
 
-                    spec = val[0].get("value") if isinstance(val[0], dict) else val[0]
-                    c_str = val[1].get("value") if isinstance(val[1], dict) else val[1]
-                    u_std = val[2].get("value") if isinstance(val[2], dict) else val[2]
-                    chk = val[3].get("value") if isinstance(val[3], dict) else val[3]
-                    sym = val[4].get("value") if isinstance(val[4], dict) else val[4]
+                    spec = val[0].get("value") if isinstance(
+                        val[0], dict) else val[0]
+                    c_str = val[1].get("value") if isinstance(
+                        val[1], dict) else val[1]
+                    u_std = val[2].get("value") if isinstance(
+                        val[2], dict) else val[2]
+                    chk = val[3].get("value") if isinstance(
+                        val[3], dict) else val[3]
+                    sym = val[4].get("value") if isinstance(
+                        val[4], dict) else val[4]
 
                     fn_name = src.get("fnName", "fuzz_parse_generator")
                     muts = ", ".join(src.get("steps", {}).get("mutators", []))
 
                     if i == 0:
-                        origin_name = "SeedInput" if "Seed" in selected["chain"] else f"CustomInputGenerator[{fn_name}]"
+                        origin_name = "SeedInput" if "Seed" in selected[
+                            "chain"] else f"CustomInputGenerator[{fn_name}]"
                         header = f"Step {i}: Origin: {origin_name}"
                     else:
                         header = f"Step {i}: Mutate: MutationInputGenerator[{muts}]"
@@ -1214,10 +1410,12 @@ def generate_provenance_listing(run_dir: str, out_path: str, df: Optional[pd.Dat
                     formatted_lines.append(header)
 
                     ARROW_COL = 46
+
                     def add_line(field_name, field_val, arrow_text=""):
                         prefix = f"  {field_name:<17} {field_val}"
                         if arrow_text:
-                            formatted_lines.append(f"{prefix:<{ARROW_COL}}{arrow_text}")
+                            formatted_lines.append(
+                                f"{prefix:<{ARROW_COL}}{arrow_text}")
                         else:
                             formatted_lines.append(prefix)
 
@@ -1262,11 +1460,14 @@ def generate_provenance_listing(run_dir: str, out_path: str, df: Optional[pd.Dat
 
                 # Final eliciting mutation step
                 step_idx = len(chain)
-                elicit_muts = selected["chain"].split("->")[-1].replace("Mutation", "").strip("[]")
-                formatted_lines.append(f"Step {step_idx}: Elicit: MutationInputGenerator[{elicit_muts}]")
+                elicit_muts = selected["chain"].split(
+                    "->")[-1].replace("Mutation", "").strip("[]")
+                formatted_lines.append(
+                    f"Step {step_idx}: Elicit: MutationInputGenerator[{elicit_muts}]")
                 spec_str = str(prev_vals[0]).replace("\n", "\\n")
                 add_line("spec:", f"\"{spec_str}\"")
-                add_line("constraint_str:", f"\"{prev_vals[1]}#\"", "<-- inserted '#' token (ELICITS BUG)")
+                add_line(
+                    "constraint_str:", f"\"{prev_vals[1]}#\"", "<-- inserted '#' token (ELICITS BUG)")
                 add_line("use_stdlib:", f"{prev_vals[2]}")
                 add_line("check:", f"{prev_vals[3]}")
                 add_line("start_symbol:", f"\"{prev_vals[4]}\"")
@@ -1280,7 +1481,8 @@ def generate_provenance_listing(run_dir: str, out_path: str, df: Optional[pd.Dat
             prefix = "Origin:  " if i == 0 else (
                 "Elicit:  " if i == len(chain_parts) - 1 else "Mutate:  ")
             formatted_lines.append(f"{prefix}{p.strip()}")
-        formatted_lines.extend(["", f"Eliciting Input Args: {selected['args']}"])
+        formatted_lines.extend(
+            ["", f"Eliciting Input Args: {selected['args']}"])
 
     bid_tex = selected["bug_id"].replace("_", r"\_")
     task_tex = TASK_LABELS.get(selected["task"], selected["task"])
@@ -1288,7 +1490,8 @@ def generate_provenance_listing(run_dir: str, out_path: str, df: Optional[pd.Dat
     single_treatments = ["S", "C", "R", "A", "M"]
     non_eliciting_single = [tr for tr in single_treatments if tr not in bug_treatments.get(
         selected["bug_id"], set())]
-    single_unelicited_str = ", ".join(non_eliciting_single) if non_eliciting_single else "none"
+    single_unelicited_str = ", ".join(
+        non_eliciting_single) if non_eliciting_single else "none"
 
     caption_short = "Eliciting input example for SCRAM"
     caption_text = (
@@ -1318,10 +1521,13 @@ def generate_provenance_listing(run_dir: str, out_path: str, df: Optional[pd.Dat
 def generate_data_quarton_tex(df: pd.DataFrame, out_path: str, stats: dict):
     """Outputs LaTeX macro definitions with key experimental metrics into data-quarton.tex."""
     total_trials = len(df)
-    completed_trials = len(df[df["Status"] == "COMPLETED"]) if not df.empty else 0
-    total_runtime_sec = float(df["ElapsedSec"].sum()) if "ElapsedSec" in df.columns else 0.0
+    completed_trials = len(
+        df[df["Status"] == "COMPLETED"]) if not df.empty else 0
+    total_runtime_sec = float(
+        df["ElapsedSec"].sum()) if "ElapsedSec" in df.columns else 0.0
 
-    tool_ver_str = str(df["ToolVersion"].dropna().iloc[0]) if "ToolVersion" in df.columns and not df["ToolVersion"].dropna().empty else "NaNofuzz v0.4.2"
+    tool_ver_str = str(df["ToolVersion"].dropna(
+    ).iloc[0]) if "ToolVersion" in df.columns and not df["ToolVersion"].dropna().empty else "NaNofuzz v0.4.2"
     tool_ver_clean = tool_ver_str.replace("NaNofuzz", "").strip()
     if not tool_ver_clean.startswith("v") and tool_ver_clean != "":
         tool_ver_clean = f"v{tool_ver_clean}"
@@ -1330,25 +1536,35 @@ def generate_data_quarton_tex(df: pd.DataFrame, out_path: str, stats: dict):
 
     active_treatments = get_active_treatments(df)
 
-    rubric_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ground_truth_rubric.json")
+    rubric_file = os.path.join(os.path.dirname(
+        os.path.abspath(__file__)), "ground_truth_rubric.json")
     tasks_dict = {}
     if os.path.exists(rubric_file):
         with open(rubric_file, "r", encoding="utf-8") as rf:
             rdata = json.load(rf)
         tasks_dict = rdata.get("tasks", {})
 
-    total_unique_bugs = sum(len(td.get("bugs", {})) for td in tasks_dict.values()) if tasks_dict else 23
+    total_unique_bugs = sum(len(td.get("bugs", {}))
+                            for td in tasks_dict.values()) if tasks_dict else 23
     num_puts = len(tasks_dict) if tasks_dict else len(TASKS)
-    avg_bugs_per_put = total_unique_bugs / float(num_puts) if num_puts > 0 else 4.6
+    avg_bugs_per_put = total_unique_bugs / \
+        float(num_puts) if num_puts > 0 else 4.6
 
-    k_treevalue = len(tasks_dict.get("TreeValue", {}).get("bugs", {})) if tasks_dict else TASKS_MAP["TreeValue"]["bugs_count"]
-    k_derivation = len(tasks_dict.get("DerivationTree", {}).get("bugs", {})) if tasks_dict else TASKS_MAP["DerivationTree"]["bugs_count"]
-    k_parse = len(tasks_dict.get("parse", {}).get("bugs", {})) if tasks_dict else TASKS_MAP["parse"]["bugs_count"]
-    k_distance = len(tasks_dict.get("_distance_norm", {}).get("bugs", {})) if tasks_dict else TASKS_MAP["_distance_norm"]["bugs_count"]
-    k_makedef = len(tasks_dict.get("make_def", {}).get("bugs", {})) if tasks_dict else TASKS_MAP["make_def"]["bugs_count"]
+    k_treevalue = len(tasks_dict.get("TreeValue", {}).get(
+        "bugs", {})) if tasks_dict else TASKS_MAP["TreeValue"]["bugs_count"]
+    k_derivation = len(tasks_dict.get("DerivationTree", {}).get(
+        "bugs", {})) if tasks_dict else TASKS_MAP["DerivationTree"]["bugs_count"]
+    k_parse = len(tasks_dict.get("parse", {}).get("bugs", {})
+                  ) if tasks_dict else TASKS_MAP["parse"]["bugs_count"]
+    k_distance = len(tasks_dict.get("_distance_norm", {}).get(
+        "bugs", {})) if tasks_dict else TASKS_MAP["_distance_norm"]["bugs_count"]
+    k_makedef = len(tasks_dict.get("make_def", {}).get(
+        "bugs", {})) if tasks_dict else TASKS_MAP["make_def"]["bugs_count"]
 
-    total_bugs_to_find = int(df["TaskBugCount"].sum()) if "TaskBugCount" in df.columns and not df["TaskBugCount"].dropna().empty else total_unique_bugs * total_trials // num_puts
-    num_reps = int(df["Replicate"].max()) if "Replicate" in df.columns and not df["Replicate"].dropna().empty else (total_trials // (len(active_treatments) * num_puts) if len(active_treatments) * num_puts > 0 else 10)
+    total_bugs_to_find = int(df["TaskBugCount"].sum()) if "TaskBugCount" in df.columns and not df["TaskBugCount"].dropna(
+    ).empty else total_unique_bugs * total_trials // num_puts
+    num_reps = int(df["Replicate"].max()) if "Replicate" in df.columns and not df["Replicate"].dropna().empty else (
+        total_trials // (len(active_treatments) * num_puts) if len(active_treatments) * num_puts > 0 else 10)
 
     # Intervention is SCRAM, Control is R
     int_tr = "SCRAM" if "SCRAM" in active_treatments else active_treatments[0]
@@ -1357,25 +1573,40 @@ def generate_data_quarton_tex(df: pd.DataFrame, out_path: str, stats: dict):
     sub_ctl = df[df["Treatment"] == ctl_tr] if not df.empty else pd.DataFrame()
     sub_int = df[df["Treatment"] == int_tr] if not df.empty else pd.DataFrame()
 
-    ctl_cov_m = stats.get(ctl_tr, {}).get("All", {}).get("BranchCoveragePct", {}).get("mean", np.nan)
-    ctl_cov_sd = stats.get(ctl_tr, {}).get("All", {}).get("BranchCoveragePct", {}).get("sd", np.nan)
-    int_cov_m = stats.get(int_tr, {}).get("All", {}).get("BranchCoveragePct", {}).get("mean", np.nan)
-    int_cov_sd = stats.get(int_tr, {}).get("All", {}).get("BranchCoveragePct", {}).get("sd", np.nan)
+    ctl_cov_m = stats.get(ctl_tr, {}).get("All", {}).get(
+        "BranchCoveragePct", {}).get("mean", np.nan)
+    ctl_cov_sd = stats.get(ctl_tr, {}).get("All", {}).get(
+        "BranchCoveragePct", {}).get("sd", np.nan)
+    int_cov_m = stats.get(int_tr, {}).get("All", {}).get(
+        "BranchCoveragePct", {}).get("mean", np.nan)
+    int_cov_sd = stats.get(int_tr, {}).get("All", {}).get(
+        "BranchCoveragePct", {}).get("sd", np.nan)
 
-    cov_delta = (int_cov_m / ctl_cov_m - 1.0) if (not np.isnan(ctl_cov_m) and ctl_cov_m > 0 and not np.isnan(int_cov_m)) else 0.0
-    p_cov = stats.get(int_tr, {}).get("All", {}).get("BranchCoveragePct", {}).get("mann_whitney_p", np.nan)
+    cov_delta = (int_cov_m / ctl_cov_m - 1.0) if (not np.isnan(ctl_cov_m)
+                                                  and ctl_cov_m > 0 and not np.isnan(int_cov_m)) else 0.0
+    p_cov = stats.get(int_tr, {}).get("All", {}).get(
+        "BranchCoveragePct", {}).get("mann_whitney_p", np.nan)
     if np.isnan(p_cov):
-        p_cov = stats.get(int_tr, {}).get("All", {}).get("BranchCoveragePct", {}).get("pvalue", np.nan)
+        p_cov = stats.get(int_tr, {}).get("All", {}).get(
+            "BranchCoveragePct", {}).get("pvalue", np.nan)
 
-    ctl_el_m = stats.get(ctl_tr, {}).get("All", {}).get("BugsElicited", {}).get("mean", np.nan)
-    ctl_el_sd = stats.get(ctl_tr, {}).get("All", {}).get("BugsElicited", {}).get("sd", np.nan)
-    ctl_el_sum = int(sub_ctl["BugsElicited"].sum()) if "BugsElicited" in sub_ctl.columns and len(sub_ctl) > 0 else 0
-    ctl_el_max = int(sub_ctl["TaskBugCount"].sum()) if "TaskBugCount" in sub_ctl.columns and len(sub_ctl) > 0 else total_unique_bugs
+    ctl_el_m = stats.get(ctl_tr, {}).get("All", {}).get(
+        "BugsElicited", {}).get("mean", np.nan)
+    ctl_el_sd = stats.get(ctl_tr, {}).get("All", {}).get(
+        "BugsElicited", {}).get("sd", np.nan)
+    ctl_el_sum = int(sub_ctl["BugsElicited"].sum(
+    )) if "BugsElicited" in sub_ctl.columns and len(sub_ctl) > 0 else 0
+    ctl_el_max = int(sub_ctl["TaskBugCount"].sum(
+    )) if "TaskBugCount" in sub_ctl.columns and len(sub_ctl) > 0 else total_unique_bugs
 
-    int_el_m = stats.get(int_tr, {}).get("All", {}).get("BugsElicited", {}).get("mean", np.nan)
-    int_el_sd = stats.get(int_tr, {}).get("All", {}).get("BugsElicited", {}).get("sd", np.nan)
-    int_el_sum = int(sub_int["BugsElicited"].sum()) if "BugsElicited" in sub_int.columns and len(sub_int) > 0 else 0
-    int_el_max = int(sub_int["TaskBugCount"].sum()) if "TaskBugCount" in sub_int.columns and len(sub_int) > 0 else total_unique_bugs
+    int_el_m = stats.get(int_tr, {}).get("All", {}).get(
+        "BugsElicited", {}).get("mean", np.nan)
+    int_el_sd = stats.get(int_tr, {}).get("All", {}).get(
+        "BugsElicited", {}).get("sd", np.nan)
+    int_el_sum = int(sub_int["BugsElicited"].sum(
+    )) if "BugsElicited" in sub_int.columns and len(sub_int) > 0 else 0
+    int_el_max = int(sub_int["TaskBugCount"].sum(
+    )) if "TaskBugCount" in sub_int.columns and len(sub_int) > 0 else total_unique_bugs
 
     el_delta = (int_el_sum / ctl_el_sum - 1.0) if ctl_el_sum > 0 else 0.0
     p_el = compute_fisher_exact(int_el_sum, int_el_max, ctl_el_sum, ctl_el_max)
@@ -1457,7 +1688,8 @@ def generate_data_quarton_tex(df: pd.DataFrame, out_path: str, stats: dict):
         f"\\def\\intCoveragesd{{{int_cov_sd:.1f}}}",
         f"\\def\\intCoveragepct{{{int_cov_m:.1f}\\%}}",
         f"\\def\\intCoveragedeltapct{{{cov_delta_str}}}",
-        f"\\def\\pCoverage{{{f'{p_cov:.3f}' if not np.isnan(p_cov) else 'N/A'}}}",
+        f"\\def\\pCoverage{{{f'{p_cov:.3f}' if not np.isnan(
+            p_cov) else 'N/A'}}}",
         f"\\def\\pCoveragerange{{{pvalrange(p_cov)}}}",
         r"",
         r"% Measure 2: Elicited Bugs",
@@ -1465,19 +1697,31 @@ def generate_data_quarton_tex(df: pd.DataFrame, out_path: str, stats: dict):
         f"\\def\\ctlElicitedsum{{{ctl_el_sum}}}",
         f"\\def\\ctlElicitedmean{{{ctl_el_m:.2f}}}",
         f"\\def\\ctlElicitedsd{{{ctl_el_sd:.2f}}}",
-        (f"\\def\\ctlElicitedpercent{{{ctl_el_sum / ctl_el_max:.1%}}}".replace("%", "\\%") if ctl_el_max > 0 else "\\def\\ctlElicitedpercent{0\\%}"),
+        (f"\\def\\ctlElicitedpercent{{{ctl_el_sum / ctl_el_max:.1%}}}".replace(
+            "%", "\\%") if ctl_el_max > 0 else "\\def\\ctlElicitedpercent{0\\%}"),
         f"\\def\\intElicitedmax{{{int_el_max}}}",
         f"\\def\\intElicitedsum{{{int_el_sum}}}",
         f"\\def\\intElicitedmean{{{int_el_m:.2f}}}",
         f"\\def\\intElicitedsd{{{int_el_sd:.2f}}}",
-        (f"\\def\\intElicitedpercent{{{int_el_sum / int_el_max:.1%}}}".replace("%", "\\%") if int_el_max > 0 else "\\def\\intElicitedpercent{0\\%}"),
+        (f"\\def\\intElicitedpercent{{{int_el_sum / int_el_max:.1%}}}".replace(
+            "%", "\\%") if int_el_max > 0 else "\\def\\intElicitedpercent{0\\%}"),
         f"\\def\\intEliciteddeltapct{{{el_delta_str}}}",
-        f"\\def\\pelicited{{{f'{p_el:.3f}' if not np.isnan(p_el) else 'N/A'}}}",
+        f"\\def\\pelicited{{{f'{p_el:.3f}' if not np.isnan(
+            p_el) else 'N/A'}}}",
         f"\\def\\pelicitedrange{{{p_el_range}}}",
+        r"",
+        r"% ---------------------CAPTION COMMENTARY HOOKS-------------------",
+        r"\providecommand{\figquartoncaption}{}",
+        r"\providecommand{\tabquartonresultscomment}{}",
+        r"\providecommand{\tabquartonttestscomment}{}",
+        r"\providecommand{\tabquartonbugscomment}{}",
+        r"\providecommand{\tabquartongeneratorscomment}{}",
+        r"\providecommand{\figquartonpyplotscomment}{}",
+        r"\providecommand{\figquartongeneratorscomment}{}",
         r"",
         r"% High-level stats summary",
         f"\\def\\quartonstatssummary{{{summary_str}}}",
-        r"\def\qgeneratorscaption{Input generator scheduling share for each task program, shown individually ($n=10$) and overall ($n=50$). Colored areas represent the proportion of generation turns allocated by the Multi-Armed Bandit scheduler.}",
+        f"\\def\\qgeneratorscaption{{Input generator scheduling share for each task program, shown individually ($n={num_reps}$) and overall ($n={num_reps * num_puts}$). Colored areas represent the proportion of generation turns allocated by the Multi-Armed Bandit scheduler.}}",
         r"",
         r"% ---------------------CIG TREATMENT MACROS-----------------------",
         f"\\providecommand{{\\cigToolVersion}}{{{tool_ver_clean}}}",
@@ -1490,13 +1734,19 @@ def generate_data_quarton_tex(df: pd.DataFrame, out_path: str, stats: dict):
 
     for tr in active_treatments:
         tr_clean = tr.replace("_", "")
-        rate_all = stats.get(tr, {}).get("All", {}).get("BugElicitationRate", {}).get("mean", np.nan)
-        cov_all = stats.get(tr, {}).get("All", {}).get("BranchCoveragePct", {}).get("mean", np.nan)
-        bugs_all = stats.get(tr, {}).get("All", {}).get("BugsElicited", {}).get("mean", np.nan)
-        p_cov_tr = stats.get(tr, {}).get("All", {}).get("BranchCoveragePct", {}).get("pvalue", np.nan)
-        p_rate_tr = stats.get(tr, {}).get("All", {}).get("BugElicitationRate", {}).get("pvalue", np.nan)
+        rate_all = stats.get(tr, {}).get("All", {}).get(
+            "BugElicitationRate", {}).get("mean", np.nan)
+        cov_all = stats.get(tr, {}).get("All", {}).get(
+            "BranchCoveragePct", {}).get("mean", np.nan)
+        bugs_all = stats.get(tr, {}).get("All", {}).get(
+            "BugsElicited", {}).get("mean", np.nan)
+        p_cov_tr = stats.get(tr, {}).get("All", {}).get(
+            "BranchCoveragePct", {}).get("pvalue", np.nan)
+        p_rate_tr = stats.get(tr, {}).get("All", {}).get(
+            "BugElicitationRate", {}).get("pvalue", np.nan)
 
-        rate_str = f"{rate_all:.1%}".replace("%", r"\%") if not np.isnan(rate_all) else "--"
+        rate_str = f"{rate_all:.1%}".replace(
+            "%", r"\%") if not np.isnan(rate_all) else "--"
         cov_str = f"{cov_all:.1f}\\%" if not np.isnan(cov_all) else "--"
         bugs_str = f"{bugs_all:.2f}" if not np.isnan(bugs_all) else "--"
         p_cov_str = pvalrange(p_cov_tr) if not np.isnan(p_cov_tr) else "n/a"
@@ -1517,9 +1767,12 @@ def generate_data_quarton_tex(df: pd.DataFrame, out_path: str, stats: dict):
 
     # Treatment S runtime variables (one for mean, one for SD)
     s_sub = df[df["Treatment"] == "S"] if not df.empty else pd.DataFrame()
-    s_elapsed = s_sub["ElapsedSec"].dropna().values.astype(float) if "ElapsedSec" in s_sub.columns else np.array([])
-    s_time_m = float(np.mean(s_elapsed)) if len(s_elapsed) > 0 else float(np.nan)
-    s_time_sd = float(np.std(s_elapsed, ddof=1)) if len(s_elapsed) > 1 else float(np.nan)
+    s_elapsed = s_sub["ElapsedSec"].dropna().values.astype(
+        float) if "ElapsedSec" in s_sub.columns else np.array([])
+    s_time_m = float(np.mean(s_elapsed)) if len(
+        s_elapsed) > 0 else float(np.nan)
+    s_time_sd = float(np.std(s_elapsed, ddof=1)) if len(
+        s_elapsed) > 1 else float(np.nan)
     s_m_str = f"{s_time_m:.2f}" if not np.isnan(s_time_m) else "--"
     s_sd_str = f"{s_time_sd:.2f}" if not np.isnan(s_time_sd) else "--"
 
@@ -1530,10 +1783,14 @@ def generate_data_quarton_tex(df: pd.DataFrame, out_path: str, stats: dict):
         f"\\def\\qsRuntimesd{{{s_sd_str}}}",
     ])
 
-    tot_time = int((df["StopReason"] == "maxTime").sum()) if "StopReason" in df.columns else 0
-    tot_dupes = int((df["StopReason"] == "maxDupes").sum()) if "StopReason" in df.columns else 0
-    tot_exit0 = int((df["ExitCode"] == 0).sum()) if "ExitCode" in df.columns else 0
-    tot_exit1 = int((df["ExitCode"] == 1).sum()) if "ExitCode" in df.columns else 0
+    tot_time = int((df["StopReason"] == "maxTime").sum()
+                   ) if "StopReason" in df.columns else 0
+    tot_dupes = int((df["StopReason"] == "maxDupes").sum()
+                    ) if "StopReason" in df.columns else 0
+    tot_exit0 = int((df["ExitCode"] == 0).sum()
+                    ) if "ExitCode" in df.columns else 0
+    tot_exit1 = int((df["ExitCode"] == 1).sum()
+                    ) if "ExitCode" in df.columns else 0
 
     lines.extend([
         f"\\providecommand{{\\cigTotalMaxTime}}{{{tot_time}}}",
@@ -1632,6 +1889,23 @@ def main():
     ]
     generate_pyplots(df, plot_paths)
 
+    # Standalone half-page plots for the 3 dropped PUTs
+    generate_standalone_task_plot(
+        df, "make_def",
+        os.path.join(parts_dir, "pyplots-quarton-makedef.pdf"),
+        r"Branch coverage for \texttt{make\_def} across all treatments ($n = \qn$). All treatments achieved saturated coverage at 50.0\%."
+    )
+    generate_standalone_task_plot(
+        df, "_distance_norm",
+        os.path.join(parts_dir, "pyplots-quarton-distancenorm.pdf"),
+        r"Branch coverage for \texttt{\_distance\_norm} across all treatments ($n = \qn$). All treatments achieve 1.9\% because \texttt{\_distance\_norm} only contains 1 of the 54 branches in \texttt{comparison.py}."
+    )
+    generate_standalone_task_plot(
+        df, "DerivationTree",
+        os.path.join(parts_dir, "pyplots-quarton-derivationtree.pdf"),
+        r"Branch coverage for \texttt{DerivationTree} across all treatments ($n = \qn$). All treatments plateau at 24.0\% (59 of 246 branches) because the remaining branches in \texttt{tree.py} belong to grammar export and graph visualization routines not exercised during tree operations."
+    )
+
     gen_plot_path = os.path.join(parts_dir, "pyplots-quarton-generators.pdf")
     generate_generator_usage_plot(df, run_dir, gen_plot_path)
 
@@ -1646,8 +1920,15 @@ def main():
         "tab-quarton-stop-reasons.tex",
         "tab-quarton-generators.tex",
         "lst-quarton-provenance.tex",
+        "fig-quarton.tex",
+        "fig-quarton-makedef.tex",
+        "fig-quarton-distancenorm.tex",
+        "fig-quarton-derivationtree.tex",
         "fig-quarton-generators.tex",
         "pyplots-quarton.pdf",
+        "pyplots-quarton-makedef.pdf",
+        "pyplots-quarton-distancenorm.pdf",
+        "pyplots-quarton-derivationtree.pdf",
         "pyplots-quarton-generators.pdf",
     ]
 
