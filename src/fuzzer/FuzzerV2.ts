@@ -33,7 +33,12 @@ import { CompanionManager } from "./analysis/CompanionManager";
 import { MeasureFactory } from "./measures/MeasureFactory";
 import { RunnerFactory } from "./runners/RunnerFactory";
 import { Leaderboard } from "./generators/Leaderboard";
-import { getIoKey, isError, isSameJudgments } from "./Util";
+import {
+  getIoKey,
+  isError,
+  isSameJudgments,
+  resolveFullProvenance,
+} from "./Util";
 import { AbstractProgram } from "./analysis/AbstractProgram";
 import { AbstractRunner } from "./runners/AbstractRunner";
 import { AbstractMeasure } from "./measures/AbstractMeasure";
@@ -68,6 +73,8 @@ export class FuzzerV2 {
   protected _lastCompiler?: ReturnType<
     (typeof CompilerFactory)["fromSourcefile"]
   >;
+  protected _trackProvenance = false;
+  protected _leaderboardProvenance: Map<number, string> = new Map();
 
   // Cooperative Shrink State
   protected _interruptedQueue: TransformedInputAndSource[] = [];
@@ -406,6 +413,10 @@ export class FuzzerV2 {
         return false;
       };
 
+      this._trackProvenance = Boolean(
+        process.env.NANOFUZZ_DYNAMIC_BUG_ELICITATION
+      );
+
       while (true) {
         stillInjecting =
           this._stats.currentRun.counters.inputsInjected < injectTests.length;
@@ -535,6 +546,14 @@ export class FuzzerV2 {
           typeof currentStopCondition === "number" ? currentStopCondition : 100;
         this._notify(candidate, currentPct, update, cancelFn, stillInjecting);
 
+        const provenance =
+          this._trackProvenance && candidate
+            ? resolveFullProvenance(
+                candidate.source,
+                this._leaderboardProvenance
+              )
+            : undefined;
+
         // Execute single test pipeline: Run -> Oracles -> Measures -> Feedback
         const execution = await this._executor!.execute(
           candidate,
@@ -543,7 +562,8 @@ export class FuzzerV2 {
           () => {
             return () => !stillInjecting && cancelFn();
           },
-          initMeasTime
+          initMeasTime,
+          provenance ? { NANOFUZZ_PROVENANCE: provenance } : undefined
         );
 
         if (!execution) {
@@ -553,6 +573,15 @@ export class FuzzerV2 {
         }
 
         const { result, valTime, measureTime } = execution;
+
+        if (
+          this._trackProvenance &&
+          result.interestingReasons &&
+          result.interestingReasons.length > 0 &&
+          provenance
+        ) {
+          this._leaderboardProvenance.set(candidate.tick, provenance);
+        }
 
         // Record stats and outcomes
         this._stats.record(
@@ -862,6 +891,8 @@ export class FuzzerV2 {
       stats: this._stats!.currentRun,
     });
 
+    this._leaderboardProvenance.clear();
+    this._trackProvenance = false;
     this._state = "paused";
     return results;
   } // fn: _finalizeRun

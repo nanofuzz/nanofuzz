@@ -13,9 +13,10 @@ import (
 	/* __NANOFUZZ_IMPORTS__ */)
 
 type RunnerInput struct {
-	Seq        int64    `json:"seq"`
-	Args       []any    `json:"args"`
-	Validators []string `json:"validators"`
+	Seq        int64             `json:"seq"`
+	Args       []any             `json:"args"`
+	Validators []string          `json:"validators"`
+	Env        map[string]string `json:"env,omitempty"`
 }
 
 type ValidatorResult struct {
@@ -97,6 +98,13 @@ func main() {
 			}
 			_ = writeMsg(resp)
 			continue
+		}
+
+		// Propagate dynamic environment variables (e.g. NANOFUZZ_PROVENANCE for bug elicitation tracking)
+		if input.Env != nil {
+			for k, v := range input.Env {
+				os.Setenv(k, v)
+			}
 		}
 
 		coverage.Reset()

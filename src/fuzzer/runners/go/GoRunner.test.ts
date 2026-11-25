@@ -287,4 +287,34 @@ func Sample(prng func() float64) float64 {
 
     runner.killHost();
   });
+
+  it("provenance environment: propagates extra env variables into go host environment", async () => {
+    const goPath = path.join(tempDir, "prov.go");
+    fs.writeFileSync(
+      goPath,
+      `package main
+
+import "os"
+
+func ReadProvenance() string {
+    return os.Getenv("NANOFUZZ_PROVENANCE")
+}
+`
+    );
+
+    const env = makeTestEnv(goPath, "ReadProvenance");
+    const runner = new GoRunner(goPath, "ReadProvenance", env);
+    await runner.onRunStart();
+
+    const expectedProvenance = "SeedInput->Mutation[string-replaceOneChar]";
+    const res = await runner.run([], 5000, [], {
+      NANOFUZZ_PROVENANCE: expectedProvenance,
+    });
+    runner.killHost();
+
+    expect(res.result.tag).toBe("value");
+    if (res.result.tag === "value") {
+      expect(res.result.value).toBe(expectedProvenance);
+    }
+  });
 });

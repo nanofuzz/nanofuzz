@@ -1493,4 +1493,43 @@ module.exports = { asyncHang };
       }
     }
   });
+
+  it("provenance environment: propagates extra env variables into javascript host environment", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nanofuzz-prov-js-"));
+    const jsPath = path.join(tmpDir, "provModule.js");
+    const jsCode = `
+function readProvenance() {
+  return process.env.NANOFUZZ_PROVENANCE || "none";
+}
+module.exports = { readProvenance };
+`;
+    fs.writeFileSync(jsPath, jsCode);
+
+    try {
+      const runner = new JavascriptRunner(jsPath, "readProvenance");
+      await runner.onRunStart();
+
+      const expectedProvenance = "SeedInput->Mutation[string-replaceOneChar]";
+      const res = await runner.run([], 2000, [], {
+        NANOFUZZ_PROVENANCE: expectedProvenance,
+      });
+      await runner.onRunEnd();
+
+      expect(res.result.tag).toBe("value");
+      if (res.result.tag === "value") {
+        expect(res.result.value).toBe(expectedProvenance);
+      }
+    } finally {
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // ignore
+      }
+    }
+  });
 });

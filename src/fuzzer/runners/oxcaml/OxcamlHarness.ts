@@ -305,6 +305,7 @@ export function buildOxcamlHarness(
   const vendoredLibNames = externalLibsToVendor.map((l) => l.name);
   const allLibs = Array.from(
     new Set([
+      "unix",
       "msgpck",
       "yojson",
       "nanofuzz_runtime",

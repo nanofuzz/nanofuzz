@@ -72,7 +72,8 @@ export abstract class AbstractRunner {
   public abstract run(
     inputs: unknown[],
     timeout?: number,
-    validators?: string[]
+    validators?: string[],
+    env?: Record<string, string>
   ): Promise<RunnerResult>;
 
   /**
@@ -264,6 +265,7 @@ export type RunnerInput = {
   fnName?: string;
   filename?: string;
   validators?: string[];
+  env?: Record<string, string>;
   collect?: {
     coverageData?: true;
     debugData?: true;

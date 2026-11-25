@@ -2151,6 +2151,56 @@ def return_huge_int() -> int:
       }
     }
   });
+
+  it("provenance environment: propagates extra env variables into python host environment", async () => {
+    const tmpDir = getTmpDir("nanofuzz-provenance-py-");
+    const pyPath = path.join(tmpDir, "prov_test.py");
+    const pyCode = `import os
+
+def read_provenance() -> str:
+    return os.environ.get("NANOFUZZ_PROVENANCE", "none")
+`;
+    fs.writeFileSync(pyPath, pyCode);
+
+    try {
+      const srcCode = `
+def read_provenance() -> str:
+    pass
+`;
+      const program = ProgramFactory.fromSource(
+        () => srcCode,
+        "python",
+        pyPath
+      );
+      const fnDef = program.functionsExported["read_provenance"];
+      const env = createFuzzEnv(fnDef);
+
+      const runner = new PythonRunner(pyPath, "read_provenance", env);
+      await runner.onRunStart();
+
+      const expectedProvenance = "SeedInput->Mutation[string-replaceOneChar]";
+      const res = await runner.run([], 5000, [], {
+        NANOFUZZ_PROVENANCE: expectedProvenance,
+      });
+      await runner.onRunEnd();
+
+      expect(res.result.tag).toBe("value");
+      if (res.result.tag === "value") {
+        expect(res.result.value).toBe(expectedProvenance);
+      }
+    } finally {
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // Ignore
+      }
+    }
+  });
 });
 
 /**
