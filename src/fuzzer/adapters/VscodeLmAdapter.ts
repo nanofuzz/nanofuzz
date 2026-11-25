@@ -13,6 +13,7 @@ import {
 } from "../../ui/Agent";
 import { CoverageScope } from "../measures/Types";
 import { findBugs, FindBugsOptions, FindBugsPhase } from "../../ui/FindBugs";
+import { getDisplayPath } from "../Util";
 
 // -------------------------------------------------------------------------- //
 // Tool Implementations & Helpers
@@ -145,12 +146,10 @@ export class FuzzFunctionTool implements vscode.LanguageModelTool<FuzzFunctionIn
   ): vscode.ProviderResult<vscode.PreparedToolInvocation> {
     const toolName = getToolName();
     const { functionName, filePath } = options.input;
+    const displayPath = getDisplayPath(filePath);
+    const target = `'${displayPath}::${functionName}'`;
     return {
-      invocationMessage: `Running ${toolName} on \`${functionName}\` in \`${filePath}\``,
-      confirmationMessages: {
-        title: `Run ${toolName}`,
-        message: `Run ${toolName} fuzz testing on \`${functionName}\` in \`${filePath}\`?`,
-      },
+      invocationMessage: `Running ${toolName} on ${target}`,
     };
   }
 

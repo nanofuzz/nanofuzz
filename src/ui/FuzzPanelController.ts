@@ -23,6 +23,7 @@ import {
   isError,
   getErrorMessageOrJson,
   normalizePathForKey,
+  getDisplayPath,
 } from "../fuzzer/Util";
 import { parseCoverageScope } from "../fuzzer/measures/Util";
 import { removeTickFromOrigin, encodeEscapeSequences } from "../Util";
@@ -1429,10 +1430,7 @@ export class FuzzPanel {
             update: (payload: fuzzer.FuzzBusyStatusMessage): void => {
               let messagePayload = payload;
               if ("file" in payload && typeof payload.file === "string") {
-                let relFile = vscode.workspace.asRelativePath(
-                  payload.file,
-                  false
-                );
+                let relFile = getDisplayPath(payload.file);
                 if (relFile.endsWith(".js")) {
                   relFile = relFile.slice(0, -3) + ".ts";
                 }

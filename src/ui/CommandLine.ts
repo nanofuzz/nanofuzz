@@ -540,12 +540,24 @@ export async function runCliInProcess(
       switch (payload.type) {
         case "compiling": {
           stopBars();
-          isolator.log(formatCompilingStatus(payload));
+          let displayFile = getDisplayPath(payload.file);
+          if (displayFile.endsWith(".js")) {
+            displayFile = displayFile.slice(0, -3) + ".ts";
+          }
+          isolator.log(
+            formatCompilingStatus({ ...payload, file: displayFile })
+          );
           break;
         }
         case "instrumenting": {
           stopBars();
-          isolator.log(formatInstrumentingStatus(payload));
+          let displayFile = getDisplayPath(payload.file);
+          if (displayFile.endsWith(".js")) {
+            displayFile = displayFile.slice(0, -3) + ".ts";
+          }
+          isolator.log(
+            formatInstrumentingStatus({ ...payload, file: displayFile })
+          );
           break;
         }
         case "testing":
