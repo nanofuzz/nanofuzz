@@ -39,3 +39,12 @@ export function assume(condition: unknown, message?: string): true {
   }
   return true;
 }
+
+/**
+ * Decorator specifying the Program Under Test (PUT) target(s) for a harness function.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function put(..._targets: any[]): (target: any, ...args: any[]) => any {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (target: any) => target;
+}

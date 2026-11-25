@@ -2463,4 +2463,84 @@ def main_target(x: int) -> int:
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });
+
+  it("extracts @put decorator with single and multiple targets", () => {
+    const pgm = ProgramFactory.fromSource(
+      () => `
+from nanofuzz_runtime import put
+
+@put(TreeValue, DerivationTree)
+def fuzz_multi_targets(x: int):
+    pass
+
+@put("parse_string")
+def fuzz_string_target(s: str):
+    pass
+
+def regular_fn(x: int):
+    """
+    Docstring with @put(serialize, deserialize)
+    """
+    pass
+`,
+      "python"
+    );
+
+    const fns = pgm.functionsExported;
+    expect(fns["fuzz_multi_targets"]).toBeDefined();
+    expect(fns["fuzz_multi_targets"].getPutTargets()).toEqual([
+      "TreeValue",
+      "DerivationTree",
+    ]);
+
+    expect(fns["fuzz_string_target"]).toBeDefined();
+    expect(fns["fuzz_string_target"].getPutTargets()).toEqual(["parse_string"]);
+
+    expect(fns["regular_fn"]).toBeDefined();
+    expect(fns["regular_fn"].getPutTargets()).toEqual([
+      "serialize",
+      "deserialize",
+    ]);
+  });
+
+  it("resolvePutTargets resolves imported targets from external files", () => {
+    const tmpDir = fs.mkdtempSync(
+      path.join(fs.realpathSync(os.tmpdir()), "nanofuzz-py-put-resolve-test-")
+    );
+    try {
+      const putFile = path.join(tmpDir, "my_put.py");
+      const harnessFile = path.join(tmpDir, "harness.py");
+
+      fs.writeFileSync(
+        putFile,
+        `def parse_input(data: str) -> int:
+    return len(data)
+`
+      );
+
+      fs.writeFileSync(
+        harnessFile,
+        `from my_put import parse_input
+from nanofuzz_runtime import put
+
+@put(parse_input)
+def fuzz_harness(data: str):
+    assert parse_input(data) >= 0
+`
+      );
+
+      const prog = ProgramFactory.fromFile(harnessFile);
+      const fn = prog.functionsExported["fuzz_harness"];
+      expect(fn).toBeDefined();
+      expect(fn.getPutTargets()).toEqual(["parse_input"]);
+
+      const resolved = prog.resolvePutTargets(fn.getPutTargets());
+      expect(resolved.length).toBe(1);
+      expect(resolved[0].filePath).toBe(putFile);
+      expect(resolved[0].targetName).toBe("parse_input");
+      expect(resolved[0].src).toContain("def parse_input");
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
 });

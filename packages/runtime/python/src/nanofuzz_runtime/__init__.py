@@ -22,4 +22,13 @@ def assume(condition: Any, message: Optional[str] = None) -> Literal[True]:
     return True
 
 
-__all__ = ["FuzzTestResult", "UnsatisfiedAssumption", "assume"]
+def put(*targets: Any) -> Any:
+    """
+    Decorator specifying the Program Under Test (PUT) target(s) for a harness function.
+    """
+    def decorator(fn: Any) -> Any:
+        return fn
+    return decorator
+
+
+__all__ = ["FuzzTestResult", "UnsatisfiedAssumption", "assume", "put"]

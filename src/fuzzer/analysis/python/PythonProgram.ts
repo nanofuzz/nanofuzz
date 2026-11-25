@@ -270,7 +270,15 @@ export class PythonProgram extends AbstractProgram {
     // Absolute import: project source first, then the interpreter's own
     // search path for external (stdlib/third-party) packages.
     const rootDir = path.dirname(this._root.filename);
-    const searchDirs = [rootDir, ...PythonRunner.envFor(this._filename).paths];
+    const pyEnv = PythonRunner.envFor(this._filename);
+    const envPythonPaths = pyEnv.env.PYTHONPATH
+      ? pyEnv.env.PYTHONPATH.split(process.platform === "win32" ? ";" : ":")
+          .map((p) => p && path.resolve(p))
+          .filter((p): p is string => Boolean(p && fs.existsSync(p)))
+      : [];
+    const searchDirs = Array.from(
+      new Set([rootDir, fromDir, ...envPythonPaths, ...pyEnv.paths])
+    );
     for (const dir of searchDirs) {
       const found = probe(dir, moduleRef);
       if (found) {
@@ -1082,6 +1090,7 @@ export class PythonProgram extends AbstractProgram {
     let returnType = undefined;
     let isVoid = false;
     let fuzzOptions: Partial<FuzzOptions> | undefined;
+    let putTargets: string[] | undefined;
     const nameNode = captures.find((c) => c.name === "function.name");
     const typeNode = captures.find((c) => c.name === "function.return_type");
     const defNode = captures.find((c) => c.name === "function.def");
@@ -1142,6 +1151,23 @@ export class PythonProgram extends AbstractProgram {
                   hypothesisPositionalArgs.push(
                     this._getTypeRefFromStrategy(argChild)
                   );
+                }
+              }
+            }
+          } else if (decoName === "put" && callNode) {
+            const argsNode = callNode.childForFieldName("arguments");
+            if (argsNode) {
+              putTargets = putTargets ?? [];
+              for (const argChild of Parser.getNamedChildrenNoComments(
+                argsNode
+              )) {
+                let targetText = argChild.text.trim();
+                if (argChild.type === "string") {
+                  const val = this._parseLiteral(argChild);
+                  if (typeof val === "string") targetText = val;
+                }
+                if (targetText && !putTargets.includes(targetText)) {
+                  putTargets.push(targetText);
                 }
               }
             }
@@ -1334,6 +1360,10 @@ export class PythonProgram extends AbstractProgram {
       // Ignore unsupported return type syntax
     }
 
+    if (!putTargets && cmt) {
+      putTargets = AbstractProgram.extractPutTargets(cmt);
+    }
+
     return {
       module: this._filename,
       name: nameNode.node.text,
@@ -1348,6 +1378,7 @@ export class PythonProgram extends AbstractProgram {
       returnType,
       cmt,
       ...(fuzzOptions ? { fuzzOptions } : {}),
+      ...(putTargets && putTargets.length > 0 ? { putTargets } : {}),
     };
   } // fn: getFunctionFromNode
 

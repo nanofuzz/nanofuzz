@@ -823,6 +823,32 @@ export class RustProgram extends AbstractProgram {
     }
 
     const cmt = extractLeadingDocComment(itemNode);
+    let putTargets = AbstractProgram.extractPutTargets(cmt);
+    if (!putTargets) {
+      for (const child of itemNode.children) {
+        if (child.type === "attribute_item" || child.type === "attribute") {
+          const extracted = AbstractProgram.extractPutTargets(child.text);
+          if (extracted) {
+            putTargets = extracted;
+            break;
+          }
+        }
+      }
+    }
+    if (!putTargets && itemNode.previousNamedSibling) {
+      let prev: Parser.SyntaxNode | null = itemNode.previousNamedSibling;
+      while (
+        prev &&
+        (prev.type === "attribute_item" || prev.type === "attribute")
+      ) {
+        const extracted = AbstractProgram.extractPutTargets(prev.text);
+        if (extracted) {
+          putTargets = extracted;
+          break;
+        }
+        prev = prev.previousNamedSibling;
+      }
+    }
 
     const fnRef: FunctionRef = {
       module: this._filename,
@@ -837,6 +863,7 @@ export class RustProgram extends AbstractProgram {
       ...(isAsync ? { isAsync: true } : {}),
       ...(returnType ? { returnType } : {}),
       ...(cmt ? { cmt } : {}),
+      ...(putTargets && putTargets.length > 0 ? { putTargets } : {}),
     };
 
     return fnRef;
