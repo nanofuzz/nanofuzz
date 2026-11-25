@@ -77,6 +77,7 @@ describe("Agent", () => {
     const voidFn = fnMap.get("testStandardVoidReturnUndefined")!;
     expect(voidFn.isVoid).toBe(true);
     expect(voidFn.isExported).toBe(true);
+    expect(voidFn.priority).toBeGreaterThanOrEqual(50);
     expect(voidFn.args.length).toBe(1);
     expect(voidFn.args[0].name).toBe("_x");
     expect(voidFn.args[0].type).toBe("number");
@@ -87,6 +88,14 @@ describe("Agent", () => {
     const unexportedFn = fnMap.get("testUnexportedFunction");
     expect(unexportedFn).toBeDefined();
     expect(unexportedFn?.isExported).toBe(false);
+    expect(unexportedFn!.priority).toBeLessThan(voidFn.priority);
+
+    // Verify listTargets sorts functions by priority descending
+    for (let i = 1; i < result.functions.length; i++) {
+      expect(result.functions[i - 1].priority).toBeGreaterThanOrEqual(
+        result.functions[i].priority
+      );
+    }
 
     const changeInputFn = fnMap.get("testChangeInput");
     expect(changeInputFn).toBeDefined();
