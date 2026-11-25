@@ -484,7 +484,8 @@ export class FuzzConfigStore {
     if (!explicitConfigFile) {
       FuzzConfigStore.migrateLegacyNanoFile(sourcePath);
     }
-    const jsonFile = explicitConfigFile ?? FuzzConfigStore.getNanoFilename(sourcePath);
+    const jsonFile =
+      explicitConfigFile ?? FuzzConfigStore.getNanoFilename(sourcePath);
 
     if (!fs.existsSync(jsonFile)) {
       return FuzzConfigStore.createEmptyFuzzTests();
@@ -521,7 +522,7 @@ export class FuzzConfigStore {
       explicitConfigFile
     );
 
-    if (fnName in moduleSet.functions) {
+    if (Object.hasOwn(moduleSet.functions, fnName)) {
       const fnSet = moduleSet.functions[fnName];
       if (fnSet.options && normalizeOptions) {
         fnSet.options = FuzzConfigStore.normalizeFuzzOptions(fnSet.options);

@@ -109,8 +109,8 @@ export class Tester {
       );
     }
     const fnList = this._program.functions;
-    if (!(this._fnName in fnList)) {
-      if (this._fnName in this._program.functionsNotSupported) {
+    if (!Object.hasOwn(fnList, this._fnName)) {
+      if (Object.hasOwn(this._program.functionsNotSupported, this._fnName)) {
         const reason = this._program.functionsNotSupported[this._fnName].reason;
         throw new Error(
           `Function ${this._fnName} in ${this._module} is not supported for reason: ${reason}`
