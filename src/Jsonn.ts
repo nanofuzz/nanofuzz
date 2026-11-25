@@ -347,6 +347,7 @@ function jsonnReplacerMsgpack(
   if (current !== null && typeof current === "object") {
     const obj: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(current)) {
+      if (typeof v === "function") continue;
       const sanitized = jsonnReplacerMsgpack(current, k, v, replacer);
       if (typeof sanitized !== "function" && typeof sanitized !== "undefined") {
         obj[k] = sanitized;

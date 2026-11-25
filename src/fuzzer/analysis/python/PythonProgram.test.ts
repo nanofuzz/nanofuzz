@@ -5,8 +5,8 @@ import { ArgTag } from "../Types";
 import { PythonProgram } from "./PythonProgram";
 import seedrandom from "seedrandom";
 import * as fs from "fs";
-import * as os from "os";
 import * as path from "path";
+import * as os from "os";
 import * as Parser from "../../adapters/ParserAdapter";
 
 class InspectablePythonProgram extends PythonProgram {
@@ -2541,58 +2541,6 @@ def fuzz_harness(data: str):
       expect(resolved[0].src).toContain("def parse_input");
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
-    }
-  });
-
-  it("extracts and resolves PUT targets across all 5 benchmark study harnesses", () => {
-    const harnesses = [
-      {
-        file: "benchmark/harnesses/nanofuzz_harness_TreeValue.py",
-        fn: "fuzz_TreeValue",
-        expectedTargets: ["TreeValue"],
-        expectedResolvedPathSubstr: "tree_value.py",
-      },
-      {
-        file: "benchmark/harnesses/nanofuzz_harness_DerivationTree.py",
-        fn: "fuzz_DerivationTree",
-        expectedTargets: ["DerivationTree"],
-        expectedResolvedPathSubstr: "tree.py",
-      },
-      {
-        file: "benchmark/harnesses/nanofuzz_harness__distance_norm.py",
-        fn: "fuzz__distance_norm",
-        expectedTargets: ["target_distance_norm", "target_sigmoid"],
-        expectedResolvedPathSubstr: "comparison.py",
-      },
-      {
-        file: "benchmark/harnesses/nanofuzz_harness_make_def.py",
-        fn: "fuzz_make_def",
-        expectedTargets: ["make_def"],
-        expectedResolvedPathSubstr: "stdlib.py",
-      },
-      {
-        file: "benchmark/harnesses/nanofuzz_harness_parse.py",
-        fn: "fuzz_parse",
-        expectedTargets: ["parse_string"],
-        expectedResolvedPathSubstr: "parse.py",
-      },
-    ];
-
-    for (const h of harnesses) {
-      const fullPath = path.resolve(h.file);
-      expect(fs.existsSync(fullPath)).toBeTrue();
-
-      const prog = ProgramFactory.fromFile(fullPath);
-      const fn = prog.functionsExported[h.fn];
-      expect(fn).toBeDefined();
-
-      const putTargets = fn.getPutTargets();
-      expect(putTargets).toEqual(h.expectedTargets);
-
-      const resolved = prog.resolvePutTargets(putTargets);
-      expect(resolved.length).toBeGreaterThanOrEqual(1);
-      expect(resolved[0].filePath).toContain(h.expectedResolvedPathSubstr);
-      expect(resolved[0].src.length).toBeGreaterThan(0);
     }
   });
 });

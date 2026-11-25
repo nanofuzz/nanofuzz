@@ -141,8 +141,3 @@ def test_bigint_targetValidator(r: FuzzTestResult) -> Literal["pass", "fail", "u
     if r['exception']:
         return "pass"
     return "pass" if r['out'] == r['in'][0] * 2 else "fail"
-
-
-def py_unsupported_cb(cb: Callable[[int], str]) -> str:
-    return cb(42)
-
