@@ -1126,7 +1126,7 @@ describe("src/fuzzer/generators/AiInputGenerator: ", () => {
     }
   });
 
-  it("policy seed: permits refills up to MAX_SEED_CALLS (3) and halts further requests thereafter", () => {
+  it("policy seed: permits refills up to MAX_SEED_CALLS (3) then stops", () => {
     let getMoreCalls = 0;
     class MockSeedLlmAdapter extends LlmAdapter {
       public override get id(): string {
@@ -1184,6 +1184,9 @@ describe("src/fuzzer/generators/AiInputGenerator: ", () => {
 
     const dftOptions = FuzzConfigStore.getDefaultFuzzOptions();
     Config.override("nanofuzz.ai.policy", "seed");
+    Config.override("nanofuzz.ai.provider", "gemini");
+    Config.override("nanofuzz.ai.model", "gemini-flash");
+    Config.override("nanofuzz.ai.apiKey", "test-key");
     try {
       const gen = new TestableMultiSeedAiGenerator(
         fnDef,
