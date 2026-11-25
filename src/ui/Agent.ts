@@ -545,27 +545,36 @@ export async function runFuzz(
     throw new Error(`Target file does not exist: ${options.filePath}`);
   }
 
-  const currentProvider = Config.get<string>(
+  const configuredProvider = Config.get<string>(
     "nanofuzz.ai.provider",
     "disabled"
   );
-  const currentModel = Config.get<string>("nanofuzz.ai.model", "");
-  const currentVendor = Config.get<string>("nanofuzz.ai.vendor", "");
+  const configuredModel = Config.get<string>("nanofuzz.ai.model", "");
+  const configuredVendor = Config.get<string>("nanofuzz.ai.vendor", "");
   const currentCoverageScope = Config.get<string>(
     "nanofuzz.fuzzer.coverageScope",
     "project static"
   );
-  const shouldAutoEnableCopilot = Boolean(options.enableCopilotAi);
+
+  // Behavior rules:
+  // 1. When NOT called by an agent (options.isAgentCall !== true):
+  //    - If provider is "disabled", AI generator is disabled.
+  //    - If provider is configured (!== "disabled"), AI generator uses configured settings.
+  // 2. When called by an agent (options.isAgentCall === true):
+  //    - If provider is "disabled", piggyback on the agent's provider/model (options.vendor, options.model).
+  //    - If provider is configured (!== "disabled"), use the user-configured provider/model.
+  const isAgentCall = Boolean(options.isAgentCall || options.enableCopilotAi);
+  const shouldPiggyback = isAgentCall && configuredProvider === "disabled";
 
   try {
-    if (shouldAutoEnableCopilot) {
+    if (shouldPiggyback) {
       Config.override("nanofuzz.ai.provider", "copilot");
-    }
-    if (options.model) {
-      Config.override("nanofuzz.ai.model", options.model);
-    }
-    if (options.vendor) {
-      Config.override("nanofuzz.ai.vendor", options.vendor);
+      if (options.model) {
+        Config.override("nanofuzz.ai.model", options.model);
+      }
+      if (options.vendor) {
+        Config.override("nanofuzz.ai.vendor", options.vendor);
+      }
     }
     if (options.coverageScope) {
       Config.override("nanofuzz.fuzzer.coverageScope", options.coverageScope);
@@ -596,7 +605,7 @@ export async function runFuzz(
       ...(fnFuzzOptions?.generators ?? {}),
       ...(fnConfig.options?.generators ?? {}),
       ...options.generators,
-      ...(shouldAutoEnableCopilot &&
+      ...(isAgentCall &&
       options.generators?.AiInputGenerator?.enabled === undefined
         ? { AiInputGenerator: { enabled: true } }
         : {}),
@@ -789,14 +798,10 @@ export async function runFuzz(
       summaryText,
     };
   } finally {
-    if (shouldAutoEnableCopilot) {
-      Config.override("nanofuzz.ai.provider", currentProvider);
-    }
-    if (options.model) {
-      Config.override("nanofuzz.ai.model", currentModel);
-    }
-    if (options.vendor) {
-      Config.override("nanofuzz.ai.vendor", currentVendor);
+    if (shouldPiggyback) {
+      Config.override("nanofuzz.ai.provider", configuredProvider);
+      Config.override("nanofuzz.ai.model", configuredModel);
+      Config.override("nanofuzz.ai.vendor", configuredVendor);
     }
     if (options.coverageScope) {
       Config.override("nanofuzz.fuzzer.coverageScope", currentCoverageScope);
@@ -1938,6 +1943,7 @@ export type AgentFuzzOptions = {
   inputs?: (Record<string, unknown> | unknown[])[];
   tests?: (AgentTestCase | Record<string, unknown> | unknown[])[];
   enableCopilotAi?: boolean;
+  isAgentCall?: boolean;
   noConfigFile?: boolean;
   exportSuite?: boolean;
   exportFilePath?: string;

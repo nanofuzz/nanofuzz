@@ -229,9 +229,9 @@ describe("VscodeLmAdapter", () => {
     );
     expect(res2.model).toBe("gemini-3.7-flash");
 
-    const res3 = await resolveMatchingModel("copilot", "fictional-model-999");
-    expect(res3.vendor).toBe("copilot");
-    expect(res3.model).toBeDefined();
+    await expectAsync(
+      resolveMatchingModel("copilot", "fictional-model-999")
+    ).toBeRejectedWithError(/fictional-model-999.*not found/);
   });
 
   it("findBugs: prepare and invoke", async () => {
