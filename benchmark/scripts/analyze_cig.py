@@ -383,20 +383,19 @@ def generate_pyplots(df: pd.DataFrame, pdf_paths: List[str]):
     render_violin_cell(ax_parse, data_parse, active_treatments,
                        f"(a) Branch Coverage: {put_mathtt('parse')}", "Branch Cov. (%)", (0, 105), xtick_fontsize=7.8)
 
-
-TreeValue
-data_tv = [df[(df["Task"] == "TreeValue") & (df["Treatment"] == t)]
+    # TreeValue
+    data_tv = [df[(df["Task"] == "TreeValue") & (df["Treatment"] == t)]
                ["BranchCoveragePct"].dropna().values.astype(float) for t in active_treatments]
-render_violin_cell(ax_tv, data_tv, active_treatments,
-                    f"(b) Branch Coverage: {put_mathtt('TreeValue')}", "Branch Cov. (%)", (0, 105), xtick_fontsize=7.8)
+    render_violin_cell(ax_tv, data_tv, active_treatments,
+                       f"(b) Branch Coverage: {put_mathtt('TreeValue')}", "Branch Cov. (%)", (0, 105), xtick_fontsize=7.8)
 
- # Overall Bug Candidate Elicitation Rate across treatments (Measure 2) spanning both columns
- data_bugs = [df[df["Treatment"] == t]["BugElicitationRate"].dropna(
-      ).values.astype(float) * 100.0 for t in active_treatments]
-  render_violin_cell(ax_overall, data_bugs, active_treatments,
-                      r"(c) Bug Candidate Elicitation Rate: Overall ($\Sigma$)", "Elicitation Rate (%)", (0, 105), xtick_fontsize=9.0)
+    # Overall Bug Candidate Elicitation Rate across treatments (Measure 2) spanning both columns
+    data_bugs = [df[df["Treatment"] == t]["BugElicitationRate"].dropna(
+    ).values.astype(float) * 100.0 for t in active_treatments]
+    render_violin_cell(ax_overall, data_bugs, active_treatments,
+                       r"(c) Bug Candidate Elicitation Rate: Overall ($\Sigma$)", "Elicitation Rate (%)", (0, 105), xtick_fontsize=9.0)
 
-   for p in pdf_paths:
+    for p in pdf_paths:
         os.makedirs(os.path.dirname(os.path.abspath(p)), exist_ok=True)
         fig.savefig(p, format="pdf", bbox_inches="tight")
         print(f"[PLOT] Generated distribution plot: {p}")
@@ -1140,6 +1139,7 @@ def generate_cig_generator_table(run_dir: str, out_path: str, df: Optional[pd.Da
     rid_to_task = {}
     scram_run_ids = set()
     num_reps = 30
+    gen_keys = ["seed", "custom", "random", "ai", "mutation"]
     if df is not None and not df.empty and "RunID" in df.columns and "Treatment" in df.columns:
         scram_df = df[df["Treatment"] == "SCRAM"]
         scram_run_ids = set(scram_df["RunID"])
@@ -1148,8 +1148,10 @@ def generate_cig_generator_table(run_dir: str, out_path: str, df: Optional[pd.Da
         if "Replicate" in df.columns and not df["Replicate"].dropna().empty:
             num_reps = int(df["Replicate"].max())
 
-    eliciting_runs: Dict[str, Dict[str, set]] = defaultdict(lambda: defaultdict(set))
-    originating_runs: Dict[str, Dict[str, set]] = defaultdict(lambda: defaultdict(set))
+    eliciting_runs: Dict[str, Dict[str, set]
+                         ] = defaultdict(lambda: defaultdict(set))
+    originating_runs: Dict[str, Dict[str, set]
+                           ] = defaultdict(lambda: defaultdict(set))
 
     def clean_gen_name(g):
         if not isinstance(g, str):
@@ -1171,7 +1173,8 @@ def generate_cig_generator_table(run_dir: str, out_path: str, df: Optional[pd.Da
         trial_task = rid_to_task.get(rid)
         if not trial_task:
             continue
-        task_bugs = set(rubric.get("tasks", {}).get(trial_task, {}).get("bugs", {}).keys())
+        task_bugs = set(rubric.get("tasks", {}).get(
+            trial_task, {}).get("bugs", {}).keys())
 
         # 1. Direct eliciting counts from mpk test executions
         mpk_path = os.path.join(run_dir, "artifacts", rid, f"{rid}.mpk")
@@ -1186,7 +1189,8 @@ def generate_cig_generator_table(run_dir: str, out_path: str, df: Optional[pd.Da
                             inp = r.get("input", [])
                             if inp:
                                 orig = inp[0].get("origin", {})
-                                gname = orig.get("generator", orig.get("type", "Unknown"))
+                                gname = orig.get(
+                                    "generator", orig.get("type", "Unknown"))
                                 cg = clean_gen_name(gname)
                                 if cg in gen_keys:
                                     eliciting_runs[bid][cg].add(rid)
@@ -1210,7 +1214,8 @@ def generate_cig_generator_table(run_dir: str, out_path: str, df: Optional[pd.Da
                             continue
                         gen_chain = entry.get("generator", "")
                         if gen_chain:
-                            eliciting, originating = parse_generator_chain(gen_chain)
+                            eliciting, originating = parse_generator_chain(
+                                gen_chain)
                             if eliciting in gen_keys:
                                 eliciting_runs[bid][eliciting].add(rid)
                             if originating in gen_keys:
