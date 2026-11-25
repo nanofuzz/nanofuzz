@@ -204,6 +204,11 @@ def execute_nanofuzz_run(
     env["VIRTUAL_ENV"] = os.path.join(worktree_dir, ".venv")
     env["PYTHONPATH"] = f"{os.path.join(worktree_dir, 'src')}:{SCRIPT_DIR}"
     env["NANOFUZZ_PROJECT_ROOT"] = worktree_dir
+    target_candidates = [
+        os.path.join(worktree_dir, target_rel_path),
+        os.path.join(TARGET_DIR, target_rel_path)
+    ]
+    env["NANOFUZZ_COVERAGE_INCLUDE_FILES"] = json.dumps(target_candidates)
     # Pass Gemini API key from environment or benchmark/scripts/llm_config.json
     if "GEMINI_API_KEY" not in env:
         local_cfg = os.path.join(SCRIPT_DIR, "llm_config.json")
