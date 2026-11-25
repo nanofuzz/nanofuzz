@@ -65,16 +65,27 @@ export abstract class AbstractProgram {
           }
       )
     >;
-  } = { supported: {}, unsupported: {} }; // Functions defined
-  protected _functionCache: Record<IdentifierName, FunctionDef> = {}; // Cached FunctionDef objects
-  protected _calleeCache: Record<IdentifierName, Set<string>> = {}; // Cached callee sets
+  } = {
+    supported: Object.create(null),
+    unsupported: Object.create(null),
+  }; // Functions defined
+  protected _functionCache: Record<IdentifierName, FunctionDef> =
+    Object.create(null); // Cached FunctionDef objects
+  protected _calleeCache: Record<IdentifierName, Set<string>> =
+    Object.create(null); // Cached callee sets
   protected _exports: {
     functions: Record<IdentifierName, FunctionRef>;
     types: Record<IdentifierName, TypeRef>;
     default?: TypeRef;
-  } = { functions: {}, types: {} }; // Supported exports of the program
-  protected _types: Record<IdentifierName, TypeRef> = {}; // Types defined in the program
-  protected _imports: ProgramImports = { programs: {}, identifiers: {} }; // Imported modules
+  } = {
+    functions: Object.create(null),
+    types: Object.create(null),
+  }; // Supported exports of the program
+  protected _types: Record<IdentifierName, TypeRef> = Object.create(null); // Types defined in the program
+  protected _imports: ProgramImports = {
+    programs: Object.create(null),
+    identifiers: Object.create(null),
+  }; // Imported modules
 
   /**
    * Constructs a new ProgramDef instance using a FunctionRef object.
@@ -539,7 +550,7 @@ export abstract class AbstractProgram {
    * @returns the functions defined in the program
    */
   public get functions(): Record<IdentifierName, FunctionDef> {
-    const ret: Record<IdentifierName, FunctionDef> = {};
+    const ret: Record<IdentifierName, FunctionDef> = Object.create(null);
     for (const [key, value] of Object.entries(this._functions.supported)) {
       const fnDef = this._resolveFunctionDef(value);
       if (fnDef) {
@@ -555,7 +566,7 @@ export abstract class AbstractProgram {
    * @returns the functions exported by the program
    */
   public get functionsExported(): Record<IdentifierName, FunctionDef> {
-    const ret: Record<IdentifierName, FunctionDef> = {};
+    const ret: Record<IdentifierName, FunctionDef> = Object.create(null);
     for (const [key, value] of Object.entries(this._exports.functions)) {
       const fnDef = this._resolveFunctionDef(value);
       if (fnDef) {
