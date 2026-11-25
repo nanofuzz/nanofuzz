@@ -7,6 +7,7 @@ import {
   setTargetCoverageFiles,
 } from "../../src/ui/Agent";
 import * as Config from "../../src/Config";
+import * as ProgramFactory from "../../src/fuzzer/analysis/ProgramFactory";
 
 const TARGET_DIR = path.resolve(process.cwd(), "benchmark", "target");
 const PYTHON_PATH = path.join(TARGET_DIR, ".venv", "bin", "python");
@@ -217,4 +218,56 @@ describe("All 5 Rubric PUTs Cross-Tool Coverage Parity Suite", () => {
       delete process.env.NANOFUZZ_PROJECT_ROOT;
     }
   }, 60000);
+
+  it("extracts and resolves PUT targets across all 5 benchmark study harnesses", () => {
+    const harnesses = [
+      {
+        file: "benchmark/harnesses/nanofuzz_harness_TreeValue.py",
+        fn: "fuzz_TreeValue",
+        expectedTargets: ["TreeValue"],
+        expectedResolvedPathSubstr: "tree_value.py",
+      },
+      {
+        file: "benchmark/harnesses/nanofuzz_harness_DerivationTree.py",
+        fn: "fuzz_DerivationTree",
+        expectedTargets: ["DerivationTree"],
+        expectedResolvedPathSubstr: "tree.py",
+      },
+      {
+        file: "benchmark/harnesses/nanofuzz_harness__distance_norm.py",
+        fn: "fuzz__distance_norm",
+        expectedTargets: ["target_distance_norm", "target_sigmoid"],
+        expectedResolvedPathSubstr: "comparison.py",
+      },
+      {
+        file: "benchmark/harnesses/nanofuzz_harness_make_def.py",
+        fn: "fuzz_make_def",
+        expectedTargets: ["make_def"],
+        expectedResolvedPathSubstr: "stdlib.py",
+      },
+      {
+        file: "benchmark/harnesses/nanofuzz_harness_parse.py",
+        fn: "fuzz_parse",
+        expectedTargets: ["parse_string"],
+        expectedResolvedPathSubstr: "parse.py",
+      },
+    ];
+
+    for (const h of harnesses) {
+      const fullPath = path.resolve(h.file);
+      expect(fs.existsSync(fullPath)).toBeTrue();
+
+      const prog = ProgramFactory.fromFile(fullPath);
+      const fn = prog.functionsExported[h.fn];
+      expect(fn).toBeDefined();
+
+      const putTargets = fn.getPutTargets();
+      expect(putTargets).toEqual(h.expectedTargets);
+
+      const resolved = prog.resolvePutTargets(putTargets);
+      expect(resolved.length).toBeGreaterThanOrEqual(1);
+      expect(resolved[0].filePath).toContain(h.expectedResolvedPathSubstr);
+      expect(resolved[0].src.length).toBeGreaterThan(0);
+    }
+  });
 });
