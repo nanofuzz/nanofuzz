@@ -1126,6 +1126,108 @@ describe("src/fuzzer/generators/AiInputGenerator: ", () => {
     }
   });
 
+  it("policy seed: permits refills up to MAX_SEED_CALLS (3) then stops", () => {
+    let getMoreCalls = 0;
+    class MockSeedLlmAdapter extends LlmAdapter {
+      public override get id(): string {
+        return "mock-seed-model";
+      }
+      public override async query(): Promise<LlmQueryResult> {
+        return {
+          text: JSON.stringify({ programInputs: [] }),
+          stats: {
+            tokensSent: 10,
+            tokensSentCost: { amt: 0, unit: "USD" },
+            tokensReceived: 10,
+            tokensReceivedCost: { amt: 0, unit: "USD" },
+          },
+        };
+      }
+    }
+
+    class TestableMultiSeedAiGenerator
+      extends AiInputGenerator.AiInputGenerator
+    {
+      public setCallsSent(count: number): void {
+        this._stats.calls.sent = count;
+      }
+      public setQueue(count: number): void {
+        this._inputQueue = Array.from({ length: count }, (_, i) => ({
+          tick: i + 1,
+          value: [{ value: i, tag: "ArgValueTypeWrapped" }],
+          source: {
+            type: "generator",
+            generator: "AiInputGenerator",
+            model: "test",
+          },
+        }));
+      }
+      public setMockLlm(llm: LlmAdapter): void {
+        this._llm = llm;
+      }
+      protected override _getMoreInputs(): void {
+        getMoreCalls++;
+      }
+    }
+
+    const fnDef = FunctionDef.fromFunctionRef({
+      module: "test.ts",
+      name: "testFn",
+      src: "function testFn(x: number) {}",
+      lang: "typescript",
+      startOffset: 0,
+      endOffset: 30,
+      isExported: true,
+      isVoid: true,
+      args: [],
+    });
+
+    const dftOptions = FuzzConfigStore.getDefaultFuzzOptions();
+    Config.override("nanofuzz.ai.policy", "seed");
+    Config.override("nanofuzz.ai.provider", "gemini");
+    Config.override("nanofuzz.ai.model", "gemini-flash");
+    Config.override("nanofuzz.ai.apiKey", "test-key");
+    try {
+      const gen = new TestableMultiSeedAiGenerator(
+        fnDef,
+        "seed",
+        new Map(),
+        "function testFn(x: number) {}"
+      );
+      gen.onRunStart(false, [], undefined, dftOptions);
+      gen.setMockLlm(new MockSeedLlmAdapter());
+
+      // calls.sent = 1 (< 3): queue has items below chunk size -> allows refill
+      gen.setCallsSent(1);
+      gen.setQueue(1);
+      getMoreCalls = 0;
+      expect(gen.nextable()).toBe("now");
+      expect(getMoreCalls).toBe(1);
+
+      // calls.sent = 2 (< 3): still allows refill
+      gen.setCallsSent(2);
+      gen.setQueue(1);
+      getMoreCalls = 0;
+      expect(gen.nextable()).toBe("now");
+      expect(getMoreCalls).toBe(1);
+
+      // calls.sent = 3 (>= MAX_SEED_CALLS): halts refills even if queue is small
+      gen.setCallsSent(3);
+      gen.setQueue(1);
+      getMoreCalls = 0;
+      expect(gen.nextable()).toBe("now");
+      expect(getMoreCalls).toBe(0);
+
+      // calls.sent = 3 and queue is empty: ceases queries completely and returns false
+      gen.setQueue(0);
+      getMoreCalls = 0;
+      expect(gen.nextable()).toBe(false);
+      expect(getMoreCalls).toBe(0);
+    } finally {
+      Config.clearOverrides();
+    }
+  });
+
   it("requested input count incorporates invalid buffer and response max tokens", () => {
     class TestableAiInputGenerator extends AiInputGenerator.AiInputGenerator {
       public estimateTokens(): number {
