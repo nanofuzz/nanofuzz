@@ -93,7 +93,7 @@ def _trace_exceptions(frame, event, arg):
     return _trace_exceptions
 
 
-_recorded_events: dict[str, tuple[int, int]] = {}  # bug_id -> (max_detected, max_steps)
+_recorded_events: set[tuple[str, str, int]] = set()  # (bug_id, generator_provenance, detected)
 
 
 def _record_event(entry: dict[str, Any]) -> None:
@@ -102,21 +102,13 @@ def _record_event(entry: dict[str, Any]) -> None:
     if not bug_id:
         return
 
+    prov = entry.get("generator", "")
     detected = entry.get("detected", 0)
-    gen = entry.get("generator", "")
-    steps = len(gen.split("->")) if gen else 1
 
-    prev = _recorded_events.get(bug_id)
-    if prev is not None:
-        prev_detected, prev_steps = prev
-        # Only write if detection status upgraded (0 -> 1) or chain is strictly longer
-        if detected <= prev_detected and steps <= prev_steps:
-            return
-        new_detected = max(detected, prev_detected)
-        new_steps = max(steps, prev_steps)
-        _recorded_events[bug_id] = (new_detected, new_steps)
-    else:
-        _recorded_events[bug_id] = (detected, steps)
+    event_key = (bug_id, prov, detected)
+    if event_key in _recorded_events:
+        return
+    _recorded_events.add(event_key)
 
     log_path = _INTERCEPTOR_LOG or os.environ.get("NANOFUZZ_ELICITATION_LOG")
     if not log_path:
