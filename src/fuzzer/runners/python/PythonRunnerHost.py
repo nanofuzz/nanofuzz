@@ -1260,7 +1260,7 @@ if __name__ == "__main__":
             initialCoverage = {}
         elif collect_static:
             pgm_files = program_files(
-                filename, coverage_scope, direct_packages)
+                filename, coverage_scope, direct_packages, source_root)
             cov = coverage.Coverage(
                 include=pgm_files, branch=True, data_file=None)
 
@@ -1282,7 +1282,7 @@ if __name__ == "__main__":
         else:
             # Re-query program_files now that imports are loaded
             pgm_files = program_files(
-                filename, coverage_scope, direct_packages)
+                filename, coverage_scope, direct_packages, source_root)
             cov = coverage.Coverage(
                 include=pgm_files, branch=True, data_file=None)
 
