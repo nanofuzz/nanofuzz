@@ -1487,6 +1487,63 @@ def run_app(x: int) -> int:
     }
   }, 30000);
 
+  it("coverage scope: restricts measured files to NANOFUZZ_COVERAGE_INCLUDE_FILES when set", async () => {
+    const tmpDir = getTmpDir("nanofuzz-include-cov-");
+    const helperPath = path.join(tmpDir, "helper.py");
+    const pyPath = path.join(tmpDir, "main_app.py");
+
+    fs.writeFileSync(
+      helperPath,
+      "def helper_fn(x: int) -> int: return x + 1\n"
+    );
+    fs.writeFileSync(
+      pyPath,
+      `import helper
+def run_main(x: int) -> int:
+    return helper.helper_fn(x)
+`
+    );
+
+    try {
+      process.env.NANOFUZZ_COVERAGE_INCLUDE_FILES = JSON.stringify([
+        helperPath,
+      ]);
+      PythonRunner.clearCache();
+      const program = ProgramFactory.fromFile(pyPath);
+      const fnDef = program.functionsExported["run_main"];
+      const env = createFuzzEnv(fnDef);
+
+      const runner = new PythonRunner(pyPath, "run_main", env, {
+        acceptsStaticCoverage: true,
+      });
+      await runner.onRunStart();
+      const res = await runner.run([1], 30000);
+      const cov = runner.coverageInfo;
+      await runner.onRunEnd();
+
+      expect(res.result.tag).toBe("value");
+      expect(cov).toBeDefined();
+      if (cov) {
+        const fileKeys = Object.keys(cov).map((p) => p.replace(/\\/g, "/"));
+        expect(fileKeys.some((f) => f.includes("helper.py"))).toBeTrue();
+        expect(fileKeys.some((f) => f.includes("main_app.py"))).toBeFalse();
+      }
+    } finally {
+      delete process.env.NANOFUZZ_COVERAGE_INCLUDE_FILES;
+      PythonRunner.clearCache();
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // Ignore
+      }
+    }
+  }, 30000);
+
   it("fails immediately on startup if Python module import fails", async () => {
     const tmpDir = getTmpDir("nanofuzz-import-fail-");
     const pyPath = path.join(tmpDir, "bad_import.py");
