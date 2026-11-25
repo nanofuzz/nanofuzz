@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import * as JSONN from "../Jsonn";
 import { FuzzConfigStore, CURR_FILE_FMT_VER } from "./FuzzConfigStore";
-import { FuzzPinnedTest, FuzzTests } from "./Types";
+import { FuzzArgOverride, FuzzPinnedTest, FuzzTests } from "./Types";
 import * as ProgramFactory from "./analysis/ProgramFactory";
 
 describe("FuzzConfigStore", () => {
@@ -277,11 +277,10 @@ describe("FuzzConfigStore", () => {
     expect(fnDef).toBeDefined();
 
     const dftArgDefaults = FuzzConfigStore.getDefaultFuzzOptions().argDefaults;
-    FuzzConfigStore.applyArgOverrides(
-      fnDef,
-      [{ string: { minStrLen: 2, maxStrLen: 8 } }],
-      dftArgDefaults
+    const rawOverrides = JSONN.parse<FuzzArgOverride[]>(
+      JSONN.stringify([{ string: { minStrLen: 2, maxStrLen: 8 } }])
     );
+    FuzzConfigStore.applyArgOverrides(fnDef, rawOverrides, dftArgDefaults);
 
     const args = fnDef.getArgDefs();
     expect(args[0].getOptions().strLength).toEqual({ min: 2, max: 8 });
