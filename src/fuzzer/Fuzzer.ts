@@ -33,7 +33,13 @@ import {
 import { MeasureFactory } from "./measures/MeasureFactory";
 import { RunnerFactory } from "./runners/RunnerFactory";
 import { Leaderboard } from "./generators/Leaderboard";
-import { categorizeResult, getIoKey, isError, isSameJudgments } from "./Util";
+import {
+  categorizeResult,
+  getIoKey,
+  isError,
+  isSameJudgments,
+  resolveFullProvenance,
+} from "./Util";
 import { isArgValueType, isOptionValid } from "./analysis/Util";
 import { CompanionManager } from "./analysis/CompanionManager";
 import { ImplicitOracle } from "./oracles/ImplicitOracle";
@@ -66,6 +72,8 @@ export class Tester {
   protected _lastCompiler?: ReturnType<
     (typeof CompilerFactory)["fromSourcefile"]
   >; // last compiler object used
+  protected _trackProvenance = false;
+  protected _leaderboardProvenance: Map<number, string> = new Map();
 
   protected _results: FuzzTestResults; // test results
 
@@ -661,6 +669,10 @@ export class Tester {
       return false;
     };
 
+    this._trackProvenance = Boolean(
+      process.env.NANOFUZZ_DYNAMIC_BUG_ELICITATION
+    );
+
     // Build runners for the property validators
     // Assumed: property validators are in the same module
     const propRunners = this._validators.map((vFnRef) =>
@@ -1064,6 +1076,14 @@ export class Tester {
           isCancelled: Boolean(cancelFn && cancelFn()),
         });
 
+        const provenance =
+          this._trackProvenance && result.inputGenerated
+            ? resolveFullProvenance(
+                result.inputGenerated.source,
+                this._leaderboardProvenance
+              )
+            : undefined;
+
         // Call the PUT via its runner
         if (!result.skipped && result.harnessErrors.length === 0) {
           const startRunTime = performance.now(); // start timer
@@ -1073,7 +1093,9 @@ export class Tester {
               () =>
                 runner.run(
                   result.input.map((e) => e.value),
-                  Math.max(this._options.fnTimeout, 0)
+                  Math.max(this._options.fnTimeout, 0),
+                  undefined,
+                  provenance ? { NANOFUZZ_PROVENANCE: provenance } : undefined
                 ),
               getRemainingSuiteTime(),
               getEffectiveCancelFn()
@@ -1378,6 +1400,18 @@ export class Tester {
               result.inputGenerated
             );
 
+          if (
+            this._trackProvenance &&
+            result.interestingReasons &&
+            result.interestingReasons.length > 0 &&
+            provenance
+          ) {
+            this._leaderboardProvenance.set(
+              result.inputGenerated.tick,
+              provenance
+            );
+          }
+
           // Measurement stats
           const measureTime = performance.now() - startMeasureTime;
           this._results.stats.timers.measure += measureTime;
@@ -1405,6 +1439,8 @@ export class Tester {
         yield undefined;
       } // for: Main test loop
     } finally {
+      this._leaderboardProvenance.clear();
+      this._trackProvenance = false;
       this._fuzzerFocus = deepFreeze({ mode: "gen" });
       if (this._savedGeneratorOptions) {
         this._compositeInputGenerator.options = this._savedGeneratorOptions;

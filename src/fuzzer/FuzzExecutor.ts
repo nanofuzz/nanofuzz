@@ -155,7 +155,8 @@ export class FuzzExecutor {
     worker: FuzzWorkerContext,
     genTime: number = 0,
     transformTime: number = 0,
-    cancelFn?: () => boolean
+    cancelFn?: () => boolean,
+    env?: Record<string, string>
   ): Promise<FuzzExecutionOutput | undefined> {
     const result: FuzzTestResult = this._createInitialResult(
       candidate,
@@ -192,7 +193,8 @@ export class FuzzExecutor {
           worker.runner.run(
             result.input.map((e) => e.value),
             Math.max(this._options.fnTimeout, 0),
-            validatorNames
+            validatorNames,
+            env
           ),
         this._getRemainingSuiteTime(),
         cancelCheck
@@ -304,6 +306,7 @@ export class FuzzExecutor {
    * @param generator the composite input generator
    * @param getEffectiveCancelFn cancellation check function
    * @param initMeasTime time spent preparing measures before generation
+   * @param env optional environment variables for the worker runner
    * @returns FuzzExecutionOutput or undefined if interrupted
    */
   public async execute(
@@ -311,7 +314,8 @@ export class FuzzExecutor {
     genTime: number,
     generator: CompositeInputGenerator,
     getEffectiveCancelFn?: () => (() => boolean) | undefined,
-    initMeasTime: number = 0
+    initMeasTime: number = 0,
+    env?: Record<string, string>
   ): Promise<
     { result: FuzzTestResult; valTime: number; measureTime: number } | undefined
   > {
@@ -322,7 +326,8 @@ export class FuzzExecutor {
       worker0,
       genTime,
       0,
-      cancelFn
+      cancelFn,
+      env
     );
     if (!exec) {
       return undefined;

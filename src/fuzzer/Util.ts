@@ -3,7 +3,12 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as JSONN from "../Jsonn";
 import { CompositeOracle } from "./oracles/CompositeOracle";
-import { FuzzIoElement, FuzzResultCategory, FuzzTestResult } from "./Types";
+import {
+  FuzzIoElement,
+  FuzzResultCategory,
+  FuzzTestResult,
+  FuzzValueOrigin,
+} from "./Types";
 
 /**
  * Type guard function that returns true if the input object
@@ -274,6 +279,52 @@ export function getIoKey(io: FuzzIoElement[]): string {
     })
   );
 } // fn: getIoKey
+
+/**
+ * Unwinds the recursive input provenance lineage without altering FuzzValueOrigin.
+ *
+ * @param origin The input provenance origin object.
+ * @param leaderboardProvenance Optional map recording provenance strings for leaderboard ticks.
+ * @returns Serialized lineage string showing generator and mutator steps (e.g. "SeedInput->Mutation[replaceOneChar]").
+ */
+export function resolveFullProvenance(
+  origin: FuzzValueOrigin,
+  leaderboardProvenance?: Map<number, string>
+): string {
+  const steps: string[] = [];
+
+  function walk(curr: FuzzValueOrigin): void {
+    if (curr.type === "generator") {
+      if (curr.generator === "MutationInputGenerator") {
+        if (
+          curr.tick !== undefined &&
+          leaderboardProvenance &&
+          leaderboardProvenance.has(curr.tick)
+        ) {
+          steps.push(leaderboardProvenance.get(curr.tick)!);
+        }
+        const muts = curr.steps?.mutators?.join(",") || "mutate";
+        steps.push(`Mutation[${muts}]`);
+      } else if (curr.generator === "UserInputGenerator") {
+        steps.push(`CustomGen[${curr.fnName}]`);
+      } else if (curr.generator === "AiInputGenerator") {
+        steps.push(`AI[${curr.model}]`);
+      } else {
+        steps.push(curr.generator);
+      }
+    } else if (curr.type === "transformer") {
+      walk(curr.basis.source);
+      steps.push(`Transformer[${curr.transformer}]`);
+    } else if (curr.type === "user") {
+      steps.push("SeedInput");
+    } else {
+      steps.push(curr.type);
+    }
+  }
+
+  walk(origin);
+  return steps.join("->");
+} // fn: resolveFullProvenance
 
 /**
  * Samples and calculates aggregate system CPU utilization across all platforms.

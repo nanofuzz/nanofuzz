@@ -38,6 +38,7 @@ import {
   isError,
   isSameJudgments,
   determineWorkerCount,
+  resolveFullProvenance,
 } from "./Util";
 import { AbstractProgram } from "./analysis/AbstractProgram";
 import {
@@ -83,6 +84,8 @@ export class FuzzerV3 {
   protected _slotSeq = 0;
   protected _stage1InjectedCount = 0;
   protected _injectedInFlight = 0;
+  protected _trackProvenance = false;
+  protected _leaderboardProvenance: Map<number, string> = new Map();
 
   // Cooperative Shrink State
   protected _interruptedQueue: TransformedInputAndSource[] = [];
@@ -780,10 +783,16 @@ export class FuzzerV3 {
       typeof currentStopCondition === "number" ? currentStopCondition : 100;
     this._notify(candidate, currentPct, update, cancelFn, stillInjecting);
 
+    const provenance =
+      this._trackProvenance && candidate
+        ? resolveFullProvenance(candidate.source, this._leaderboardProvenance)
+        : undefined;
+
     return {
       id: this._slotSeq++,
       tick: candidate.tick,
       candidate,
+      provenance,
       genTime,
       injected: Boolean(candidate.injected),
       transformTime: 0,
@@ -810,7 +819,8 @@ export class FuzzerV3 {
       worker,
       slot.genTime,
       slot.transformTime,
-      cancelFn
+      cancelFn,
+      slot.provenance ? { NANOFUZZ_PROVENANCE: slot.provenance } : undefined
     );
 
     if (!exec) {
@@ -847,6 +857,16 @@ export class FuzzerV3 {
       slot.coverageHits
     );
     slot.measureTime = measureTime;
+
+    // Track provenance only if input is interesting and admitted to Leaderboard
+    if (
+      this._trackProvenance &&
+      result.interestingReasons &&
+      result.interestingReasons.length > 0 &&
+      slot.provenance
+    ) {
+      this._leaderboardProvenance.set(slot.tick, slot.provenance);
+    }
 
     // Record stats and outcomes
     this._stats.record(
@@ -888,6 +908,10 @@ export class FuzzerV3 {
     mode: FuzzMode,
     update: FuzzStatusUpdater
   ): Promise<void> {
+    this._trackProvenance = Boolean(
+      process.env.NANOFUZZ_DYNAMIC_BUG_ELICITATION
+    );
+
     if (mode.gen) {
       this._compositeInputGenerator.permitGenerators();
     } else {
@@ -1175,6 +1199,8 @@ export class FuzzerV3 {
       stats: this._stats.currentRun,
     });
 
+    this._leaderboardProvenance.clear();
+    this._trackProvenance = false;
     this._state = "paused";
     return results;
   } // fn: _finalizeRun
@@ -1189,6 +1215,7 @@ interface PipelineSlot {
 
   // Generated Input
   candidate?: TransformedInputAndSource;
+  provenance?: string;
   genTime: number;
   injected: boolean;
   transformTime: number;
