@@ -208,10 +208,23 @@ export async function listTargets(filePath: string): Promise<TargetListResult> {
       Object.keys(program.functions)
     );
 
+    // Compute targeting priority from export visibility, callee fan-out, and signature complexity
+    let priority = 0;
+    if (fnDef.isExported()) {
+      priority += 50;
+    }
+    const callees = program.getCallees(fnDef.getName());
+    priority += Math.min(30, callees.size * 10);
+    const argCount = fnDef.getArgDefs().length;
+    if (argCount >= 1) {
+      priority += Math.min(20, 5 + argCount * 5);
+    }
+
     functions.push({
       name: fnDef.getName(),
       signature: formatFunctionSignature(fnDef, language),
       isExported: fnDef.isExported(),
+      priority,
       args,
       returnType: fnDef.getReturnType()?.name,
       isVoid: fnDef.isVoid(),
@@ -224,6 +237,9 @@ export async function listTargets(filePath: string): Promise<TargetListResult> {
       generatorTemplate: genSkel.fullTemplate,
     });
   }
+
+  // Sort discovered functions in descending order of priority so agents see top entrypoints first
+  functions.sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0));
 
   const unsupportedFunctions: { name: string; reason: string }[] = [];
   const unsupported = program.functionsNotSupported;
@@ -1148,7 +1164,7 @@ export function selectCoveringResults(
   const selected: FuzzTestResult[] = [];
   const seenInputs = new Set<string>();
 
-  // 1. All failing counterexamples
+  // All failing counterexamples
   const failures = results.filter((r) => r.category !== "ok");
   for (const f of failures) {
     const key = getIoKey(f.input);
@@ -1158,7 +1174,7 @@ export function selectCoveringResults(
     }
   }
 
-  // 2. Passing inputs that were marked as interesting (e.g. branch coverage expansion)
+  // Passing inputs that were marked as interesting (e.g. branch coverage expansion)
   const interesting = results.filter(
     (r) =>
       r.category === "ok" &&
@@ -1173,11 +1189,16 @@ export function selectCoveringResults(
     }
   }
 
-  // 3. Fallback: if no interesting or failing inputs, take the first non-skipped passing result
+  // Fallback: if no interesting or failing inputs, prefer the first failure, then the first non-skipped passing result
   if (selected.length === 0) {
-    const firstOk = results.find((r) => r.category === "ok" && !r.skipped);
-    if (firstOk) {
-      selected.push(firstOk);
+    const firstFail = results.find((r) => r.category !== "ok");
+    if (firstFail) {
+      selected.push(firstFail);
+    } else {
+      const firstOk = results.find((r) => r.category === "ok" && !r.skipped);
+      if (firstOk) {
+        selected.push(firstOk);
+      }
     }
   }
 
@@ -1885,6 +1906,7 @@ export type TargetFunction = {
   name: string;
   signature: string;
   isExported: boolean;
+  priority: number;
   args: TargetFunctionArg[];
   returnType?: string;
   isVoid: boolean;
