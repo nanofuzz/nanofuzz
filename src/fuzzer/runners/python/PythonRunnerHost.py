@@ -673,7 +673,8 @@ def is_under(root: str, path: str) -> bool:
 def program_files(
     filename: str,
     coverage_scope: str = "project",
-    direct_packages: Optional[List[str]] = None
+    direct_packages: Optional[List[str]] = None,
+    source_root: Optional[str] = None,
 ) -> List[str]:
     """
     Returns the files the program under test is made of based on three groups:
@@ -689,7 +690,7 @@ def program_files(
         raise ValueError(
             f"Invalid coverage_scope '{coverage_scope}'. Allowed values: {VALID_COVERAGE_SCOPES}"
         )
-    root = os.path.dirname(filename)
+    root = os.path.realpath(source_root) if source_root else os.path.dirname(filename)
     stdlib_path = os.path.normcase(
         os.path.realpath(sysconfig.get_path("stdlib")))
 
@@ -723,7 +724,7 @@ def program_files(
             continue
 
         # Group A: Local project files
-        if is_under(root, modfile):
+        if not is_site_pkg and is_under(root, modfile):
             files.add(modfile)
             continue
 
@@ -1211,7 +1212,8 @@ if __name__ == "__main__":
             else ("static" in coverage_scope and not is_respawn)
         )
 
-        pgm_files = program_files(filename, coverage_scope, direct_packages)
+        pgm_files = program_files(
+            filename, coverage_scope, direct_packages, source_root)
 
         # One in-memory coverage instance for the whole run.
         cov = coverage.Coverage(include=pgm_files, branch=True, data_file=None)
