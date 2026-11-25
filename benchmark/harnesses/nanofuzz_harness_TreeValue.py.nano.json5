@@ -14,7 +14,8 @@
                 {
                     "string": {
                         "minStrLen": 0,
-                        "maxStrLen": 200
+                        "maxStrLen": 200,
+                        "strCharset": " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"
                     }
                 },
                 {
@@ -27,7 +28,8 @@
                 {
                     "string": {
                         "minStrLen": 0,
-                        "maxStrLen": 100
+                        "maxStrLen": 100,
+                        "strCharset": " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"
                     }
                 }
             ],
