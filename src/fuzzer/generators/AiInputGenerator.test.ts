@@ -1,3 +1,5 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import * as zod from "zod/v4";
 import * as AiInputGenerator from "./AiInputGenerator";
@@ -1124,6 +1126,108 @@ describe("src/fuzzer/generators/AiInputGenerator: ", () => {
     }
   });
 
+  it("policy seed: permits refills up to MAX_SEED_CALLS (3) then stops", () => {
+    let getMoreCalls = 0;
+    class MockSeedLlmAdapter extends LlmAdapter {
+      public override get id(): string {
+        return "mock-seed-model";
+      }
+      public override async query(): Promise<LlmQueryResult> {
+        return {
+          text: JSON.stringify({ programInputs: [] }),
+          stats: {
+            tokensSent: 10,
+            tokensSentCost: { amt: 0, unit: "USD" },
+            tokensReceived: 10,
+            tokensReceivedCost: { amt: 0, unit: "USD" },
+          },
+        };
+      }
+    }
+
+    class TestableMultiSeedAiGenerator
+      extends AiInputGenerator.AiInputGenerator
+    {
+      public setCallsSent(count: number): void {
+        this._stats.calls.sent = count;
+      }
+      public setQueue(count: number): void {
+        this._inputQueue = Array.from({ length: count }, (_, i) => ({
+          tick: i + 1,
+          value: [{ value: i, tag: "ArgValueTypeWrapped" }],
+          source: {
+            type: "generator",
+            generator: "AiInputGenerator",
+            model: "test",
+          },
+        }));
+      }
+      public setMockLlm(llm: LlmAdapter): void {
+        this._llm = llm;
+      }
+      protected override _getMoreInputs(): void {
+        getMoreCalls++;
+      }
+    }
+
+    const fnDef = FunctionDef.fromFunctionRef({
+      module: "test.ts",
+      name: "testFn",
+      src: "function testFn(x: number) {}",
+      lang: "typescript",
+      startOffset: 0,
+      endOffset: 30,
+      isExported: true,
+      isVoid: true,
+      args: [],
+    });
+
+    const dftOptions = FuzzConfigStore.getDefaultFuzzOptions();
+    Config.override("nanofuzz.ai.policy", "seed");
+    Config.override("nanofuzz.ai.provider", "gemini");
+    Config.override("nanofuzz.ai.model", "gemini-flash");
+    Config.override("nanofuzz.ai.apiKey", "test-key");
+    try {
+      const gen = new TestableMultiSeedAiGenerator(
+        fnDef,
+        "seed",
+        new Map(),
+        "function testFn(x: number) {}"
+      );
+      gen.onRunStart(false, [], undefined, dftOptions);
+      gen.setMockLlm(new MockSeedLlmAdapter());
+
+      // calls.sent = 1 (< 3): queue has items below chunk size -> allows refill
+      gen.setCallsSent(1);
+      gen.setQueue(1);
+      getMoreCalls = 0;
+      expect(gen.nextable()).toBe("now");
+      expect(getMoreCalls).toBe(1);
+
+      // calls.sent = 2 (< 3): still allows refill
+      gen.setCallsSent(2);
+      gen.setQueue(1);
+      getMoreCalls = 0;
+      expect(gen.nextable()).toBe("now");
+      expect(getMoreCalls).toBe(1);
+
+      // calls.sent = 3 (>= MAX_SEED_CALLS): halts refills even if queue is small
+      gen.setCallsSent(3);
+      gen.setQueue(1);
+      getMoreCalls = 0;
+      expect(gen.nextable()).toBe("now");
+      expect(getMoreCalls).toBe(0);
+
+      // calls.sent = 3 and queue is empty: ceases queries completely and returns false
+      gen.setQueue(0);
+      getMoreCalls = 0;
+      expect(gen.nextable()).toBe(false);
+      expect(getMoreCalls).toBe(0);
+    } finally {
+      Config.clearOverrides();
+    }
+  });
+
   it("requested input count incorporates invalid buffer and response max tokens", () => {
     class TestableAiInputGenerator extends AiInputGenerator.AiInputGenerator {
       public estimateTokens(): number {
@@ -1927,93 +2031,113 @@ ${top5Report}`;
     );
   });
 
-  it("AiInputGenerator automatically resolves and injects external PUT into prompt for study harness", async () => {
-    const harnessPath = path.resolve(
-      "benchmark/harnesses/nanofuzz_harness_TreeValue.py"
+  it("AiInputGenerator automatically resolves and injects external PUT into prompt for harness", async () => {
+    const tmpDir = fs.mkdtempSync(
+      path.join(fs.realpathSync(os.tmpdir()), "nanofuzz-ai-put-test-")
     );
-    const prog = ProgramFactory.fromFile(harnessPath);
-    const fnDef = prog.functionsExported["fuzz_TreeValue"];
-    expect(fnDef).toBeDefined();
-
-    class TestAiInputGenerator extends AiInputGenerator.AiInputGenerator {
-      public getPutSources() {
-        return this._putSources;
-      }
-      public setLlm(llm: LlmAdapter): void {
-        this._llm = llm;
-      }
-      public triggerGetMoreInputs(): void {
-        this._getMoreInputs();
-      }
-    }
-
-    class MockCaptureLlmAdapter extends LlmAdapter {
-      public capturedPrompt = "";
-      public override get id(): string {
-        return "mock-capture";
-      }
-      public override async query(
-        promptText: string | string[],
-        _schema?: zod.ZodType
-      ): Promise<LlmQueryResult> {
-        this.capturedPrompt = Array.isArray(promptText)
-          ? promptText.join("\n")
-          : promptText;
-        return {
-          text: JSON.stringify({
-            programInputs: [
-              {
-                kind: 0,
-                val: "test",
-                extra: "",
-                action: "identity",
-                left_val: "",
-                right_val: "",
-              },
-            ],
-          }),
-          stats: {
-            tokensSent: 10,
-            tokensSentCost: { amt: 0, unit: "USD" },
-            tokensReceived: 5,
-            tokensReceivedCost: { amt: 0, unit: "USD" },
-          },
-        };
-      }
-    }
-
-    const gen = new TestAiInputGenerator(
-      fnDef,
-      "seed_study",
-      new Map(),
-      prog.src
-    );
-
-    // Verify _putSources was automatically resolved
-    const putSources = gen.getPutSources();
-    expect(putSources.length).toBe(1);
-    expect(putSources[0].filePath).toContain("tree_value.py");
-    expect(putSources[0].src).toContain("class TreeValue");
-
-    // Trigger LLM call and verify prompt contains PUT implementation
-    Config.override("nanofuzz.ai.provider", "gemini");
-    Config.override("nanofuzz.ai.model", "gemini-flash");
-    Config.override("nanofuzz.ai.apiKey", "test-key");
-    Config.override("nanofuzz.ai.backfeedPriorInputs", false);
-
     try {
-      const mockLlm = new MockCaptureLlmAdapter();
-      gen.setLlm(mockLlm);
-      gen.triggerGetMoreInputs();
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      const putFile = path.join(tmpDir, "my_put.py");
+      const harnessFile = path.join(tmpDir, "harness.py");
 
-      expect(mockLlm.capturedPrompt).toContain(
-        "The implementation of the Program Under Test (PUT) called by this harness:"
+      fs.writeFileSync(
+        putFile,
+        `def parse_data(s: str) -> int:
+    return len(s)
+`
       );
-      expect(mockLlm.capturedPrompt).toContain("tree_value.py");
-      expect(mockLlm.capturedPrompt).toContain("class TreeValue");
+
+      fs.writeFileSync(
+        harnessFile,
+        `from my_put import parse_data
+from nanofuzz_runtime import put
+
+@put(parse_data)
+def fuzz_target(s: str) -> bool:
+    return parse_data(s) >= 0
+`
+      );
+
+      const prog = ProgramFactory.fromFile(harnessFile);
+      const fnDef = prog.functionsExported["fuzz_target"];
+      expect(fnDef).toBeDefined();
+
+      class TestAiInputGenerator extends AiInputGenerator.AiInputGenerator {
+        public getPutSources() {
+          return this._putSources;
+        }
+        public setLlm(llm: LlmAdapter): void {
+          this._llm = llm;
+        }
+        public triggerGetMoreInputs(): void {
+          this._getMoreInputs();
+        }
+      }
+
+      class MockCaptureLlmAdapter extends LlmAdapter {
+        public capturedPrompt = "";
+        public override get id(): string {
+          return "mock-capture";
+        }
+        public override async query(
+          promptText: string | string[],
+          _schema?: zod.ZodType
+        ): Promise<LlmQueryResult> {
+          this.capturedPrompt = Array.isArray(promptText)
+            ? promptText.join("\n")
+            : promptText;
+          return {
+            text: JSON.stringify({
+              programInputs: [
+                {
+                  s: "test_value",
+                },
+              ],
+            }),
+            stats: {
+              tokensSent: 10,
+              tokensSentCost: { amt: 0, unit: "USD" },
+              tokensReceived: 5,
+              tokensReceivedCost: { amt: 0, unit: "USD" },
+            },
+          };
+        }
+      }
+
+      const gen = new TestAiInputGenerator(
+        fnDef,
+        "seed_study",
+        new Map(),
+        prog.src
+      );
+
+      // Verify _putSources was automatically resolved
+      const putSources = gen.getPutSources();
+      expect(putSources.length).toBe(1);
+      expect(putSources[0].filePath).toBe(putFile);
+      expect(putSources[0].src).toContain("def parse_data");
+
+      // Trigger LLM call and verify prompt contains PUT implementation
+      Config.override("nanofuzz.ai.provider", "gemini");
+      Config.override("nanofuzz.ai.model", "gemini-flash");
+      Config.override("nanofuzz.ai.apiKey", "test-key");
+      Config.override("nanofuzz.ai.backfeedPriorInputs", false);
+
+      try {
+        const mockLlm = new MockCaptureLlmAdapter();
+        gen.setLlm(mockLlm);
+        gen.triggerGetMoreInputs();
+        await new Promise((resolve) => setTimeout(resolve, 20));
+
+        expect(mockLlm.capturedPrompt).toContain(
+          "The implementation of the Program Under Test (PUT) called by this harness:"
+        );
+        expect(mockLlm.capturedPrompt).toContain("my_put.py");
+        expect(mockLlm.capturedPrompt).toContain("def parse_data");
+      } finally {
+        Config.clearOverrides();
+      }
     } finally {
-      Config.clearOverrides();
+      fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });
 });

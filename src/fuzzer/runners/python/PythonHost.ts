@@ -4,6 +4,7 @@ import {
   HostMessageHandler,
 } from "../AbstractHost";
 import * as ChildProcess from "node:child_process";
+import { PythonModule } from "./PythonModule";
 
 /**
  * Wrapper for running and interacting with running Python programs
@@ -36,9 +37,5 @@ export type PythonEnv = {
   libs: string | undefined | null;
   interpreter: string;
   paths: readonly string[];
-  venv?: {
-    activateCmd: string;
-    path: string;
-    interpreter: string;
-  };
+  module: PythonModule;
 };

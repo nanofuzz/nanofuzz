@@ -289,7 +289,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     }
 
     while (this._permitSubgens || this._hasPrioritySubgen()) {
-      if (this._cancelFn?.()) {
+      if (!this._hasPrioritySubgen() && this._cancelFn?.()) {
         this.suppressGenerators();
         throw new GeneratorExhaustedError();
       }
@@ -330,7 +330,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     }
 
     while (this._permitSubgens || this._hasPrioritySubgen()) {
-      if (this._cancelFn?.()) {
+      if (!this._hasPrioritySubgen() && this._cancelFn?.()) {
         this.suppressGenerators();
         throw new GeneratorExhaustedError();
       }

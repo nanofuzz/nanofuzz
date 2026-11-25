@@ -306,6 +306,7 @@ export class FuzzExecutor {
    * @param generator the composite input generator
    * @param getEffectiveCancelFn cancellation check function
    * @param initMeasTime time spent preparing measures before generation
+   * @param env optional environment variables for the worker runner
    * @returns FuzzExecutionOutput or undefined if interrupted
    */
   public async execute(
@@ -313,7 +314,8 @@ export class FuzzExecutor {
     genTime: number,
     generator: CompositeInputGenerator,
     getEffectiveCancelFn?: () => (() => boolean) | undefined,
-    initMeasTime: number = 0
+    initMeasTime: number = 0,
+    env?: Record<string, string>
   ): Promise<
     { result: FuzzTestResult; valTime: number; measureTime: number } | undefined
   > {
@@ -324,7 +326,8 @@ export class FuzzExecutor {
       worker0,
       genTime,
       0,
-      cancelFn
+      cancelFn,
+      env
     );
     if (!exec) {
       return undefined;

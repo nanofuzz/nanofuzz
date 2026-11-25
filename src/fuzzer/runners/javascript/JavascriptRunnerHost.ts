@@ -167,6 +167,11 @@ async function main() {
     const payloadBuf = await readBytes(length);
     const input: RunnerInput & { timeout?: number } = deserialize(payloadBuf);
 
+    // Propagate dynamic environment variables (e.g. NANOFUZZ_PROVENANCE)
+    if (input.env && typeof input.env === "object") {
+      Object.assign(process.env, input.env);
+    }
+
     resetCoverageCounters(Reflect.get(globalThis, "__coverage__"));
 
     const targetFilename = input.filename ?? initialFilename;

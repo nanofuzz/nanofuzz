@@ -99,7 +99,8 @@ export class OxcamlRunner extends AbstractRunner {
   public async run(
     inputs: unknown[],
     timeout: number | undefined = 0,
-    validators: string[] = []
+    validators: string[] = [],
+    env?: Record<string, string>
   ): Promise<RunnerResult> {
     const thisSeq = this._seq++;
 
@@ -114,6 +115,7 @@ export class OxcamlRunner extends AbstractRunner {
         typeHints,
         timeout: timeout ?? 0,
         validators: validators.length > 0 ? validators : undefined,
+        env,
       };
 
       const encoded = JSONN.pack(input);

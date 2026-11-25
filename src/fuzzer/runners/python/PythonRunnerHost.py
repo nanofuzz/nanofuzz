@@ -334,28 +334,24 @@ def call_with_timeout(fn: Any, args: List[Any], timeout_ms: int) -> Any:
         timer.cancel()
 
 
-def loadPythonFn(filename: str, modulename: str, fn: str) -> Tuple[Union[RunnerErrorResult, None], Any]:
-    env_root = os.environ.get("NANOFUZZ_PROJECT_ROOT")
-    if env_root and os.path.isdir(env_root):
-        env_src = os.path.join(env_root, "src")
-        if os.path.isdir(env_src) and env_src not in sys.path:
-            sys.path.insert(0, env_src)
-        if env_root not in sys.path:
-            sys.path.insert(0, env_root)
+def is_module_of_package(filename: str, modulename: str) -> bool:
+    """
+    Returns True if `filename`'s module name, `modulename`, has a package in it
+    (e.g., `mypkg.target`), rather than being the file's name alone (e.g.,
+    `target` for `target.py`). See PythonModule.ts.
+    """
+    return modulename != os.path.splitext(os.path.basename(filename))[0]
 
-    rootDir = os.path.dirname(filename)
-    curr = os.path.abspath(rootDir)
-    while curr:
-        src_dir = os.path.join(curr, "src")
-        if os.path.isdir(src_dir) and src_dir not in sys.path:
-            sys.path.insert(0, src_dir)
-        if curr not in sys.path:
-            sys.path.append(curr)
-        parent = os.path.dirname(curr)
-        if parent == curr:
-            break
-        curr = parent
 
+class PutLoadHostError(Exception):
+    """The host cannot load the PUT's module (as opposed to the PUT failing)"""
+
+
+def load_module_from_file(filename: str, modulename: str) -> Any:
+    """
+    Loads `filename` directly from the file, as module `modulename`, or under
+    another name if that one is taken (e.g., `logging` for a `logging.py`)
+    """
     load_modulename = (
         f"_nanofuzz_put_{modulename}"
         if (hasattr(sys, "stdlib_module_names") and modulename in sys.stdlib_module_names) or modulename in sys.modules
@@ -363,28 +359,23 @@ def loadPythonFn(filename: str, modulename: str, fn: str) -> Tuple[Union[RunnerE
     )
     spec = importlib.util.spec_from_file_location(load_modulename, filename)
     if spec is None:
-        return (RunnerErrorResult(
-            tag="error",
-            name="PythonRunnerHostError",
-            message=f"Could not import python module: {filename}",
-            source="host",
-            seq=-1
-        ), None)
+        raise PutLoadHostError(f"Could not import python module: {filename}")
+    if spec.loader is None:
+        raise PutLoadHostError(f"Could not load python module: {filename}")
     module = importlib.util.module_from_spec(spec)
+    sys.modules[load_modulename] = module
+    spec.loader.exec_module(module)
+    return module
 
+
+def loadPythonFn(filename: str, modulename: str, fn: str) -> Tuple[Union[RunnerErrorResult, None], Any]:
     try:
-        sys.modules[load_modulename] = module
-        with redirect_stdout(io.StringIO()) as f:
-            if spec.loader is None:
-                return (RunnerErrorResult(
-                    tag="error",
-                    name="PythonRunnerHostError",
-                    message=f"Could not load python module: {filename}",
-                    source="host",
-                    seq=-1
-                ), None)
+        with redirect_stdout(io.StringIO()):
             with isolate_put_environment():
-                spec.loader.exec_module(module)
+                if is_module_of_package(filename, modulename):
+                    module = importlib.import_module(modulename)
+                else:
+                    module = load_module_from_file(filename, modulename)
         target = getattr(module, fn)
         if not callable(target):
             return (RunnerErrorResult(
@@ -395,6 +386,14 @@ def loadPythonFn(filename: str, modulename: str, fn: str) -> Tuple[Union[RunnerE
                 seq=-1
             ), None)
         return (None, target)
+    except PutLoadHostError as e:
+        return (RunnerErrorResult(
+            tag="error",
+            name="PythonRunnerHostError",
+            message=str(e),
+            source="host",
+            seq=-1
+        ), None)
     except (Exception, SystemExit) as e:
         return (RunnerErrorResult(
             tag="error",
@@ -901,6 +900,7 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
 
     timeout_ms = input.get("timeout", 0)
 
+    # Propagate dynamic environment variables (e.g. NANOFUZZ_PROVENANCE)
     extra_env = input.get("env")
     if extra_env and isinstance(extra_env, dict):
         os.environ.update(extra_env)
@@ -1104,7 +1104,8 @@ def put_result(result: RunnerResult) -> None:
 
 def send_msg(data: Union[RunnerResult, str, dict[str, Any]]) -> None:
     try:
-        msg = cast(bytes, pack_payload(data))
+        msg = cast(bytes, msgpack.packb(
+            data, default=default_serializer, use_bin_type=True))
     except Exception as e:
         seq = -1
         if isinstance(data, dict):
@@ -1118,15 +1119,16 @@ def send_msg(data: Union[RunnerResult, str, dict[str, Any]]) -> None:
             "seq": seq,
         }
         try:
-            msg = cast(bytes, pack_payload(err_res))
+            msg = cast(bytes, msgpack.packb(
+                err_res, default=default_serializer, use_bin_type=True))
         except Exception:
-            msg = cast(bytes, pack_payload({
+            msg = cast(bytes, msgpack.packb({
                 "tag": "error",
                 "name": "SerializationError",
                 "message": "Critical serialization failure",
                 "source": "host",
                 "seq": seq,
-            }))
+            }, default=default_serializer, use_bin_type=True))
     logging.debug(f"[{pid}]  - Writing {len(msg)} bytes")
     real_stdout.write(struct.pack('>I', len(msg)))  # payload size
     real_stdout.write(msg)  # payload
@@ -1136,7 +1138,7 @@ def send_msg(data: Union[RunnerResult, str, dict[str, Any]]) -> None:
 if __name__ == "__main__":
     if len(sys.argv) < 4:
         print(
-            "Usage: python PythonRunnerHost.py <filename.py> <module_name> <function_name> [coverage_scope] [direct_packages]")
+            "Usage: python PythonRunnerHost.py <filename.py> <module_name> <function_name> [coverage_scope] [direct_packages] [collect_static] [source_root]")
         sys.exit(2)
 
     # Arguments for loading the function
@@ -1164,6 +1166,14 @@ if __name__ == "__main__":
             direct_packages = []
 
         collect_static_arg = sys.argv[6] if len(sys.argv) > 6 else ""
+        if len(sys.argv) > 7:
+            source_root = sys.argv[7]
+        elif not is_module_of_package(filename, modulename):
+            source_root = os.path.dirname(filename)
+        else:
+            raise ValueError(
+                f"Missing source_root for '{modulename}', a module of a package"
+            )
         is_respawn = collect_static_arg.lower() == "respawn"
         collect_static = (
             collect_static_arg.lower() == "true"
@@ -1175,6 +1185,11 @@ if __name__ == "__main__":
 
         # One in-memory coverage instance for the whole run.
         cov = coverage.Coverage(include=pgm_files, branch=True, data_file=None)
+
+        # The PUT's (Program Under Test) source root goes first on sys.path
+        # (see PythonModule.ts)
+        if sys.path[0] != source_root:
+            sys.path.insert(0, source_root)
 
         if is_respawn:
             # Respawn: do NOT run init_cov tracer, and skip static_coverage_all AST analysis

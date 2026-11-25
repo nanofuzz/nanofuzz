@@ -24,7 +24,6 @@ import {
   FuzzTestResult,
   FuzzTestResults,
   FuzzerFocus,
-  FuzzValueOrigin,
   InputAndSource,
   TransformedInputAndSource,
 } from "./Types";
@@ -39,6 +38,7 @@ import {
   isError,
   isSameJudgments,
   determineWorkerCount,
+  resolveFullProvenance,
 } from "./Util";
 import { AbstractProgram } from "./analysis/AbstractProgram";
 import {
@@ -125,8 +125,8 @@ export class FuzzerV3 {
     }
 
     const fnList = this._program.functions;
-    if (!(this._fnName in fnList)) {
-      if (this._fnName in this._program.functionsNotSupported) {
+    if (!Object.hasOwn(fnList, this._fnName)) {
+      if (Object.hasOwn(this._program.functionsNotSupported, this._fnName)) {
         const reason = this._program.functionsNotSupported[this._fnName].reason;
         throw new Error(
           `Function ${this._fnName} in ${this._module} is not supported for reason: ${reason}`
@@ -1206,43 +1206,7 @@ export class FuzzerV3 {
   } // fn: _finalizeRun
 } // class: FuzzerV3
 
-/**
- * Unwinds the recursive input provenance lineage without altering FuzzValueOrigin.
- */
-export function resolveFullProvenance(
-  origin: FuzzValueOrigin,
-  leaderboardProvenance?: Map<number, string>
-): string {
-  const steps: string[] = [];
-
-  function walk(curr: FuzzValueOrigin): void {
-    if (curr.type === "generator") {
-      if (curr.generator === "MutationInputGenerator") {
-        if (curr.tick !== undefined && leaderboardProvenance && leaderboardProvenance.has(curr.tick)) {
-          steps.push(leaderboardProvenance.get(curr.tick)!);
-        }
-        const muts = curr.steps?.mutators?.join(",") || "mutate";
-        steps.push(`Mutation[${muts}]`);
-      } else if (curr.generator === "UserInputGenerator") {
-        steps.push(`CustomGen[${curr.fnName}]`);
-      } else if (curr.generator === "AiInputGenerator") {
-        steps.push(`AI[${curr.model}]`);
-      } else {
-        steps.push(curr.generator);
-      }
-    } else if (curr.type === "transformer") {
-      walk(curr.basis.source);
-      steps.push(`Transformer[${curr.transformer}]`);
-    } else if (curr.type === "user") {
-      steps.push("SeedInput");
-    } else {
-      steps.push(curr.type);
-    }
-  }
-
-  walk(origin);
-  return steps.join("->");
-}
+export { resolveFullProvenance } from "./Util";
 
 /**
  * Represents a single test candidate transitioning through pipeline stages.

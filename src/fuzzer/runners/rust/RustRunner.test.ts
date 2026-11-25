@@ -593,6 +593,35 @@ pub fn doubleValidator(r: &FuzzTestResult) -> &'static str {
 
     await runner.onRunEnd();
   });
+
+  it("provenance environment: propagates extra env variables into rust host environment", async () => {
+    const rsPath = path.join(tempDir, "prov.rs");
+    fs.writeFileSync(
+      rsPath,
+      `pub fn read_provenance() -> String {
+    std::env::var("NANOFUZZ_PROVENANCE").unwrap_or_else(|_| "none".to_string())
+}
+`
+    );
+
+    const program = ProgramFactory.fromFile(rsPath, "rust");
+    const fnDef = program.functionsExported["read_provenance"];
+    const env = createTestEnv(fnDef);
+
+    const runner = new RustRunner(rsPath, "read_provenance", env);
+    await runner.onRunStart();
+
+    const expectedProvenance = "SeedInput->Mutation[string-replaceOneChar]";
+    const res = await runner.run([], 5000, [], {
+      NANOFUZZ_PROVENANCE: expectedProvenance,
+    });
+    await runner.onRunEnd();
+
+    expect(res.result.tag).toBe("value");
+    if (res.result.tag === "value") {
+      expect(res.result.value).toBe(expectedProvenance);
+    }
+  });
 });
 
 // ============================================================================

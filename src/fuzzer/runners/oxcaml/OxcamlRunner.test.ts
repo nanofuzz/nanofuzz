@@ -865,6 +865,34 @@ let test_simple_ops (ops : buffer_op list) : int =
     const runner = RunnerFactory(env, mlPath, "add");
     expect(runner instanceof OxcamlRunner).toBeTrue();
   });
+
+  it("provenance environment: propagates extra env variables into oxcaml host environment", async () => {
+    const mlPath = path.join(tempDir, "prov.ml");
+    fs.writeFileSync(
+      mlPath,
+      `let read_provenance (dummy : int) : string =
+  Sys.getenv_opt "NANOFUZZ_PROVENANCE" |> Option.value ~default:"none"
+`
+    );
+
+    const program = ProgramFactory.fromFile(mlPath, "oxcaml");
+    const fnDef = program.functionsExported["read_provenance"];
+    const env = createTestEnv(fnDef);
+
+    const runner = new OxcamlRunner(mlPath, "read_provenance", env);
+    await runner.onRunStart();
+
+    const expectedProvenance = "SeedInput->Mutation[string-replaceOneChar]";
+    const res = await runner.run([0], 5000, [], {
+      NANOFUZZ_PROVENANCE: expectedProvenance,
+    });
+    await runner.onRunEnd();
+
+    expect(res.result.tag).toBe("value");
+    if (res.result.tag === "value") {
+      expect(res.result.value).toBe(expectedProvenance);
+    }
+  });
 });
 
 // ============================================================================

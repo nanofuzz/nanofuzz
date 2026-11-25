@@ -93,26 +93,6 @@ export class AiInputGenerator extends AbstractInputGenerator {
   } // fn: constructor
 
   /**
-   * Resolves source files for any Program Under Test (PUT) targets declared on the function.
-   */
-  protected _resolvePutSources(): {
-    filePath: string;
-    src: string;
-    targetName: string;
-  }[] {
-    const putTargets = this._fn.getPutTargets();
-    if (putTargets.length === 0) {
-      return [];
-    }
-    try {
-      const prog = ProgramFactory.fromFile(this._fn.getModule());
-      return prog.resolvePutTargets(putTargets);
-    } catch {
-      return [];
-    }
-  } // fn: _resolvePutSources
-
-  /**
    * Returns the human-readable name for the AI input generator
    */
   public override get humanName(): string {
@@ -363,6 +343,26 @@ export class AiInputGenerator extends AbstractInputGenerator {
     );
     return this._requestedInputCount;
   } // fn: _getRequestedInputCount
+
+  /**
+   * Resolves source files for any Program Under Test (PUT) targets declared on the function.
+   */
+  protected _resolvePutSources(): {
+    filePath: string;
+    src: string;
+    targetName: string;
+  }[] {
+    const putTargets = this._fn.getPutTargets();
+    if (putTargets.length === 0) {
+      return [];
+    }
+    try {
+      const prog = ProgramFactory.fromFile(this._fn.getModule());
+      return prog.resolvePutTargets(putTargets);
+    } catch {
+      return [];
+    }
+  } // fn: _resolvePutSources
 
   /**
    * Gets more inputs from the back-end AI model

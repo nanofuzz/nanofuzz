@@ -26,6 +26,8 @@ struct RunnerInput {
     args: Vec<serde_json::Value>,
     #[serde(default)]
     validators: Vec<String>,
+    #[serde(default)]
+    env: Option<HashMap<String, String>>,
 }
 
 #[derive(Serialize, Debug)]
@@ -140,6 +142,15 @@ fn main() -> io::Result<()> {
                 continue;
             }
         };
+
+        // Propagate dynamic environment variables (e.g. NANOFUZZ_PROVENANCE)
+        if let Some(ref env_vars) = input.env {
+            for (k, v) in env_vars {
+                unsafe {
+                    std::env::set_var(k, v);
+                }
+            }
+        }
 
         nanofuzz_runtime::coverage::reset();
 

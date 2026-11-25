@@ -210,7 +210,7 @@ function createProgram(): Commander.Command {
     )
     .option(
       `--ai-policy <policy>`,
-      `AI input policy: eager, seed (default: eager)`,
+      `AI input policy: eager, seed`,
       parseAiPolicy,
       "eager"
     )

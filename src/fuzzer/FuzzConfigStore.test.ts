@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import * as JSONN from "../Jsonn";
 import { FuzzConfigStore, CURR_FILE_FMT_VER } from "./FuzzConfigStore";
-import { FuzzPinnedTest, FuzzTests } from "./Types";
+import { FuzzArgOverride, FuzzPinnedTest, FuzzTests } from "./Types";
 import * as ProgramFactory from "./analysis/ProgramFactory";
 
 describe("FuzzConfigStore", () => {
@@ -264,6 +264,27 @@ describe("FuzzConfigStore", () => {
     expect(args[0].getOptions().strCharset).toBe("ABC");
     expect(args[1].getIntervals()).toEqual([{ min: 10, max: 20 }]);
     expect(args[1].getOptions().numInteger).toBe(true);
+  });
+
+  it("applies string argument overrides when strCharset is undefined/omitted", () => {
+    const srcFile = path.join(tmpDir, "testOverridesNoCharset.ts");
+    fs.writeFileSync(
+      srcFile,
+      "export function testOverridesNoCharset(s: string): boolean { return s.length > 0; }"
+    );
+    const program = ProgramFactory.fromFile(srcFile);
+    const fnDef = program.functionsExported["testOverridesNoCharset"];
+    expect(fnDef).toBeDefined();
+
+    const dftArgDefaults = FuzzConfigStore.getDefaultFuzzOptions().argDefaults;
+    const rawOverrides = JSONN.parse<FuzzArgOverride[]>(
+      JSONN.stringify([{ string: { minStrLen: 2, maxStrLen: 8 } }])
+    );
+    FuzzConfigStore.applyArgOverrides(fnDef, rawOverrides, dftArgDefaults);
+
+    const args = fnDef.getArgDefs();
+    expect(args[0].getOptions().strLength).toEqual({ min: 2, max: 8 });
+    expect(args[0].getOptions().strCharset).toBe(dftArgDefaults.strCharset);
   });
 
   it("throws error for unknown schema version", () => {

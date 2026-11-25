@@ -112,7 +112,8 @@ export class JavascriptRunner extends AbstractRunner {
   public async run(
     inputs: unknown[],
     timeout: number | undefined = 0,
-    validators: string[] = []
+    validators: string[] = [],
+    env?: Record<string, string>
   ): Promise<RunnerResult> {
     const thisSeq = this._seq++;
     try {
@@ -129,6 +130,7 @@ export class JavascriptRunner extends AbstractRunner {
         fnName: this._jsFn,
         filename: this._filename,
         validators: validators.length > 0 ? validators : undefined,
+        env,
         collect: {
           coverageData: this._coverageEnabled ? true : undefined,
           debugData: debugEnabled ? true : undefined,
