@@ -22,7 +22,7 @@ import {
   generateBenchmarkSchedule,
   BenchmarkRunSpec,
 } from "./BenchmarkRunner";
-import { resolveFullProvenance } from "../fuzzer/FuzzerV3";
+import { resolveFullProvenance } from "../fuzzer/Util";
 import { FuzzValueOrigin } from "../fuzzer/Types";
 
 const sampleSurveyJson = JSON.stringify({

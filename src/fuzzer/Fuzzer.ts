@@ -672,6 +672,7 @@ export class Tester {
     this._trackProvenance = Boolean(
       process.env.NANOFUZZ_DYNAMIC_BUG_ELICITATION
     );
+
     // Build runners for the property validators
     // Assumed: property validators are in the same module
     const propRunners = this._validators.map((vFnRef) =>

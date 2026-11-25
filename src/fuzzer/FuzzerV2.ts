@@ -416,6 +416,7 @@ export class FuzzerV2 {
       this._trackProvenance = Boolean(
         process.env.NANOFUZZ_DYNAMIC_BUG_ELICITATION
       );
+
       while (true) {
         stillInjecting =
           this._stats.currentRun.counters.inputsInjected < injectTests.length;

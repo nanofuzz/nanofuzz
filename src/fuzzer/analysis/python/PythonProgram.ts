@@ -602,9 +602,6 @@ export class PythonProgram extends AbstractProgram {
           case "bytes":
           case "bytearray":
             return [ArgTag.BYTES, 0, node.text];
-          case "type":
-          case "Type":
-            return [ArgTag.OBJECT, 0, node.text];
           case "UUID":
             return [
               ArgTag.STRING,
@@ -673,9 +670,6 @@ export class PythonProgram extends AbstractProgram {
               undefined,
               this._getLiteralValueFromNode(node),
             ];
-          case "type":
-          case "Type":
-            return [ArgTag.OBJECT, 0, base];
           default:
             return [ArgTag.UNRESOLVED, 0, base];
         }
@@ -1039,16 +1033,8 @@ export class PythonProgram extends AbstractProgram {
         thisType.typeRefName = typeRefNode; // Unresolved type reference
         break;
       }
-      case ArgTag.OBJECT: {
-        thisType.dims = dims;
-        thisType.type = {
-          dims: dims,
-          type: ArgTag.OBJECT,
-          children: [],
-          resolved: true,
-        };
-        break;
-      }
+      case ArgTag.OBJECT:
+        throw new Error(`Unexpected object type in Python annotation`);
     }
     return thisType;
   }
@@ -3278,16 +3264,6 @@ export class PythonProgram extends AbstractProgram {
       );
     }
 
-    if (typeRef.typeRefName === "FuzzTestResult") {
-      typeRef.type = {
-        type: ArgTag.OBJECT,
-        dims: 0,
-        children: [],
-        resolved: true,
-      };
-      return typeRef;
-    }
-
     // Resolve standard builtin types
     switch (typeRef.typeRefName) {
       case "int":
@@ -3341,10 +3317,6 @@ export class PythonProgram extends AbstractProgram {
           resolved: true,
         };
         return typeRef;
-      case "type":
-      case "Type":
-      case "builtins.type":
-      case "typing.Type":
       case "None":
       case "NoneType":
       case "none":

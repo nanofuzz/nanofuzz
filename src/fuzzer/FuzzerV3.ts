@@ -1206,8 +1206,6 @@ export class FuzzerV3 {
   } // fn: _finalizeRun
 } // class: FuzzerV3
 
-export { resolveFullProvenance } from "./Util";
-
 /**
  * Represents a single test candidate transitioning through pipeline stages.
  */

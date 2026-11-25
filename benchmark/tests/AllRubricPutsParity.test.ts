@@ -1,12 +1,12 @@
 import * as path from "node:path";
 import * as fs from "node:fs";
-import { runFuzz } from "../../../ui/Agent";
+import { runFuzz } from "../../src/ui/Agent";
 import {
   registerExcludedCoverageFiles,
   clearExcludedCoverageFiles,
   setTargetCoverageFiles,
-} from "../../../ui/Agent";
-import * as Config from "../../../Config";
+} from "../../src/ui/Agent";
+import * as Config from "../../src/Config";
 
 const TARGET_DIR = path.resolve(process.cwd(), "benchmark", "target");
 const PYTHON_PATH = path.join(TARGET_DIR, ".venv", "bin", "python");
