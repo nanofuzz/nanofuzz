@@ -31,7 +31,7 @@ import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
 import { parseCoverageScope } from "../fuzzer/measures/Util";
 import path from "node:path";
 import * as JSONN from "../Jsonn";
-import { isError, CpuSampler } from "../fuzzer/Util";
+import { isError, getDisplayPath, CpuSampler } from "../fuzzer/Util";
 import { isKeyedObject } from "../Util";
 import { LlmAdapter } from "../fuzzer/adapters/LlmAdapter";
 import { LlmDelayCalculator } from "../fuzzer/adapters/LlmDelayCalculator";
@@ -540,12 +540,24 @@ export async function runCliInProcess(
       switch (payload.type) {
         case "compiling": {
           stopBars();
-          isolator.log(formatCompilingStatus(payload));
+          let displayFile = getDisplayPath(payload.file);
+          if (displayFile.endsWith(".js")) {
+            displayFile = displayFile.slice(0, -3) + ".ts";
+          }
+          isolator.log(
+            formatCompilingStatus({ ...payload, file: displayFile })
+          );
           break;
         }
         case "instrumenting": {
           stopBars();
-          isolator.log(formatInstrumentingStatus(payload));
+          let displayFile = getDisplayPath(payload.file);
+          if (displayFile.endsWith(".js")) {
+            displayFile = displayFile.slice(0, -3) + ".ts";
+          }
+          isolator.log(
+            formatInstrumentingStatus({ ...payload, file: displayFile })
+          );
           break;
         }
         case "testing":
@@ -1039,10 +1051,7 @@ export async function runCliInProcess(
       const workerWord =
         workersCount === 1 ? "1 worker" : `${workersCount} workers`;
 
-      const relPath = path.relative(process.cwd(), filename);
-      const displayPath = (
-        relPath && relPath.length < filename.length ? relPath : filename
-      ).replace(/\\/g, "/");
+      const displayPath = getDisplayPath(filename);
 
       const activeGenerators: string[] = [];
       if (injectTests.length > 0) {

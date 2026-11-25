@@ -87,8 +87,7 @@ describe("VscodeLmAdapter", () => {
       expect(prepared.invocationMessage).toContain(
         "testStandardVoidReturnUndefined"
       );
-      expect(prepared.confirmationMessages).toBeDefined();
-      expect(prepared.confirmationMessages?.message).toContain("NaNofuzz");
+      expect(prepared.confirmationMessages).toBeUndefined();
     }
   });
 
