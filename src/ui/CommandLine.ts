@@ -1055,7 +1055,7 @@ export async function runCliInProcess(
 
       const activeGenerators: string[] = [];
       if (injectTests.length > 0) {
-        activeGenerators.push("Inject");
+        activeGenerators.push("Seed");
       }
       if (fuzzer.env.options.generators.RandomInputGenerator?.enabled) {
         activeGenerators.push("Random");

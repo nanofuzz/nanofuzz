@@ -1023,7 +1023,7 @@ describe("cli:", () => {
       }
     );
 
-    // Both injected tests and user generator are active -> Inject as first token, User (<fn>)
+    // Both injected tests and user generator are active -> Seed as first token, User (<fn>)
     const res1 = await runCli([
       targetFile,
       targetWithUserGen,
@@ -1036,10 +1036,10 @@ describe("cli:", () => {
     ]);
     expect(res1.status).toBe(0);
     expect(res1.stdout).toContain(
-      "Inputs: Inject, Random, Mutation, User (targetUserGenGenerator)"
+      "Inputs: Seed, Random, Mutation, User (targetUserGenGenerator)"
     );
 
-    // Injected tests active but user generator disabled via CLI -> Inject first, no User (<fn>)
+    // Injected tests active but user generator disabled via CLI -> Seed first, no User (<fn>)
     const res2 = await runCli([
       targetFile,
       targetWithUserGen,
@@ -1052,10 +1052,10 @@ describe("cli:", () => {
       "cli_seed_inject_disabled_user_gen",
     ]);
     expect(res2.status).toBe(0);
-    expect(res2.stdout).toContain("Inputs: Inject, Random, Mutation");
+    expect(res2.stdout).toContain("Inputs: Seed, Random, Mutation");
     expect(res2.stdout).not.toContain("User (");
 
-    // Injected tests active on a function without user generator -> Inject first
+    // Injected tests active on a function without user generator -> Seed first
     const res3 = await runCli([
       targetFile,
       targetNoUserGen,
@@ -1067,7 +1067,7 @@ describe("cli:", () => {
       "cli_seed_inject_no_user_gen",
     ]);
     expect(res3.status).toBe(0);
-    expect(res3.stdout).toContain("Inputs: Inject, Random, Mutation");
+    expect(res3.stdout).toContain("Inputs: Seed, Random, Mutation");
     expect(res3.stdout).not.toContain("User (");
   });
 
@@ -2029,7 +2029,10 @@ def ${targetFn}(n: int) -> int:
     expect(dataAll.results.length).toBe(5);
 
     // 1b. Mode: interesting -> records only interesting results and failures
-    const outFileInteresting = path.join(tmpDir, "out_results_interesting.json5");
+    const outFileInteresting = path.join(
+      tmpDir,
+      "out_results_interesting.json5"
+    );
     const resInteresting = await runCli([
       targetFile,
       targetFn,
@@ -2505,7 +2508,7 @@ export function myFunc(x: number): number {
     ]);
 
     expect(res.status).toBe(0);
-    expect(res.stdout).toContain("Inputs: Inject");
+    expect(res.stdout).toContain("Inputs: Seed");
     const data = JSON5.parse<FuzzTestResults>(fs.readFileSync(outFile, "utf8"));
     expect(data.env.options.maxTests).toBe(3);
   });
@@ -2547,7 +2550,7 @@ export function myFunc(x: number): number {
       "utf8"
     );
 
-    // Run without --no-seed-input-generator: Inject is present
+    // Run without --no-seed-input-generator: Seed is present
     const resEnabled = await runCli([
       tsFile,
       "myFunc",
@@ -2557,9 +2560,9 @@ export function myFunc(x: number): number {
       "cli_seed_seeds_enabled",
     ]);
     expect(resEnabled.status).toBe(0);
-    expect(resEnabled.stdout).toContain("Inputs: Inject");
+    expect(resEnabled.stdout).toContain("Inputs: Seed");
 
-    // Run with --no-seed-input-generator: Inject is omitted
+    // Run with --no-seed-input-generator: Seed is omitted
     const resDisabled = await runCli([
       tsFile,
       "myFunc",
@@ -2572,7 +2575,7 @@ export function myFunc(x: number): number {
       "cli_seed_seeds_disabled",
     ]);
     expect(resDisabled.status).toBe(0);
-    expect(resDisabled.stdout).not.toContain("Inputs: Inject");
+    expect(resDisabled.stdout).not.toContain("Inputs: Seed");
     const data = JSON5.parse<FuzzTestResults>(fs.readFileSync(outFile, "utf8"));
     expect(data.stats.counters.inputsInjected).toBe(0);
   });
