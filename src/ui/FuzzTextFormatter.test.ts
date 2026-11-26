@@ -139,7 +139,7 @@ describe("ui/FuzzTextFormatter", () => {
 
     const summaryZero = formatRunSummary(mockResultsZero);
     expect(summaryZero).toContain(" - Generated 53 inputs");
-    expect(summaryZero).not.toContain("Injected");
+    expect(summaryZero).not.toContain("Seeded");
     expect(summaryZero).not.toContain("dupes");
 
     const mockResultsNonZero = createMockResults(FuzzStopReason.MAXTESTS);
@@ -149,7 +149,7 @@ describe("ui/FuzzTextFormatter", () => {
 
     const summaryNonZero = formatRunSummary(mockResultsNonZero);
     expect(summaryNonZero).toContain(
-      " - Injected 4 and generated 53 inputs (3 were dupes)"
+      " - Seeded 4 and generated 53 inputs (3 were dupes)"
     );
   });
 
