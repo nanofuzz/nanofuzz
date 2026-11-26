@@ -1,6 +1,7 @@
 import * as path from "node:path";
 import * as vscode from "vscode";
 import * as Config from "../../Config";
+import { clearCachedRawResults } from "../../ui/Agent";
 import * as ParserAdapter from "./ParserAdapter";
 import {
   ListTargetsTool,
@@ -267,6 +268,7 @@ describe("VscodeLmAdapter", () => {
   });
 
   it("showResults: prepare and invoke", async () => {
+    clearCachedRawResults();
     const tool = new ShowResultsTool();
     const prepared = tool.prepareInvocation({
       input: {
