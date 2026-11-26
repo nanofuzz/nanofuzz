@@ -20,7 +20,7 @@
   "randomSeed": "qwertonyuiop",
   "aiConfig": {
     "modelProvider": "gemini",
-    "modelName": "gemini-3.1-flash-lite",
+    "modelName": "gemini-3.8-flash",
     "modelTimeout": 30000
   },
   "treatments": {
@@ -32,7 +32,7 @@
         "--model-provider",
         "gemini",
         "--model-name",
-        "gemini-3.1-flash-lite",
+        "gemini-3.8-flash",
         "--model-timeout",
         "15000"
       ]
@@ -98,7 +98,7 @@
         "--model-provider",
         "gemini",
         "--model-name",
-        "gemini-3.1-flash-lite",
+        "gemini-3.8-flash",
         "--model-timeout",
         "15000",
         "--no-seed-input-generator",
@@ -115,7 +115,7 @@
         "--model-provider",
         "gemini",
         "--model-name",
-        "gemini-3.1-flash-lite",
+        "gemini-3.8-flash",
         "--model-timeout",
         "15000",
         "--no-seed-input-generator",
@@ -152,7 +152,7 @@
         "--model-provider",
         "gemini",
         "--model-name",
-        "gemini-3.1-flash-lite",
+        "gemini-3.8-flash",
         "--model-timeout",
         "15000",
         "--no-seed-input-generator",
@@ -179,7 +179,7 @@
         "--model-provider",
         "gemini",
         "--model-name",
-        "gemini-3.1-flash-lite",
+        "gemini-3.8-flash",
         "--model-timeout",
         "15000",
         "--no-user-input-generator"
@@ -193,7 +193,7 @@
         "--model-provider",
         "gemini",
         "--model-name",
-        "gemini-3.1-flash-lite",
+        "gemini-3.8-flash",
         "--model-timeout",
         "15000",
         "--no-seed-input-generator"
