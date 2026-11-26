@@ -317,6 +317,19 @@ describe("JSONN: ", () => {
     expect(unpacked.list[2]).toBe(3);
   });
 
+  it("pack/unpack allows replacer to transform function property into value", () => {
+    const objWithFn = {
+      name: "test",
+      compute: () => 42,
+    };
+    const packed = JSONN.pack(objWithFn, (key, value) =>
+      key === "compute" ? 42 : value
+    );
+    const unpacked = JSONN.unpack<Record<string, unknown>>(packed);
+    expect(unpacked.name).toBe("test");
+    expect(unpacked.compute).toBe(42);
+  });
+
   it("packString canonical for literal and cloned objects", () => {
     const obj = { x: [1, 2, 3], y: "test", z: new Set([10, 20]) };
     const clonedObj = structuredClone(obj);
