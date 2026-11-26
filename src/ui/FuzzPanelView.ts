@@ -298,11 +298,19 @@ async function main() {
     handleGetListOfValidators
   );
 
-  // Add event listener for the transformer button
-  getElementByIdOrThrow("transformer.add").addEventListener(
-    "click",
-    handleAddTransformer
-  );
+  // Add event listener for the transformer buttons
+  const transAddBtn = document.getElementById("transformer.add");
+  if (transAddBtn) {
+    transAddBtn.addEventListener("click", handleAddTransformer);
+  }
+  const transShowBtn = document.getElementById("transformer.show");
+  if (transShowBtn) {
+    transShowBtn.addEventListener("click", handleShowTransformer);
+  }
+  const transRefreshBtn = document.getElementById("transformer.getList");
+  if (transRefreshBtn) {
+    transRefreshBtn.addEventListener("click", handleGetListOfTransformers);
+  }
 
   // Add event listener for the user generator button
   const userGenAddBtn = document.getElementById("userGenerator.add");
@@ -2858,12 +2866,21 @@ function refreshValidators(validatorList: string[]) {
  * @param transformerList list of available input transformer names
  */
 function refreshTransformers(transformerList: string[]) {
-  const btn = document.getElementById("transformer.add");
-  if (btn) {
-    btn.innerText =
-      transformerList.length > 0
-        ? "Show Input Transformer"
-        : "Create Input Transformer";
+  const showBtn = document.getElementById("transformer.show");
+  if (showBtn) {
+    if (transformerList.length > 0) {
+      showBtn.classList.remove("hidden");
+    } else {
+      showBtn.classList.add("hidden");
+    }
+  }
+  const addBtn = document.getElementById("transformer.add");
+  if (addBtn) {
+    if (transformerList.length > 0) {
+      addBtn.classList.add("hidden");
+    } else {
+      addBtn.classList.remove("hidden");
+    }
   }
 } // fn: refreshTransformers
 
@@ -2920,15 +2937,13 @@ function handleGetListOfUserGenerators() {
 } // fn: handleGetListOfUserGenerators()
 
 /**
- * Send message to back-end to add code skeleton to source code (because the
- * user clicked the customValidator button)
+ * Send message to back-end to open input transformer in source code
  */
-function handleAddValidator() {
-  const message: FuzzPanelMessageFromWebView = {
-    command: "validator.add",
-  };
-  postToController(message);
-} // fn: handleAddValidator()
+function handleShowTransformer() {
+  postToController({
+    command: "transformer.show",
+  });
+} // fn: handleShowTransformer()
 
 /**
  * Send message to back-end to add input transformer code skeleton
@@ -2939,6 +2954,26 @@ function handleAddTransformer() {
   };
   postToController(message);
 } // fn: handleAddTransformer()
+
+/**
+ * Send message to back-end to refresh the list of transformers
+ */
+function handleGetListOfTransformers() {
+  postToController({
+    command: "transformer.getList",
+  });
+} // fn: handleGetListOfTransformers()
+
+/**
+ * Send message to back-end to add code skeleton to source code (because the
+ * user clicked the customValidator button)
+ */
+function handleAddValidator() {
+  const message: FuzzPanelMessageFromWebView = {
+    command: "validator.add",
+  };
+  postToController(message);
+} // fn: handleAddValidator()
 
 /**
  * Send message to back-end to add code skeleton to source code (because the

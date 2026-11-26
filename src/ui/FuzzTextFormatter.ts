@@ -44,7 +44,7 @@ export function formatRunSummary(
 
   if (counters.inputsInjected > 0) {
     lines.push(
-      ` - Injected ${counters.inputsInjected} and generated ${counters.inputsGenerated} inputs${dupeText}`
+      ` - Seeded ${counters.inputsInjected} and generated ${counters.inputsGenerated} inputs${dupeText}`
     );
   } else {
     lines.push(` - Generated ${counters.inputsGenerated} inputs${dupeText}`);
