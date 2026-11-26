@@ -170,6 +170,34 @@
       "description": "Custom, Random, and Mutation generators active",
       "generators": ["C", "R", "M"],
       "cliArgs": ["--no-seed-input-generator", "--no-ai-input-generator"]
+    },
+    "SRAM": {
+      "name": "SRAM",
+      "description": "Seed, Random, AI, and Mutation generators active (Custom disabled)",
+      "generators": ["S", "R", "A", "M"],
+      "cliArgs": [
+        "--model-provider",
+        "gemini",
+        "--model-name",
+        "gemini-3.1-flash-lite",
+        "--model-timeout",
+        "15000",
+        "--no-user-input-generator"
+      ]
+    },
+    "CRAM": {
+      "name": "CRAM",
+      "description": "Custom, Random, AI, and Mutation generators active (Seed disabled)",
+      "generators": ["C", "R", "A", "M"],
+      "cliArgs": [
+        "--model-provider",
+        "gemini",
+        "--model-name",
+        "gemini-3.1-flash-lite",
+        "--model-timeout",
+        "15000",
+        "--no-seed-input-generator"
+      ]
     }
   }
 }

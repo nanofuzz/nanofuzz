@@ -72,8 +72,8 @@ TASKS_MAP = {
     "make_def": {"branches_total": 8, "bugs_count": 3},
 }
 
-TREATMENTS = ["SCRAM", "S", "SR", "SRM", "C",
-              "CR", "CRM", "R", "A", "RA", "M", "RM", "RAM"]
+TREATMENTS = ["SCRAM", "S", "SR", "SRM", "SRAM", "C",
+              "CR", "CRM", "CRAM", "R", "A", "RA", "M", "RM", "RAM"]
 CONTROL_TREATMENT = "R"
 
 TREATMENT_LABELS = {
@@ -81,9 +81,11 @@ TREATMENT_LABELS = {
     "S": r"\textbf{S}",
     "SR": r"\textbf{SR}",
     "SRM": r"\textbf{SRM}",
+    "SRAM": r"\textbf{SRAM}",
     "C": r"\textbf{C}",
     "CR": r"\textbf{CR}",
     "CRM": r"\textbf{CRM}",
+    "CRAM": r"\textbf{CRAM}",
     "R": r"\textbf{R} \textit{(Control)}",
     "A": r"\textbf{A}",
     "RA": r"\textbf{RA}",
@@ -92,8 +94,8 @@ TREATMENT_LABELS = {
     "RAM": r"\textbf{RAM}",
 }
 
-TREATMENT_SHORT_TEXT = ["SCRAM", "S", "SR", "SRM",
-                        "C", "CR", "CRM", "R", "A", "RA", "M", "RM", "RAM"]
+TREATMENT_SHORT_TEXT = ["SCRAM", "S", "SR", "SRM", "SRAM",
+                        "C", "CR", "CRM", "CRAM", "R", "A", "RA", "M", "RM", "RAM"]
 
 
 def get_cell_color_latex(val: float, max_val: float) -> str:
