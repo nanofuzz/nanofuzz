@@ -691,6 +691,19 @@ def program_files(
             f"Invalid coverage_scope '{coverage_scope}'. Allowed values: {VALID_COVERAGE_SCOPES}"
         )
     root = os.path.realpath(source_root) if source_root else os.path.dirname(filename)
+
+    # Explicit file whitelist override (e.g. CLI or benchmark harness targeting a specific PUT file)
+    include_env = os.environ.get("NANOFUZZ_COVERAGE_INCLUDE_FILES")
+    if include_env:
+        raw_includes = json.loads(include_env)
+        target_files = [
+            os.path.realpath(f) if os.path.isabs(f) else os.path.realpath(os.path.join(root, f))
+            for f in raw_includes
+        ]
+        existing_targets = [f for f in target_files if os.path.exists(f)]
+        if existing_targets:
+            return sorted(existing_targets)
+
     stdlib_path = os.path.normcase(
         os.path.realpath(sysconfig.get_path("stdlib")))
 
