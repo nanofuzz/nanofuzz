@@ -576,6 +576,9 @@ export class FuzzPanel {
             await this._doAddTransformerCmd();
             this._doGetValidatorsAndTransformers();
             break;
+          case "transformer.show":
+            await this._doShowTransformerCmd();
+            break;
           case "userGenerator.add":
             await this._doAddUserGeneratorCmd();
             this._doGetValidatorsAndTransformers();
@@ -583,6 +586,7 @@ export class FuzzPanel {
           case "userGenerator.show":
             await this._doShowUserGeneratorCmd();
             break;
+          case "transformer.getList":
           case "userGenerator.getList":
           case "validator.getList":
             this._doGetValidatorsAndTransformers();
@@ -975,9 +979,13 @@ export class FuzzPanel {
     const existingTransformers = CompanionManager.getTransformers(program, fn);
     if (existingTransformers.length > 0) {
       this._fuzzEnv.transformers = existingTransformers;
-      const fnDef = program.functions[existingTransformers[0].name];
+      const targetTrans = existingTransformers[0];
+      const fnDef = program.functions[targetTrans.name];
       if (fnDef) {
         this._navigateToSource(fnDef.getModule(), fnDef.getStartOffset());
+        return;
+      } else if (targetTrans.startOffset !== undefined) {
+        this._navigateToSource(targetTrans.module, targetTrans.startOffset);
         return;
       }
     } else if (this._fuzzEnv.transformers.length > 0) {
@@ -1050,6 +1058,47 @@ export class FuzzPanel {
       );
     }
   } // fn: _doAddTransformerCmd()
+
+  /**
+   * Navigate to the input transformer in the source code
+   */
+  private async _doShowTransformerCmd() {
+    const fn = this._fuzzEnv.function;
+    const module = this._fuzzEnv.function.getModule();
+    let program: AbstractProgram;
+
+    try {
+      program = ProgramFactory.fromFile(module);
+    } catch (e: unknown) {
+      this._setErrorFromException(e);
+      vscode.window.showErrorMessage(
+        `Unable to show the input transformer. Source file cannot be parsed. ${this._fuzzEnv.function.getModule()}`
+      );
+      return;
+    }
+
+    const existingTransformers = CompanionManager.getTransformers(program, fn);
+    if (existingTransformers.length > 0) {
+      this._fuzzEnv.transformers = existingTransformers;
+      const targetTrans = existingTransformers[0];
+      const fnDef = program.functions[targetTrans.name];
+      if (fnDef) {
+        this._navigateToSource(fnDef.getModule(), fnDef.getStartOffset());
+        return;
+      } else if (targetTrans.startOffset !== undefined) {
+        this._navigateToSource(targetTrans.module, targetTrans.startOffset);
+        return;
+      }
+    } else if (this._fuzzEnv.transformers.length > 0) {
+      const transformer = this._fuzzEnv.transformers[0];
+      this._navigateToSource(transformer.module, transformer.startOffset);
+      return;
+    }
+
+    vscode.window.showInformationMessage(
+      `No input transformer found for '${fn.getName()}'. Click + to create one.`
+    );
+  } // fn: _doShowTransformerCmd()
 
   /**
    * Add a user-provided input generator code skeleton to the source code
@@ -1965,7 +2014,6 @@ export class FuzzPanel {
                 <!-- <vscode-panel-tab aria-label="Validating options tab">Validating</vscode-panel-tab> -->
                 <vscode-panel-tab aria-label="Stopping options tab">Stopping</vscode-panel-tab>
                 <vscode-panel-tab aria-label="Input generation options tab">Generating Inputs</vscode-panel-tab>
-                <vscode-panel-tab aria-label="Input transformer tab">Transforming Inputs</vscode-panel-tab>
 
                 <vscode-panel-view>
                   <p>
@@ -2059,34 +2107,44 @@ export class FuzzPanel {
                       </span>
                       <span id="userGenerator.getList" class="tooltipped tooltipped-nw clickable" aria-label="Refresh list">
                         <span ${disabledFlag} class="classAddRefreshValidator">
+                          <span class="codicon codicon-refresh" style="padding-left:0.1em; padding-right:0.1em;"></span>
+                        </span>
+                      </span>
+                    </span>
+                  </div>
+
+                  <p style="margin-bottom: 1em;">
+                    Transform inputs:
+                  </p>
+                  <p style="margin-top: 0;">
+                    An input transformer allows you to skip or manipulate a generated input (e.g., to calculate check-sums) before it is dispatched for execution.
+                  </p>
+                  <div class="fuzzInputControlGroup">
+                    <span style="display:inline-block;">
+                      <vscode-checkbox ${disabledFlag} id="fuzz-useTransformer" ${this._fuzzEnv.options.useTransformer ? "checked" : ""}>
+                        <span> 
+                          With an input transformer
+                        </span>
+                      </vscode-checkbox>
+                      <span id="transformer.show" class="${this._fuzzEnv.transformers.length > 0 ? "" : "hidden "}tooltipped tooltipped-nw clickable" aria-label="Open input transformer in editor">
+                        <span ${disabledFlag} class="classAddRefreshValidator">
+                          <span class="codicon codicon-go-to-file" style="padding-left:0.1em; padding-right:0.1em;"></span>
+                        </span>
+                      </span>
+                      <span id="transformer.add" class="${this._fuzzEnv.transformers.length > 0 ? "hidden " : ""}tooltipped tooltipped-nw clickable" aria-label="Create new input transformer">
+                        <span ${disabledFlag} class="classAddRefreshValidator">
+                          <span class="codicon codicon-add" style="padding-left:0.1em; padding-right:0.1em;"></span>
+                        </span>
+                      </span>
+                      <span id="transformer.getList" class="tooltipped tooltipped-nw clickable" aria-label="Refresh list">
+                        <span ${disabledFlag} class="classAddRefreshValidator">
                           <span class="codicon codicon-refresh" style="padding-left:0.1em;"></span>
                         </span>
                       </span>
                     </span>
                   </div>
                 </vscode-panel-view>
-
-
-                <vscode-panel-view>
-                  <p>
-                    An input transformer allows you to skip or manipulate a generated input (e.g., to calculate check-sums) before it is dispatched for execution.
-                  </p>
-                  
-                  <div class="fuzzInputControlGroup" style="margin-bottom: 1em;">
-                    <vscode-checkbox ${disabledFlag} id="fuzz-useTransformer" ${this._fuzzEnv.options.useTransformer ? "checked" : ""}>
-                      <span> 
-                        Enable Input Transformer
-                      </span>
-                    </vscode-checkbox>
-                  </div>
-
-                  <div class="fuzzInputControlGroup">
-                    <vscode-button ${disabledFlag ? "disabled" : ""} id="transformer.add" appearance="secondary">
-                      ${this._fuzzEnv.transformers.length > 0 ? "Show Input Transformer" : "Create Input Transformer"}
-                    </vscode-button>
-                  </div>
-                </vscode-panel-view>
-                </vscode-panels>
+              </vscode-panels>
 
               <vscode-divider></vscode-divider>
             </div>`;
@@ -4089,6 +4147,8 @@ export type FuzzPanelMessageFromWebView =
         | "validator.add"
         | "validator.getList"
         | "transformer.add"
+        | "transformer.show"
+        | "transformer.getList"
         | "userGenerator.add"
         | "userGenerator.show"
         | "userGenerator.getList"
