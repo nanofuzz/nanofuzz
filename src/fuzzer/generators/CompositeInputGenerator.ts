@@ -83,6 +83,15 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
   } // setter: cancelFn
 
   /**
+   * Sets the active worker count and propagates to subgenerators.
+   */
+  public override set workerCount(count: number) {
+    for (const subgen of this._subgens) {
+      subgen.workerCount = count;
+    }
+  } // setter: workerCount
+
+  /**
    * Creates a new composite input generator, which subsumes multiple concrete input
    * generators (subgens) and selects which subgen to use next based on each subgen's
    * recent productivity relative to other subgens, as calculated by various measures.

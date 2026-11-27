@@ -26,6 +26,7 @@ export class UserInputGenerator extends AbstractInputGenerator {
   protected _rngSeed?: string; // Random number generator seed
   protected _failureTicks: number[] = []; // Ticks at which generator execution failed
   protected _consecutiveFailures = 0; // Consecutive failure streak, resets on success
+  protected _workerCount = 1; // Active worker concurrency count
 
   public constructor(
     fn: FunctionDef,
@@ -39,6 +40,20 @@ export class UserInputGenerator extends AbstractInputGenerator {
     this._userGenRunner = userGenRunner;
     this._fnTimeout = fnTimeout;
   } // fn: constructor
+
+  /**
+   * Target queue capacity scaled to 3x active workers.
+   */
+  public get targetQueueSize(): number {
+    return Math.max(3, this._workerCount * 3);
+  }
+
+  /**
+   * Sets the active worker count for queue scaling.
+   */
+  public override set workerCount(count: number) {
+    this._workerCount = Math.max(1, count);
+  }
 
   /**
    * Returns human-readable generator name
@@ -87,7 +102,7 @@ export class UserInputGenerator extends AbstractInputGenerator {
       this._userGenRunner &&
       !this._exhausted &&
       !this._callsPending &&
-      this._inputQueue.length < 3
+      this._inputQueue.length < this.targetQueueSize
     ) {
       this._getMoreInputs();
     }
@@ -118,7 +133,7 @@ export class UserInputGenerator extends AbstractInputGenerator {
       this._userGenRunner &&
       !this._exhausted &&
       !this._callsPending &&
-      this._inputQueue.length < 3
+      this._inputQueue.length < this.targetQueueSize
     ) {
       this._getMoreInputs();
     }
@@ -251,7 +266,7 @@ export class UserInputGenerator extends AbstractInputGenerator {
               this._active &&
               this._userGenRunner &&
               !this._exhausted &&
-              this._inputQueue.length < 3
+              this._inputQueue.length < this.targetQueueSize
             ) {
               this._getMoreInputs();
             }

@@ -1,0 +1,4 @@
+worktrees/
+results/
+cli/
+scripts/llm_config*.json
