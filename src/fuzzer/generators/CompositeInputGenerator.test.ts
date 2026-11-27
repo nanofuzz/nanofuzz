@@ -1749,6 +1749,9 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
 
       // Mock subgenerator that remains "soon" with a long-running promise
       class HangingAsyncSubgen extends AbstractInputGenerator {
+        public constructor(specs: ArgDef[], rngSeed: string | undefined) {
+          super(specs, rngSeed);
+        }
         private _ready = false;
         public nextable(): NextableStatus {
           return this._ready ? "now" : "soon";
@@ -1763,7 +1766,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
           return {
             tick: 0,
             value: [{ tag: "ArgValueTypeWrapped", value: 1 }],
-            source: { type: "generator", generator: "HangingAsyncSubgen" },
+            source: { type: "generator", generator: "RandomInputGenerator" },
           };
         }
       }
@@ -1835,6 +1838,9 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
       const allInputs = new Map<string, unknown>();
 
       class LongPendingAsyncSubgen extends AbstractInputGenerator {
+        public constructor(specs: ArgDef[], rngSeed: string | undefined) {
+          super(specs, rngSeed);
+        }
         public nextable(): NextableStatus {
           return "soon";
         }
@@ -1846,7 +1852,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
           return {
             tick: 0,
             value: [{ tag: "ArgValueTypeWrapped", value: 1 }],
-            source: { type: "generator", generator: "LongPending" },
+            source: { type: "generator", generator: "RandomInputGenerator" },
           };
         }
       }
@@ -1894,8 +1900,9 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
         isCancelled = true;
       }, 50);
 
+      // Pass a 100ms timeout (matching how Fuzzer passes remainingTimeout)
       const start = performance.now();
-      const ready = await cig.waitForNextInput();
+      const ready = await cig.waitForNextInput(100);
       const elapsed = performance.now() - start;
 
       expect(ready).toBeFalse();
