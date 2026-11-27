@@ -724,7 +724,7 @@ def generate_ttest_table(df: pd.DataFrame, out_path: str, stats: dict):
 
     lines.extend([
         r"    \bottomrule",
-        r"    \multicolumn{5}{c}{Statistically significant differences are marked as: $\ast$ ($p\!<\!0.05$), $\ast\ast$ ($p\!<\!0.01$).} \\",
+        r"    \multicolumn{5}{c}{Statistically significant differences are marked as: $\ast$ ($p\!<\!0.05$), $\ast\ast$ ($p\!<\!0.01$), $\ast\ast\ast$ ($p\!<\!0.001$).} \\",
         r"  \end{tabularx}",
         r"\end{table*}",
     ])

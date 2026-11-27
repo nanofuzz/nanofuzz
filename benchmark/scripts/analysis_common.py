@@ -44,6 +44,8 @@ def pvalstars(p: float) -> str:
     """Returns LaTeX significance stars for a p-value."""
     if p is None or np.isnan(p):
         return ""
+    if p < 0.001:
+        return r"$\ast\ast\ast$"
     if p < 0.01:
         return r"$\ast\ast$"
     if p < 0.05:
@@ -53,12 +55,14 @@ def pvalstars(p: float) -> str:
 
 def star_alignment(p: Optional[float]) -> str:
     """Returns phantom-spaced LaTeX significance stars for tabular alignment."""
-    if p is not None and not np.isnan(p) and p < 0.01:
-        return r"$^{\ast\ast}$"
+    if p is not None and not np.isnan(p) and p < 0.001:
+        return r"$^{\ast\ast\ast}$"
+    elif p is not None and not np.isnan(p) and p < 0.01:
+        return r"$^{\ast\ast}\phantom{^{\ast}}$"
     elif p is not None and not np.isnan(p) and p < 0.05:
-        return r"$^{\ast}\phantom{^{\ast}}$"
+        return r"$^{\ast}\phantom{^{\ast\ast}}$"
     else:
-        return r"\phantom{$^{\ast\ast}$}"
+        return r"\phantom{$^{\ast\ast\ast}$}"
 
 
 def format_delta_pct(val: float) -> str:
@@ -124,11 +128,11 @@ def format_sig_cell(tool: str, col: str, m_val: float, sd_val: float, ctl_m: flo
         dec_m_str = dec_m
         color_m = ""
 
-    # Box sizes: 1.8em fits up to 3 bold digits ('100'), 1.5em fits 1 digit + 2 stars ('0**')
+    # Box sizes: 1.8em fits up to 3 bold digits ('100'), 2.0em fits 1 digit + 3 stars ('0***')
     if dec > 0:
-        cell_m = f"{color_m}\\makebox[1.8em][r]{{{int_m_str}}}.\\makebox[1.5em][l]{{{dec_m_str}{s}}}"
+        cell_m = f"{color_m}\\makebox[1.8em][r]{{{int_m_str}}}.\\makebox[2.0em][l]{{{dec_m_str}{s}}}"
     else:
-        cell_m = f"{color_m}\\makebox[1.8em][r]{{{int_m_str}}}\\makebox[1.5em][l]{{{s}}}"
+        cell_m = f"{color_m}\\makebox[1.8em][r]{{{int_m_str}}}\\makebox[2.0em][l]{{{s}}}"
 
     if sd_val is not None and not np.isnan(sd_val):
         raw_sd = f"{sd_val:.{dec}f}" if dec > 0 else f"{sd_val:.0f}"

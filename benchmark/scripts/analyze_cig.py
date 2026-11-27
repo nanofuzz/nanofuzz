@@ -100,7 +100,7 @@ TREATMENT_SHORT_TEXT = ["SCRAM", "S", "SR", "SRM", "SRAM",
 
 def get_cell_color_latex(val: float, max_val: float) -> str:
     """
-    Auto-scales cell background color from red (0) through yellow (1 to 50%) to green (51% to 100%).
+    Auto-scales cell background color from red (0) through yellow (1 to 75%) to green (76% to 100%).
     Red: RGB(245, 183, 177)
     Yellow: RGB(254, 235, 156)
     Green: RGB(169, 223, 192)
@@ -109,13 +109,14 @@ def get_cell_color_latex(val: float, max_val: float) -> str:
         return r"\cellcolor{worsered}"
     ratio = min(1.0, max(0.0, float(val) / float(max_val))
                 ) if max_val > 0 else 0.0
-    if ratio <= 0.5:
-        k = ratio / 0.5
+    midpoint = 0.75
+    if ratio <= midpoint:
+        k = ratio / midpoint
         r = int(245 + k * (254 - 245))
         g = int(183 + k * (235 - 183))
         b = int(177 + k * (156 - 177))
     else:
-        k = (ratio - 0.5) / 0.5
+        k = (ratio - midpoint) / (1.0 - midpoint)
         r = int(254 + k * (169 - 254))
         g = int(235 + k * (223 - 235))
         b = int(156 + k * (192 - 156))
@@ -407,12 +408,7 @@ def generate_pyplots(df: pd.DataFrame, pdf_paths: List[str]):
     fig_tex_path = os.path.join(os.path.dirname(
         os.path.abspath(pdf_paths[0])), "fig-quarton.tex")
     fig_lines = [
-        r"\begin{figure*}[!htbp]",
-        r"  \centering",
-        r"  \includegraphics[width=\textwidth]{parts/pyplots-quarton.pdf}",
-        r"  \caption{\figquartoncaption}",
-        r"  \label{quarton:fig:pyplots}",
-        r"\end{figure*}",
+        r"\includegraphics[width=\textwidth]{parts/pyplots-quarton.pdf}",
     ]
     with open(fig_tex_path, "w", encoding="utf-8") as f:
         f.write("\n".join(fig_lines) + "\n")
@@ -612,7 +608,7 @@ def generate_generator_usage_plot(df: pd.DataFrame, run_dir: str, out_path: str)
     legend_handles = [mpl.patches.Patch(
         facecolor=gen_colors[g], edgecolor="white", label=lbl) for g, lbl in zip(gen_order, labels)]
     fig.legend(handles=legend_handles, loc="upper center", bbox_to_anchor=(
-        0.50, 0.985), ncol=5, fontsize=17.0, frameon=False, handlelength=2.5, handleheight=1.5)
+        0.53, 0.985), ncol=5, fontsize=10.0, frameon=False, handlelength=1.6, handleheight=1.0, columnspacing=1.5)
 
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
     fig.savefig(out_path, format="pdf", bbox_inches="tight")
@@ -639,15 +635,10 @@ def generate_trials_table(df: pd.DataFrame, out_path: str):
     """Generates the trial allocation matrix table."""
     active_treatments = get_active_treatments(df)
     lines = [
-        r"\begin{table*}[!htbp]",
-        r"  \centering",
-        r"  \footnotesize",
-        r"  \caption{Task Assignment Matrix ($n=\qn$)}",
-        r"  \label{quarton:tab:participants}",
-        r"  \begin{tabular}{l|ccccc}",
-        r"    \toprule",
-        r"    \textbf{Treatment} & \textbf{\texttt{make\_def}} & \textbf{\texttt{\_distance\_norm}} & \textbf{\texttt{parse}} & \textbf{\texttt{DerivationTree}} & \textbf{\texttt{TreeValue}} \\",
-        r"    \midrule",
+        r"\begin{tabular}{l|ccccc}",
+        r"  \toprule",
+        r"  \textbf{Treatment} & \textbf{\texttt{make\_def}} & \textbf{\texttt{\_distance\_norm}} & \textbf{\texttt{parse}} & \textbf{\texttt{DerivationTree}} & \textbf{\texttt{TreeValue}} \\",
+        r"  \midrule",
     ]
 
     for tr in active_treatments:
@@ -658,13 +649,12 @@ def generate_trials_table(df: pd.DataFrame, out_path: str):
             rids = sub["RunID"].tolist() if "RunID" in sub.columns else []
             cell_text = ", ".join(rids) if rids else "--"
             row_cells.append(cell_text)
-        lines.append("    " + " & ".join(row_cells) + r" \\")
+        lines.append("  " + " & ".join(row_cells) + r" \\")
 
     lines.extend([
-        r"    \bottomrule",
-        r"    \multicolumn{6}{c}{\footnotesize Trial runs allocated across treatments and target task programs.} \\",
-        r"  \end{tabular}",
-        r"\end{table*}",
+        r"  \bottomrule",
+        r"  \multicolumn{6}{c}{\footnotesize Trial runs allocated across treatments and target task programs.} \\",
+        r"\end{tabular}",
     ])
 
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
@@ -686,26 +676,21 @@ def generate_cig_results_table(df: pd.DataFrame, out_path: str, stats: dict):
             f"\\multicolumn{{2}}{{c{sep}}}{{\\textbf{{{TASK_LABELS.get(t, t)}}}}}")
 
     lines = [
-        r"\begin{table*}[!htbp]",
-        r"  \centering",
-        r"  \setlength{\tabcolsep}{2pt}",
-        r"  \definecolor{bettergreen}{RGB}{169,223,192}",
-        r"  \definecolor{worsered}{RGB}{245,183,177}",
-        r"  \caption{Quantitative Task Results Summary for Measures 1--2 ($n=\qn$)\tabquartonresultscomment{}}",
-        r"  \label{quarton:tab:results}",
-        r"  \footnotesize",
-        r"  \begin{tabularx}{\textwidth}{l| *{4}{>{\centering\arraybackslash}X >{\centering\arraybackslash}X |} >{\centering\arraybackslash}X >{\centering\arraybackslash}X || >{\centering\arraybackslash}X >{\centering\arraybackslash}X}",
-        r"    \toprule",
-        "    & " + " & ".join(header_cols) +
+        r"\setlength{\tabcolsep}{2pt}",
+        r"\definecolor{bettergreen}{RGB}{169,223,192}",
+        r"\definecolor{worsered}{RGB}{245,183,177}",
+        r"\begin{tabularx}{\textwidth}{l| *{4}{>{\centering\arraybackslash}X >{\centering\arraybackslash}X |} >{\centering\arraybackslash}X >{\centering\arraybackslash}X || >{\centering\arraybackslash}X >{\centering\arraybackslash}X}",
+        r"  \toprule",
+        "  & " + " & ".join(header_cols) +
         r" & \multicolumn{2}{c}{\textbf{Overall ($\Sigma$)}} \\",
-        r"    \midrule",
-        r"    \multicolumn{1}{c|}{\textbf{Treatment}} ",
-        r"    & \multicolumn{1}{c}{\textbf{Mean}} & \textbf{SD}",
-        r"    & \multicolumn{1}{c}{\textbf{Mean}} & \textbf{SD}",
-        r"    & \multicolumn{1}{c}{\textbf{Mean}} & \textbf{SD}",
-        r"    & \multicolumn{1}{c}{\textbf{Mean}} & \textbf{SD}",
-        r"    & \multicolumn{1}{c}{\textbf{Mean}} & \textbf{SD}",
-        r"    & \multicolumn{1}{c}{\textbf{Mean}} & \textbf{SD} \\",
+        r"  \midrule",
+        r"  \multicolumn{1}{c|}{\textbf{Treatment}} ",
+        r"  & \multicolumn{1}{c}{\textbf{Mean}} & \textbf{SD}",
+        r"  & \multicolumn{1}{c}{\textbf{Mean}} & \textbf{SD}",
+        r"  & \multicolumn{1}{c}{\textbf{Mean}} & \textbf{SD}",
+        r"  & \multicolumn{1}{c}{\textbf{Mean}} & \textbf{SD}",
+        r"  & \multicolumn{1}{c}{\textbf{Mean}} & \textbf{SD}",
+        r"  & \multicolumn{1}{c}{\textbf{Mean}} & \textbf{SD} \\",
     ]
 
     measures = [
@@ -715,14 +700,14 @@ def generate_cig_results_table(df: pd.DataFrame, out_path: str, stats: dict):
 
     for col, title, dec, scale in measures:
         lines.extend([
-            r"    \midrule",
-            f"    \\multicolumn{{13}}{{c}}{{\\textbf{{{title}}}}} \\\\",
-            r"    \midrule",
+            r"  \midrule",
+            f"  \\multicolumn{{13}}{{c}}{{\\textbf{{{title}}}}} \\\\",
+            r"  \midrule",
         ])
 
         for tr in active_treatments:
             label = TREATMENT_LABELS.get(tr, tr)
-            row_items = [f"    {label}"]
+            row_items = [f"  {label}"]
             ctl_m_all = stats.get(CONTROL_TREATMENT, {}).get(
                 "All", {}).get(col, {}).get("mean", np.nan)
             if not np.isnan(ctl_m_all):
@@ -762,14 +747,13 @@ def generate_cig_results_table(df: pd.DataFrame, out_path: str, stats: dict):
 
             lines.append(" & ".join(row_items) + r" \\")
             if tr != active_treatments[-1]:
-                lines.append(r"    \hline")
+                lines.append(r"  \hline")
 
     lines.extend([
-        r"    \bottomrule",
-        r"    \multicolumn{13}{c}{\footnotesize Statistically significant differences against control R marked as: $\ast$ ($p\!<\!0.05$), $\ast\ast$ ($p\!<\!0.01$).} \\",
-        r"    \multicolumn{13}{c}{\footnotesize Measure 1: Mann--Whitney $U$ test; Measure 2: two-tailed Welch's $t$-test.} \\",
-        r"  \end{tabularx}",
-        r"\end{table*}",
+        r"  \bottomrule",
+        r"  \multicolumn{13}{c}{\footnotesize Statistically significant differences against control R marked as: $\ast$ ($p\!<\!0.05$), $\ast\ast$ ($p\!<\!0.01$), $\ast\ast\ast$ ($p\!<\!0.001$).} \\",
+        r"  \multicolumn{13}{c}{\footnotesize Measure 1: Mann--Whitney $U$ test; Measure 2: two-tailed Welch's $t$-test.} \\",
+        r"\end{tabularx}",
     ])
 
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
@@ -787,19 +771,13 @@ def generate_results_detail_table(df: pd.DataFrame, out_path: str, stats: dict):
     tr_headers = " & ".join([f"\\textbf{{{tr}}}" for tr in active_treatments])
 
     lines = [
-        r"\begin{table*}[!htbp]",
-        r"  \centering",
-        r"  \setlength{\tabcolsep}{3pt}",
-        r"  \caption{Detailed Experimental Outcomes by Treatment across Measures}",
-        r"  \label{quarton:tab:results-detail}",
-        r"  \footnotesize",
-        r"  \resizebox{\textwidth}{!}{%",
-        f"  \\begin{{tabular}}{{{col_spec}}}",
-        r"    \toprule",
-        f"    \\textbf{{Metric}} & {tr_headers} \\\\",
-        r"    \midrule",
-        f"    \\multicolumn{{{total_cols}}}{{c}}{{\\textbf{{Measure 1: Branch Coverage (\\%)}}}} \\\\",
-        r"    \midrule",
+        r"\setlength{\tabcolsep}{3pt}",
+        f"\\begin{{tabular}}{{{col_spec}}}",
+        r"  \toprule",
+        f"  \\textbf{{Metric}} & {tr_headers} \\\\",
+        r"  \midrule",
+        f"  \\multicolumn{{{total_cols}}}{{c}}{{\\textbf{{Measure 1: Branch Coverage (\\%)}}}} \\\\",
+        r"  \midrule",
     ]
 
     for label, col, fmt in [
@@ -807,7 +785,7 @@ def generate_results_detail_table(df: pd.DataFrame, out_path: str, stats: dict):
         ("Mean Coverage", "BranchCoveragePct", ".1f"),
         ("Min Coverage", "BranchCoveragePct", ".1f"),
     ]:
-        row = [f"    {label}"]
+        row = [f"  {label}"]
         for tr in active_treatments:
             sub = df[df["Treatment"] == tr] if not df.empty else pd.DataFrame()
             vals = sub[col].dropna().values.astype(
@@ -823,12 +801,12 @@ def generate_results_detail_table(df: pd.DataFrame, out_path: str, stats: dict):
         lines.append(" & ".join(row) + r" \\")
 
     lines.extend([
-        r"    \midrule",
-        f"    \\multicolumn{{{total_cols}}}{{c}}{{\\textbf{{Measure 2: Bugs Elicited}}}} \\\\",
-        r"    \midrule",
+        r"  \midrule",
+        f"  \\multicolumn{{{total_cols}}}{{c}}{{\\textbf{{Measure 2: Bugs Elicited}}}} \\\\",
+        r"  \midrule",
     ])
 
-    total_el_row = ["    Total Bugs Elicited"]
+    total_el_row = ["  Total Bugs Elicited"]
     for tr in active_treatments:
         sub = df[df["Treatment"] == tr] if not df.empty else pd.DataFrame()
         tot = int(sub["BugsElicited"].sum()
@@ -836,7 +814,7 @@ def generate_results_detail_table(df: pd.DataFrame, out_path: str, stats: dict):
         total_el_row.append(str(tot) if len(sub) > 0 else "--")
     lines.append(" & ".join(total_el_row) + r" \\")
 
-    mean_el_row = ["    Mean Bugs / Trial"]
+    mean_el_row = ["  Mean Bugs / Trial"]
     for tr in active_treatments:
         sub = df[df["Treatment"] == tr] if not df.empty else pd.DataFrame()
         m = float(sub["BugsElicited"].mean()) if "BugsElicited" in sub.columns and len(
@@ -845,10 +823,8 @@ def generate_results_detail_table(df: pd.DataFrame, out_path: str, stats: dict):
     lines.append(" & ".join(mean_el_row) + r" \\")
 
     lines.extend([
-        r"    \bottomrule",
-        r"  \end{tabular}%",
-        r"  }",
-        r"\end{table*}",
+        r"  \bottomrule",
+        r"\end{tabular}",
     ])
 
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
@@ -869,20 +845,14 @@ def generate_ttest_table(df: pd.DataFrame, out_path: str, stats: dict):
     ).values if not df.empty else []
 
     lines = [
-        r"\begin{table*}[!htbp]",
-        r"  \centering",
-        r"  \footnotesize",
-        r"  \setlength{\tabcolsep}{3pt}",
-        r"  \definecolor{bettergreen}{RGB}{169,223,192}",
-        r"  \definecolor{worsered}{RGB}{245,183,177}",
-        r"  \caption{Statistical Significance of Treatment Effects vs.\ Control R ($n=\qn$)\tabquartonttestscomment{}}",
-        r"  \label{quarton:tab:ttests}",
-        r"  \resizebox{\textwidth}{!}{%",
-        r"  \begin{tabular}{l | r c r | r c r}",
-        r"    \toprule",
-        r"    & \multicolumn{3}{c|}{\textbf{Measure 1: Branch Coverage ($U$-test)}} & \multicolumn{3}{c}{\textbf{Measure 2: Elicited Bugs ($t$-test)}} \\",
-        r"    \textbf{Treatment} & \multicolumn{1}{c}{\textbf{$\Delta$}} & \textbf{Statistic} & \multicolumn{1}{c|}{\textbf{$p$}} & \multicolumn{1}{c}{\textbf{$\Delta$}} & \textbf{Statistic} & \multicolumn{1}{c}{\textbf{$p$}} \\",
-        r"    \midrule",
+        r"\setlength{\tabcolsep}{3pt}",
+        r"\definecolor{bettergreen}{RGB}{169,223,192}",
+        r"\definecolor{worsered}{RGB}{245,183,177}",
+        r"\begin{tabular}{l | r c r | r c r}",
+        r"  \toprule",
+        r"  & \multicolumn{3}{c|}{\textbf{Measure 1: Branch Coverage ($U$-test)}} & \multicolumn{3}{c}{\textbf{Measure 2: Elicited Bugs ($t$-test)}} \\",
+        r"  \textbf{Treatment} & \multicolumn{1}{c}{\textbf{$\Delta$}} & \textbf{Statistic} & \multicolumn{1}{c|}{\textbf{$p$}} & \multicolumn{1}{c}{\textbf{$\Delta$}} & \textbf{Statistic} & \multicolumn{1}{c}{\textbf{$p$}} \\",
+        r"  \midrule",
     ]
 
     for tr in compare_treatments:
@@ -943,15 +913,13 @@ def generate_ttest_table(df: pd.DataFrame, out_path: str, stats: dict):
                 e3 = f"{p_str_el}{star_el}"
 
         lines.append(
-            f"    \\textbf{{{tr}}} & {c1} & {c2} & {c3} & {e1} & {e2} & {e3} \\\\")
+            f"  \\textbf{{{tr}}} & {c1} & {c2} & {c3} & {e1} & {e2} & {e3} \\\\")
 
     lines.extend([
-        r"    \bottomrule",
-        r"    \multicolumn{7}{c}{\footnotesize Measure 1 evaluated via Mann--Whitney $U$ test; Measure 2 evaluated via Welch's two-tailed $t$-test.} \\",
-        r"    \multicolumn{7}{c}{\footnotesize Statistically significant differences are marked as: $\ast$ ($p\!<\!0.05$), $\ast\ast$ ($p\!<\!0.01$).} \\",
-        r"  \end{tabular}%",
-        r"  }",
-        r"\end{table*}",
+        r"  \bottomrule",
+        r"  \multicolumn{7}{c}{\footnotesize Measure 1 evaluated via Mann--Whitney $U$ test; Measure 2 evaluated via Welch's two-tailed $t$-test.} \\",
+        r"  \multicolumn{7}{c}{\footnotesize Statistically significant differences are marked as: $\ast$ ($p\!<\!0.05$), $\ast\ast$ ($p\!<\!0.01$), $\ast\ast\ast$ ($p\!<\!0.001$).} \\",
+        r"\end{tabular}",
     ])
 
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
@@ -1043,7 +1011,7 @@ def generate_bugs_elicited_table(df: pd.DataFrame, out_path: str):
         f"    \\multicolumn{{2}}{{l|}}{{\\textbf{{Unique Bugs Elicited (out of {total_rubric_bugs})}}}} & " + " & ".join(
             str(treatment_unique[t]) for t in active_treatments) + r" \\",
         r"    \bottomrule",
-        f"    \\multicolumn{{{num_tr + 2}}}{{c}}{{\\footnotesize Color scale auto-scales from red (0) through yellow ($\\le$50\\% of repetitions) to green (100\\% elicitation).}} \\\\",
+        f"    \\multicolumn{{{num_tr + 2}}}{{c}}{{\\footnotesize Color scale auto-scales from red (0) through yellow ($\\le$75\\% of repetitions) to green (100\\% elicitation).}} \\\\",
         r"  \end{tabular}%",
         r"  }",
         r"\end{table*}",
@@ -1277,7 +1245,7 @@ def generate_cig_generator_table(run_dir: str, out_path: str, df: Optional[pd.Da
 
     lines.extend([
         r"    \bottomrule",
-        r"    \multicolumn{6}{l}{\footnotesize Shading: Red (0), Yellow ($\le$50\% of reps), Green (100\% elicitation/origination).} \\",
+        r"    \multicolumn{6}{l}{\footnotesize Shading: Red (0), Yellow ($\le$75\% of reps), Green (100\% elicitation/origination).} \\",
         r"    \multicolumn{6}{l}{\footnotesize Format: Eliciting (Originating). Originating inputs were mutated to elicit the bug.} \\",
         r"  \end{tabular}",
         r"\end{table*}",
