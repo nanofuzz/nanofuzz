@@ -214,11 +214,9 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
   public async waitForNextInput(timeoutMs?: number): Promise<boolean> {
     const startTime = performance.now();
     while (this.nextable() === "soon") {
-      if (timeoutMs !== undefined && timeoutMs > 0) {
-        const elapsed = performance.now() - startTime;
-        if (elapsed >= timeoutMs) {
-          break;
-        }
+      if (this._cancelFn?.()) {
+        this.suppressGenerators();
+        break;
       }
       const pendingSubgens = this._subgens.filter(
         (g, i) => this._activeSubgens[i] && g.nextable() === "soon"
@@ -246,6 +244,11 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
           clearTimeout(timerId!);
         } else {
           await Promise.race(promises);
+        }
+
+        if (this._cancelFn?.()) {
+          this.suppressGenerators();
+          break;
         }
       } else {
         break;
