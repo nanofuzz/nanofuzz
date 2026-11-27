@@ -13,10 +13,12 @@ import (
 	/* __NANOFUZZ_IMPORTS__ */)
 
 type RunnerInput struct {
-	Seq        int64             `json:"seq"`
-	Args       []any             `json:"args"`
-	Validators []string          `json:"validators"`
-	Env        map[string]string `json:"env,omitempty"`
+	Seq         int64             `json:"seq"`
+	Args        []any             `json:"args"`
+	Repetitions int               `json:"repetitions"`
+	Timeout     int64             `json:"timeout"`
+	Validators  []string          `json:"validators"`
+	Env         map[string]string `json:"env"`
 }
 
 type ValidatorResult struct {
@@ -25,15 +27,19 @@ type ValidatorResult struct {
 	Message string `json:"message,omitempty"`
 }
 
-type RunnerResultPayload struct {
+type RunnerResultItemPayload struct {
 	Tag          string                           `json:"tag"`
 	Value        any                              `json:"value,omitempty"`
 	Message      string                           `json:"message,omitempty"`
 	Name         string                           `json:"name,omitempty"`
 	Source       string                           `json:"source,omitempty"`
-	Seq          int64                            `json:"seq"`
 	Validators   map[string]ValidatorResult       `json:"validators,omitempty"`
 	CoverageData map[string]coverage.FileCoverage `json:"coverageData,omitempty"`
+}
+
+type RunnerResultPayload struct {
+	Results []RunnerResultItemPayload `json:"results"`
+	Seq     int64                     `json:"seq"`
 }
 
 func writeMsg(payload any) error {
@@ -90,11 +96,15 @@ func main() {
 		var input RunnerInput
 		if err := json.Unmarshal(payload, &input); err != nil {
 			resp := RunnerResultPayload{
-				Tag:     "error",
-				Name:    "PayloadDeserializationError",
-				Message: err.Error(),
-				Source:  "put",
-				Seq:     -1,
+				Results: []RunnerResultItemPayload{
+					{
+						Tag:     "error",
+						Name:    "PayloadDeserializationError",
+						Message: err.Error(),
+						Source:  "put",
+					},
+				},
+				Seq: -1,
 			}
 			_ = writeMsg(resp)
 			continue
@@ -111,7 +121,8 @@ func main() {
 
 		/* __NANOFUZZ_ARG_CONVERSIONS__ */
 
-		var outVal any
+		var results []RunnerResultItemPayload
+		var values []any
 		var panicked any
 		var isSkip bool
 		var skipMsg string
@@ -142,17 +153,55 @@ func main() {
 					}
 				}
 			}()
-			/* __NANOFUZZ_FN_CALL__ */
+
+			reps := input.Repetitions
+			if reps < 1 {
+				reps = 1
+			}
+
+			if reps > 1 {
+				for _r := 0; _r < reps; _r++ {
+					var singleOut any
+					/* __NANOFUZZ_FN_CALL__ */
+					results = append(results, RunnerResultItemPayload{
+						Tag:   "value",
+						Value: singleOut,
+					})
+					if singleOut == nil {
+						break
+					}
+				}
+			} else {
+				var singleOut any
+				/* __NANOFUZZ_FN_CALL__ */
+				values = append(values, singleOut)
+			}
 		}()
 
 		covData := coverage.TakeMultiHits(MANIFEST)
 
+		if input.Repetitions > 1 {
+			if len(results) > 0 {
+				results[0].CoverageData = covData
+			}
+			resp := RunnerResultPayload{
+				Results: results,
+				Seq:     input.Seq,
+			}
+			_ = writeMsg(resp)
+			continue
+		}
+
 		if isSkip {
 			resp := RunnerResultPayload{
-				Tag:          "skip",
-				Message:      skipMsg,
-				Seq:          input.Seq,
-				CoverageData: covData,
+				Results: []RunnerResultItemPayload{
+					{
+						Tag:          "skip",
+						Message:      skipMsg,
+						CoverageData: covData,
+					},
+				},
+				Seq: input.Seq,
 			}
 			_ = writeMsg(resp)
 			continue
@@ -160,12 +209,16 @@ func main() {
 
 		if panicked != nil {
 			resp := RunnerResultPayload{
-				Tag:          "error",
-				Name:         "Panic",
-				Message:      fmt.Sprint(panicked),
-				Source:       "put",
-				Seq:          input.Seq,
-				CoverageData: covData,
+				Results: []RunnerResultItemPayload{
+					{
+						Tag:          "error",
+						Name:         "Panic",
+						Message:      fmt.Sprint(panicked),
+						Source:       "put",
+						CoverageData: covData,
+					},
+				},
+				Seq: input.Seq,
 			}
 			_ = writeMsg(resp)
 			continue
@@ -174,12 +227,20 @@ func main() {
 		var validatorsRes map[string]ValidatorResult
 		/* __NANOFUZZ_VALIDATORS__ */
 
+		var singleVal any
+		if len(values) > 0 {
+			singleVal = values[0]
+		}
 		resp := RunnerResultPayload{
-			Tag:          "value",
-			Value:        outVal,
-			Seq:          input.Seq,
-			Validators:   validatorsRes,
-			CoverageData: covData,
+			Results: []RunnerResultItemPayload{
+				{
+					Tag:          "value",
+					Value:        singleVal,
+					Validators:   validatorsRes,
+					CoverageData: covData,
+				},
+			},
+			Seq: input.Seq,
 		}
 		_ = writeMsg(resp)
 	}

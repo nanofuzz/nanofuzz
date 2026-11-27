@@ -141,9 +141,9 @@ func Abs(x int) int {
 
     // First execution: x < 0 -> hits branch 0
     const resNeg = await runner.run([-5]);
-    expect(resNeg.result.tag).toBe("value");
-    if (resNeg.result.tag === "value") {
-      expect(resNeg.result.value).toBe(5);
+    expect(resNeg.results[0].tag).toBe("value");
+    if (resNeg.results[0].tag === "value") {
+      expect(resNeg.results[0].value).toBe(5);
     }
 
     const dynCov1 = runner.lastRunCoverage;
@@ -151,9 +151,9 @@ func Abs(x int) int {
 
     // Second execution: x >= 0 -> hits branch 1
     const resPos = await runner.run([10]);
-    expect(resPos.result.tag).toBe("value");
-    if (resPos.result.tag === "value") {
-      expect(resPos.result.value).toBe(10);
+    expect(resPos.results[0].tag).toBe("value");
+    if (resPos.results[0].tag === "value") {
+      expect(resPos.results[0].value).toBe(10);
     }
 
     const dynCov2 = runner.lastRunCoverage;
@@ -259,9 +259,9 @@ func Helper(n int) int {
 
     // Run compute and verify dynamic coverage covers both files
     const res = await runner.run([5]);
-    expect(res.result.tag).toBe("value");
-    if (res.result.tag === "value") {
-      expect(res.result.value).toBe(10);
+    expect(res.results[0].tag).toBe("value");
+    if (res.results[0].tag === "value") {
+      expect(res.results[0].value).toBe(10);
     }
 
     const lastCov = runner.lastRunCoverage;
@@ -324,9 +324,9 @@ func Compute(n int) int {
       const runnerProject = new GoRunner(mainGo, "Compute", env);
       await runnerProject.onRunStart();
       const resProject = await runnerProject.run([4]);
-      expect(resProject.result.tag).toBe("value");
-      if (resProject.result.tag === "value") {
-        expect(resProject.result.value).toBe(17);
+      expect(resProject.results[0].tag).toBe("value");
+      if (resProject.results[0].tag === "value") {
+        expect(resProject.results[0].value).toBe(17);
       }
       expect(runnerProject.coverageInfo).toBeDefined();
       const projectFiles = Object.keys(runnerProject.coverageInfo!);
@@ -343,9 +343,9 @@ func Compute(n int) int {
       const runnerImports = new GoRunner(mainGo, "Compute", env);
       await runnerImports.onRunStart();
       const resImports = await runnerImports.run([4]);
-      expect(resImports.result.tag).toBe("value");
-      if (resImports.result.tag === "value") {
-        expect(resImports.result.value).toBe(17);
+      expect(resImports.results[0].tag).toBe("value");
+      if (resImports.results[0].tag === "value") {
+        expect(resImports.results[0].value).toBe(17);
       }
       expect(runnerImports.coverageInfo).toBeDefined();
       const importFiles = Object.keys(runnerImports.coverageInfo!);

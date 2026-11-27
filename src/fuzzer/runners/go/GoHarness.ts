@@ -501,10 +501,9 @@ function generateGoHarnessSource(
   const argDefs = fnDef ? fnDef.getArgDefs() : [];
   const argConversions: string[] = [];
   const callArgs: string[] = [];
-
-  const isGenerator = fnName.endsWith("Generator");
-  const isTransformer = fnName.endsWith("Transformer");
   let hasPrng = false;
+
+  const isTransformer = fnName.endsWith("Transformer");
 
   for (let i = 0; i < argDefs.length; i++) {
     const arg = argDefs[i];
@@ -553,29 +552,19 @@ function generateGoHarnessSource(
   const isTuple = returnArg?.getType() === ArgTag.TUPLE;
 
   let fnCallCode: string;
-  if (isGenerator) {
-    if (isTuple) {
-      const count = returnArg?.getChildren().length ?? 2;
-      const vars = Array.from({ length: count }, (_, idx) => `r${idx}`);
-      const dataVars = vars.slice(0, -1);
-      const okVar = vars[vars.length - 1];
-      fnCallCode = `\t\t\t${vars.join(", ")} := ${fnName}(${callArgs.join(", ")})\n\t\t\tif !${okVar} {\n\t\t\t\toutVal = nil\n\t\t\t} else {\n\t\t\t\toutVal = []any{${dataVars.join(", ")}}\n\t\t\t}`;
-    } else {
-      fnCallCode = `\t\t\tr, ok := ${fnName}(${callArgs.join(", ")})\n\t\t\tif !ok {\n\t\t\t\toutVal = nil\n\t\t\t} else {\n\t\t\t\toutVal = []any{r}\n\t\t\t}`;
-    }
-  } else if (isVoid) {
-    fnCallCode = `\t\t\t${fnName}(${callArgs.join(", ")})\n\t\t\toutVal = nil`;
+  if (isVoid) {
+    fnCallCode = `\t\t\t${fnName}(${callArgs.join(", ")})\n\t\t\tsingleOut = nil`;
   } else if (isTuple) {
     const childrenCount = returnArg?.getChildren().length ?? 2;
     const retVars = Array.from(
       { length: childrenCount },
       (_, idx) => `r${idx}`
     );
-    fnCallCode = `\t\t\t${retVars.join(", ")} := ${fnName}(${callArgs.join(", ")})\n\t\t\toutVal = []any{${retVars.join(", ")}}`;
+    fnCallCode = `\t\t\t${retVars.join(", ")} := ${fnName}(${callArgs.join(", ")})\n\t\t\tsingleOut = []any{${retVars.join(", ")}}`;
   } else if (isTransformer) {
-    fnCallCode = `\t\t\toutVal = []any{${fnName}(${callArgs.join(", ")})}`;
+    fnCallCode = `\t\t\tsingleOut = []any{${fnName}(${callArgs.join(", ")})}`;
   } else {
-    fnCallCode = `\t\t\toutVal = ${fnName}(${callArgs.join(", ")})`;
+    fnCallCode = `\t\t\tsingleOut = ${fnName}(${callArgs.join(", ")})`;
   }
 
   // Validators
@@ -587,7 +576,7 @@ function generateGoHarnessSource(
 \t\tif containsValidator(input.Validators, "${v.name}") {
 \t\t\tftr := runtime.FuzzTestResult{
 \t\t\t\tIn: input.Args,
-\t\t\t\tOut: outVal,
+\t\t\t\tOut: func() any { if len(values) > 0 { return values[0] }; return nil }(),
 \t\t\t\tException: false,
 \t\t\t\tTimeout: false,
 \t\t\t}

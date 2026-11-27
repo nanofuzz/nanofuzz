@@ -17,6 +17,7 @@ export abstract class AbstractInputGenerator {
   protected _prng; // pseudo random number generator
   protected _pendingPromise?: Promise<boolean>; // Pending promise for async input generation
   protected _name: string; // Cached canonical generator name
+  protected _workerCount = 1; // Active worker concurrency count
 
   /**
    * Create a new input generator
@@ -60,6 +61,20 @@ export abstract class AbstractInputGenerator {
   public get isTransformable(): boolean {
     return true;
   } // property: get isTransformable
+
+  /**
+   * Sets the active worker concurrency count.
+   */
+  public set workerCount(count: number) {
+    this._workerCount = Math.max(1, count);
+  } // property: set workerCount
+
+  /**
+   * Returns the active worker concurrency count.
+   */
+  public get workerCount(): number {
+    return this._workerCount;
+  } // property: get workerCount
 
   /**
    * Produce the next test-case inputs if isAvailable();

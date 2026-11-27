@@ -1,8 +1,11 @@
 import fs from "node:fs";
 import {
   AbstractRunner,
+  isRunnerResultItem,
+  RunnerInput,
   RunnerOverrides,
   RunnerResult,
+  RunnerResultItem,
   ValidatorResult,
 } from "../AbstractRunner";
 import { CoverageMapData } from "istanbul-lib-coverage";
@@ -101,7 +104,8 @@ export class RustRunner extends AbstractRunner {
     inputs: unknown[],
     timeout: number | undefined = 0,
     validators: string[] = [],
-    env?: Record<string, string>
+    env?: Record<string, string>,
+    repetitions: number = 1
   ): Promise<RunnerResult> {
     const thisSeq = this._seq++;
     let host: RustHost | undefined = undefined;
@@ -118,12 +122,13 @@ export class RustRunner extends AbstractRunner {
         );
       }
 
-      const input = {
+      const input: RunnerInput = {
         seq: thisSeq,
         args: inputs,
+        repetitions: repetitions ?? 1,
         timeout: timeout ?? 0,
-        ...(validators.length > 0 ? { validators } : {}),
-        ...(env ? { env } : {}),
+        validators: validators ?? [],
+        env: env ?? {},
       };
 
       const encoded = JSONN.pack(input);
@@ -139,7 +144,8 @@ export class RustRunner extends AbstractRunner {
 
       // Ingest dynamic coverage data
       if (this._coverageEnabled && this._coverageInfo) {
-        const rawCovData = hostPayload.coverageData;
+        const rawCovData =
+          hostPayload.coverageData ?? hostPayload.results?.[0]?.coverageData;
         if (rawCovData && isRecordOfFileCoverageData(rawCovData)) {
           this._lastRunCoverage = rawCovData;
           for (const fileKey of Object.keys(rawCovData)) {
@@ -178,43 +184,26 @@ export class RustRunner extends AbstractRunner {
 
       const seq =
         typeof hostPayload.seq === "number" ? hostPayload.seq : thisSeq;
-      const hostValidators = hostPayload.validators;
-      let resultInner: RunnerResult["result"];
+      let results: RunnerResultItem[] = [];
+      if (Array.isArray(hostPayload.results)) {
+        results = hostPayload.results.filter(isRunnerResultItem);
+      } else if (isRunnerResultItem(hostPayload)) {
+        results = [hostPayload];
+      }
 
-      if (hostPayload.tag === "timeout") {
-        resultInner = {
-          tag: "timeout",
-          seq,
-          ...(hostValidators ? { validators: hostValidators } : {}),
-        };
-      } else if (hostPayload.tag === "skip") {
-        resultInner = {
-          tag: "skip",
-          message: hostPayload.message ?? "",
-          seq,
-          ...(hostValidators ? { validators: hostValidators } : {}),
-        };
-      } else if (hostPayload.tag === "error") {
-        resultInner = {
-          tag: "error",
-          name: hostPayload.name ?? "Panic",
-          message: hostPayload.message ?? "",
-          stack: hostPayload.stack,
-          source: hostPayload.source ?? "put",
-          seq,
-          ...(hostValidators ? { validators: hostValidators } : {}),
-        };
-      } else {
-        resultInner = {
-          tag: "value",
-          value: hostPayload.value,
-          seq,
-          ...(hostValidators ? { validators: hostValidators } : {}),
-        };
+      if (results.length === 0) {
+        results = [
+          {
+            tag: "error",
+            name: "UnknownRustRunnerError",
+            message: "Invalid response from host",
+          },
+        ];
       }
 
       return {
-        result: resultInner,
+        results,
+        seq,
         env: {},
       };
     } catch (e: unknown) {
@@ -226,31 +215,43 @@ export class RustRunner extends AbstractRunner {
         throw e;
       }
       if (e.name === PutTimeoutName) {
-        return { result: { tag: "timeout", seq: thisSeq }, env: {} };
+        return {
+          results: [
+            {
+              tag: "timeout",
+            },
+          ],
+          seq: thisSeq,
+          env: {},
+        };
       } else {
         const sanitizerAdapter = getSanitizerAdapter(this._sanitizerName);
         const diag = sanitizerAdapter.parseAbort(hostStderr, hostExitCode);
         if (diag) {
           return {
-            result: {
-              tag: "error",
-              name: diag.name,
-              message: diag.summary,
-              stack: diag.stack ?? diag.rawReport,
-              source: "put",
-              seq: thisSeq,
-            },
+            results: [
+              {
+                tag: "error",
+                name: diag.name,
+                message: diag.summary,
+                stack: diag.stack ?? diag.rawReport,
+                source: "put",
+              },
+            ],
+            seq: thisSeq,
             env: {},
           };
         }
         return {
-          result: {
-            tag: "error",
-            name: e.name,
-            message: e.message,
-            stack: e.stack,
-            seq: thisSeq,
-          },
+          results: [
+            {
+              tag: "error",
+              name: e.name,
+              message: e.message,
+              stack: e.stack,
+            },
+          ],
+          seq: thisSeq,
           env: {},
         };
       }
@@ -404,8 +405,10 @@ export class RustRunner extends AbstractRunner {
 } // class: RustRunner
 
 type RustHostResponse = {
-  tag: "value" | "error" | "skip" | "timeout";
+  results?: RunnerResultItem[];
+  tag?: "value" | "error" | "skip" | "timeout";
   seq?: number;
+  values?: unknown[];
   value?: unknown;
   message?: string;
   name?: string;

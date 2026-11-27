@@ -161,10 +161,10 @@ describe("fuzzer/measures/CoverageMeasure: Rust", () => {
     // Initial static coverage should be registered in measure
     expect(runner.coverageInfo).toBeDefined();
 
-    // 1. Run with negative input (hits if branch: then-block)
+    // Run with negative input (hits if branch: then-block)
     measure.onBeforeNextTestExecution();
     const resNegative = await runner.run([-5], 5000);
-    expect(resNegative.result.tag).toBe("value");
+    expect(resNegative.results[0].tag).toBe("value");
 
     const measurement1 = measure.measure(
       {
@@ -182,10 +182,10 @@ describe("fuzzer/measures/CoverageMeasure: Rust", () => {
     expect(currentSummary1.functions.covered).toBe(1);
     expect(currentSummary1.branches.covered).toBe(1);
 
-    // 2. Run with positive input (hits else branch, introducing new global coverage)
+    // Run with positive input (hits else branch, introducing new global coverage)
     measure.onBeforeNextTestExecution();
     const resPositive = await runner.run([10], 5000);
-    expect(resPositive.result.tag).toBe("value");
+    expect(resPositive.results[0].tag).toBe("value");
 
     const measurement2 = measure.measure(
       {
@@ -201,7 +201,7 @@ describe("fuzzer/measures/CoverageMeasure: Rust", () => {
     expect(currentSummary2.branches.covered).toBe(1);
     expect(measurement2.coverageMeasure.globalDelta).toBeGreaterThan(0);
 
-    // 3. Finalize run and verify cumulative coverage across both runs
+    // Finalize run and verify cumulative coverage across both runs
     const dummyGenStats = {
       counters: { inputsGenerated: 2, dupesGenerated: 0, dupeTicks: [] },
       timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
@@ -327,9 +327,9 @@ pub fn calculate(x: i32) -> i32 {
     // Run with x = 15 (hits x > 0 in entry.rs, and y > 10 in math_helper.rs)
     measure.onBeforeNextTestExecution();
     const res = await runner.run([15], 5000);
-    expect(res.result.tag).toBe("value");
-    if (res.result.tag === "value") {
-      expect(res.result.value).toBe(30);
+    expect(res.results[0].tag).toBe("value");
+    if (res.results[0].tag === "value") {
+      expect(res.results[0].value).toBe(30);
     }
 
     const measurement = measure.measure(
@@ -457,14 +457,14 @@ pub fn calculate(x: i32) -> i32 {
     const env = createTestEnv(fnDef);
 
     try {
-      // 1. Default 'project static' scope
+      // Default 'project static' scope
       Config.override("nanofuzz.fuzzer.coverageScope", "project static");
       const runnerProject = new RustRunner(mainRs, "compute", env);
       await runnerProject.onRunStart();
       const resProject = await runnerProject.run([4], 5000);
-      expect(resProject.result.tag).toBe("value");
-      if (resProject.result.tag === "value") {
-        expect(resProject.result.value).toBe(17);
+      expect(resProject.results[0].tag).toBe("value");
+      if (resProject.results[0].tag === "value") {
+        expect(resProject.results[0].value).toBe(17);
       }
       expect(runnerProject.coverageInfo).toBeDefined();
       const projectFiles = Object.keys(runnerProject.coverageInfo!);
@@ -473,7 +473,7 @@ pub fn calculate(x: i32) -> i32 {
       expect(projectFiles.some((f) => f.includes("ext_dep"))).toBeFalse();
       await runnerProject.onRunEnd();
 
-      // 2. 'project directimports static' scope
+      // 'project directimports static' scope
       Config.override(
         "nanofuzz.fuzzer.coverageScope",
         "project directimports static"
@@ -481,9 +481,9 @@ pub fn calculate(x: i32) -> i32 {
       const runnerImports = new RustRunner(mainRs, "compute", env);
       await runnerImports.onRunStart();
       const resImports = await runnerImports.run([4], 5000);
-      expect(resImports.result.tag).toBe("value");
-      if (resImports.result.tag === "value") {
-        expect(resImports.result.value).toBe(17);
+      expect(resImports.results[0].tag).toBe("value");
+      if (resImports.results[0].tag === "value") {
+        expect(resImports.results[0].value).toBe(17);
       }
       expect(runnerImports.coverageInfo).toBeDefined();
       const importFiles = Object.keys(runnerImports.coverageInfo!);
@@ -551,9 +551,9 @@ pub fn calculate(x: i32) -> i32 {
       const runner = new RustRunner(mainRs, "run", env);
       await runner.onRunStart();
       const res = await runner.run([5], 5000);
-      expect(res.result.tag).toBe("value");
-      if (res.result.tag === "value") {
-        expect(res.result.value).toBe(10);
+      expect(res.results[0].tag).toBe("value");
+      if (res.results[0].tag === "value") {
+        expect(res.results[0].value).toBe(10);
       }
       expect(runner.coverageInfo).toBeDefined();
       const files = Object.keys(runner.coverageInfo!);

@@ -1,8 +1,10 @@
 import fs from "node:fs";
 import {
   AbstractRunner,
+  isRunnerResultItem,
   RunnerOverrides,
   RunnerResult,
+  RunnerResultItem,
   ValidatorResult,
   TypeHint,
   RunnerInput,
@@ -100,7 +102,8 @@ export class OxcamlRunner extends AbstractRunner {
     inputs: unknown[],
     timeout: number | undefined = 0,
     validators: string[] = [],
-    env?: Record<string, string>
+    env?: Record<string, string>,
+    repetitions: number = 1
   ): Promise<RunnerResult> {
     const thisSeq = this._seq++;
 
@@ -112,10 +115,11 @@ export class OxcamlRunner extends AbstractRunner {
       const input: RunnerInput = {
         seq: thisSeq,
         args: inputs,
-        typeHints,
+        repetitions: repetitions ?? 1,
         timeout: timeout ?? 0,
-        validators: validators.length > 0 ? validators : undefined,
-        env,
+        validators: validators ?? [],
+        env: env ?? {},
+        typeHints,
       };
 
       const encoded = JSONN.pack(input);
@@ -131,7 +135,8 @@ export class OxcamlRunner extends AbstractRunner {
 
       // Ingest dynamic coverage data
       if (this._coverageEnabled && this._coverageInfo) {
-        const rawCovData = hostPayload.coverageData;
+        const rawCovData =
+          hostPayload.coverageData ?? hostPayload.results?.[0]?.coverageData;
         if (rawCovData && isRecordOfFileCoverageData(rawCovData)) {
           this._lastRunCoverage = rawCovData;
           for (const fileKey of Object.keys(rawCovData)) {
@@ -170,48 +175,47 @@ export class OxcamlRunner extends AbstractRunner {
 
       const seq =
         typeof hostPayload.seq === "number" ? hostPayload.seq : thisSeq;
-      const hostValidators = hostPayload.validators;
-      let resultInner: RunnerResult["result"];
 
-      if (hostPayload.tag === "timeout") {
-        resultInner = {
-          tag: "timeout",
-          seq,
-          ...(hostValidators ? { validators: hostValidators } : {}),
-        };
-      } else if (hostPayload.tag === "skip") {
-        resultInner = {
-          tag: "skip",
-          message: hostPayload.message ?? "",
-          seq,
-          ...(hostValidators ? { validators: hostValidators } : {}),
-        };
-      } else if (hostPayload.tag === "error") {
-        resultInner = {
-          tag: "error",
-          name: hostPayload.name ?? "Exception",
-          message: hostPayload.message ?? "",
-          stack: hostPayload.stack,
-          source: hostPayload.source ?? "put",
-          seq,
-          ...(hostValidators ? { validators: hostValidators } : {}),
-        };
-      } else {
-        let val = hostPayload.value;
-        const retDef = this._env?.function?.getReturnArg();
-        if (retDef) {
-          val = transformHostResult(val, retDef);
-        }
-        resultInner = {
-          tag: "value",
-          value: val,
-          seq,
-          ...(hostValidators ? { validators: hostValidators } : {}),
-        };
+      let results: RunnerResultItem[] = [];
+      const retDef = this._env?.function?.getReturnArg();
+      if (Array.isArray(hostPayload.results)) {
+        results = hostPayload.results.filter(isRunnerResultItem).map((item) => {
+          if (item.tag === "value" && retDef && item.value !== undefined) {
+            return {
+              ...item,
+              value: transformHostResult(item.value, retDef),
+            };
+          }
+          return item;
+        });
+      } else if (isRunnerResultItem(hostPayload)) {
+        const val =
+          retDef && hostPayload.tag === "value" && hostPayload.value !== undefined
+            ? transformHostResult(hostPayload.value, retDef)
+            : hostPayload.tag === "value"
+            ? hostPayload.value
+            : undefined;
+        results = [
+          {
+            ...hostPayload,
+            ...(val !== undefined ? { value: val } : {}),
+          },
+        ];
+      }
+
+      if (results.length === 0) {
+        results = [
+          {
+            tag: "error",
+            name: "UnknownOxcamlRunnerError",
+            message: "Invalid response from host",
+          },
+        ];
       }
 
       return {
-        result: resultInner,
+        results,
+        seq,
         env: {},
       };
     } catch (e: unknown) {
@@ -220,16 +224,26 @@ export class OxcamlRunner extends AbstractRunner {
         throw e;
       }
       if (e.name === PutTimeoutName) {
-        return { result: { tag: "timeout", seq: thisSeq }, env: {} };
+        return {
+          results: [
+            {
+              tag: "timeout",
+            },
+          ],
+          seq: thisSeq,
+          env: {},
+        };
       } else {
         return {
-          result: {
-            tag: "error",
-            name: e.name,
-            message: e.message,
-            stack: e.stack,
-            seq: thisSeq,
-          },
+          results: [
+            {
+              tag: "error",
+              name: e.name,
+              message: e.message,
+              stack: e.stack,
+            },
+          ],
+          seq: thisSeq,
           env: {},
         };
       }
@@ -343,8 +357,10 @@ export class OxcamlRunner extends AbstractRunner {
 } // class: OxcamlRunner
 
 type OxcamlHostResponse = {
-  tag: "value" | "error" | "skip" | "timeout";
+  results?: RunnerResultItem[];
+  tag?: "value" | "error" | "skip" | "timeout";
   seq?: number;
+  values?: unknown[];
   value?: unknown;
   message?: string;
   name?: string;

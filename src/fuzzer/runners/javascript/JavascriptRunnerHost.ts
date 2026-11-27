@@ -175,8 +175,8 @@ async function main() {
 
     resetCoverageCounters(Reflect.get(globalThis, "__coverage__"));
 
-    const targetFilename = input.filename ?? initialFilename;
-    const targetFnName = input.fnName ?? initialFnName;
+    const targetFilename = initialFilename;
+    const targetFnName = initialFnName;
 
     if (!targetFilename || !targetFnName) {
       throw new Error("Target filename or function name missing");
@@ -200,64 +200,140 @@ async function main() {
       continue;
     }
 
-    const putExec = await invokeWithTimeout(
-      fnToExec,
-      hydratedArgs,
-      input.timeout
-    );
+    const repetitions =
+      typeof input.repetitions === "number" ? Math.max(1, input.repetitions) : 1;
 
-    const validatorResults: Record<string, ValidatorResult> = {};
-    if (
-      putExec.tag !== "skip" &&
-      input.validators &&
-      input.validators.length > 0
-    ) {
-      const fuzzResultObj = {
-        in: hydratedArgs,
-        out:
-          putExec.tag === "value"
-            ? sanitizeOutput(putExec.value)
-            : "timeout or exception",
-        exception: putExec.tag === "error",
-        timeout: putExec.tag === "timeout",
-      };
+    const results: Array<{
+      tag: "value" | "timeout" | "skip" | "error";
+      value?: unknown;
+      name?: string;
+      message?: string;
+      stack?: string;
+      source?: "put" | "host";
+      coverageData?: unknown;
+      validators?: Record<string, ValidatorResult>;
+    }> = [];
 
-      for (const vName of input.validators) {
-        try {
-          const vFn = getTargetFunction(targetFilename, vName);
-          const vExec = await invokeWithTimeout(
-            vFn,
-            [fuzzResultObj],
-            input.timeout
-          );
-          if (vExec.tag === "value") {
-            validatorResults[vName] = {
-              tag: "value",
-              value: sanitizeOutput(vExec.value),
-            };
-          } else if (vExec.tag === "timeout") {
-            validatorResults[vName] = { tag: "timeout" };
-          } else if (vExec.tag === "skip") {
-            validatorResults[vName] = {
-              tag: "skip",
-              message: vExec.errMsg ?? "",
-            };
-          } else {
+    // Batch invoke generator batchsize times to avoid duplicative IPC bridge traversals
+    if (repetitions > 1) {
+      for (let b = 0; b < repetitions; b++) {
+        const exec = await invokeWithTimeout(
+          fnToExec,
+          hydratedArgs,
+          input.timeout
+        );
+        if (exec.tag === "timeout") {
+          results.push({ tag: "timeout", validators: {} });
+        } else if (exec.tag === "skip") {
+          results.push({ tag: "skip", message: exec.errMsg ?? "", validators: {} });
+        } else if (exec.tag === "error") {
+          results.push({
+            tag: "error",
+            name: exec.errName ?? "Error",
+            message: exec.errMsg ?? "",
+            stack: exec.errStack,
+            source: "put",
+            validators: {},
+          });
+        } else {
+          results.push({
+            tag: "value",
+            value: exec.value !== undefined ? sanitizeOutput(exec.value) : undefined,
+            validators: {},
+          });
+          if (exec.value === undefined || exec.value === null) {
+            break;
+          }
+        }
+      }
+    } else {
+      const exec = await invokeWithTimeout(
+        fnToExec,
+        hydratedArgs,
+        input.timeout
+      );
+
+      const validatorResults: Record<string, ValidatorResult> = {};
+      if (
+        exec.tag !== "skip" &&
+        input.validators &&
+        input.validators.length > 0
+      ) {
+        const fuzzResultObj = {
+          in: hydratedArgs,
+          out:
+            exec.tag === "value"
+              ? sanitizeOutput(exec.value)
+              : "timeout or exception",
+          exception: exec.tag === "error",
+          timeout: exec.tag === "timeout",
+        };
+
+        for (const vName of input.validators) {
+          try {
+            const vFn = getTargetFunction(targetFilename, vName);
+            const vExec = await invokeWithTimeout(
+              vFn,
+              [fuzzResultObj],
+              input.timeout
+            );
+            if (vExec.tag === "value") {
+              validatorResults[vName] = {
+                tag: "value",
+                value: sanitizeOutput(vExec.value),
+              };
+            } else if (vExec.tag === "timeout") {
+              validatorResults[vName] = { tag: "timeout" };
+            } else if (vExec.tag === "skip") {
+              validatorResults[vName] = {
+                tag: "skip",
+                message: vExec.errMsg ?? "",
+              };
+            } else {
+              validatorResults[vName] = {
+                tag: "error",
+                name: vExec.errName ?? "PropertyValidatorError",
+                message: vExec.errMsg ?? "Property validator error",
+                stack: vExec.errStack,
+              };
+            }
+          } catch (e: unknown) {
             validatorResults[vName] = {
               tag: "error",
-              name: vExec.errName ?? "PropertyValidatorError",
-              message: vExec.errMsg ?? "Property validator error",
-              stack: vExec.errStack,
+              name: isError(e) ? e.name : "ValidatorNotFoundError",
+              message: isError(e) ? e.message : String(e),
+              stack: isError(e) ? e.stack : undefined,
             };
           }
-        } catch (e: unknown) {
-          validatorResults[vName] = {
-            tag: "error",
-            name: isError(e) ? e.name : "ValidatorNotFoundError",
-            message: isError(e) ? e.message : String(e),
-            stack: isError(e) ? e.stack : undefined,
-          };
         }
+      }
+
+      if (exec.tag === "timeout") {
+        results.push({
+          tag: "timeout",
+          validators: validatorResults,
+        });
+      } else if (exec.tag === "skip") {
+        results.push({
+          tag: "skip",
+          message: exec.errMsg ?? "",
+          validators: validatorResults,
+        });
+      } else if (exec.tag === "error") {
+        results.push({
+          tag: "error",
+          name: exec.errName ?? "Error",
+          message: exec.errMsg ?? "",
+          stack: exec.errStack,
+          source: "put",
+          validators: validatorResults,
+        });
+      } else {
+        results.push({
+          tag: "value",
+          value: sanitizeOutput(exec.value),
+          validators: validatorResults,
+        });
       }
     }
 
@@ -265,46 +341,15 @@ async function main() {
       ? extractDynamicCoverage(getGlobalCoverageData() ?? {})
       : undefined;
 
-    const valDict =
-      Object.keys(validatorResults).length > 0 ? validatorResults : undefined;
-
-    let resultMsg: Record<string, unknown>;
-    if (putExec.tag === "timeout") {
-      resultMsg = {
-        tag: "timeout",
-        seq: input.seq,
-        coverageData: currentCoverage,
-        validators: valDict,
-      };
-    } else if (putExec.tag === "skip") {
-      resultMsg = {
-        tag: "skip",
-        message: putExec.errMsg,
-        seq: input.seq,
-        coverageData: currentCoverage,
-      };
-    } else if (putExec.tag === "error") {
-      resultMsg = {
-        tag: "error",
-        name: putExec.errName,
-        message: putExec.errMsg,
-        stack: putExec.errStack,
-        source: "put",
-        seq: input.seq,
-        coverageData: currentCoverage,
-        validators: valDict,
-      };
-    } else {
-      resultMsg = {
-        tag: "value",
-        value: sanitizeOutput(putExec.value),
-        seq: input.seq,
-        coverageData: currentCoverage,
-        validators: valDict,
-      };
+    if (results.length > 0 && currentCoverage) {
+      results[0].coverageData = currentCoverage;
     }
 
-    sendMsg(resultMsg);
+    sendMsg({
+      results,
+      seq: input.seq,
+      coverageData: currentCoverage,
+    });
   }
 } // fn: main
 
@@ -534,22 +579,13 @@ function functionTimeout(
  * @param hint The type hint guiding the transformation.
  * @returns The transformed value.
  */
-function isPrngPayload(val: unknown): val is { seed?: unknown } {
-  return (
-    val !== null &&
-    typeof val === "object" &&
-    "__nanofuzz_type" in val &&
-    Reflect.get(val, "__nanofuzz_type") === "prng"
-  );
-}
-
 function transformArg(
   val: unknown,
   hint: TypeHint | undefined,
   argIndex: number = 0
 ): unknown {
-  if (isPrngPayload(val)) {
-    const rawSeed = val.seed;
+  if (isRecord(val) && val["__nanofuzz_type"] === "prng") {
+    const rawSeed = val["seed"];
     if (
       rawSeed !== undefined &&
       rawSeed !== null &&

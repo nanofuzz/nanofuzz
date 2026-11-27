@@ -50,9 +50,9 @@ describe("fuzzer/runners/oxcaml/OxcamlRunner: ", () => {
     await runner.onRunStart();
 
     const res = await runner.run([10, 32], 5000);
-    expect(res.result.tag).toBe("value");
-    if (res.result.tag === "value") {
-      expect(res.result.value).toBe(42);
+    expect(res.results[0].tag).toBe("value");
+    if (res.results[0].tag === "value") {
+      expect(res.results[0].value).toBe(42);
     }
 
     await runner.onRunEnd();
@@ -77,9 +77,9 @@ describe("fuzzer/runners/oxcaml/OxcamlRunner: ", () => {
     await runner.onRunStart();
 
     const res = await runner.run(["Alice", 3, true, [1, 2, 3]], 5000);
-    expect(res.result.tag).toBe("value");
-    if (res.result.tag === "value") {
-      expect(res.result.value).toBe("HELLO, ALICE! COUNT=3 SUM=6");
+    expect(res.results[0].tag).toBe("value");
+    if (res.results[0].tag === "value") {
+      expect(res.results[0].value).toBe("HELLO, ALICE! COUNT=3 SUM=6");
     }
 
     await runner.onRunEnd();
@@ -106,25 +106,25 @@ describe("fuzzer/runners/oxcaml/OxcamlRunner: ", () => {
 
     // Normal invocation
     const okRes = await runner.run([10, 2], 5000);
-    expect(okRes.result.tag).toBe("value");
-    if (okRes.result.tag === "value") {
-      expect(okRes.result.value).toBe(5);
+    expect(okRes.results[0].tag).toBe("value");
+    if (okRes.results[0].tag === "value") {
+      expect(okRes.results[0].value).toBe(5);
     }
 
     // Exception invocation
     const errRes = await runner.run([10, 0], 5000);
-    expect(errRes.result.tag).toBe("error");
-    if (errRes.result.tag === "error") {
-      expect(errRes.result.message).toContain("division by zero");
-      expect(errRes.result.stack).toBeDefined();
-      expect(errRes.result.stack).toContain("divide.ml");
+    expect(errRes.results[0].tag).toBe("error");
+    if (errRes.results[0].tag === "error") {
+      expect(errRes.results[0].message).toContain("division by zero");
+      expect(errRes.results[0].stack).toBeDefined();
+      expect(errRes.results[0].stack).toContain("divide.ml");
     }
 
     // Host should still be alive and responsive
     const nextOkRes = await runner.run([20, 4], 5000);
-    expect(nextOkRes.result.tag).toBe("value");
-    if (nextOkRes.result.tag === "value") {
-      expect(nextOkRes.result.value).toBe(5);
+    expect(nextOkRes.results[0].tag).toBe("value");
+    if (nextOkRes.results[0].tag === "value") {
+      expect(nextOkRes.results[0].value).toBe(5);
     }
 
     await runner.onRunEnd();
@@ -159,11 +159,11 @@ let doubleValidator (result : Nanofuzz_runtime.fuzz_test_result) : Nanofuzz_runt
     await runner.onRunStart();
 
     const res = await runner.run([7], 5000, ["doubleValidator"]);
-    expect(res.result.tag).toBe("value");
-    if (res.result.tag === "value") {
-      expect(res.result.value).toBe(14);
-      expect(res.result.validators).toBeDefined();
-      expect(res.result.validators!["doubleValidator"]).toEqual({
+    expect(res.results[0].tag).toBe("value");
+    if (res.results[0].tag === "value") {
+      expect(res.results[0].value).toBe(14);
+      expect(res.results[0].validators).toBeDefined();
+      expect(res.results[0].validators!["doubleValidator"]).toEqual({
         tag: "value",
         value: "pass",
       });
@@ -193,13 +193,13 @@ let doubleValidator (result : Nanofuzz_runtime.fuzz_test_result) : Nanofuzz_runt
 
     // Call that times out
     const timeoutRes = await runner.run([true, 10], 100);
-    expect(timeoutRes.result.tag).toBe("timeout");
+    expect(timeoutRes.results[0].tag).toBe("timeout");
 
     // Next call spawns a fresh host and succeeds
     const okRes = await runner.run([false, 10], 5000);
-    expect(okRes.result.tag).toBe("value");
-    if (okRes.result.tag === "value") {
-      expect(okRes.result.value).toBe(11);
+    expect(okRes.results[0].tag).toBe("value");
+    if (okRes.results[0].tag === "value") {
+      expect(okRes.results[0].value).toBe(11);
     }
 
     await runner.onRunEnd();
@@ -224,9 +224,9 @@ let birthday (u : user) : user =
     await runner.onRunStart();
 
     const res = await runner.run([{ name: "Alice", age: 30 }], 5000);
-    expect(res.result.tag).toBe("value");
-    if (res.result.tag === "value") {
-      expect(res.result.value).toEqual({ name: "Alice", age: 31 });
+    expect(res.results[0].tag).toBe("value");
+    if (res.results[0].tag === "value") {
+      expect(res.results[0].value).toEqual({ name: "Alice", age: 31 });
     }
 
     await runner.onRunEnd();
@@ -255,9 +255,9 @@ let birthday (u : user) : user =
       ["banana", 5],
     ]);
     const res = await runner.run([inputMap], 5000);
-    expect(res.result.tag).toBe("value");
-    if (res.result.tag === "value") {
-      expect(res.result.value).toEqual(
+    expect(res.results[0].tag).toBe("value");
+    if (res.results[0].tag === "value") {
+      expect(res.results[0].value).toEqual(
         new Map([
           ["apple", 20],
           ["banana", 50],
@@ -292,9 +292,9 @@ let uppercase_map (m : int StringMap.t) : int StringMap.t =
     await setRunner.onRunStart();
 
     const setRes = await setRunner.run([new Set([1, 2, 3])], 5000);
-    expect(setRes.result.tag).toBe("value");
-    if (setRes.result.tag === "value") {
-      expect(setRes.result.value).toEqual(new Set([2, 4, 6]));
+    expect(setRes.results[0].tag).toBe("value");
+    if (setRes.results[0].tag === "value") {
+      expect(setRes.results[0].value).toEqual(new Set([2, 4, 6]));
     }
     await setRunner.onRunEnd();
 
@@ -313,9 +313,9 @@ let uppercase_map (m : int StringMap.t) : int StringMap.t =
       ],
       5000
     );
-    expect(mapRes.result.tag).toBe("value");
-    if (mapRes.result.tag === "value") {
-      expect(mapRes.result.value).toEqual(
+    expect(mapRes.results[0].tag).toBe("value");
+    if (mapRes.results[0].tag === "value") {
+      expect(mapRes.results[0].value).toEqual(
         new Map([
           ["HELLO", 1],
           ["WORLD", 2],
@@ -350,9 +350,9 @@ let uppercase_map (m : int StringMap.t) : int StringMap.t =
       ],
       5000
     );
-    expect(res.result.tag).toBe("value");
-    if (res.result.tag === "value") {
-      expect(res.result.value).toEqual([
+    expect(res.results[0].tag).toBe("value");
+    if (res.results[0].tag === "value") {
+      expect(res.results[0].value).toEqual([
         ["a", 11],
         ["b", 21],
       ]);
@@ -378,9 +378,9 @@ let uppercase_map (m : int StringMap.t) : int StringMap.t =
     await runner.onRunStart();
 
     const res = await runner.run([[1, 2, 3]], 5000);
-    expect(res.result.tag).toBe("value");
-    if (res.result.tag === "value") {
-      expect(res.result.value).toEqual([2, 4, 6]);
+    expect(res.results[0].tag).toBe("value");
+    if (res.results[0].tag === "value") {
+      expect(res.results[0].value).toEqual([2, 4, 6]);
     }
 
     await runner.onRunEnd();
@@ -403,9 +403,9 @@ let uppercase_map (m : int StringMap.t) : int StringMap.t =
     await runner.onRunStart();
 
     const res = await runner.run([[10, 20, 30]], 5000);
-    expect(res.result.tag).toBe("value");
-    if (res.result.tag === "value") {
-      expect(res.result.value).toEqual([11, 21, 31]);
+    expect(res.results[0].tag).toBe("value");
+    if (res.results[0].tag === "value") {
+      expect(res.results[0].value).toEqual([11, 21, 31]);
     }
 
     await runner.onRunEnd();
@@ -428,9 +428,9 @@ let uppercase_map (m : int StringMap.t) : int StringMap.t =
     await runner.onRunStart();
 
     const res = await runner.run([[42, "hello"]], 5000);
-    expect(res.result.tag).toBe("value");
-    if (res.result.tag === "value") {
-      expect(res.result.value).toEqual(["hello", 42]);
+    expect(res.results[0].tag).toBe("value");
+    if (res.results[0].tag === "value") {
+      expect(res.results[0].value).toEqual(["hello", 42]);
     }
 
     await runner.onRunEnd();
@@ -455,15 +455,15 @@ let uppercase_map (m : int StringMap.t) : int StringMap.t =
     await runner.onRunStart();
 
     const someRes = await runner.run([5], 5000);
-    expect(someRes.result.tag).toBe("value");
-    if (someRes.result.tag === "value") {
-      expect(someRes.result.value).toBe(15);
+    expect(someRes.results[0].tag).toBe("value");
+    if (someRes.results[0].tag === "value") {
+      expect(someRes.results[0].value).toBe(15);
     }
 
     const noneRes = await runner.run([null], 5000);
-    expect(noneRes.result.tag).toBe("value");
-    if (noneRes.result.tag === "value") {
-      expect(noneRes.result.value).toBeNull();
+    expect(noneRes.results[0].tag).toBe("value");
+    if (noneRes.results[0].tag === "value") {
+      expect(noneRes.results[0].value).toBeNull();
     }
 
     await runner.onRunEnd();
@@ -492,9 +492,9 @@ let uppercase_map (m : int StringMap.t) : int StringMap.t =
 
     const inputBytes = new Uint8Array([1, 2, 3, 4]);
     const res = await runner.run([inputBytes], 5000);
-    expect(res.result.tag).toBe("value");
-    if (res.result.tag === "value") {
-      expect(res.result.value).toEqual(new Uint8Array([4, 3, 2, 1]));
+    expect(res.results[0].tag).toBe("value");
+    if (res.results[0].tag === "value") {
+      expect(res.results[0].value).toEqual(new Uint8Array([4, 3, 2, 1]));
     }
 
     await runner.onRunEnd();
@@ -524,9 +524,9 @@ let promote (c : company) : company =
       title: "Engineer",
     };
     const res = await runner.run([companyInput], 5000);
-    expect(res.result.tag).toBe("value");
-    if (res.result.tag === "value") {
-      expect(res.result.value).toEqual({
+    expect(res.results[0].tag).toBe("value");
+    if (res.results[0].tag === "value") {
+      expect(res.results[0].value).toEqual({
         boss: { name: "Dave", age: 41 },
         title: "Senior Engineer",
       });
@@ -553,15 +553,15 @@ let promote (c : company) : company =
     await runner.onRunStart();
 
     const okRes = await runner.run([10, 2], 5000);
-    expect(okRes.result.tag).toBe("value");
-    if (okRes.result.tag === "value") {
-      expect(okRes.result.value).toEqual({ ok: 5 });
+    expect(okRes.results[0].tag).toBe("value");
+    if (okRes.results[0].tag === "value") {
+      expect(okRes.results[0].value).toEqual({ ok: 5 });
     }
 
     const errRes = await runner.run([10, 0], 5000);
-    expect(errRes.result.tag).toBe("value");
-    if (errRes.result.tag === "value") {
-      expect(errRes.result.value).toEqual({ error: "divide by zero" });
+    expect(errRes.results[0].tag).toBe("value");
+    if (errRes.results[0].tag === "value") {
+      expect(errRes.results[0].value).toEqual({ error: "divide by zero" });
     }
 
     await runner.onRunEnd();
@@ -590,15 +590,15 @@ let level_to_weight (l : level) : int =
     await runner.onRunStart();
 
     const resWarn = await runner.run(["Warn"], 5000);
-    expect(resWarn.result.tag).toBe("value");
-    if (resWarn.result.tag === "value") {
-      expect(resWarn.result.value).toBe(2);
+    expect(resWarn.results[0].tag).toBe("value");
+    if (resWarn.results[0].tag === "value") {
+      expect(resWarn.results[0].value).toBe(2);
     }
 
     const resDebug = await runner.run(["Debug"], 5000);
-    expect(resDebug.result.tag).toBe("value");
-    if (resDebug.result.tag === "value") {
-      expect(resDebug.result.value).toBe(0);
+    expect(resDebug.results[0].tag).toBe("value");
+    if (resDebug.results[0].tag === "value") {
+      expect(resDebug.results[0].value).toBe(0);
     }
 
     await runner.onRunEnd();
@@ -632,9 +632,9 @@ let sum_bigarray (ba : (char, int8_unsigned_elt, c_layout) Array1.t) : int =
     await bufRunner.onRunStart();
 
     const bufRes = await bufRunner.run(["prefix"], 5000);
-    expect(bufRes.result.tag).toBe("value");
-    if (bufRes.result.tag === "value") {
-      expect(bufRes.result.value).toBe("prefix hello");
+    expect(bufRes.results[0].tag).toBe("value");
+    if (bufRes.results[0].tag === "value") {
+      expect(bufRes.results[0].value).toBe("prefix hello");
     }
     await bufRunner.onRunEnd();
 
@@ -645,9 +645,9 @@ let sum_bigarray (ba : (char, int8_unsigned_elt, c_layout) Array1.t) : int =
     await baRunner.onRunStart();
 
     const baRes = await baRunner.run([new Uint8Array([1, 2, 3])], 5000);
-    expect(baRes.result.tag).toBe("value");
-    if (baRes.result.tag === "value") {
-      expect(baRes.result.value).toBe(6);
+    expect(baRes.results[0].tag).toBe("value");
+    if (baRes.results[0].tag === "value") {
+      expect(baRes.results[0].value).toBe(6);
     }
     await baRunner.onRunEnd();
   });
@@ -684,24 +684,24 @@ let double_shape (s : shape) : shape =
       [{ tag: "Circle", value: 10.0 }],
       5000
     );
-    expect(circleRes.result.tag).toBe("value");
-    if (circleRes.result.tag === "value") {
-      expect(circleRes.result.value).toBeCloseTo(314.0, 1);
+    expect(circleRes.results[0].tag).toBe("value");
+    if (circleRes.results[0].tag === "value") {
+      expect(circleRes.results[0].value).toBeCloseTo(314.0, 1);
     }
 
     const rectRes = await areaRunner.run(
       [{ tag: "Rect", value: [5.0, 8.0] }],
       5000
     );
-    expect(rectRes.result.tag).toBe("value");
-    if (rectRes.result.tag === "value") {
-      expect(rectRes.result.value).toBe(40.0);
+    expect(rectRes.results[0].tag).toBe("value");
+    if (rectRes.results[0].tag === "value") {
+      expect(rectRes.results[0].value).toBe(40.0);
     }
 
     const pointRes = await areaRunner.run(["Point"], 5000);
-    expect(pointRes.result.tag).toBe("value");
-    if (pointRes.result.tag === "value") {
-      expect(pointRes.result.value).toBe(0.0);
+    expect(pointRes.results[0].tag).toBe("value");
+    if (pointRes.results[0].tag === "value") {
+      expect(pointRes.results[0].value).toBe(0.0);
     }
     await areaRunner.onRunEnd();
 
@@ -715,9 +715,9 @@ let double_shape (s : shape) : shape =
       [{ tag: "Circle", value: 3.0 }],
       5000
     );
-    expect(doubleRes.result.tag).toBe("value");
-    if (doubleRes.result.tag === "value") {
-      expect(doubleRes.result.value).toEqual({ tag: "Circle", value: 6.0 });
+    expect(doubleRes.results[0].tag).toBe("value");
+    if (doubleRes.results[0].tag === "value") {
+      expect(doubleRes.results[0].value).toEqual({ tag: "Circle", value: 6.0 });
     }
     await doubleRunner.onRunEnd();
   });
@@ -750,18 +750,18 @@ let next_color (c : color) : color =
     await codeRunner.onRunStart();
 
     const redRes = await codeRunner.run(["`Red"], 5000);
-    expect(redRes.result.tag).toBe("value");
-    if (redRes.result.tag === "value") {
-      expect(redRes.result.value).toBe(1);
+    expect(redRes.results[0].tag).toBe("value");
+    if (redRes.results[0].tag === "value") {
+      expect(redRes.results[0].value).toBe(1);
     }
 
     const customRes = await codeRunner.run(
       [{ tag: "`Custom", value: 42 }],
       5000
     );
-    expect(customRes.result.tag).toBe("value");
-    if (customRes.result.tag === "value") {
-      expect(customRes.result.value).toBe(42);
+    expect(customRes.results[0].tag).toBe("value");
+    if (customRes.results[0].tag === "value") {
+      expect(customRes.results[0].value).toBe(42);
     }
     await codeRunner.onRunEnd();
 
@@ -772,18 +772,18 @@ let next_color (c : color) : color =
     await nextRunner.onRunStart();
 
     const nextRed = await nextRunner.run(["`Red"], 5000);
-    expect(nextRed.result.tag).toBe("value");
-    if (nextRed.result.tag === "value") {
-      expect(nextRed.result.value).toBe("`Green");
+    expect(nextRed.results[0].tag).toBe("value");
+    if (nextRed.results[0].tag === "value") {
+      expect(nextRed.results[0].value).toBe("`Green");
     }
 
     const nextCustom = await nextRunner.run(
       [{ tag: "`Custom", value: 5 }],
       5000
     );
-    expect(nextCustom.result.tag).toBe("value");
-    if (nextCustom.result.tag === "value") {
-      expect(nextCustom.result.value).toEqual({ tag: "`Custom", value: 6 });
+    expect(nextCustom.results[0].tag).toBe("value");
+    if (nextCustom.results[0].tag === "value") {
+      expect(nextCustom.results[0].value).toEqual({ tag: "`Custom", value: 6 });
     }
     await nextRunner.onRunEnd();
   });
@@ -817,9 +817,9 @@ let test_ops (ops : (buffer_op * int) list) : int =
       ],
       5000
     );
-    expect(opsRes.result.tag).toBe("value");
-    if (opsRes.result.tag === "value") {
-      expect(opsRes.result.value).toBe(3);
+    expect(opsRes.results[0].tag).toBe("value");
+    if (opsRes.results[0].tag === "value") {
+      expect(opsRes.results[0].value).toBe(3);
     }
     await opsRunner.onRunEnd();
   });
@@ -847,9 +847,9 @@ let test_simple_ops (ops : buffer_op list) : int =
       [["Push", "Pop", "Clear", "Peek"]],
       5000
     );
-    expect(simpleRes.result.tag).toBe("value");
-    if (simpleRes.result.tag === "value") {
-      expect(simpleRes.result.value).toBe(4);
+    expect(simpleRes.results[0].tag).toBe("value");
+    if (simpleRes.results[0].tag === "value") {
+      expect(simpleRes.results[0].value).toBe(4);
     }
     await simpleRunner.onRunEnd();
   });
@@ -888,10 +888,48 @@ let test_simple_ops (ops : buffer_op list) : int =
     });
     await runner.onRunEnd();
 
-    expect(res.result.tag).toBe("value");
-    if (res.result.tag === "value") {
-      expect(res.result.value).toBe(expectedProvenance);
+    expect(res.results[0].tag).toBe("value");
+    if (res.results[0].tag === "value") {
+      expect(res.results[0].value).toBe(expectedProvenance);
     }
+  });
+
+  it("executes generator functions taking PRNG with multiplexed batch_size", async () => {
+    const mlPath = path.join(tempDir, "gen_test.ml");
+    fs.writeFileSync(
+      mlPath,
+      `let targetFn (x : int) : int = x + 1
+
+let targetFnGenerator (_prng : unit -> float) : int option =
+  Some (int_of_float (_prng () *. 100.0))
+`
+    );
+
+    const program = ProgramFactory.fromFile(mlPath, "oxcaml");
+    const fnDef = program.functionsExported["targetFnGenerator"];
+    const env = createTestEnv(fnDef);
+
+    const runner = new OxcamlRunner(mlPath, "targetFnGenerator", env);
+    await runner.onRunStart();
+
+    const batchRes = await runner.run(
+      [{ __nanofuzz_type: "prng", seed: "fixed_seed_abc" }],
+      5000,
+      [],
+      {},
+      4
+    );
+    expect(batchRes.results.length).toBe(4);
+    expect(batchRes.results[0].tag).toBe("value");
+    if (batchRes.results[0].tag === "value") {
+      const firstVal = batchRes.results[0].value;
+      expect(Array.isArray(firstVal)).toBeTrue();
+      if (Array.isArray(firstVal)) {
+        expect(typeof firstVal[0]).toBe("number");
+      }
+    }
+
+    await runner.onRunEnd();
   });
 });
 

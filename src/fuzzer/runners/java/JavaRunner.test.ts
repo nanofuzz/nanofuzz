@@ -53,9 +53,9 @@ describe("fuzzer/runners/java/JavaRunner: ", () => {
     await runner.onRunStart();
 
     const res = await runner.run([10, 32], 5000);
-    expect(res.result.tag).toBe("value");
-    if (res.result.tag === "value") {
-      expect(res.result.value).toBe(42);
+    expect(res.results[0].tag).toBe("value");
+    if (res.results[0].tag === "value") {
+      expect(res.results[0].value).toBe(42);
     }
 
     await runner.onRunEnd();
@@ -78,9 +78,9 @@ describe("fuzzer/runners/java/JavaRunner: ", () => {
     await runner.onRunStart();
 
     const res = await runner.run(["GREEN"], 5000);
-    expect(res.result.tag).toBe("value");
-    if (res.result.tag === "value") {
-      expect(res.result.value).toBe("GREEN");
+    expect(res.results[0].tag).toBe("value");
+    if (res.results[0].tag === "value") {
+      expect(res.results[0].value).toBe("GREEN");
     }
 
     await runner.onRunEnd();
@@ -104,9 +104,9 @@ public class UuidRoundTrip {
 
     const uuid = "9d3e7a10-24b5-4c6d-8e9f-0123456789ab";
     const res = await runner.run([uuid], 5000);
-    expect(res.result.tag).toBe("value");
-    if (res.result.tag === "value") {
-      expect(res.result.value).toBe(uuid);
+    expect(res.results[0].tag).toBe("value");
+    if (res.results[0].tag === "value") {
+      expect(res.results[0].value).toBe(uuid);
     }
 
     await runner.onRunEnd();
@@ -137,9 +137,9 @@ public class RecordRoundTrip {
       x: 17,
     };
     const res = await runner.run([input], 5000);
-    expect(res.result.tag).toBe("value");
-    if (res.result.tag === "value") {
-      expect(res.result.value).toEqual(input);
+    expect(res.results[0].tag).toBe("value");
+    if (res.results[0].tag === "value") {
+      expect(res.results[0].value).toEqual(input);
     }
 
     await runner.onRunEnd();
@@ -205,9 +205,9 @@ public class GenericCollectionsRoundTrip {
       ],
       5000
     );
-    expect(res.result.tag).toBe("value");
-    if (res.result.tag === "value") {
-      expect(res.result.value).toEqual([
+    expect(res.results[0].tag).toBe("value");
+    if (res.results[0].tag === "value") {
+      expect(res.results[0].value).toEqual([
         uuid,
         uuid,
         uuid,
@@ -250,9 +250,9 @@ public class GenericCollectionsRoundTrip {
     await runner.onRunStart();
 
     const res = await runner.run(["Alice", 3, true, [1, 2, 3]], 5000);
-    expect(res.result.tag).toBe("value");
-    if (res.result.tag === "value") {
-      expect(res.result.value).toBe("HELLO, ALICE! COUNT=3 SUM=6");
+    expect(res.results[0].tag).toBe("value");
+    if (res.results[0].tag === "value") {
+      expect(res.results[0].value).toBe("HELLO, ALICE! COUNT=3 SUM=6");
     }
 
     await runner.onRunEnd();
@@ -281,9 +281,9 @@ public class GenericCollectionsRoundTrip {
     await runner.onRunStart();
 
     const res = await runner.run([25], 5000);
-    expect(res.result.tag).toBe("value");
-    if (res.result.tag === "value") {
-      expect(res.result.value).toBe(125);
+    expect(res.results[0].tag).toBe("value");
+    if (res.results[0].tag === "value") {
+      expect(res.results[0].value).toBe(125);
     }
 
     await runner.onRunEnd();
@@ -313,25 +313,25 @@ public class GenericCollectionsRoundTrip {
 
     // Normal invocation
     const okRes = await runner.run([10, 2], 5000);
-    expect(okRes.result.tag).toBe("value");
-    if (okRes.result.tag === "value") {
-      expect(okRes.result.value).toBe(5);
+    expect(okRes.results[0].tag).toBe("value");
+    if (okRes.results[0].tag === "value") {
+      expect(okRes.results[0].value).toBe(5);
     }
 
     // Exception invocation
     const errRes = await runner.run([10, 0], 5000);
-    expect(errRes.result.tag).toBe("error");
-    if (errRes.result.tag === "error") {
-      expect(errRes.result.name).toBe("IllegalArgumentException");
-      expect(errRes.result.message).toContain("division by zero");
-      expect(errRes.result.source).toBe("put");
+    expect(errRes.results[0].tag).toBe("error");
+    if (errRes.results[0].tag === "error") {
+      expect(errRes.results[0].name).toBe("IllegalArgumentException");
+      expect(errRes.results[0].message).toContain("division by zero");
+      expect(errRes.results[0].source).toBe("put");
     }
 
     // Process is still alive and responds to subsequent invocations
     const recoverRes = await runner.run([100, 4], 5000);
-    expect(recoverRes.result.tag).toBe("value");
-    if (recoverRes.result.tag === "value") {
-      expect(recoverRes.result.value).toBe(25);
+    expect(recoverRes.results[0].tag).toBe("value");
+    if (recoverRes.results[0].tag === "value") {
+      expect(recoverRes.results[0].value).toBe(25);
     }
 
     await runner.onRunEnd();
@@ -361,16 +361,16 @@ public class Filtered {
 
     // Valid input
     const okRes = await runner.run([5], 5000);
-    expect(okRes.result.tag).toBe("value");
-    if (okRes.result.tag === "value") {
-      expect(okRes.result.value).toBe(10);
+    expect(okRes.results[0].tag).toBe("value");
+    if (okRes.results[0].tag === "value") {
+      expect(okRes.results[0].value).toBe(10);
     }
 
     // Skipped input (unsatisfied assumption)
     const skipRes = await runner.run([-3], 5000);
-    expect(skipRes.result.tag).toBe("skip");
-    if (skipRes.result.tag === "skip") {
-      expect(skipRes.result.message).toBe("x must be positive");
+    expect(skipRes.results[0].tag).toBe("skip");
+    if (skipRes.results[0].tag === "skip") {
+      expect(skipRes.results[0].message).toBe("x must be positive");
     }
 
     await runner.onRunEnd();
@@ -406,11 +406,11 @@ public class ValidatorTest {
     await runner.onRunStart();
 
     const res = await runner.run([7], 5000, ["doubleValValidator"]);
-    expect(res.result.tag).toBe("value");
-    if (res.result.tag === "value") {
-      expect(res.result.value).toBe(14);
-      expect(res.result.validators).toBeDefined();
-      expect(res.result.validators!["doubleValValidator"]).toEqual({
+    expect(res.results[0].tag).toBe("value");
+    if (res.results[0].tag === "value") {
+      expect(res.results[0].value).toBe(14);
+      expect(res.results[0].validators).toBeDefined();
+      expect(res.results[0].validators!["doubleValValidator"]).toEqual({
         tag: "value",
         value: "pass",
       });
@@ -451,9 +451,9 @@ public class DataTypes {
     await runnerBig.onRunStart();
 
     const resBig = await runnerBig.run([100n, 200n], 5000);
-    expect(resBig.result.tag).toBe("value");
-    if (resBig.result.tag === "value") {
-      expect(resBig.result.value).toBe(300n);
+    expect(resBig.results[0].tag).toBe("value");
+    if (resBig.results[0].tag === "value") {
+      expect(resBig.results[0].value).toBe(300n);
     }
     await runnerBig.onRunEnd();
 
@@ -464,9 +464,9 @@ public class DataTypes {
 
     const inBytes = new Uint8Array([1, 2, 3, 4]);
     const resBytes = await runnerRev.run([inBytes], 5000);
-    expect(resBytes.result.tag).toBe("value");
-    if (resBytes.result.tag === "value") {
-      expect(resBytes.result.value).toEqual(new Uint8Array([4, 3, 2, 1]));
+    expect(resBytes.results[0].tag).toBe("value");
+    if (resBytes.results[0].tag === "value") {
+      expect(resBytes.results[0].value).toEqual(new Uint8Array([4, 3, 2, 1]));
     }
     await runnerRev.onRunEnd();
   });
@@ -516,9 +516,9 @@ public class PackagedIpc {
       ["alpha", 42n, new Set(["t1", "t2"]), { math: 100 }],
       5000
     );
-    expect(resMap.result.tag).toBe("value");
-    if (resMap.result.tag === "value") {
-      expect(resMap.result.value).toEqual({
+    expect(resMap.results[0].tag).toBe("value");
+    if (resMap.results[0].tag === "value") {
+      expect(resMap.results[0].value).toEqual({
         key: "alpha",
         count: 42n,
         tagCount: 2,
@@ -537,9 +537,9 @@ public class PackagedIpc {
 
     const inputSet = new Set(["x", "y"]);
     const resSet = await runnerSet.run([inputSet], 5000);
-    expect(resSet.result.tag).toBe("value");
-    if (resSet.result.tag === "value") {
-      expect(resSet.result.value).toEqual(inputSet);
+    expect(resSet.results[0].tag).toBe("value");
+    if (resSet.results[0].tag === "value") {
+      expect(resSet.results[0].value).toEqual(inputSet);
     }
     await runnerSet.onRunEnd();
   });
@@ -568,13 +568,13 @@ public class PackagedIpc {
 
     // Call that times out
     const timeoutRes = await runner.run([true, 10], 100);
-    expect(timeoutRes.result.tag).toBe("timeout");
+    expect(timeoutRes.results[0].tag).toBe("timeout");
 
     // Next call spawns a fresh host and succeeds
     const okRes = await runner.run([false, 10], 5000);
-    expect(okRes.result.tag).toBe("value");
-    if (okRes.result.tag === "value") {
-      expect(okRes.result.value).toBe(11);
+    expect(okRes.results[0].tag).toBe("value");
+    if (okRes.results[0].tag === "value") {
+      expect(okRes.results[0].value).toBe(11);
     }
 
     await runner.onRunEnd();
@@ -602,9 +602,9 @@ public class PackagedIpc {
     await runner.onRunStart();
 
     const res = await runner.run([5], 5000);
-    expect(res.result.tag).toBe("value");
-    if (res.result.tag === "value") {
-      expect(res.result.value).toBe(50);
+    expect(res.results[0].tag).toBe("value");
+    if (res.results[0].tag === "value") {
+      expect(res.results[0].value).toBe(50);
     }
 
     await runner.onRunEnd();
@@ -661,7 +661,25 @@ public class PackagedGen {
       [{ __nanofuzz_type: "prng", seed: "test-seed" }],
       5000
     );
-    expect(res.result.tag).toBe("value");
+    expect(res.results[0].tag).toBe("value");
+    if (res.results[0].tag === "value") {
+      expect(res.results[0].value).toBeDefined();
+    }
+
+    // Invocation with repetitions requests multiple values in a single response
+    const batchRes = await genRunner.run(
+      [{ __nanofuzz_type: "prng", seed: "test-seed" }],
+      5000,
+      [],
+      {},
+      4
+    );
+    expect(batchRes.results.length).toBe(4);
+    expect(batchRes.results[0].tag).toBe("value");
+    if (batchRes.results[0].tag === "value") {
+      expect(batchRes.results[0].value).toBeDefined();
+    }
+
     await genRunner.onRunEnd();
   });
 

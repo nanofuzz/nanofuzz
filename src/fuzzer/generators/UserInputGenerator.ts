@@ -1,10 +1,10 @@
 import { AbstractInputGenerator } from "./AbstractInputGenerator";
 import { ArgValueTypeWrapped } from "../analysis/Types";
+import { isArgValueType } from "../analysis/Util";
 import { FunctionDef } from "../analysis/FunctionDef";
 import { FuzzOptions, FuzzPinnedTest, InputAndSource } from "../Types";
 import { NextableStatus } from "./Types";
 import { AbstractRunner, RunnerResult } from "../runners/AbstractRunner";
-import * as JSONN from "../../Jsonn";
 import { isError } from "../Util";
 
 /**
@@ -40,40 +40,9 @@ export class UserInputGenerator extends AbstractInputGenerator {
     this._fnTimeout = fnTimeout;
   } // fn: constructor
 
-  /**
-   * Returns human-readable generator name
-   */
-  public override get humanName(): string {
-    return "User";
-  } // property: get humanName
-
-  /**
-   * Returns recorded ticks where generator execution failed or timed out.
-   */
-  public get failureTicks(): readonly number[] {
-    return this._failureTicks;
-  } // property: get failureTicks
-
-  /**
-   * Returns total count of failures recorded.
-   */
-  public get failureCount(): number {
-    return this._failureTicks.length;
-  } // property: get failureCount
-
-  /**
-   * Returns current consecutive failure streak.
-   */
-  public get consecutiveFailures(): number {
-    return this._consecutiveFailures;
-  } // property: get consecutiveFailures
-
-  /**
-   * User-provided inputs bypass input transformers.
-   */
-  public override get isTransformable(): boolean {
-    return false;
-  } // property: get isTransformable
+  // ---------------------------------------------------------------------------
+  // Core Public Generator Contract
+  // ---------------------------------------------------------------------------
 
   /**
    * Returns 'now' if inputs are available, 'soon' if in-flight, or false if exhausted/disabled.
@@ -158,6 +127,10 @@ export class UserInputGenerator extends AbstractInputGenerator {
     );
   } // fn: nextSoon
 
+  // ---------------------------------------------------------------------------
+  // Lifecycle & Properties
+  // ---------------------------------------------------------------------------
+
   /**
    * Prepares generator at the start of a fuzz run.
    */
@@ -186,6 +159,48 @@ export class UserInputGenerator extends AbstractInputGenerator {
   } // fn: onRunStart
 
   /**
+   * Returns human-readable generator name
+   */
+  public override get humanName(): string {
+    return "User";
+  } // property: get humanName
+
+  /**
+   * Target queue capacity scaled to 3x active workers.
+   */
+  public get targetQueueSize(): number {
+    return Math.max(3, this.workerCount * 3);
+  }
+
+  /**
+   * Returns recorded ticks where generator execution failed or timed out.
+   */
+  public get failureTicks(): readonly number[] {
+    return this._failureTicks;
+  } // property: get failureTicks
+
+  /**
+   * Returns total count of failures recorded.
+   */
+  public get failureCount(): number {
+    return this._failureTicks.length;
+  } // property: get failureCount
+
+  /**
+   * Returns current consecutive failure streak.
+   */
+  public get consecutiveFailures(): number {
+    return this._consecutiveFailures;
+  } // property: get consecutiveFailures
+
+  /**
+   * User-provided inputs bypass input transformers.
+   */
+  public override get isTransformable(): boolean {
+    return false;
+  } // property: get isTransformable
+
+  /**
    * Triggers an asynchronous runner call to fetch the next input from the user generator.
    */
   protected _getMoreInputs(): void {
@@ -205,10 +220,17 @@ export class UserInputGenerator extends AbstractInputGenerator {
       this._rngSeed !== undefined && this._rngSeed.length > 0
         ? `${this._rngSeed}:${this._tickCount}:${this._prng()}`
         : undefined;
-    const prngArg =
-      callSeed !== undefined
-        ? { __nanofuzz_type: "prng", seed: callSeed }
-        : { __nanofuzz_type: "prng" };
+    const batchSize = Math.max(
+      1,
+      this.targetQueueSize - this._inputQueue.length
+    );
+    const prngArg: Record<string, unknown> = {
+      __nanofuzz_type: "prng",
+      batch_size: batchSize,
+    };
+    if (callSeed !== undefined) {
+      prngArg.seed = callSeed;
+    }
 
     let resolvePending!: (hasInputs: boolean) => void;
     this._pendingPromise = new Promise<boolean>((resolve) => {
@@ -217,34 +239,99 @@ export class UserInputGenerator extends AbstractInputGenerator {
 
     const runner = this._userGenRunner;
     const effectiveTimeout = Math.max(this._fnTimeout * 10, 30000);
-    const runnerPromise = runner.run([prngArg], effectiveTimeout);
+    const runnerPromise = runner.run(
+      [prngArg],
+      effectiveTimeout,
+      [],
+      {},
+      batchSize
+    );
 
     runnerPromise
       .then((res: RunnerResult) => {
-        if (
-          res.result.tag === "skip" ||
-          res.result.tag === "error" ||
-          res.result.tag === "timeout"
-        ) {
-          this._consecutiveFailures++;
-          this._failureTicks.push(this._tickCount);
+        const results = res.results ?? [];
+        if (results.length === 0) {
+          this._exhausted = true;
+          return;
+        }
 
-          let errorMsg: string;
-          if (res.result.tag === "skip") {
-            errorMsg = `UserInputGenerator '${runner.name}' threw UnsatisfiedAssumption which is not allowed in input generators: ${res.result.message}`;
-          } else if (res.result.tag === "error") {
-            const stack = res.result.stack ? `\n${res.result.stack}` : "";
-            errorMsg = `UserInputGenerator '${runner.name}' threw an error: ${res.result.name}: ${res.result.message}${stack}`;
+        let validCount = 0;
+        let voluntaryExhaustion = false;
+        let firstErrorMsg: string | undefined;
+        const argDefs = this._fn.getArgDefs();
+
+        for (const item of results) {
+          if (item.tag === "value") {
+            // Voluntary exhaustion: generator returned undefined or null to signal end-of-stream
+            if (item.value === undefined || item.value === null) {
+              voluntaryExhaustion = true;
+              break;
+            }
+
+            if (!Array.isArray(item.value)) {
+              this._failureTicks.push(this._tickCount);
+              continue;
+            }
+
+            const rawVal = item.value;
+            const wrappedValues: ArgValueTypeWrapped[] = argDefs.map(
+              (_argDef, i) => ({
+                tag: "ArgValueTypeWrapped",
+                value:
+                  i < rawVal.length && isArgValueType(rawVal[i])
+                    ? rawVal[i]
+                    : undefined,
+              })
+            );
+
+            const candidate: InputAndSource = {
+              tick: 0,
+              value: wrappedValues,
+              source: {
+                type: "generator",
+                generator: "UserInputGenerator",
+                fnName: runner.name,
+              },
+            };
+
+            this._inputQueue.push(candidate);
+            validCount++;
           } else {
-            errorMsg = `UserInputGenerator '${runner.name}' timed out exceeding ${effectiveTimeout} ms`;
+            // Failure, skip, or timeout on individual iteration
+            this._failureTicks.push(this._tickCount);
+            if (!firstErrorMsg) {
+              if (item.tag === "skip") {
+                firstErrorMsg = `UserInputGenerator '${runner.name}' threw UnsatisfiedAssumption which is not allowed in input generators: ${item.message}`;
+              } else if (item.tag === "error") {
+                const stack = item.stack ? `\n${item.stack}` : "";
+                firstErrorMsg = `UserInputGenerator '${runner.name}' threw an error: ${item.name}: ${item.message}${stack}`;
+              } else {
+                firstErrorMsg = `UserInputGenerator '${runner.name}' timed out exceeding ${effectiveTimeout} ms`;
+              }
+            }
           }
+        }
 
+        if (voluntaryExhaustion) {
+          this._exhausted = true;
+          return;
+        }
+
+        if (validCount > 0) {
+          // Generator is making progress: reset consecutive failures counter!
+          this._consecutiveFailures = 0;
+        } else {
+          // Entire batch yielded 0 valid inputs
+          this._consecutiveFailures++;
           if (
             this._consecutiveFailures >=
             UserInputGenerator.MAX_CONSECUTIVE_FAILURES
           ) {
             this._exhausted = true;
-            this._pendingError = new Error(errorMsg);
+            this._pendingError = new Error(
+              firstErrorMsg ??
+                `UserInputGenerator '${runner.name}' failed to produce valid inputs across ${this._consecutiveFailures} consecutive batches.`
+            );
           } else {
             // Attempt retry
             if (
@@ -256,54 +343,6 @@ export class UserInputGenerator extends AbstractInputGenerator {
               this._getMoreInputs();
             }
           }
-          return;
-        }
-
-        if (res.result.tag === "value") {
-          const rawVal = res.result.value;
-
-          // Exhaustion check: undefined or null indicates no more inputs
-          if (rawVal === undefined || rawVal === null) {
-            this._exhausted = true;
-            return;
-          }
-
-          if (!Array.isArray(rawVal)) {
-            this._consecutiveFailures++;
-            this._failureTicks.push(this._tickCount);
-            const errMsg = `UserInputGenerator '${runner.name}' must return an array/tuple of arguments (or undefined when exhausted), but returned: ${JSONN.stringify(rawVal)}`;
-            if (
-              this._consecutiveFailures >=
-              UserInputGenerator.MAX_CONSECUTIVE_FAILURES
-            ) {
-              this._exhausted = true;
-              this._pendingError = new Error(errMsg);
-            }
-            return;
-          }
-
-          // Successful input generated: reset consecutive failures counter!
-          this._consecutiveFailures = 0;
-
-          const argDefs = this._fn.getArgDefs();
-          const wrappedValues: ArgValueTypeWrapped[] = argDefs.map(
-            (_argDef, i) => ({
-              tag: "ArgValueTypeWrapped",
-              value: i < rawVal.length ? rawVal[i] : undefined,
-            })
-          );
-
-          const candidate: InputAndSource = {
-            tick: 0,
-            value: wrappedValues,
-            source: {
-              type: "generator",
-              generator: "UserInputGenerator",
-              fnName: runner.name,
-            },
-          };
-
-          this._inputQueue.push(candidate);
         }
       })
       .catch((e: unknown) => {

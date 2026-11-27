@@ -1,10 +1,12 @@
 import {
   AbstractRunner,
   Arc,
+  isRunnerResultItem,
   PythonCoverageMapData,
   RunnerInput,
   RunnerOverrides,
   RunnerResult,
+  RunnerResultItem,
   TypeHint,
 } from "../AbstractRunner";
 import { ArgDef } from "../../analysis/ArgDef";
@@ -104,7 +106,8 @@ export class PythonRunner extends AbstractRunner {
     inputs: unknown[],
     timeout: number | undefined = 0,
     validators: string[] = [],
-    env?: Record<string, string>
+    env?: Record<string, string>,
+    repetitions: number = 1
   ): Promise<RunnerResult> {
     const thisSeq = this._seq++;
     if (this._runDepth++ > 0) {
@@ -125,10 +128,11 @@ export class PythonRunner extends AbstractRunner {
       const input: RunnerInput = {
         args: inputs,
         seq: thisSeq,
-        typeHints,
+        repetitions: repetitions ?? 1,
         timeout: timeout ?? 0,
-        validators: validators.length > 0 ? validators : undefined,
-        env,
+        validators: validators ?? [],
+        env: env ?? {},
+        typeHints,
         collect: {
           coverageData: this._coverageEnabled ? true : undefined,
           debugData: debugEnabled ? true : undefined,
@@ -144,12 +148,28 @@ export class PythonRunner extends AbstractRunner {
       const hostTimeout =
         timeout && timeout > 0 ? timeout * numFunctions + 500 : Infinity;
       const rawResBuf = await host.getResponseBuffer(hostTimeout);
+      const hostPayload = JSONN.unpack<unknown>(rawResBuf);
+
+      let items: RunnerResultItem[] = [];
+      let hostSeq = thisSeq;
+      if (hostPayload && typeof hostPayload === "object") {
+        if ("seq" in hostPayload && typeof hostPayload.seq === "number") {
+          hostSeq = hostPayload.seq;
+        }
+        if ("results" in hostPayload && Array.isArray(hostPayload.results)) {
+          items = hostPayload.results.filter(isRunnerResultItem);
+        } else if (isRunnerResultItem(hostPayload)) {
+          items = [hostPayload];
+        }
+      }
+
       const result: RunnerResult = {
-        result: JSONN.unpack<RunnerResult["result"]>(rawResBuf),
+        results: items,
+        seq: hostSeq,
         env: {},
       };
 
-      if (result.result.seq >= 0 && result.result.seq !== thisSeq) {
+      if (result.seq >= 0 && result.seq !== thisSeq) {
         throw new Error(
           `Internal error: RunnerResult seq# does not match RunnerInput`
         );
@@ -160,19 +180,12 @@ export class PythonRunner extends AbstractRunner {
         this._coverageInfo = undefined;
         this._lastRunCoverage = undefined;
       } else {
-        if (
-          result.result.staticCoverage &&
-          Object.keys(result.result.staticCoverage).length > 0
-        ) {
-          const staticCov = result.result.staticCoverage;
-          this._coverageInfo = staticCov;
-          this._pgmFiles = Object.keys(staticCov);
-        }
         if (!this._coverageInfo) {
           this._coverageInfo = {};
         }
-        const coverageData = result.result.coverageData;
-        const coverageArcs = result.result.coverageArcs;
+        const primary = result.results[0];
+        const coverageData = primary?.coverageData;
+        const coverageArcs = primary?.coverageArcs;
 
         if (isRecord(coverageData)) {
           // Clear previous call's dynamic lines and arcs
@@ -235,16 +248,18 @@ export class PythonRunner extends AbstractRunner {
       }
       this._lastRunCoverage = undefined;
       if (e.name === PutTimeoutName) {
-        return { result: { tag: "timeout", seq: thisSeq }, env: {} };
+        return { results: [{ tag: "timeout" }], seq: thisSeq, env: {} };
       } else {
         return {
-          result: {
-            tag: "error",
-            name: e.name,
-            message: e.message,
-            stack: e.stack,
-            seq: thisSeq,
-          },
+          results: [
+            {
+              tag: "error",
+              name: e.name,
+              message: e.message,
+              stack: e.stack,
+            },
+          ],
+          seq: thisSeq,
           env: {},
         };
       }

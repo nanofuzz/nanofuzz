@@ -633,7 +633,7 @@ function generateHarnessSource(
       if (typeAnnot.startsWith("&")) {
         callArgs.push(`&mut arg_${i}`);
       } else {
-        callArgs.push(`arg_${i}`);
+        callArgs.push(`&mut arg_${i}`);
       }
       continue;
     }
@@ -644,16 +644,18 @@ function generateHarnessSource(
       `        let arg_${i}: ${deserInfo.deserType} = match serde_json::from_value(input.args.get(${i}).cloned().unwrap_or(serde_json::Value::Null)) {
             Ok(v) => v,
             Err(e) => {
-                let resp = RunnerResultPayload::Error {
-                    name: "DeserializationError".to_string(),
-                    message: format!("Argument ${i} deserialization error: {}", e),
-                    source: "put",
+                let resp = RunnerResultPayload {
+                    results: vec![RunnerResultItemPayload::Error {
+                        name: "DeserializationError".to_string(),
+                        message: format!("Argument ${i} deserialization error: {}", e),
+                        source: "put",
+                        validators: None,
+                        coverage_data: None,
+                    }],
                     seq: input.seq,
-                    validators: None,
-                    coverage_data: None,
                 };
-                write_msg(&rmp_serde::to_vec_named(&resp).unwrap())?;
-                continue;
+                let _ = write_msg(&rmp_serde::to_vec_named(&resp).unwrap());
+                return Err(format!("Argument ${i} deserialization error: {}", e));
             }
         };`
     );
@@ -668,8 +670,8 @@ function generateHarnessSource(
   const actualCall = isAsync ? `block_on(${callInvocation})` : callInvocation;
 
   const fnCallExpr = isVoid
-    ? `${actualCall};\n                let json_val = serde_json::Value::Null;`
-    : `let ret = ${actualCall};\n                let json_val = serde_json::to_value(&ret).unwrap_or(serde_json::Value::Null);`;
+    ? `${actualCall};\n                serde_json::Value::Null`
+    : `let ret = ${actualCall};\n                serde_json::to_value(&ret).unwrap_or(serde_json::Value::Null)`;
 
   const validators = env?.validators ?? [];
   const validatorBlocks: string[] = [];
@@ -679,7 +681,7 @@ function generateHarnessSource(
                 if input.validators.iter().any(|name| name == "${v.name}") {
                     let ftr = nanofuzz_runtime::FuzzTestResult::new(
                         input.args.clone(),
-                        json_val.clone(),
+                        values.get(0).cloned().unwrap_or(serde_json::Value::Null),
                         false,
                         false,
                     );

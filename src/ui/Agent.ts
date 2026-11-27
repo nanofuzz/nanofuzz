@@ -1281,13 +1281,13 @@ export async function shrinkCoveringResults(
                 testValues.map((w) => w.value),
                 Math.max(env.options.fnTimeout, 100)
               );
-              if (runRes.result.tag === "value") {
+              if (runRes.results[0]?.tag === "value") {
                 currentValues = testValues;
                 currentOutput = [
                   {
                     name: "0",
                     offset: 0,
-                    value: cast<ArgValueType>(runRes.result.value),
+                    value: cast<ArgValueType>(runRes.results[0].value),
                     origin: { type: "put" },
                   },
                 ];
@@ -2140,17 +2140,21 @@ function determineRunnerOutcome(res: RunnerResult): {
   exceptionMessage?: string;
   failingValidator?: string;
 } {
-  if (res.result.tag === "error") {
+  const primary = res.results[0];
+  if (!primary) {
+    return { outcome: "unknown" };
+  }
+  if (primary.tag === "error") {
     return {
       outcome: "exception",
-      exceptionMessage: res.result.message ?? res.result.name,
+      exceptionMessage: primary.message ?? primary.name,
     };
   }
-  if (res.result.tag === "timeout") {
+  if (primary.tag === "timeout") {
     return { outcome: "timeout" };
   }
-  if (res.result.validators) {
-    for (const [vName, vRes] of Object.entries(res.result.validators)) {
+  if (primary.validators) {
+    for (const [vName, vRes] of Object.entries(primary.validators)) {
       if (
         vRes.tag === "value" &&
         (vRes.value === false || vRes.value === "fail")
@@ -2159,7 +2163,7 @@ function determineRunnerOutcome(res: RunnerResult): {
       }
     }
   }
-  if (res.result.tag === "value") {
+  if (primary.tag === "value") {
     return { outcome: "ok" };
   }
   return { outcome: "unknown" };
@@ -2172,23 +2176,27 @@ function isSameRunnerOutcome(
   baseline: RunnerResult,
   candidate: RunnerResult
 ): boolean {
-  if (baseline.result.tag === "error") {
-    if (candidate.result.tag !== "error") return false;
-    if (baseline.result.name && candidate.result.name) {
-      return baseline.result.name === candidate.result.name;
+  const basePrimary = baseline.results[0];
+  const candPrimary = candidate.results[0];
+  if (!basePrimary || !candPrimary) return false;
+
+  if (basePrimary.tag === "error") {
+    if (candPrimary.tag !== "error") return false;
+    if (basePrimary.name && candPrimary.name) {
+      return basePrimary.name === candPrimary.name;
     }
     return true;
   }
-  if (baseline.result.tag === "timeout") {
-    return candidate.result.tag === "timeout";
+  if (basePrimary.tag === "timeout") {
+    return candPrimary.tag === "timeout";
   }
-  const baseValFails = Object.entries(baseline.result.validators ?? {})
+  const baseValFails = Object.entries(basePrimary.validators ?? {})
     .filter(
       ([_, r]) => r.tag === "value" && (r.value === false || r.value === "fail")
     )
     .map(([k]) => k);
   if (baseValFails.length > 0) {
-    const candValFails = Object.entries(candidate.result.validators ?? {})
+    const candValFails = Object.entries(candPrimary.validators ?? {})
       .filter(
         ([_, r]) =>
           r.tag === "value" && (r.value === false || r.value === "fail")
@@ -2196,8 +2204,8 @@ function isSameRunnerOutcome(
       .map(([k]) => k);
     return baseValFails.some((v) => candValFails.includes(v));
   }
-  if (baseline.result.tag === "value") {
-    return candidate.result.tag === "value";
+  if (basePrimary.tag === "value") {
+    return candPrimary.tag === "value";
   }
   return false;
 } // fn: isSameRunnerOutcome

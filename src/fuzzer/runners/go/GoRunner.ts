@@ -1,8 +1,11 @@
 import fs from "node:fs";
 import {
   AbstractRunner,
+  isRunnerResultItem,
+  RunnerInput,
   RunnerOverrides,
   RunnerResult,
+  RunnerResultItem,
   ValidatorResult,
 } from "../AbstractRunner";
 import { CoverageMapData, FileCoverageData } from "istanbul-lib-coverage";
@@ -107,7 +110,8 @@ export class GoRunner extends AbstractRunner {
     inputs: unknown[],
     timeout: number | undefined = 0,
     validators: string[] = [],
-    env?: Record<string, string>
+    env?: Record<string, string>,
+    repetitions: number = 1
   ): Promise<RunnerResult> {
     const thisSeq = this._seq++;
     let host: GoHost | undefined = undefined;
@@ -115,11 +119,13 @@ export class GoRunner extends AbstractRunner {
     try {
       host = await this._getHost();
 
-      const input = {
+      const input: RunnerInput = {
         seq: thisSeq,
         args: inputs,
-        validators,
-        ...(env ? { env } : {}),
+        repetitions: repetitions ?? 1,
+        timeout: timeout ?? 0,
+        validators: validators ?? [],
+        env: env ?? {},
       };
 
       const payloadBytes = Buffer.from(JSON.stringify(input), "utf-8");
@@ -136,7 +142,8 @@ export class GoRunner extends AbstractRunner {
 
       // Ingest dynamic coverage data
       if (this._coverageEnabled && this._coverageInfo) {
-        const rawCovData = hostPayload.coverageData;
+        const rawCovData =
+          hostPayload.coverageData ?? hostPayload.results?.[0]?.coverageData;
         if (rawCovData && isRecordOfFileCoverageData(rawCovData)) {
           this._lastRunCoverage = rawCovData;
           for (const fileKey of Object.keys(rawCovData)) {
@@ -196,58 +203,26 @@ export class GoRunner extends AbstractRunner {
         }
       }
 
-      if (hostPayload.tag === "skip") {
-        return {
-          result: {
-            tag: "skip",
-            message: hostPayload.message ?? "Assumption failed",
-            seq,
-            ...(resultValidators ? { validators: resultValidators } : {}),
-          },
-          env: {},
-        };
+      let results: RunnerResultItem[] = [];
+      if (Array.isArray(hostPayload.results)) {
+        results = hostPayload.results.filter(isRunnerResultItem);
+      } else if (isRunnerResultItem(hostPayload)) {
+        results = [hostPayload];
       }
 
-      if (hostPayload.tag === "error") {
-        const errMsg = hostPayload.message ?? "";
-        const lowerMsg = errMsg.toLowerCase();
-        if (
-          hostPayload.name === "UnsatisfiedAssumption" ||
-          hostPayload.name === "UnsatisfiedAssumptionError" ||
-          lowerMsg.startsWith("unsatisfied assumption")
-        ) {
-          const cleanMsg = errMsg.replace(/^unsatisfied assumption:\s*/i, "");
-          return {
-            result: {
-              tag: "skip",
-              message: cleanMsg,
-              seq,
-              ...(resultValidators ? { validators: resultValidators } : {}),
-            },
-            env: {},
-          };
-        }
-
-        return {
-          result: {
+      if (results.length === 0) {
+        results = [
+          {
             tag: "error",
-            name: hostPayload.name ?? "Panic",
-            message: hostPayload.message ?? "",
-            source: hostPayload.source === "host" ? "host" : "put",
-            seq,
-            ...(resultValidators ? { validators: resultValidators } : {}),
+            name: "UnknownGoRunnerError",
+            message: "Invalid response from host",
           },
-          env: {},
-        };
+        ];
       }
 
       return {
-        result: {
-          tag: "value",
-          value: hostPayload.value,
-          seq,
-          ...(resultValidators ? { validators: resultValidators } : {}),
-        },
+        results,
+        seq,
         env: {},
       };
     } catch (e: unknown) {
@@ -259,10 +234,12 @@ export class GoRunner extends AbstractRunner {
         (e.name === PutTimeoutName || e.message === "PutTimeout")
       ) {
         return {
-          result: {
-            tag: "timeout",
-            seq: thisSeq,
-          },
+          results: [
+            {
+              tag: "timeout",
+            },
+          ],
+          seq: thisSeq,
           env: {},
         };
       }
@@ -274,23 +251,27 @@ export class GoRunner extends AbstractRunner {
         lower.startsWith("unsatisfied assumption")
       ) {
         return {
-          result: {
-            tag: "skip",
-            message: err.message.replace(/^unsatisfied assumption:\s*/i, ""),
-            seq: thisSeq,
-          },
+          results: [
+            {
+              tag: "skip",
+              message: err.message.replace(/^unsatisfied assumption:\s*/i, ""),
+            },
+          ],
+          seq: thisSeq,
           env: {},
         };
       }
       return {
-        result: {
-          tag: "error",
-          name: err.name,
-          message: err.message,
-          stack: err.stack,
-          source: "put",
-          seq: thisSeq,
-        },
+        results: [
+          {
+            tag: "error",
+            name: err.name,
+            message: err.message,
+            stack: err.stack,
+            source: "put",
+          },
+        ],
+        seq: thisSeq,
         env: {},
       };
     }
@@ -472,7 +453,9 @@ export class GoRunner extends AbstractRunner {
 } // class: GoRunner
 
 type GoHostResponse = {
-  tag: "value" | "error" | "skip" | "timeout";
+  results?: RunnerResultItem[];
+  tag?: "value" | "error" | "skip" | "timeout";
+  values?: unknown[];
   value?: unknown;
   message?: string;
   name?: string;

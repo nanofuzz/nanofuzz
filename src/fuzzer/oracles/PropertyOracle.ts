@@ -139,14 +139,18 @@ export class PropertyOracle {
       const runner = this._propRunners[runnerId];
       if (result.status === "fulfilled") {
         const vOut = result.value;
-        switch (vOut.result.tag) {
+        const primary = vOut.results[0];
+        if (!primary) {
+          return new Error(`property validator "${runner.name}" returned empty results`);
+        }
+        switch (primary.tag) {
           case "error": {
             const err = new Error(
-              vOut.result.message ?? "Property validator error"
+              primary.message ?? "Property validator error"
             );
-            err.name = vOut.result.name ?? "PropertyValidatorError";
-            if (vOut.result.stack) {
-              err.stack = vOut.result.stack;
+            err.name = primary.name ?? "PropertyValidatorError";
+            if (primary.stack) {
+              err.stack = primary.stack;
             }
             return err;
           }
@@ -165,7 +169,7 @@ export class PropertyOracle {
             return err;
           }
           case "value":
-            switch (vOut.result.value) {
+            switch (primary.value) {
               case true: // v0.3
               case "pass": // v0.4
                 return "pass";

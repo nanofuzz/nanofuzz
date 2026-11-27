@@ -541,14 +541,14 @@ export function compute(n: number): number {
       fs.writeFileSync(realJs, measure.onAfterCompile(out.outputText, realJs));
 
       try {
-        // 1. Default 'project static' scope
+        // Default 'project static' scope
         Config.override("nanofuzz.fuzzer.coverageScope", "project static");
         const runnerProject = new JavascriptRunner(realJs, "compute");
         await runnerProject.onRunStart();
         const resProject = await runnerProject.run([4], 5000);
-        expect(resProject.result.tag).toBe("value");
-        if (resProject.result.tag === "value") {
-          expect(resProject.result.value).toBe(17);
+        expect(resProject.results[0].tag).toBe("value");
+        if (resProject.results[0].tag === "value") {
+          expect(resProject.results[0].value).toBe(17);
         }
         expect(runnerProject.coverageInfo).toBeDefined();
         const projectFiles = Object.keys(runnerProject.coverageInfo!);
@@ -560,7 +560,7 @@ export function compute(n: number): number {
         ).toBeFalse();
         await runnerProject.onRunEnd();
 
-        // 2. 'project directimports static' scope
+        // 'project directimports static' scope
         Config.override(
           "nanofuzz.fuzzer.coverageScope",
           "project directimports static"
@@ -568,9 +568,9 @@ export function compute(n: number): number {
         const runnerImports = new JavascriptRunner(realJs, "compute");
         await runnerImports.onRunStart();
         const resImports = await runnerImports.run([4], 5000);
-        expect(resImports.result.tag).toBe("value");
-        if (resImports.result.tag === "value") {
-          expect(resImports.result.value).toBe(17);
+        expect(resImports.results[0].tag).toBe("value");
+        if (resImports.results[0].tag === "value") {
+          expect(resImports.results[0].value).toBe(17);
         }
         expect(runnerImports.coverageInfo).toBeDefined();
         const importFiles = Object.keys(runnerImports.coverageInfo!);

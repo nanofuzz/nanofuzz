@@ -76,13 +76,6 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
   public static readonly INJECTED = "injected";
 
   /**
-   * Sets the call/run-scoped cancellation or budget expiration check.
-   */
-  public set cancelFn(fn: (() => boolean) | undefined) {
-    this._cancelFn = fn;
-  } // setter: cancelFn
-
-  /**
    * Creates a new composite input generator, which subsumes multiple concrete input
    * generators (subgens) and selects which subgen to use next based on each subgen's
    * recent productivity relative to other subgens, as calculated by various measures.
@@ -130,36 +123,9 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     this.options = options;
   } // fn: constructor
 
-  /**
-   * Loads any configurable parameters using `Config`.
-   */
-  protected _loadConfig(): void {
-    const schedulerType = Config.get<InputSchedulerType>(
-      "nanofuzz.generators.scheduler.impl",
-      "mab"
-    );
-    this._L = Config.get<number>(
-      "nanofuzz.generators.scheduler.mab.lookback",
-      500
-    );
-    this._chunkSize = Config.get<number>(
-      "nanofuzz.generators.compositeChunkSize",
-      20
-    );
-    this._P = Config.get<number>(
-      "nanofuzz.generators.scheduler.mab.exploration",
-      0.1
-    );
-    this._trackCheckpoints = Config.get<boolean>(
-      "nanofuzz.generators.compositeTrackCheckpoints",
-      false
-    );
-
-    if (!this._scheduler || this._scheduler.type !== schedulerType) {
-      this._scheduler = SchedulerFactory.create(schedulerType, this._rngSeed);
-      this._ticksLeftInChunk = 0;
-    }
-  } // fn: _loadConfig
+  // ---------------------------------------------------------------------------
+  // Core Public Generator Contract
+  // ---------------------------------------------------------------------------
 
   /**
    * Returns `now!`, `now`, or `soon` if further inputs may be produced, `false` otherwise.
@@ -193,83 +159,6 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     }
     return false;
   } // fn: isAvailable
-
-  /**
-   * Waits asynchronously until at least one input becomes available,
-   * or until all pending generators finish or fail, or until `timeoutMs` elapses.
-   *
-   * @param `timeoutMs` optional max time to wait in ms
-   */
-  public async waitForNextInput(timeoutMs?: number): Promise<boolean> {
-    const startTime = performance.now();
-    while (this.nextable() === "soon") {
-      if (timeoutMs !== undefined && timeoutMs > 0) {
-        const elapsed = performance.now() - startTime;
-        if (elapsed >= timeoutMs) {
-          break;
-        }
-      }
-      const pendingSubgens = this._subgens.filter(
-        (g, i) => this._activeSubgens[i] && g.nextable() === "soon"
-      );
-      if (pendingSubgens.length > 0) {
-        const remaining =
-          timeoutMs !== undefined && timeoutMs > 0
-            ? Math.max(0, timeoutMs - (performance.now() - startTime))
-            : undefined;
-
-        if (remaining !== undefined && remaining <= 0) {
-          break;
-        }
-
-        const promises: Promise<unknown>[] = pendingSubgens.map((g) =>
-          g.waitUntilReady()
-        );
-
-        if (remaining !== undefined) {
-          let timerId: NodeJS.Timeout;
-          const timeoutPromise = new Promise<void>((resolve) => {
-            timerId = setTimeout(resolve, remaining);
-          });
-          await Promise.race([...promises, timeoutPromise]);
-          clearTimeout(timerId!);
-        } else {
-          await Promise.race(promises);
-        }
-      } else {
-        break;
-      }
-    }
-    const status = this.nextable();
-    return status === "now" || status === "now!";
-  } // fn: waitForNextInput
-
-  /**
-   * Suppress all input generators. Input injection
-   * is unaffected.
-   */
-  public suppressGenerators(): void {
-    this._permitSubgens = false;
-  } // fn: suppressGenerators
-
-  /**
-   * Allow input generators to generate inputs.
-   */
-  public permitGenerators(): void {
-    this._permitSubgens = true;
-  } // fn: permitGenerators
-
-  /**
-   * Updates input generator options and enables/disables
-   * input generators accordingly.
-   */
-  public set options(options: FuzzOptions["generators"]) {
-    const _options: Record<string, typeof options.RandomInputGenerator> =
-      options; // happify the type checker
-    this._activeSubgens = this._subgens.map((m) =>
-      m.name in _options ? _options[m.name].enabled : true
-    );
-  } // setter: options
 
   /**
    * Produces the next input (synchronous fast path when no transformer is active).
@@ -368,7 +257,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
         return this._acceptCandidate(untransformedCandidate);
       }
 
-      // Stage 1: Pre-transformer duplicate check (only if transformer is active and generator is transformable)
+      // Pre-transformer duplicate check (only if transformer is active and generator is transformable)
       if (this._transformRunner && this._fn && this._fn.getArgDefs().length) {
         if (
           this._isDuplicate(untransformedCandidate, this._pretransformedInputs)
@@ -380,7 +269,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
         }
       }
 
-      // 1. Transform candidate
+      // Transform candidate
       const transformRes = await this._transformCandidate(
         untransformedCandidate
       );
@@ -394,7 +283,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
 
       const candidate = transformRes.candidate;
 
-      // Stage 2: Post-transformer duplicate check
+      // Post-transformer duplicate check
       if (this._isDuplicate(candidate, this._allInputs)) {
         if (this._handleDuplicate(untransformedCandidate, genCost)) {
           break;
@@ -408,6 +297,138 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
 
     throw new GeneratorExhaustedError();
   } // fn: nextTransformed
+
+  /**
+   * Waits asynchronously until at least one input becomes available,
+   * or until all pending generators finish or fail, or until `timeoutMs` elapses.
+   *
+   * @param `timeoutMs` optional max time to wait in ms
+   */
+  public async waitForNextInput(timeoutMs?: number): Promise<boolean> {
+    const startTime = performance.now();
+    while (this.nextable() === "soon") {
+      if (this._cancelFn?.()) {
+        this.suppressGenerators();
+        break;
+      }
+      const pendingSubgens = this._subgens.filter(
+        (g, i) => this._activeSubgens[i] && g.nextable() === "soon"
+      );
+      if (pendingSubgens.length > 0) {
+        const remaining =
+          timeoutMs !== undefined && timeoutMs > 0
+            ? Math.max(0, timeoutMs - (performance.now() - startTime))
+            : undefined;
+
+        if (remaining !== undefined && remaining <= 0) {
+          break;
+        }
+
+        const promises: Promise<unknown>[] = pendingSubgens.map((g) =>
+          g.waitUntilReady()
+        );
+
+        if (remaining !== undefined) {
+          let timerId: NodeJS.Timeout;
+          const timeoutPromise = new Promise<void>((resolve) => {
+            timerId = setTimeout(resolve, remaining);
+          });
+          await Promise.race([...promises, timeoutPromise]);
+          clearTimeout(timerId!);
+        } else {
+          await Promise.race(promises);
+        }
+
+        if (this._cancelFn?.()) {
+          this.suppressGenerators();
+          break;
+        }
+      } else {
+        break;
+      }
+    }
+    const status = this.nextable();
+    return status === "now" || status === "now!";
+  } // fn: waitForNextInput
+
+  // ---------------------------------------------------------------------------
+  // Lifecycle & Control
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Suppress all input generators. Input injection
+   * is unaffected.
+   */
+  public suppressGenerators(): void {
+    this._permitSubgens = false;
+  } // fn: suppressGenerators
+
+  /**
+   * Allow input generators to generate inputs.
+   */
+  public permitGenerators(): void {
+    this._permitSubgens = true;
+  } // fn: permitGenerators
+
+  /**
+   * Sets the call/run-scoped cancellation or budget expiration check.
+   */
+  public set cancelFn(fn: (() => boolean) | undefined) {
+    this._cancelFn = fn;
+  } // property: set cancelFn
+
+  /**
+   * Sets the active worker count and propagates to subgenerators.
+   */
+  public override set workerCount(count: number) {
+    super.workerCount = count;
+    for (const subgen of this._subgens) {
+      subgen.workerCount = count;
+    }
+  } // property: set workerCount
+
+  /**
+   * Updates input generator options and enables/disables
+   * input generators accordingly.
+   */
+  public set options(options: FuzzOptions["generators"]) {
+    const _options: Record<string, typeof options.RandomInputGenerator> =
+      options; // happify the type checker
+    this._activeSubgens = this._subgens.map((m) =>
+      m.name in _options ? _options[m.name].enabled : true
+    );
+  } // property: set options
+
+  /**
+   * Loads any configurable parameters using `Config`.
+   */
+  protected _loadConfig(): void {
+    const schedulerType = Config.get<InputSchedulerType>(
+      "nanofuzz.generators.scheduler.impl",
+      "mab"
+    );
+    this._L = Config.get<number>(
+      "nanofuzz.generators.scheduler.mab.lookback",
+      500
+    );
+    this._chunkSize = Config.get<number>(
+      "nanofuzz.generators.compositeChunkSize",
+      20
+    );
+    this._P = Config.get<number>(
+      "nanofuzz.generators.scheduler.mab.exploration",
+      0.1
+    );
+    this._trackCheckpoints = Config.get<boolean>(
+      "nanofuzz.generators.compositeTrackCheckpoints",
+      false
+    );
+
+    if (!this._scheduler || this._scheduler.type !== schedulerType) {
+      this._scheduler = SchedulerFactory.create(schedulerType, this._rngSeed);
+      this._ticksLeftInChunk = 0;
+    }
+  } // fn: _loadConfig
 
   /**
    * Applies the input transformer (if configured) to an untransformed candidate input.
@@ -428,8 +449,9 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
       Math.max(this._fnTimeout, 0)
     );
 
-    if (transformerResult.result.tag === "value") {
-      const values = transformerResult.result.value;
+    const primaryResult = transformerResult.results[0];
+    if (primaryResult && primaryResult.tag === "value") {
+      const values = primaryResult.value;
       if (Array.isArray(values)) {
         const transformedValue = structuredClone(untransformedCandidate.value);
         let changed = false;
@@ -462,19 +484,21 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
         return { candidate: transformedCandidate };
       } else {
         const msg = `Transformer returned non-array value: ${JSONN.stringify(
-          transformerResult.result.value
+          primaryResult.value
         )}`;
         return {
           candidate: untransformedCandidate,
           skip: true,
           transformerResult: {
-            result: {
-              tag: "error",
-              name: "TransformerError",
-              message: msg,
-              seq: -1,
-            },
-            env: {},
+            results: [
+              {
+                tag: "error",
+                name: "TransformerError",
+                message: msg,
+              },
+            ],
+            seq: transformerResult.seq,
+            env: transformerResult.env,
           },
         };
       }
@@ -731,7 +755,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
    * @returns the index of the selected subgen
    */
   protected _selectNextSubGen(): number {
-    // 1. High-priority inputs (e.g. pinned/human) always come first
+    // High-priority inputs (e.g. pinned/human) always come first
     const priorityIdx = this._subgens.findIndex(
       (g, i) => this._activeSubgens[i] && g.nextable() === "now!"
     );
@@ -740,15 +764,15 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
       return priorityIdx;
     }
 
-    // 2. Guard: If priority is exhausted and autonomous generation is suppressed
+    // Guard: If priority is exhausted and autonomous generation is suppressed
     if (!this._permitSubgens) {
       throw new GeneratorExhaustedError();
     }
 
-    // 3. Reset standard chunk size for autonomous generation
+    // Reset standard chunk size for autonomous generation
     this._ticksLeftInChunk = this._chunkSize;
 
-    // 4. Delegate subgenerator selection to the scheduler
+    // Delegate subgenerator selection to the scheduler
     const selectedIdx = this._scheduler.next({
       tick: this._tick,
       subgens: this._subgens,

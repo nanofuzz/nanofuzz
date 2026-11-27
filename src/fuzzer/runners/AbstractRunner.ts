@@ -68,12 +68,15 @@ export abstract class AbstractRunner {
    * @param `inputs` test inputs
    * @param timeout  timeout threshold
    * @param validators optional list of validator function names to execute in-host
+   * @param env optional extra environment variables
+   * @param repetitions number of times to execute the function in-host (defaults to 1)
    */
   public abstract run(
     inputs: unknown[],
     timeout?: number,
     validators?: string[],
-    env?: Record<string, string>
+    env?: Record<string, string>,
+    repetitions?: number
   ): Promise<RunnerResult>;
 
   /**
@@ -203,45 +206,54 @@ export type ValidatorResult =
       message?: string;
     };
 
+export type RunnerResultItem =
+  | {
+      tag: "timeout";
+      coverageData?: Record<string, number[]>;
+      coverageArcs?: Record<string, Arc[]>;
+      validators?: Record<string, ValidatorResult>;
+    }
+  | {
+      tag: "error";
+      name: string;
+      message: string;
+      stack?: string;
+      source?: "put" | "host"; // if the error originated within the put
+      coverageData?: Record<string, number[]>;
+      coverageArcs?: Record<string, Arc[]>; // arcs taken by this call
+      validators?: Record<string, ValidatorResult>;
+    }
+  | {
+      tag: "skip";
+      message: string;
+      coverageData?: Record<string, number[]>;
+      coverageArcs?: Record<string, Arc[]>; // arcs taken by this call
+      validators?: Record<string, ValidatorResult>;
+    }
+  | {
+      tag: "value";
+      value: unknown;
+      coverageData?: Record<string, number[]>;
+      coverageArcs?: Record<string, Arc[]>; // arcs taken by this call
+      validators?: Record<string, ValidatorResult>;
+    };
+
 export type RunnerResult = {
-  result: (
-    | {
-        tag: "timeout";
-        coverageData?: Record<string, number[]>;
-        coverageArcs?: Record<string, Arc[]>;
-        staticCoverage?: PythonCoverageMapData;
-        validators?: Record<string, ValidatorResult>;
-      }
-    | {
-        tag: "error";
-        name: string;
-        message: string;
-        stack?: string;
-        source?: "put" | "host"; // if the error originated within the put
-        coverageData?: Record<string, number[]>;
-        coverageArcs?: Record<string, Arc[]>; // arcs taken by this call
-        staticCoverage?: PythonCoverageMapData;
-        validators?: Record<string, ValidatorResult>;
-      }
-    | {
-        tag: "skip";
-        message: string;
-        coverageData?: Record<string, number[]>;
-        coverageArcs?: Record<string, Arc[]>; // arcs taken by this call
-        staticCoverage?: PythonCoverageMapData;
-        validators?: Record<string, ValidatorResult>;
-      }
-    | {
-        tag: "value";
-        value: unknown;
-        coverageData?: Record<string, number[]>;
-        coverageArcs?: Record<string, Arc[]>; // arcs taken by this call
-        staticCoverage?: PythonCoverageMapData;
-        validators?: Record<string, ValidatorResult>;
-      }
-  ) & { seq: number };
+  results: RunnerResultItem[]; // array of `repetitions` results
+  seq: number;
   env: VmGlobals;
 };
+
+/**
+ * Type guard for RunnerResultItem.
+ */
+export function isRunnerResultItem(item: unknown): item is RunnerResultItem {
+  if (typeof item !== "object" || item === null) return false;
+  const tag = Reflect.get(item, "tag");
+  return (
+    tag === "value" || tag === "error" || tag === "skip" || tag === "timeout"
+  );
+} // fn: isRunnerResultItem
 
 export type TypeHint =
   | "uuid"
@@ -260,12 +272,11 @@ export type TypeHint =
 export type RunnerInput = {
   args: unknown[];
   seq: number;
+  repetitions: number;
+  timeout: number;
+  validators: string[];
+  env: Record<string, string>;
   typeHints?: TypeHint[];
-  timeout?: number;
-  fnName?: string;
-  filename?: string;
-  validators?: string[];
-  env?: Record<string, string>;
   collect?: {
     coverageData?: true;
     debugData?: true;

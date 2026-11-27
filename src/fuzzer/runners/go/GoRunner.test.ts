@@ -73,9 +73,9 @@ func Multiply(a int, b int) int {
     await runner.onRunStart();
 
     const res = await runner.run([6, 7]);
-    expect(res.result.tag).toBe("value");
-    if (res.result.tag === "value") {
-      expect(res.result.value).toBe(42);
+    expect(res.results[0].tag).toBe("value");
+    if (res.results[0].tag === "value") {
+      expect(res.results[0].value).toBe(42);
     }
     runner.killHost();
   });
@@ -100,15 +100,15 @@ func MustBePositive(n int) int {
     await runner.onRunStart();
 
     const resFail = await runner.run([-5]);
-    expect(resFail.result.tag).toBe("error");
-    if (resFail.result.tag === "error") {
-      expect(resFail.result.message).toContain("must be positive");
+    expect(resFail.results[0].tag).toBe("error");
+    if (resFail.results[0].tag === "error") {
+      expect(resFail.results[0].message).toContain("must be positive");
     }
 
     const resOk = await runner.run([10]);
-    expect(resOk.result.tag).toBe("value");
-    if (resOk.result.tag === "value") {
-      expect(resOk.result.value).toBe(20);
+    expect(resOk.results[0].tag).toBe("value");
+    if (resOk.results[0].tag === "value") {
+      expect(resOk.results[0].value).toBe(20);
     }
     runner.killHost();
   });
@@ -147,36 +147,36 @@ func CheckValid(mode int, expr string) string {
 
     // 1. runtime.Assume (struct value)
     const res1 = await runner.run([1, "Ub"]);
-    expect(res1.result.tag).toBe("skip");
-    if (res1.result.tag === "skip") {
-      expect(res1.result.message).toContain(
+    expect(res1.results[0].tag).toBe("skip");
+    if (res1.results[0].tag === "skip") {
+      expect(res1.results[0].message).toContain(
         "Expression must be syntactically valid"
       );
     }
 
     // 2. Pointer *runtime.UnsatisfiedAssumptionError
     const res2 = await runner.run([2, "Ub"]);
-    expect(res2.result.tag).toBe("skip");
-    if (res2.result.tag === "skip") {
-      expect(res2.result.message).toContain(
+    expect(res2.results[0].tag).toBe("skip");
+    if (res2.results[0].tag === "skip") {
+      expect(res2.results[0].message).toContain(
         "Expression must be syntactically valid"
       );
     }
 
     // 3. Formatted error with "unsatisfied assumption:"
     const res3 = await runner.run([3, "Ub"]);
-    expect(res3.result.tag).toBe("skip");
-    if (res3.result.tag === "skip") {
-      expect(res3.result.message).toBe(
+    expect(res3.results[0].tag).toBe("skip");
+    if (res3.results[0].tag === "skip") {
+      expect(res3.results[0].message).toBe(
         "Expression must be syntactically valid"
       );
     }
 
     // 4. Valid input returns value
     const resOk = await runner.run([1, "1 + 2"]);
-    expect(resOk.result.tag).toBe("value");
-    if (resOk.result.tag === "value") {
-      expect(resOk.result.value).toBe("1 + 2");
+    expect(resOk.results[0].tag).toBe("value");
+    if (resOk.results[0].tag === "value") {
+      expect(resOk.results[0].value).toBe("1 + 2");
     }
 
     runner.killHost();
@@ -217,18 +217,18 @@ func ProcessAll(u User, items []int, lookup map[string]int, ptr *int) int {
     const ptr = 5;
 
     const res = await runner.run([user, items, lookup, ptr]);
-    expect(res.result.tag).toBe("value");
-    if (res.result.tag === "value") {
+    expect(res.results[0].tag).toBe("value");
+    if (res.results[0].tag === "value") {
       // 30 + (1+2+3) + 7 + 5 = 48
-      expect(res.result.value).toBe(48);
+      expect(res.results[0].value).toBe(48);
     }
 
     // Test with nil pointer
     const resNilPtr = await runner.run([user, items, lookup, null]);
-    expect(resNilPtr.result.tag).toBe("value");
-    if (resNilPtr.result.tag === "value") {
+    expect(resNilPtr.results[0].tag).toBe("value");
+    if (resNilPtr.results[0].tag === "value") {
       // 30 + 6 + 7 + 0 = 43
-      expect(resNilPtr.result.value).toBe(43);
+      expect(resNilPtr.results[0].value).toBe(43);
     }
 
     runner.killHost();
@@ -256,12 +256,12 @@ func Sample(prng func() float64) float64 {
       [{ __nanofuzz_type: "prng", seed: "fixed_seed_abc" }],
       5000
     );
-    expect(res1.result.tag).toBe("value");
-    if (res1.result.tag === "value") {
-      expect(typeof res1.result.value).toBe("number");
-      if (typeof res1.result.value === "number") {
-        expect(res1.result.value).toBeGreaterThanOrEqual(0);
-        expect(res1.result.value).toBeLessThan(1);
+    expect(res1.results[0].tag).toBe("value");
+    if (res1.results[0].tag === "value") {
+      expect(typeof res1.results[0].value).toBe("number");
+      if (typeof res1.results[0].value === "number") {
+        expect(res1.results[0].value).toBeGreaterThanOrEqual(0);
+        expect(res1.results[0].value).toBeLessThan(1);
       }
     }
 
@@ -269,20 +269,34 @@ func Sample(prng func() float64) float64 {
       [{ __nanofuzz_type: "prng", seed: "fixed_seed_abc" }],
       5000
     );
-    expect(res2.result.tag).toBe("value");
-    if (res2.result.tag === "value" && res1.result.tag === "value") {
-      expect(res2.result.value).toBe(res1.result.value);
+    expect(res2.results[0].tag).toBe("value");
+    if (res2.results[0].tag === "value" && res1.results[0].tag === "value") {
+      expect(res2.results[0].value).toBe(res1.results[0].value);
     }
 
     // Invocation without a seed runs unseeded / pure random and succeeds
     const unseededRes = await runner.run([{}], 5000);
-    expect(unseededRes.result.tag).toBe("value");
-    if (unseededRes.result.tag === "value") {
-      expect(typeof unseededRes.result.value).toBe("number");
-      if (typeof unseededRes.result.value === "number") {
-        expect(unseededRes.result.value).toBeGreaterThanOrEqual(0);
-        expect(unseededRes.result.value).toBeLessThan(1);
+    expect(unseededRes.results[0].tag).toBe("value");
+    if (unseededRes.results[0].tag === "value") {
+      expect(typeof unseededRes.results[0].value).toBe("number");
+      if (typeof unseededRes.results[0].value === "number") {
+        expect(unseededRes.results[0].value).toBeGreaterThanOrEqual(0);
+        expect(unseededRes.results[0].value).toBeLessThan(1);
       }
+    }
+
+    // Invocation with repetitions requests multiple values in a single response
+    const batchRes = await runner.run(
+      [{ __nanofuzz_type: "prng", seed: "fixed_seed_abc" }],
+      5000,
+      [],
+      {},
+      4
+    );
+    expect(batchRes.results.length).toBe(4);
+    expect(batchRes.results[0].tag).toBe("value");
+    if (batchRes.results[0].tag === "value") {
+      expect(typeof batchRes.results[0].value).toBe("number");
     }
 
     runner.killHost();
@@ -312,9 +326,9 @@ func ReadProvenance() string {
     });
     runner.killHost();
 
-    expect(res.result.tag).toBe("value");
-    if (res.result.tag === "value") {
-      expect(res.result.value).toBe(expectedProvenance);
+    expect(res.results[0].tag).toBe("value");
+    if (res.results[0].tag === "value") {
+      expect(res.results[0].value).toBe(expectedProvenance);
     }
   });
 });
