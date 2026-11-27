@@ -1894,8 +1894,9 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
         isCancelled = true;
       }, 50);
 
+      // Pass a 100ms timeout (matching how Fuzzer passes remainingTimeout)
       const start = performance.now();
-      const ready = await cig.waitForNextInput();
+      const ready = await cig.waitForNextInput(100);
       const elapsed = performance.now() - start;
 
       expect(ready).toBeFalse();
