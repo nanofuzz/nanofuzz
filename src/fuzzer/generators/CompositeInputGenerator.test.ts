@@ -1730,5 +1730,177 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
       );
       expect(cig.nextable()).toBe(false);
     });
+
+    it("waitForNextInput returns immediately when cancelFn becomes true for pending subgenerator", async () => {
+      const program = ProgramFactory.fromSource(
+        () => `export function dummyFn(x: number) {}`,
+        "typescript"
+      );
+      const fnDef = program.functionsExported["dummyFn"];
+      const genStats = createGenStats();
+      const options = {
+        RandomInputGenerator: { enabled: false },
+        MutationInputGenerator: { enabled: false },
+        AiInputGenerator: { enabled: false },
+        UserInputGenerator: { enabled: false },
+      };
+      const leaderboard = new Leaderboard<InputAndSource>();
+      const allInputs = new Map<string, unknown>();
+
+      // Mock subgenerator that remains "soon" with a long-running promise
+      class HangingAsyncSubgen extends AbstractInputGenerator {
+        private _ready = false;
+        public nextable(): NextableStatus {
+          return this._ready ? "now" : "soon";
+        }
+        public override async waitUntilReady(): Promise<boolean> {
+          // Simulates long in-flight network call (e.g. 2000ms)
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+          this._ready = true;
+          return true;
+        }
+        public next(): InputAndSource {
+          return {
+            tick: 0,
+            value: [{ tag: "ArgValueTypeWrapped", value: 1 }],
+            source: { type: "generator", generator: "HangingAsyncSubgen" },
+          };
+        }
+      }
+
+      class TestCigWithAsyncSubgen extends CompositeInputGenerator {
+        public addSubgen(subgen: AbstractInputGenerator): void {
+          this._subgens.push(subgen);
+          this._activeSubgens.push(true);
+        }
+      }
+
+      const hangingSubgen = new HangingAsyncSubgen(
+        fnDef.getArgDefs(),
+        "test-seed"
+      );
+      const cig = new TestCigWithAsyncSubgen(
+        options,
+        fnDef,
+        "test-seed",
+        [],
+        leaderboard,
+        genStats,
+        allInputs,
+        program.src
+      );
+
+      cig.onRunStart(
+        true,
+        [],
+        undefined,
+        createTestFuzzOptions({
+          suiteTimeout: 0,
+          maxTests: 0,
+          maxDupeInputs: 100000,
+        })
+      );
+
+      cig.addSubgen(hangingSubgen);
+
+      // CIG is now in "soon" state waiting for the async generator
+      expect(cig.nextable()).toBe("soon");
+
+      // Set cancellation token: cancelled!
+      cig.cancelFn = () => true;
+
+      // When cancelFn is true, waitForNextInput must return false immediately (< 500ms)
+      const start = performance.now();
+      const ready = await cig.waitForNextInput();
+      const elapsed = performance.now() - start;
+
+      expect(ready).toBeFalse();
+      expect(elapsed).toBeLessThan(500);
+    });
+
+    it("waitForNextInput unblocks promptly when cancelFn transitions to true while waiting", async () => {
+      const program = ProgramFactory.fromSource(
+        () => `export function dummyFn(x: number) {}`,
+        "typescript"
+      );
+      const fnDef = program.functionsExported["dummyFn"];
+      const genStats = createGenStats();
+      const options = {
+        RandomInputGenerator: { enabled: false },
+        MutationInputGenerator: { enabled: false },
+        AiInputGenerator: { enabled: false },
+        UserInputGenerator: { enabled: false },
+      };
+      const leaderboard = new Leaderboard<InputAndSource>();
+      const allInputs = new Map<string, unknown>();
+
+      class LongPendingAsyncSubgen extends AbstractInputGenerator {
+        public nextable(): NextableStatus {
+          return "soon";
+        }
+        public override async waitUntilReady(): Promise<boolean> {
+          await new Promise((resolve) => setTimeout(resolve, 3000));
+          return true;
+        }
+        public next(): InputAndSource {
+          return {
+            tick: 0,
+            value: [{ tag: "ArgValueTypeWrapped", value: 1 }],
+            source: { type: "generator", generator: "LongPending" },
+          };
+        }
+      }
+
+      class TestCigWithAsyncSubgen2 extends CompositeInputGenerator {
+        public addSubgen(subgen: AbstractInputGenerator): void {
+          this._subgens.push(subgen);
+          this._activeSubgens.push(true);
+        }
+      }
+
+      const longSubgen = new LongPendingAsyncSubgen(
+        fnDef.getArgDefs(),
+        "test-seed"
+      );
+      const cig = new TestCigWithAsyncSubgen2(
+        options,
+        fnDef,
+        "test-seed",
+        [],
+        leaderboard,
+        genStats,
+        allInputs,
+        program.src
+      );
+
+      cig.onRunStart(
+        true,
+        [],
+        undefined,
+        createTestFuzzOptions({
+          suiteTimeout: 0,
+          maxTests: 0,
+          maxDupeInputs: 100000,
+        })
+      );
+
+      cig.addSubgen(longSubgen);
+
+      let isCancelled = false;
+      cig.cancelFn = () => isCancelled;
+
+      // Transition cancelFn to true after 50ms while waitForNextInput is waiting
+      setTimeout(() => {
+        isCancelled = true;
+      }, 50);
+
+      // Pass a 100ms timeout (matching how Fuzzer passes remainingTimeout)
+      const start = performance.now();
+      const ready = await cig.waitForNextInput(100);
+      const elapsed = performance.now() - start;
+
+      expect(ready).toBeFalse();
+      expect(elapsed).toBeLessThan(500);
+    });
   });
 });
