@@ -88,7 +88,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
   public set workerCount(count: number) {
     for (const subgen of this._subgens) {
       if ("workerCount" in subgen) {
-        (subgen as { workerCount: number }).workerCount = count;
+        Reflect.set(subgen, "workerCount", count);
       }
     }
   } // setter: workerCount
