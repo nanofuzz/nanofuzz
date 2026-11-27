@@ -27,6 +27,7 @@ export class UserInputGenerator extends AbstractInputGenerator {
   protected _rngSeed?: string; // Random number generator seed
   protected _failureTicks: number[] = []; // Ticks at which generator execution failed
   protected _consecutiveFailures = 0; // Consecutive failure streak, resets on success
+  protected _workerCount = 1; // Active worker concurrency count
 
   public constructor(
     fn: FunctionDef,
@@ -57,7 +58,7 @@ export class UserInputGenerator extends AbstractInputGenerator {
       this._userGenRunner &&
       !this._exhausted &&
       !this._callsPending &&
-      this._inputQueue.length < 3
+      this._inputQueue.length < this.targetQueueSize
     ) {
       this._getMoreInputs();
     }
@@ -88,7 +89,7 @@ export class UserInputGenerator extends AbstractInputGenerator {
       this._userGenRunner &&
       !this._exhausted &&
       !this._callsPending &&
-      this._inputQueue.length < 3
+      this._inputQueue.length < this.targetQueueSize
     ) {
       this._getMoreInputs();
     }
@@ -339,7 +340,7 @@ export class UserInputGenerator extends AbstractInputGenerator {
               this._active &&
               this._userGenRunner &&
               !this._exhausted &&
-              this._inputQueue.length < 3
+              this._inputQueue.length < this.targetQueueSize
             ) {
               this._getMoreInputs();
             }

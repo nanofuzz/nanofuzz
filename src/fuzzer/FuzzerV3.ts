@@ -914,6 +914,7 @@ export class FuzzerV3 {
     } else {
       this._compositeInputGenerator.suppressGenerators();
     }
+    this._compositeInputGenerator.workerCount = this.workerCount;
 
     const fqSrcFile = fs.realpathSync(this._function.getModule());
     const startCompTime = performance.now();
