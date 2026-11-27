@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+import pandas as pd
+import msgpack
 import argparse
 import datetime
 import json
@@ -22,8 +24,6 @@ if os.path.exists(_VENV_PY) and os.path.realpath(sys.executable) != os.path.real
     except ImportError:
         os.execv(_VENV_PY, [_VENV_PY] + sys.argv)
 
-import msgpack
-import pandas as pd
 
 """
 NaNofuzz CLI Empirical Generator Evaluation Driver
@@ -651,10 +651,6 @@ def lane_worker_loop(
             shutil.copy2(src_harness, local_harness)
             shutil.copy2(src_nano_cfg, local_nano_cfg)
 
-            output_mpk_path = os.path.join(trial_artifact_dir, f"{run_id}.mpk")
-            interceptor_log_path = os.path.join(
-                trial_artifact_dir, "elicited_bugs.json")
-
             seed_str = f"{item['Sequence']}_{run_id}_{task_name}_{treatment_name}"
 
             MAX_TRIAL_ATTEMPTS = 3
@@ -668,6 +664,13 @@ def lane_worker_loop(
                     f"[{ts_start}] [Lane {lane_idx}] Starting {run_id}: {task_name} under {treatment_name} (Repetition {item['Replicate']}){attempt_suffix}...",
                     flush=True)
 
+                attempt_dir = os.path.join(
+                    trial_artifact_dir, f"attempt_{attempt}")
+                os.makedirs(attempt_dir, exist_ok=True)
+                attempt_mpk_path = os.path.join(attempt_dir, f"{run_id}.mpk")
+                attempt_interceptor_log_path = os.path.join(
+                    attempt_dir, "elicited_bugs.json")
+
                 retcode, elapsed, stdout, stderr = execute_nanofuzz_run(
                     lane_idx=lane_idx,
                     worktree_dir=worktree_dir,
@@ -676,25 +679,25 @@ def lane_worker_loop(
                     config_file_path=local_nano_cfg,
                     cli_args=cli_args,
                     runtime_ms=runtime_ms,
-                    output_mpk_path=output_mpk_path,
+                    output_mpk_path=attempt_mpk_path,
                     workers=workers,
-                    interceptor_log_path=interceptor_log_path,
+                    interceptor_log_path=attempt_interceptor_log_path,
                     target_rel_path=task_meta["relative_target"],
                     seed_str=seed_str
                 )
 
-                with open(os.path.join(trial_artifact_dir, "stdout.txt"), "w", encoding="utf-8") as f:
+                with open(os.path.join(attempt_dir, "stdout.txt"), "w", encoding="utf-8") as f:
                     f.write(stdout)
-                with open(os.path.join(trial_artifact_dir, "stderr.txt"), "w", encoding="utf-8") as f:
+                with open(os.path.join(attempt_dir, "stderr.txt"), "w", encoding="utf-8") as f:
                     f.write(stderr)
 
                 try:
                     processed_row = process_trial_result(
                         trial=item,
                         run_id=run_id,
-                        artifacts_dir=trial_artifact_dir,
-                        output_mpk_path=output_mpk_path,
-                        interceptor_log_path=interceptor_log_path,
+                        artifacts_dir=attempt_dir,
+                        output_mpk_path=attempt_mpk_path,
+                        interceptor_log_path=attempt_interceptor_log_path,
                         stdout=stdout,
                         stderr=stderr,
                         retcode=retcode,
@@ -702,6 +705,30 @@ def lane_worker_loop(
                         rubric=rubric,
                         attempts=attempt
                     )
+                    # require Status == "COMPLETED" before promotion
+                    if processed_row.get("Status") != "COMPLETED":
+                        raise RuntimeError(
+                            f"Trial {run_id} attempt {attempt} returned non-completed Status='{processed_row.get('Status')}'"
+                        )
+
+                    # Move winning attempt files to root, leaving relative symlinks in attempt_dir to avoid duplicate storage
+                    root_mpk = os.path.join(trial_artifact_dir, f"{run_id}.mpk")
+                    root_log = os.path.join(trial_artifact_dir, "elicited_bugs.json")
+                    root_stdout = os.path.join(trial_artifact_dir, "stdout.txt")
+                    root_stderr = os.path.join(trial_artifact_dir, "stderr.txt")
+
+                    if os.path.exists(attempt_mpk_path):
+                        shutil.move(attempt_mpk_path, root_mpk)
+                        os.symlink(os.path.join("..", f"{run_id}.mpk"), attempt_mpk_path)
+                    if os.path.exists(attempt_interceptor_log_path):
+                        shutil.move(attempt_interceptor_log_path, root_log)
+                        os.symlink(os.path.join("..", "elicited_bugs.json"), attempt_interceptor_log_path)
+                    shutil.move(os.path.join(attempt_dir, "stdout.txt"), root_stdout)
+                    os.symlink(os.path.join("..", "stdout.txt"), os.path.join(attempt_dir, "stdout.txt"))
+                    shutil.move(os.path.join(attempt_dir, "stderr.txt"), root_stderr)
+                    os.symlink(os.path.join("..", "stderr.txt"), os.path.join(attempt_dir, "stderr.txt"))
+                    with open(os.path.join(attempt_dir, "promoted.txt"), "w", encoding="utf-8") as f:
+                        f.write(f"Attempt {attempt} succeeded. Artifacts promoted to trial root.\n")
                     break
                 except Exception as exc:
                     last_err = exc
@@ -999,12 +1026,14 @@ def main():
             eta_str = format_time_duration(remaining_sec)
             pct = (completed_count / total_count) * 100.0
 
-            # Live scores across treatments
+            # Live scores across treatments (excluding failed trials; do not coerce so unexpected types fail fast)
             df_curr = pd.DataFrame(results_rows)
+            df_valid = df_curr[df_curr["Status"] !=
+                               "FAILED"] if not df_curr.empty and "Status" in df_curr.columns else df_curr
             bugs_parts = []
             bcov_parts = []
             for tr in canonical_treatments:
-                sub = df_curr[df_curr["Treatment"] == tr]
+                sub = df_valid[df_valid["Treatment"] == tr]
                 if not sub.empty and "BugElicitationRate" in sub.columns:
                     mean_rate = sub["BugElicitationRate"].mean()
                     bugs_parts.append(f"{tr}: {mean_rate:.1%}")
