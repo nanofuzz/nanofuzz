@@ -1,6 +1,7 @@
 import { PropertyOracle } from "./PropertyOracle";
 import { Judgment } from "./Types";
-import { AbstractRunner, RunnerResult } from "../runners/AbstractRunner";
+import { AbstractRunner } from "../runners/AbstractRunner";
+import { RunnerResult } from "../runners/Types";
 
 class MockPropRunner extends AbstractRunner {
   private readonly _runFn: () => Promise<RunnerResult>;

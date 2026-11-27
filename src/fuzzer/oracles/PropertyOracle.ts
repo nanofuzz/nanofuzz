@@ -1,7 +1,8 @@
 import { Judgment } from "./Types";
 import { HarnessError, Result } from "../Types";
 import { isError } from "../Util";
-import { AbstractRunner, ValidatorResult } from "../runners/AbstractRunner";
+import { AbstractRunner } from "../runners/AbstractRunner";
+import { ValidatorResult } from "../runners/Types";
 
 export class PropertyOracle {
   protected _propRunners: AbstractRunner[] = [];

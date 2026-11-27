@@ -1,13 +1,13 @@
 import fs from "node:fs";
+import { AbstractRunner } from "../AbstractRunner";
 import {
-  AbstractRunner,
-  isRunnerResultItem,
   RunnerInput,
   RunnerOverrides,
   RunnerResult,
   RunnerResultItem,
   ValidatorResult,
-} from "../AbstractRunner";
+} from "../Types";
+import { isRunnerResultItem } from "../Util";
 import { CoverageMapData, FileCoverageData } from "istanbul-lib-coverage";
 import { isRecordOfFileCoverageData } from "../../measures/CoverageMeasure";
 import { FuzzEnv } from "../../Types";
@@ -206,8 +206,6 @@ export class GoRunner extends AbstractRunner {
       let results: RunnerResultItem[] = [];
       if (Array.isArray(hostPayload.results)) {
         results = hostPayload.results.filter(isRunnerResultItem);
-      } else if (isRunnerResultItem(hostPayload)) {
-        results = [hostPayload];
       }
 
       if (results.length === 0) {
@@ -453,18 +451,11 @@ export class GoRunner extends AbstractRunner {
 } // class: GoRunner
 
 type GoHostResponse = {
-  results?: RunnerResultItem[];
-  tag?: "value" | "error" | "skip" | "timeout";
-  values?: unknown[];
-  value?: unknown;
-  message?: string;
-  name?: string;
-  stack?: string;
-  source?: string;
-  seq?: number;
+  results: RunnerResultItem[];
+  seq: number;
+  coverageData?: Record<string, FileCoverageData>;
   validators?: Record<
     string,
     { tag: "value" | "error" | "skip"; value?: unknown; message?: string }
   >;
-  coverageData?: Record<string, FileCoverageData>;
 };

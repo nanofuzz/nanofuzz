@@ -7,12 +7,12 @@ import { CoverageMeasure } from "./measures/CoverageMeasure";
 import { ExampleOracle } from "./oracles/ExampleOracle";
 import { ImplicitOracle } from "./oracles/ImplicitOracle";
 import { PropertyOracle } from "./oracles/PropertyOracle";
+import { AbstractRunner } from "./runners/AbstractRunner";
 import {
-  AbstractRunner,
   RunnerCoverage,
   RunnerResult,
   ValidatorResult,
-} from "./runners/AbstractRunner";
+} from "./runners/Types";
 import {
   FuzzOptions,
   FuzzPinnedTest,

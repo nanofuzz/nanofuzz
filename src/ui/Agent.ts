@@ -17,7 +17,8 @@ import { ArgDefShrinker } from "../fuzzer/analysis/ArgDefShrinker";
 import { CompanionManager } from "../fuzzer/analysis/CompanionManager";
 import * as CompilerFactory from "../fuzzer/compilers/CompilerFactory";
 import { RunnerFactory } from "../fuzzer/runners/RunnerFactory";
-import { AbstractRunner, RunnerResult } from "../fuzzer/runners/AbstractRunner";
+import { AbstractRunner } from "../fuzzer/runners/AbstractRunner";
+import { RunnerResult } from "../fuzzer/runners/Types";
 import {
   ArgOptions,
   ArgTag,

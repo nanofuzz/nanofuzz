@@ -4,7 +4,8 @@ import { isArgValueType } from "../analysis/Util";
 import { FunctionDef } from "../analysis/FunctionDef";
 import { FuzzOptions, FuzzPinnedTest, InputAndSource } from "../Types";
 import { NextableStatus } from "./Types";
-import { AbstractRunner, RunnerResult } from "../runners/AbstractRunner";
+import { AbstractRunner } from "../runners/AbstractRunner";
+import { RunnerResult } from "../runners/Types";
 import { isError } from "../Util";
 
 /**

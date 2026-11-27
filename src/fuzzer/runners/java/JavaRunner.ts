@@ -1,14 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
+import { AbstractRunner } from "../AbstractRunner";
 import {
-  AbstractRunner,
-  isRunnerResultItem,
   RunnerInput,
   RunnerOverrides,
   RunnerResult,
   RunnerResultItem,
-  ValidatorResult,
-} from "../AbstractRunner";
+} from "../Types";
+import { isRunnerResultItem } from "../Util";
 import { CoverageMapData, FileCoverageData } from "istanbul-lib-coverage";
 import { isRecordOfFileCoverageData } from "../../measures/CoverageMeasure";
 import { FuzzEnv } from "../../Types";
@@ -253,8 +252,6 @@ export class JavaRunner extends AbstractRunner {
       let results: RunnerResultItem[] = [];
       if (Array.isArray(hostPayload.results)) {
         results = hostPayload.results.filter(isRunnerResultItem);
-      } else if (isRunnerResultItem(hostPayload)) {
-        results = [hostPayload];
       }
       if (results.length === 0) {
         results = [
@@ -431,16 +428,8 @@ export class JavaRunner extends AbstractRunner {
 // ============================================================================
 
 type JavaHostResponse = {
-  results?: RunnerResultItem[];
-  tag?: "value" | "error" | "skip" | "timeout";
-  seq?: number;
-  values?: unknown[];
-  value?: unknown;
-  name?: string;
-  message?: string;
-  stack?: string;
-  source?: "put" | "host";
-  validators?: Record<string, ValidatorResult>;
+  results: RunnerResultItem[];
+  seq: number;
   coverageData?: unknown;
   jacocoCoverage?: Record<string, JacocoClassCoverage>;
   coverageError?: string;

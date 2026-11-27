@@ -1,14 +1,13 @@
 import fs from "node:fs";
+import { AbstractRunner } from "../AbstractRunner";
 import {
-  AbstractRunner,
-  isRunnerResultItem,
   RunnerOverrides,
   RunnerResult,
   RunnerResultItem,
-  ValidatorResult,
   TypeHint,
   RunnerInput,
-} from "../AbstractRunner";
+} from "../Types";
+import { isRunnerResultItem } from "../Util";
 import { CoverageMapData } from "istanbul-lib-coverage";
 import { isRecordOfFileCoverageData } from "../../measures/CoverageMeasure";
 import { FuzzEnv } from "../../Types";
@@ -188,19 +187,6 @@ export class OxcamlRunner extends AbstractRunner {
           }
           return item;
         });
-      } else if (isRunnerResultItem(hostPayload)) {
-        const val =
-          retDef && hostPayload.tag === "value" && hostPayload.value !== undefined
-            ? transformHostResult(hostPayload.value, retDef)
-            : hostPayload.tag === "value"
-            ? hostPayload.value
-            : undefined;
-        results = [
-          {
-            ...hostPayload,
-            ...(val !== undefined ? { value: val } : {}),
-          },
-        ];
       }
 
       if (results.length === 0) {
@@ -357,16 +343,8 @@ export class OxcamlRunner extends AbstractRunner {
 } // class: OxcamlRunner
 
 type OxcamlHostResponse = {
-  results?: RunnerResultItem[];
-  tag?: "value" | "error" | "skip" | "timeout";
-  seq?: number;
-  values?: unknown[];
-  value?: unknown;
-  message?: string;
-  name?: string;
-  stack?: string;
-  source?: "put" | "host";
-  validators?: Record<string, ValidatorResult>;
+  results: RunnerResultItem[];
+  seq: number;
   coverageData?: CoverageMapData;
 };
 

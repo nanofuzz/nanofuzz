@@ -1,13 +1,12 @@
 import fs from "node:fs";
+import { AbstractRunner } from "../AbstractRunner";
 import {
-  AbstractRunner,
-  isRunnerResultItem,
   RunnerInput,
   RunnerOverrides,
   RunnerResult,
   RunnerResultItem,
-  ValidatorResult,
-} from "../AbstractRunner";
+} from "../Types";
+import { isRunnerResultItem } from "../Util";
 import { CoverageMapData } from "istanbul-lib-coverage";
 import { isRecordOfFileCoverageData } from "../../measures/CoverageMeasure";
 import { FuzzEnv } from "../../Types";
@@ -187,8 +186,6 @@ export class RustRunner extends AbstractRunner {
       let results: RunnerResultItem[] = [];
       if (Array.isArray(hostPayload.results)) {
         results = hostPayload.results.filter(isRunnerResultItem);
-      } else if (isRunnerResultItem(hostPayload)) {
-        results = [hostPayload];
       }
 
       if (results.length === 0) {
@@ -405,15 +402,7 @@ export class RustRunner extends AbstractRunner {
 } // class: RustRunner
 
 type RustHostResponse = {
-  results?: RunnerResultItem[];
-  tag?: "value" | "error" | "skip" | "timeout";
-  seq?: number;
-  values?: unknown[];
-  value?: unknown;
-  message?: string;
-  name?: string;
-  stack?: string;
-  source?: "put" | "host";
-  validators?: Record<string, ValidatorResult>;
+  results: RunnerResultItem[];
+  seq: number;
   coverageData?: CoverageMapData;
 };

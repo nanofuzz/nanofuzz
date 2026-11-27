@@ -1,14 +1,14 @@
+import { AbstractRunner } from "../AbstractRunner";
 import {
-  AbstractRunner,
   Arc,
-  isRunnerResultItem,
   PythonCoverageMapData,
   RunnerInput,
   RunnerOverrides,
   RunnerResult,
   RunnerResultItem,
   TypeHint,
-} from "../AbstractRunner";
+} from "../Types";
+import { isRunnerResultItem } from "../Util";
 import { ArgDef } from "../../analysis/ArgDef";
 import { ArgTag, ProgramImport } from "../../analysis/Types";
 import { parseCoverageScope } from "../../measures/Util";
@@ -1044,14 +1044,10 @@ export function isPythonCoverageMapData(
   );
 } // fn: isPythonCoverageMapData
 
-export const isFullCoverage = isPythonCoverageMapData;
-
 export {
   Arc,
   PythonFileCoverageData,
-  CoverageInfo,
   PythonCoverageMapData,
-  FullCoverage,
   RunnerCoverage,
-} from "../AbstractRunner";
+} from "../Types";
 export type { PythonEnv } from "./PythonHost";

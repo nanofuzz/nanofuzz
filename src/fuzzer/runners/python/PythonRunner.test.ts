@@ -1,5 +1,5 @@
 import { PythonRunner } from "./PythonRunner";
-import { RunnerResultItem } from "../AbstractRunner";
+import { RunnerResultItem } from "../Types";
 import {
   FuzzEnv,
   FuzzGeneratorStatsBase,

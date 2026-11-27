@@ -14,7 +14,8 @@ import {
 } from "./../Types";
 import { FunctionDef } from "../analysis/FunctionDef";
 import { InputGeneratorFactory } from "./InputGeneratorFactory";
-import { AbstractRunner, RunnerResult } from "../runners/AbstractRunner";
+import { AbstractRunner } from "../runners/AbstractRunner";
+import { RunnerResult } from "../runners/Types";
 import * as ValueMapper from "../mappers/ValueMapper";
 import * as JSONN from "../../Jsonn";
 import { AbstractInputScheduler } from "../schedulers/AbstractInputScheduler";

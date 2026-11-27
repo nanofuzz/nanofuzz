@@ -20,13 +20,13 @@ import {
   VmGlobals,
 } from "../Types";
 import { normalizePathForKey } from "../Util";
+import { AbstractRunner } from "../runners/AbstractRunner";
 import {
-  AbstractRunner,
   Arc,
   PythonCoverageMapData,
   PythonFileCoverageData,
   RunnerCoverage,
-} from "../runners/AbstractRunner";
+} from "../runners/Types";
 import { isPythonCoverageMapData } from "../runners/python/PythonRunner";
 import { AbstractMeasure, BaseMeasurement } from "./AbstractMeasure";
 

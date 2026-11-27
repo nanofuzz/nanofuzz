@@ -1,5 +1,6 @@
 import { UserInputGenerator } from "./UserInputGenerator";
-import { AbstractRunner, RunnerResult } from "../runners/AbstractRunner";
+import { AbstractRunner } from "../runners/AbstractRunner";
+import { RunnerResult } from "../runners/Types";
 import * as ProgramFactory from "../analysis/ProgramFactory";
 import { FuzzConfigStore } from "../FuzzConfigStore";
 import { isRecord } from "../../Util";

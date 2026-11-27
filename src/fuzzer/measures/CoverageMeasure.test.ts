@@ -1,9 +1,9 @@
 import { CoverageMeasure } from "./CoverageMeasure";
+import { PythonRunner } from "../runners/python/PythonRunner";
 import {
-  CoverageInfo,
-  FullCoverage,
-  PythonRunner,
-} from "../runners/python/PythonRunner";
+  PythonCoverageMapData,
+  PythonFileCoverageData,
+} from "../runners/Types";
 import { InputAndSource } from "../Types";
 import { normalizePathForKey } from "../Util";
 import {
@@ -34,7 +34,7 @@ import {
  * A `PythonRunner` that holds a fixed coverage report in memory rather than spawning Python.
  */
 class StubPythonRunner extends PythonRunner {
-  public constructor(coverage: FullCoverage) {
+  public constructor(coverage: PythonCoverageMapData) {
     super(Object.keys(coverage)[0] ?? pyFileName, "anyFn");
     this._coverageInfo = coverage;
   }
@@ -44,9 +44,9 @@ class StubPythonRunner extends PythonRunner {
  * A test harness for `CoverageMeasure` providing multi-file or single-file test driving.
  */
 class TestCoreCoverageMeasure extends CoverageMeasure {
-  private readonly _coverage: FullCoverage;
+  private readonly _coverage: PythonCoverageMapData;
 
-  public constructor(statics: Record<string, CoverageInfo>) {
+  public constructor(statics: Record<string, PythonFileCoverageData>) {
     super();
     this._requireRunner = true;
     this._coverage = {};
@@ -72,8 +72,9 @@ class TestCoreCoverageMeasure extends CoverageMeasure {
 } // class: TestCoreCoverageMeasure
 
 describe("fuzzer/measures/CoverageMeasure: core logic", () => {
-  const singleFileMeasure = (staticInfo: CoverageInfo = twoPathStatic) =>
-    new TestCoreCoverageMeasure({ [pyFileName]: staticInfo });
+  const singleFileMeasure = (
+    staticInfo: PythonFileCoverageData = twoPathStatic
+  ) => new TestCoreCoverageMeasure({ [pyFileName]: staticInfo });
 
   const runTest = (
     measure: TestCoreCoverageMeasure,

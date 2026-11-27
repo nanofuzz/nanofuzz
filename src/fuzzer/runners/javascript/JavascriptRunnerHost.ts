@@ -13,7 +13,7 @@ import vm from "node:vm";
 import seedrandom from "seedrandom";
 import { Worker } from "node:worker_threads";
 import { serialize, deserialize } from "node:v8";
-import { RunnerInput, TypeHint, ValidatorResult } from "../AbstractRunner";
+import { RunnerInput, TypeHint, ValidatorResult } from "../Types";
 import { isError } from "../../Util";
 import { isRecord } from "../../../Util";
 

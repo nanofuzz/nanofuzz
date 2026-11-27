@@ -1,5 +1,4 @@
-import { CoverageInfo } from "../../runners/python/PythonRunner";
-import { Arc } from "../../runners/AbstractRunner";
+import { Arc, PythonFileCoverageData } from "../../runners/Types";
 
 /**
  * Coverage fixtures for `CoverageMeasure.test.ts` and `CoverageMeasurePython.test.ts`.
@@ -55,7 +54,7 @@ export const pyFileName = "/tmp/abs_value.py";
  * Line 1 is executable but only runs at import, so it stays uncovered for
  * every call below.
  */
-export const twoPathStatic: CoverageInfo = {
+export const twoPathStatic: PythonFileCoverageData = {
   executable: [1, 2, 3, 4],
   functions: [
     {
@@ -105,7 +104,7 @@ export const twoPathPositive: PythonRun = {
  * The three calls below cover 10 distinct items between them: one function,
  * five of the six statements, and two two-armed branches.
  */
-export const threePathStatic: CoverageInfo = {
+export const threePathStatic: PythonFileCoverageData = {
   executable: [1, 2, 3, 4, 5, 6],
   functions: [
     {
@@ -167,7 +166,7 @@ export const threePathPositive: PythonRun = {
  * 3      return doubled
  * ```
  */
-export const linearStatic: CoverageInfo = {
+export const linearStatic: PythonFileCoverageData = {
   executable: [1, 2, 3],
   functions: [
     { name: "abs_value", declLine: 1, startLine: 2, endLine: 3, lines: [2, 3] },
@@ -195,7 +194,7 @@ export const linearRun: PythonRun = { lines: [2, 3], arcs: [] };
  * The conditional expression on line 5 is not a branch point for
  * coverage.py: it cannot leave the line, so there is only one arc out of it.
  */
-export const multiFunctionStatic: CoverageInfo = {
+export const multiFunctionStatic: PythonFileCoverageData = {
   executable: [1, 2, 4, 5, 7, 8],
   functions: [
     { name: "abs_value", declLine: 1, startLine: 2, endLine: 2, lines: [2] },
@@ -234,7 +233,7 @@ export const multiFunctionRun: PythonRun = {
  * an implementation that matched exits by `line` instead of by `dest` would
  * flip both arms rather than fail to find them.
  */
-export const earlyExitStatic: CoverageInfo = {
+export const earlyExitStatic: PythonFileCoverageData = {
   executable: [1, 2, 3],
   functions: [
     { name: "report", declLine: 1, startLine: 2, endLine: 3, lines: [2, 3] },
@@ -304,7 +303,7 @@ export const earlyExitNoisyArcs: PythonRun = {
  * than two arms is translated and summarized rather than crashing: nothing
  * downstream may divide by, or summarize, an empty set of arms.
  */
-export const degenerateBranchStatic: CoverageInfo = {
+export const degenerateBranchStatic: PythonFileCoverageData = {
   executable: [1, 2, 3],
   functions: [
     { name: "spin", declLine: 1, startLine: 2, endLine: 3, lines: [2, 3] },
@@ -325,7 +324,7 @@ export const degenerateBranchRun: PythonRun = {
  * A module with nothing in it. The host reports this shape when coverage.py's
  * JSON report has no entry for the file.
  */
-export const emptyStatic: CoverageInfo = {
+export const emptyStatic: PythonFileCoverageData = {
   executable: [],
   functions: [],
   branches: [],
@@ -357,7 +356,7 @@ export const emptyStatic: CoverageInfo = {
  * lines. Line 6 is genuinely executable, though: the `def` itself runs at
  * import, which is why it appears in `executable` and in `nestedImportOnly`.
  */
-export const nestedStatic: CoverageInfo = {
+export const nestedStatic: PythonFileCoverageData = {
   executable: [1, 2, 3, 4, 6],
   functions: [
     { name: "outer", declLine: 1, startLine: 2, endLine: 4, lines: [2, 4] },
