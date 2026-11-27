@@ -1751,10 +1751,10 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
 
       // Mock subgenerator that remains "soon" with a long-running promise
       class HangingAsyncSubgen extends AbstractInputGenerator {
-        private _ready = false;
         public constructor(specs: ArgDef[], rngSeed: string | undefined) {
           super(specs, rngSeed);
         }
+        private _ready = false;
         public nextable(): NextableStatus {
           return this._ready ? "now" : "soon";
         }
