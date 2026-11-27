@@ -85,11 +85,9 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
   /**
    * Sets the active worker count and propagates to subgenerators.
    */
-  public set workerCount(count: number) {
+  public override set workerCount(count: number) {
     for (const subgen of this._subgens) {
-      if ("workerCount" in subgen) {
-        (subgen as { workerCount: number }).workerCount = count;
-      }
+      subgen.workerCount = count;
     }
   } // setter: workerCount
 

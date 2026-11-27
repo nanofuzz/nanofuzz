@@ -51,7 +51,7 @@ export class UserInputGenerator extends AbstractInputGenerator {
   /**
    * Sets the active worker count for queue scaling.
    */
-  public set workerCount(count: number) {
+  public override set workerCount(count: number) {
     this._workerCount = Math.max(1, count);
   }
 

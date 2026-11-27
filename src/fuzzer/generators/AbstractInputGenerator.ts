@@ -62,6 +62,13 @@ export abstract class AbstractInputGenerator {
   } // property: get isTransformable
 
   /**
+   * Sets the active worker count for generators that scale their capacity with concurrency.
+   */
+  public set workerCount(_count: number) {
+    // Default no-op; subclasses override if they support concurrency scaling
+  } // property: set workerCount
+
+  /**
    * Produce the next test-case inputs if isAvailable();
    */
   public abstract next(): InputAndSource;
