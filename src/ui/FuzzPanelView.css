@@ -94,6 +94,9 @@ body {
 .fuzzGrid th.tableCol-src,
 .fuzzGrid td.tableCol-src {
   text-align: center;
+  white-space: nowrap;
+  word-break: normal;
+  overflow-wrap: normal;
 }
 .fuzzGrid th {
   text-align: left;
