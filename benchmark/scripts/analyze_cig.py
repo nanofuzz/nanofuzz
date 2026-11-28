@@ -733,7 +733,7 @@ def generate_cig_results_table(df: pd.DataFrame, out_path: str, stats: dict):
         r"\setlength{\tabcolsep}{2pt}",
         r"\definecolor{bettergreen}{RGB}{169,223,192}",
         r"\definecolor{worsered}{RGB}{245,183,177}",
-        r"\begin{tabularx}{\textwidth}{l| *{4}{>{\centering\arraybackslash}X >{\centering\arraybackslash}X |} >{\centering\arraybackslash}X >{\centering\arraybackslash}X || >{\centering\arraybackslash}X >{\centering\arraybackslash}X}",
+        r"\begin{tabularx}{\textwidth}{l| *{4}{>{\hsize=1.4\hsize\centering\arraybackslash}X >{\hsize=0.6\hsize\centering\arraybackslash}X |} >{\hsize=1.4\hsize\centering\arraybackslash}X >{\hsize=0.6\hsize\centering\arraybackslash}X || >{\hsize=1.4\hsize\centering\arraybackslash}X >{\hsize=0.6\hsize\centering\arraybackslash}X}",
         r"  \toprule",
         "  & " + " & ".join(header_cols) +
         r" & \multicolumn{2}{c}{\textbf{Overall ($\Sigma$)}} \\",
@@ -905,7 +905,9 @@ def generate_ttest_table(df: pd.DataFrame, out_path: str, stats: dict):
         r"\definecolor{worsered}{RGB}{245,183,177}",
         r"\begin{tabular}{l | r c r | r c r}",
         r"  \toprule",
-        r"  & \multicolumn{3}{c|}{\textbf{Measure 1: Branch Coverage ($U$-test)}} & \multicolumn{3}{c}{\textbf{Measure 2: Elicited Bugs (Fisher's exact)}} \\",
+        r"  & \multicolumn{3}{c|}{\makebox[0pt][c]{\textbf{Measure 1}}} & \multicolumn{3}{c}{\makebox[0pt][c]{\textbf{Measure 2}}} \\",
+        r"  & \multicolumn{3}{c|}{\makebox[0pt][c]{\textbf{Branch Coverage ($U$-test)}}} & \multicolumn{3}{c}{\makebox[0pt][c]{\textbf{Elicited Bugs (Fisher's exact test)}}} \\",
+        r"  \midrule",
         r"  \textbf{Treatment} & \multicolumn{1}{c}{\textbf{$\Delta$}} & \textbf{Statistic} & \multicolumn{1}{c|}{\textbf{$p$}} & \multicolumn{1}{c}{\textbf{$\Delta$}} & \textbf{Statistic} & \multicolumn{1}{c}{\textbf{$p$}} \\",
         r"  \midrule",
     ]
@@ -951,7 +953,10 @@ def generate_ttest_table(df: pd.DataFrame, out_path: str, stats: dict):
             fish_table = [[el_tr, max(0, tot_tr - el_tr)], [el_ctl, max(0, tot_ctl - el_ctl)]]
             res_fish = st.fisher_exact(fish_table)
             odds_ratio = float(res_fish.statistic)
-            stat_str_el = r"$\text{OR} = \infty$" if np.isinf(odds_ratio) else f"$\\text{{OR}} = {odds_ratio:.2f}$"
+            if np.isinf(odds_ratio):
+                stat_str_el = r"$\text{OR} = \makebox[2.0em][c]{$\infty$}$"
+            else:
+                stat_str_el = f"$\\text{{OR}} = \\makebox[2.0em][r]{{{odds_ratio:.2f}}}$"
             p_str_el = f"{p_val_el:.4f}" if p_val_el >= 0.0001 else "$<$0.0001"
             star_el = star_alignment(p_val_el)
             is_sig_el = p_val_el < 0.05
@@ -970,8 +975,9 @@ def generate_ttest_table(df: pd.DataFrame, out_path: str, stats: dict):
 
     lines.extend([
         r"  \bottomrule",
-        r"  \multicolumn{7}{c}{\footnotesize Measure 1 evaluated via two-tailed Mann--Whitney $U$ test; Measure 2 evaluated via two-tailed Fisher's exact test.} \\",
-        r"  \multicolumn{7}{c}{\footnotesize Statistically significant differences are marked as: $\ast$ ($p\!<\!0.05$), $\ast\ast$ ($p\!<\!0.01$), $\ast\ast\ast$ ($p\!<\!0.001$).} \\",
+        r"  \multicolumn{7}{c}{\makebox[0pt][c]{\footnotesize Statistically significant differences (green) are marked as: $\ast$ ($p\!<\!0.05$), $\ast\ast$ ($p\!<\!0.01$), $\ast\ast\ast$ ($p\!<\!0.001$).}} \\",
+        r"  \multicolumn{7}{c}{\makebox[0pt][c]{\footnotesize Measure 1 evaluated via two-tailed Mann--Whitney $U$ test;}} \\",
+        r"  \multicolumn{7}{c}{\makebox[0pt][c]{\footnotesize Measure 2 evaluated via two-tailed Fisher's exact test.}} \\",
         r"\end{tabular}",
     ])
 
@@ -996,15 +1002,17 @@ def generate_bugs_elicited_table(df: pd.DataFrame, out_path: str):
     num_tr = len(active_treatments)
     num_reps = int(df["Replicate"].max(
     )) if not df.empty and "Replicate" in df.columns and not df["Replicate"].dropna().empty else 30
-    col_spec = "l|" + "r" * num_tr
+    col_spec = "l|" + "|".join(["c"] * num_tr)
     tr_headers = " & ".join([f"\\textbf{{{tr}}}" for tr in active_treatments])
 
     lines = [
         r"\setlength{\tabcolsep}{2.5pt}",
         r"\definecolor{bettergreen}{RGB}{169,223,192}",
         r"\definecolor{worsered}{RGB}{245,183,177}",
+        r"\resizebox{\textwidth}{!}{%",
         f"\\begin{{tabular}}{{{col_spec}}}",
         r"  \toprule",
+        f"  & \\multicolumn{{{num_tr}}}{{c}}{{\\textbf{{Treatment}}}} \\\\",
         f"  \\textbf{{Bug ID}} & {tr_headers} \\\\",
         r"  \midrule",
     ]
@@ -1019,7 +1027,7 @@ def generate_bugs_elicited_table(df: pd.DataFrame, out_path: str):
         bugs = rubric.get("tasks", {}).get(task, {}).get("bugs", {})
         task_label = TASK_LABELS.get(task, task)
         lines.append(
-            f"  \\multicolumn{{{num_tr + 1}}}{{l}}{{\\textbf{{{task_label}}}}} \\\\")
+            f"  \\multicolumn{{{num_tr + 1}}}{{c}}{{\\textbf{{{task_label}}}}} \\\\")
         lines.append(r"  \midrule")
 
         # Sort bugs by total hits ascending (lowest hits on top)
@@ -1050,16 +1058,18 @@ def generate_bugs_elicited_table(df: pd.DataFrame, out_path: str):
 
     total_rubric_bugs = sum(
         len(rubric.get("tasks", {}).get(t, {}).get("bugs", {})) for t in TASKS)
+    total_opportunities = total_rubric_bugs * num_reps
     lines.extend([
-        "  \\textbf{Total Elicitations} & " +
+        f"  \\textbf{{Total Bugs (of {total_opportunities})}} & " +
         " & ".join(str(treatment_totals[t])
                    for t in active_treatments) + r" \\",
         r"  \hline",
-        f"  \\textbf{{Unique Bugs Elicited (out of {total_rubric_bugs})}} & " + " & ".join(
+        f"  \\textbf{{Unique Bugs (of {total_rubric_bugs})}} & " + " & ".join(
             str(treatment_unique[t]) for t in active_treatments) + r" \\",
         r"  \bottomrule",
         f"  \\multicolumn{{{num_tr + 1}}}{{c}}{{\\footnotesize Color scale auto-scales from red (0) through yellow ($\\le$75\\% of repetitions) to green (100\\% elicitation).}} \\\\",
-        r"\end{tabular}",
+        r"\end{tabular}%",
+        r"}",
     ])
 
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
@@ -1239,13 +1249,15 @@ def generate_cig_generator_table(run_dir: str, out_path: str, df: Optional[pd.Da
                 pass
 
     lines = [
-        r"\setlength{\tabcolsep}{3pt}",
+        r"\setlength{\tabcolsep}{5pt}",
         r"\definecolor{bettergreen}{RGB}{169,223,192}",
         r"\definecolor{worsered}{RGB}{245,183,177}",
-        r"\begin{tabular}{l | *{5}{>{\centering\arraybackslash}p{1.7cm}}}",
+        r"\begin{tabular}{l | *{2}{>{\centering\arraybackslash}p{0.75cm}} | *{2}{>{\centering\arraybackslash}p{0.75cm}} | *{2}{>{\centering\arraybackslash}p{0.75cm}} | *{2}{>{\centering\arraybackslash}p{0.75cm}} | *{2}{>{\centering\arraybackslash}p{0.75cm}}}",
         r"  \toprule",
-        r"  & \multicolumn{5}{c}{\textbf{Eliciting and (Originating) Input Generator}} \\",
-        r"  \multicolumn{1}{c|}{\textbf{Bug ID}} & \textbf{Seed} & \textbf{Custom} & \textbf{Random} & \textbf{AI} & \textbf{Mutation} \\",
+        r"  & \multicolumn{10}{c}{\makebox[0pt][c]{\textbf{(E)liciting and (O)riginating Input Generator (SCRAM)}}} \\",
+        r"  \midrule",
+        r"  & \multicolumn{2}{c|}{\textbf{Seed}} & \multicolumn{2}{c|}{\textbf{Custom}} & \multicolumn{2}{c|}{\textbf{Random}} & \multicolumn{2}{c|}{\textbf{AI}} & \multicolumn{2}{c}{\textbf{Mutation}} \\",
+        r"  \multicolumn{1}{c|}{\textbf{Bug ID}} & \textbf{E} & \textbf{O} & \textbf{E} & \textbf{O} & \textbf{E} & \textbf{O} & \textbf{E} & \textbf{O} & \textbf{E} & \textbf{O} \\",
     ]
 
     # Order PUTs and bugs to match Table 6.6
@@ -1256,7 +1268,7 @@ def generate_cig_generator_table(run_dir: str, out_path: str, df: Optional[pd.Da
         task_label = TASK_LABELS.get(task_name, task_name)
         lines.append(r"  \midrule")
         lines.append(
-            f"  \\multicolumn{{6}}{{c}}{{\\textbf{{{task_label}}}}} \\\\")
+            f"  \\multicolumn{{11}}{{c}}{{\\textbf{{{task_label}}}}} \\\\")
         lines.append(r"  \midrule")
 
         if df is not None and not df.empty:
@@ -1276,17 +1288,17 @@ def generate_cig_generator_table(run_dir: str, out_path: str, df: Optional[pd.Da
                     orig_cnt = max(el_cnt, len(originating_runs[bid][gtype]))
                 else:
                     orig_cnt = 0
-                comb_cnt = el_cnt + orig_cnt
-                color_str = get_cell_color_latex(comb_cnt, num_reps)
-                cell_text = f"{el_cnt} ({orig_cnt})"
-                cells.append(f"{color_str}{cell_text}")
+                color_e = get_cell_color_latex(el_cnt, num_reps)
+                color_o = get_cell_color_latex(orig_cnt, num_reps)
+                cells.append(f"{color_e}{el_cnt}")
+                cells.append(f"{color_o}{orig_cnt}")
             lines.append(
                 f"  \\texttt{{{escaped_bid}}} & " + " & ".join(cells) + r" \\")
 
     lines.extend([
         r"  \bottomrule",
-        r"  \multicolumn{6}{l}{\footnotesize Shading: Red (0), Yellow ($\le$75\% of reps), Green (100\% elicitation/origination).} \\",
-        r"  \multicolumn{6}{l}{\footnotesize Format: Eliciting (Originating). Originating inputs were mutated to elicit the bug.} \\",
+        r"  \multicolumn{11}{c}{\footnotesize Shading: Red (0), Yellow ($\le$75\% of reps), Green (100\% elicitation/origination).} \\",
+        r"  \multicolumn{11}{c}{\footnotesize Format: E = Eliciting inputs; O = Originating inputs (inputs mutated to elicit the bug).} \\",
         r"\end{tabular}",
     ])
 

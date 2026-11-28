@@ -103,51 +103,27 @@ def compute_mann_whitney(sample_int, sample_ctl) -> Tuple[float, float]:
 
 
 def format_sig_cell(tool: str, col: str, m_val: float, sd_val: float, ctl_m: float, p: Optional[float], dec: int, base_tool: str = "hypothesis") -> str:
-    """Formats a LaTeX table cell with exact decimal alignment via dual makeboxes and conditional color highlighting."""
+    """Formats a LaTeX table cell with conditional color highlighting based on significance."""
     if m_val is None or np.isnan(m_val):
         return r"\multicolumn{2}{c}{--}"
 
     higher_is_better = (col != "ElapsedSec")
-    raw_m = f"{m_val:.{dec}f}" if dec > 0 else f"{m_val:.0f}"
-    parts_m = raw_m.split(".") if "." in raw_m else (raw_m, "")
-    int_m, dec_m = parts_m[0], parts_m[1]
-
+    num_str = f"{m_val:.{dec}f}" if dec > 0 else f"{m_val:.0f}"
+    sd_str = (
+        (f"{sd_val:.{dec}f}" if dec > 0 else f"{sd_val:.0f}")
+        if (sd_val is not None and not np.isnan(sd_val))
+        else "--"
+    )
     s = star_alignment(p if tool != base_tool else None)
     is_sig = not (tool == base_tool or p is None or np.isnan(p) or p >= 0.05 or np.isnan(ctl_m))
     is_better = (m_val > ctl_m) if higher_is_better else (m_val < ctl_m)
 
     if is_sig and is_better:
-        int_m_str = f"\\textbf{{{int_m}}}"
-        dec_m_str = f"\\textbf{{{dec_m}}}"
-        color_m = r"\cellcolor{bettergreen}"
+        return f"\\cellcolor{{bettergreen}}\\textbf{{{num_str}}}{s} & \\cellcolor{{bettergreen}}{sd_str}"
     elif is_sig and not is_better:
-        int_m_str = int_m
-        dec_m_str = dec_m
-        color_m = r"\cellcolor{worsered}"
+        return f"\\cellcolor{{worsered}}{num_str}{s} & \\cellcolor{{worsered}}{sd_str}"
     else:
-        int_m_str = int_m
-        dec_m_str = dec_m
-        color_m = ""
-
-    # Box sizes: 1.8em fits up to 3 bold digits ('100'), 2.0em fits 1 digit + 3 stars ('0***')
-    if dec > 0:
-        cell_m = f"{color_m}\\makebox[1.8em][r]{{{int_m_str}}}.\\makebox[2.0em][l]{{{dec_m_str}{s}}}"
-    else:
-        cell_m = f"{color_m}\\makebox[1.8em][r]{{{int_m_str}}}\\makebox[2.0em][l]{{{s}}}"
-
-    if sd_val is not None and not np.isnan(sd_val):
-        raw_sd = f"{sd_val:.{dec}f}" if dec > 0 else f"{sd_val:.0f}"
-        parts_sd = raw_sd.split(".") if "." in raw_sd else (raw_sd, "")
-        int_sd, dec_sd = parts_sd[0], parts_sd[1]
-        color_sd = color_m
-        if dec > 0:
-            cell_sd = f"{color_sd}\\makebox[1.4em][r]{{{int_sd}}}.\\makebox[0.9em][l]{{{dec_sd}}}"
-        else:
-            cell_sd = f"{color_sd}\\makebox[1.4em][r]{{{int_sd}}}"
-    else:
-        cell_sd = "--"
-
-    return f"{cell_m} & {cell_sd}"
+        return f"{num_str}{s} & {sd_str}"
 
 
 def parse_generator_chain(chain_str: str) -> Tuple[str, str]:
