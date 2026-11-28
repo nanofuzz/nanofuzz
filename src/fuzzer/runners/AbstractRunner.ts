@@ -1,6 +1,5 @@
-import { CoverageMapData } from "istanbul-lib-coverage";
-import { VmGlobals } from "../Types";
 import { AbstractHost } from "./AbstractHost";
+import { RunnerCoverage, RunnerResult } from "./Types";
 
 /**
  * Abstract test runner class
@@ -68,12 +67,15 @@ export abstract class AbstractRunner {
    * @param `inputs` test inputs
    * @param timeout  timeout threshold
    * @param validators optional list of validator function names to execute in-host
+   * @param env optional extra environment variables
+   * @param repetitions number of times to execute the function in-host (defaults to 1)
    */
   public abstract run(
     inputs: unknown[],
     timeout?: number,
     validators?: string[],
-    env?: Record<string, string>
+    env?: Record<string, string>,
+    repetitions?: number
   ): Promise<RunnerResult>;
 
   /**
@@ -110,170 +112,3 @@ export abstract class AbstractRunner {
     return new Promise((resolve, _reject) => resolve());
   } // fn: onRunEnd
 } // class: AbstractRunner
-
-/**
- * Overrides for configuring runner instances.
- */
-export interface RunnerOverrides {
-  acceptsStaticCoverage?: true;
-}
-
-/**
- * Coverage reported for one file in Python.
- */
-export type PythonFileCoverageData = {
-  executable: number[]; // static: all executable lines
-  functions: FunctionInfo[]; // static: all functions
-  branches: BranchInfo[]; // static: all branch points
-  lines?: number[]; // dynamic: lines executed by this one call
-  arcs?: Arc[]; // dynamic: arcs taken by this one call
-};
-
-/**
- * Backwards-compatibility alias for PythonFileCoverageData.
- */
-export type CoverageInfo = PythonFileCoverageData;
-
-/**
- * Coverage for the entire program under test in Python.
- */
-export type PythonCoverageMapData = Record<string, PythonFileCoverageData>;
-
-/**
- * Backwards-compatibility alias for PythonCoverageMapData.
- */
-export type FullCoverage = PythonCoverageMapData;
-
-/**
- * Unified runner coverage data: Istanbul CoverageMapData for JS/TS, or PythonCoverageMapData for Python.
- */
-export type RunnerCoverage = CoverageMapData | PythonCoverageMapData;
-
-/**
- * A function in the program under test. `lines` holds only the function's own
- * executable lines: coverage.py attributes lines per function, so lines inside
- * a nested function are not charged to its parent.
- */
-export type FunctionInfo = {
-  name: string; // e.g. "fn" or "Class.method"
-  declLine: number; // the `def` line
-  startLine: number; // first executable line of the body
-  endLine: number; // last executable line of the body
-  lines: number[]; // the function's own executable lines
-};
-
-/**
- * A branch point: a line with more than one possible exit.
- */
-export type BranchInfo = {
-  line: number; // the branching line
-  exits: BranchExit[]; // every destination it can reach
-};
-
-/**
- * One possible exit from a branch. `dest` is the raw arc target, used to match
- * against the arcs actually taken. coverage.py uses non-positive `dest` values
- * to mean "left the enclosing scope"; those have no line of their own, so
- * `line` reports where to display them (the branch line itself).
- */
-export type BranchExit = {
-  dest: number; // arc target, for matching against `Arc`s
-  line: number; // where to display this exit
-};
-
-/**
- * Result of evaluating a property validator in-host.
- */
-export type ValidatorResult =
-  | {
-      tag: "value";
-      value: unknown;
-    }
-  | {
-      tag: "error";
-      name?: string;
-      message?: string;
-      stack?: string;
-    }
-  | {
-      tag: "timeout";
-    }
-  | {
-      tag: "skip";
-      message?: string;
-    };
-
-export type RunnerResult = {
-  result: (
-    | {
-        tag: "timeout";
-        coverageData?: Record<string, number[]>;
-        coverageArcs?: Record<string, Arc[]>;
-        staticCoverage?: PythonCoverageMapData;
-        validators?: Record<string, ValidatorResult>;
-      }
-    | {
-        tag: "error";
-        name: string;
-        message: string;
-        stack?: string;
-        source?: "put" | "host"; // if the error originated within the put
-        coverageData?: Record<string, number[]>;
-        coverageArcs?: Record<string, Arc[]>; // arcs taken by this call
-        staticCoverage?: PythonCoverageMapData;
-        validators?: Record<string, ValidatorResult>;
-      }
-    | {
-        tag: "skip";
-        message: string;
-        coverageData?: Record<string, number[]>;
-        coverageArcs?: Record<string, Arc[]>; // arcs taken by this call
-        staticCoverage?: PythonCoverageMapData;
-        validators?: Record<string, ValidatorResult>;
-      }
-    | {
-        tag: "value";
-        value: unknown;
-        coverageData?: Record<string, number[]>;
-        coverageArcs?: Record<string, Arc[]>; // arcs taken by this call
-        staticCoverage?: PythonCoverageMapData;
-        validators?: Record<string, ValidatorResult>;
-      }
-  ) & { seq: number };
-  env: VmGlobals;
-};
-
-export type TypeHint =
-  | "uuid"
-  | "bytes"
-  | "number"
-  | "float"
-  | "int"
-  | "default"
-  | { kind: "array"; element: TypeHint }
-  | { kind: "set"; element: TypeHint; frozenset?: boolean }
-  | { kind: "tuple"; elements: TypeHint[] }
-  | { kind: "dictionary"; key: TypeHint; value: TypeHint }
-  | { kind: "object"; fields: Record<string, TypeHint> }
-  | { kind: "union"; arms: TypeHint[] };
-
-export type RunnerInput = {
-  args: unknown[];
-  seq: number;
-  typeHints?: TypeHint[];
-  timeout?: number;
-  fnName?: string;
-  filename?: string;
-  validators?: string[];
-  env?: Record<string, string>;
-  collect?: {
-    coverageData?: true;
-    debugData?: true;
-  };
-};
-
-/**
- * A transition between two lines, as `[from, to]`. Runners that measure branch
- * coverage report which of these a call took.
- */
-export type Arc = [number, number];

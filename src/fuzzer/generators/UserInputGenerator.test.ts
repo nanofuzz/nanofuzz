@@ -1,7 +1,9 @@
 import { UserInputGenerator } from "./UserInputGenerator";
-import { AbstractRunner, RunnerResult } from "../runners/AbstractRunner";
+import { AbstractRunner } from "../runners/AbstractRunner";
+import { RunnerResult } from "../runners/Types";
 import * as ProgramFactory from "../analysis/ProgramFactory";
 import { FuzzConfigStore } from "../FuzzConfigStore";
+import { isRecord } from "../../Util";
 
 class MockRunner extends AbstractRunner {
   private _runFn: (inputs: unknown[]) => Promise<RunnerResult>;
@@ -45,11 +47,13 @@ describe("fuzzer/generators/UserInputGenerator:", () => {
     const mockRunner = new MockRunner("testFnGenerator", async (inputs) => {
       passedInputs = inputs;
       return {
-        result: {
-          tag: "value",
-          value: [42, "hello"],
-          seq: 1,
-        },
+        results: [
+          {
+            tag: "value",
+            value: [42, "hello"],
+          },
+        ],
+        seq: 1,
         env: {},
       };
     });
@@ -93,20 +97,19 @@ describe("fuzzer/generators/UserInputGenerator:", () => {
       callCount++;
       if (callCount === 1) {
         return {
-          result: {
-            tag: "value",
-            value: [99, "world"],
-            seq: 1,
-          },
+          results: [
+            {
+              tag: "value",
+              value: [99, "world"],
+            },
+          ],
+          seq: 1,
           env: {},
         };
       }
       return {
-        result: {
-          tag: "value",
-          value: undefined,
-          seq: 2,
-        },
+        results: [],
+        seq: 2,
         env: {},
       };
     });
@@ -130,16 +133,70 @@ describe("fuzzer/generators/UserInputGenerator:", () => {
     expect(gen.nextable()).toBe(false);
   });
 
+  it("voluntarily exhausts when user generator returns undefined without recording failure ticks", async () => {
+    let callCount = 0;
+    const mockRunner = new MockRunner("testFnGenerator", async () => {
+      callCount++;
+      if (callCount === 1) {
+        return {
+          results: [
+            {
+              tag: "value",
+              value: [100, "item1"],
+            },
+          ],
+          seq: 1,
+          env: {},
+        };
+      }
+      // Generator voluntarily exhausts by returning undefined (or null)
+      return {
+        results: [
+          {
+            tag: "value",
+            value: undefined,
+          },
+        ],
+        seq: 2,
+        env: {},
+      };
+    });
+
+    const dftOptions = FuzzConfigStore.getDefaultFuzzOptions();
+    const gen = new UserInputGenerator(fnDef, "seed123", mockRunner);
+    gen.onRunStart(true, [], undefined, dftOptions, mockRunner);
+
+    // Initial item is retrieved
+    const first = await gen.nextSoon();
+    expect<unknown>(first.value[0].value).toBe(100);
+
+    // Drain/wait for second call which returns [undefined]
+    while (gen.nextable() === "soon") {
+      try {
+        await gen.nextSoon();
+      } catch {
+        break;
+      }
+    }
+
+    // Must be cleanly exhausted, NOT failed
+    expect(gen.nextable()).toBe(false);
+    expect(gen.failureCount).toBe(0);
+    expect(gen.consecutiveFailures).toBe(0);
+  });
+
   it("throws error if user generator throws an exception", async () => {
     const mockRunner = new MockRunner("testFnGenerator", async () => {
       return {
-        result: {
-          tag: "error",
-          name: "TypeError",
-          message: "something exploded in generator",
-          stack: "TypeError: something exploded",
-          seq: 1,
-        },
+        results: [
+          {
+            tag: "error",
+            name: "TypeError",
+            message: "something exploded in generator",
+            stack: "TypeError: something exploded",
+          },
+        ],
+        seq: 1,
         env: {},
       };
     });
@@ -175,21 +232,25 @@ describe("fuzzer/generators/UserInputGenerator:", () => {
       callCount++;
       if (callCount === 1) {
         return {
-          result: {
-            tag: "error",
-            name: "TemporaryError",
-            message: "transient network/timeout failure",
-            seq: 1,
-          },
+          results: [
+            {
+              tag: "error",
+              name: "TemporaryError",
+              message: "transient network/timeout failure",
+            },
+          ],
+          seq: 1,
           env: {},
         };
       }
       return {
-        result: {
-          tag: "value",
-          value: [42, "recovered"],
-          seq: 2,
-        },
+        results: [
+          {
+            tag: "value",
+            value: [42, "recovered"],
+          },
+        ],
+        seq: 2,
         env: {},
       };
     });
@@ -214,11 +275,13 @@ describe("fuzzer/generators/UserInputGenerator:", () => {
   it("throws error if user generator throws UnsatisfiedAssumption", async () => {
     const mockRunner = new MockRunner("testFnGenerator", async () => {
       return {
-        result: {
-          tag: "skip",
-          message: "Cannot assume this",
-          seq: 1,
-        },
+        results: [
+          {
+            tag: "skip",
+            message: "Cannot assume this",
+          },
+        ],
+        seq: 1,
         env: {},
       };
     });
@@ -245,10 +308,12 @@ describe("fuzzer/generators/UserInputGenerator:", () => {
   it("throws error if user generator times out", async () => {
     const mockRunner = new MockRunner("testFnGenerator", async () => {
       return {
-        result: {
-          tag: "timeout",
-          seq: 1,
-        },
+        results: [
+          {
+            tag: "timeout",
+          },
+        ],
+        seq: 1,
         env: {},
       };
     });
@@ -270,14 +335,16 @@ describe("fuzzer/generators/UserInputGenerator:", () => {
     }
   });
 
-  it("throws error if user generator returns non-array and non-undefined value", async () => {
+  it("records failure ticks if user generator returns non-array inputs", async () => {
     const mockRunner = new MockRunner("testFnGenerator", async () => {
       return {
-        result: {
-          tag: "value",
-          value: 12345, // invalid: should be [12345, ...]
-          seq: 1,
-        },
+        results: [
+          {
+            tag: "value",
+            value: 12345, // invalid: should be [12345, ...]
+          },
+        ],
+        seq: 1,
         env: {},
       };
     });
@@ -296,8 +363,90 @@ describe("fuzzer/generators/UserInputGenerator:", () => {
     expect(caughtError instanceof Error).toBeTrue();
     if (caughtError instanceof Error) {
       expect(caughtError.message).toContain(
-        "must return an array/tuple of arguments"
+        "failed to produce valid inputs"
       );
     }
+  });
+
+  it("handles multiplexed batch of inputs returned in a single runner response", async () => {
+    const allCapturedCalls: unknown[][] = [];
+    const mockRunner = new MockRunner("testFnGenerator", async (inputs) => {
+      allCapturedCalls.push(inputs);
+      return {
+        results: [
+          { tag: "value", value: [1, "alpha"] },
+          { tag: "value", value: [2, "beta"] },
+          { tag: "value", value: [3, "gamma"] },
+        ],
+        seq: 1,
+        env: {},
+      };
+    });
+
+    const dftOptions = FuzzConfigStore.getDefaultFuzzOptions();
+    const gen = new UserInputGenerator(fnDef, "seed123", mockRunner);
+    gen.workerCount = 2; // targetQueueSize = 2 * 3 = 6
+    gen.onRunStart(true, [], undefined, dftOptions, mockRunner);
+
+    const first = await gen.nextSoon();
+    expect<unknown>(first.value[0].value).toBe(1);
+    expect<unknown>(first.value[1].value).toBe("alpha");
+
+    // First call during onRunStart must have requested full targetQueueSize (6)
+    const firstCallArgs = allCapturedCalls[0];
+    const firstArg = firstCallArgs ? firstCallArgs[0] : undefined;
+    expect(isRecord(firstArg)).toBeTrue();
+    const prngPayload = isRecord(firstArg) ? firstArg : {};
+    expect(prngPayload["__nanofuzz_type"]).toBe("prng");
+    expect(prngPayload["batch_size"]).toBe(6);
+
+    // Remaining items from the batch should be immediately available in queue
+    expect(gen.nextable()).toBe("now");
+    const second = gen.next();
+    expect<unknown>(second.value[0].value).toBe(2);
+    expect<unknown>(second.value[1].value).toBe("beta");
+
+    expect(gen.nextable()).toBe("now");
+    const third = gen.next();
+    expect<unknown>(third.value[0].value).toBe(3);
+    expect<unknown>(third.value[1].value).toBe("gamma");
+  });
+
+  it("retains valid inputs from a noisy batch and resets consecutive failures counter", async () => {
+    const mockRunner = new MockRunner("noisyGenerator", async () => {
+      return {
+        results: [
+          { tag: "value", value: [10, "good1"] },
+          { tag: "value", value: "not-an-array" },
+          { tag: "value", value: [20, "good2"] },
+          { tag: "value", value: "also-not-an-array" },
+          { tag: "value", value: [30, "good3"] },
+        ],
+        seq: 1,
+        env: {},
+      };
+    });
+
+    const dftOptions = FuzzConfigStore.getDefaultFuzzOptions();
+    const gen = new UserInputGenerator(fnDef, "seed123", mockRunner);
+    gen.onRunStart(true, [], undefined, dftOptions, mockRunner);
+
+    // Initial fetch from onRunStart arrives via nextSoon
+    const item1 = await gen.nextSoon();
+    expect<unknown>(item1.value[0].value).toBe(10);
+
+    // Remaining valid inputs from the batch are now available in queue
+    expect(gen.nextable()).toBe("now");
+    const item2 = gen.next();
+    expect<unknown>(item2.value[0].value).toBe(20);
+
+    expect(gen.nextable()).toBe("now");
+    const item3 = gen.next();
+    expect<unknown>(item3.value[0].value).toBe(30);
+
+    // Consecutive failures must be 0 because the batch made progress
+    expect(gen.consecutiveFailures).toBe(0);
+    // Failure count reflects the 2 bad items dropped from the batch
+    expect(gen.failureCount).toBe(2);
   });
 });

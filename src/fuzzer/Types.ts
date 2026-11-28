@@ -7,7 +7,7 @@ import {
 } from "./analysis/Types";
 import { FunctionDef } from "./analysis/FunctionDef";
 import { Judgment as _Judgment } from "./oracles/Types";
-import { RunnerResult } from "./runners/AbstractRunner";
+import { RunnerResult } from "./runners/Types";
 import {
   ScoredInput,
   NextableStatus,

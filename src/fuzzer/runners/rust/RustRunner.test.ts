@@ -51,9 +51,9 @@ describe("fuzzer/runners/rust/RustRunner: ", () => {
     await runner.onRunStart();
 
     const res = await runner.run([10, 32], 5000);
-    expect(res.result.tag).toBe("value");
-    if (res.result.tag === "value") {
-      expect(res.result.value).toBe(42);
+    expect(res.results[0].tag).toBe("value");
+    if (res.results[0].tag === "value") {
+      expect(res.results[0].value).toBe(42);
     }
 
     await runner.onRunEnd();
@@ -81,9 +81,9 @@ describe("fuzzer/runners/rust/RustRunner: ", () => {
     await runner.onRunStart();
 
     const res = await runner.run(["Alice", 3, true, [1, 2, 3]], 5000);
-    expect(res.result.tag).toBe("value");
-    if (res.result.tag === "value") {
-      expect(res.result.value).toBe("HELLO, ALICE! COUNT=3 SUM=6");
+    expect(res.results[0].tag).toBe("value");
+    if (res.results[0].tag === "value") {
+      expect(res.results[0].value).toBe("HELLO, ALICE! COUNT=3 SUM=6");
     }
 
     await runner.onRunEnd();
@@ -114,9 +114,9 @@ pub fn modify_containers(
     await runner.onRunStart();
 
     const res = await runner.run([5, ["start"]], 5000);
-    expect(res.result.tag).toBe("value");
-    if (res.result.tag === "value") {
-      expect(res.result.value).toEqual([15, ["start", "end"]]);
+    expect(res.results[0].tag).toBe("value");
+    if (res.results[0].tag === "value") {
+      expect(res.results[0].value).toEqual([15, ["start", "end"]]);
     }
 
     await runner.onRunEnd();
@@ -143,9 +143,9 @@ pub fn shared_ptrs(r: Rc<i32>, a: Arc<String>) -> (i32, String) {
     await runner.onRunStart();
 
     const res = await runner.run([41, "nanofuzz"], 5000);
-    expect(res.result.tag).toBe("value");
-    if (res.result.tag === "value") {
-      expect(res.result.value).toEqual([42, "nanofuzz_arc"]);
+    expect(res.results[0].tag).toBe("value");
+    if (res.results[0].tag === "value") {
+      expect(res.results[0].value).toEqual([42, "nanofuzz_arc"]);
     }
 
     await runner.onRunEnd();
@@ -198,9 +198,17 @@ pub fn check_all(
       ],
       5000
     );
-    expect(res1.result.tag).toBe("value");
-    if (res1.result.tag === "value") {
-      expect(res1.result.value).toEqual([30, 3, "some_val", 14, 10, 300, "Z"]);
+    expect(res1.results[0].tag).toBe("value");
+    if (res1.results[0].tag === "value") {
+      expect(res1.results[0].value).toEqual([
+        30,
+        3,
+        "some_val",
+        14,
+        10,
+        300,
+        "Z",
+      ]);
     }
 
     // Test with Option as null (None), empty collections
@@ -208,15 +216,14 @@ pub fn check_all(
       [{}, [], null, [5, false], [], [0, 0], "a"],
       5000
     );
-    expect(res2.result.tag).toBe("value");
-    if (res2.result.tag === "value") {
-      expect(res2.result.value).toEqual([0, 0, "none", 5, 0, 0, "a"]);
+    expect(res2.results[0].tag).toBe("value");
+    if (res2.results[0].tag === "value") {
+      expect(res2.results[0].value).toEqual([0, 0, "none", 5, 0, 0, "a"]);
     }
 
     await runner.onRunEnd();
   });
 
-  // TODO: also add oxcaml runner and parity tests once OCaml/OxCaml support is added
   it("executes functions taking a PRNG closure with and without seed", async () => {
     const rsPath = path.join(tempDir, "prng_test.rs");
     fs.writeFileSync(
@@ -239,12 +246,12 @@ pub fn check_all(
       [{ __nanofuzz_type: "prng", seed: "fixed_seed_abc" }],
       5000
     );
-    expect(res1.result.tag).toBe("value");
-    if (res1.result.tag === "value") {
-      expect(typeof res1.result.value).toBe("number");
-      if (typeof res1.result.value === "number") {
-        expect(res1.result.value).toBeGreaterThanOrEqual(0);
-        expect(res1.result.value).toBeLessThan(1);
+    expect(res1.results[0].tag).toBe("value");
+    if (res1.results[0].tag === "value") {
+      expect(typeof res1.results[0].value).toBe("number");
+      if (typeof res1.results[0].value === "number") {
+        expect(res1.results[0].value).toBeGreaterThanOrEqual(0);
+        expect(res1.results[0].value).toBeLessThan(1);
       }
     }
 
@@ -252,20 +259,34 @@ pub fn check_all(
       [{ __nanofuzz_type: "prng", seed: "fixed_seed_abc" }],
       5000
     );
-    expect(res2.result.tag).toBe("value");
-    if (res2.result.tag === "value" && res1.result.tag === "value") {
-      expect(res2.result.value).toBe(res1.result.value);
+    expect(res2.results[0].tag).toBe("value");
+    if (res2.results[0].tag === "value" && res1.results[0].tag === "value") {
+      expect(res2.results[0].value).toBe(res1.results[0].value);
     }
 
     // Invocation without a seed runs unseeded / pure random and succeeds
     const unseededRes = await runner.run([{}], 5000);
-    expect(unseededRes.result.tag).toBe("value");
-    if (unseededRes.result.tag === "value") {
-      expect(typeof unseededRes.result.value).toBe("number");
-      if (typeof unseededRes.result.value === "number") {
-        expect(unseededRes.result.value).toBeGreaterThanOrEqual(0);
-        expect(unseededRes.result.value).toBeLessThan(1);
+    expect(unseededRes.results[0].tag).toBe("value");
+    if (unseededRes.results[0].tag === "value") {
+      expect(typeof unseededRes.results[0].value).toBe("number");
+      if (typeof unseededRes.results[0].value === "number") {
+        expect(unseededRes.results[0].value).toBeGreaterThanOrEqual(0);
+        expect(unseededRes.results[0].value).toBeLessThan(1);
       }
+    }
+
+    // Invocation with repetitions requests multiple values in a single response
+    const batchRes = await runner.run(
+      [{ __nanofuzz_type: "prng", seed: "fixed_seed_abc" }],
+      5000,
+      [],
+      {},
+      4
+    );
+    expect(batchRes.results.length).toBe(4);
+    expect(batchRes.results[0].tag).toBe("value");
+    if (batchRes.results[0].tag === "value") {
+      expect(typeof batchRes.results[0].value).toBe("number");
     }
 
     await runner.onRunEnd();
@@ -302,9 +323,9 @@ pub fn promote_user(u: User) -> User {
       [{ name: "Alice", age: 30, active: false }],
       5000
     );
-    expect(res.result.tag).toBe("value");
-    if (res.result.tag === "value") {
-      expect(res.result.value).toEqual({
+    expect(res.results[0].tag).toBe("value");
+    if (res.results[0].tag === "value") {
+      expect(res.results[0].value).toEqual({
         name: "VIP_Alice",
         age: 31,
         active: true,
@@ -347,25 +368,25 @@ pub fn handle_action(state: i32, action: Action) -> Result<i32, String> {
 
     // Data variant returning Ok
     const res1 = await runner.run([10, { Increment: 5 }], 5000);
-    expect(res1.result.tag).toBe("value");
-    if (res1.result.tag === "value") {
-      expect(res1.result.value).toEqual({ Ok: 15 });
+    expect(res1.results[0].tag).toBe("value");
+    if (res1.results[0].tag === "value") {
+      expect(res1.results[0].value).toEqual({ Ok: 15 });
     }
 
     // Data variant returning Err
     const res2 = await runner.run([10, { Increment: -5 }], 5000);
-    expect(res2.result.tag).toBe("value");
-    if (res2.result.tag === "value") {
-      expect(res2.result.value).toEqual({
+    expect(res2.results[0].tag).toBe("value");
+    if (res2.results[0].tag === "value") {
+      expect(res2.results[0].value).toEqual({
         Err: "cannot increment by negative",
       });
     }
 
     // Unit variant returning Ok
     const res3 = await runner.run([10, "Reset"], 5000);
-    expect(res3.result.tag).toBe("value");
-    if (res3.result.tag === "value") {
-      expect(res3.result.value).toEqual({ Ok: 0 });
+    expect(res3.results[0].tag).toBe("value");
+    if (res3.results[0].tag === "value") {
+      expect(res3.results[0].value).toEqual({ Ok: 0 });
     }
 
     await runner.onRunEnd();
@@ -393,25 +414,25 @@ pub fn handle_action(state: i32, action: Action) -> Result<i32, String> {
 
     // Normal invocation
     const okRes = await runner.run([10, 2], 5000);
-    expect(okRes.result.tag).toBe("value");
-    if (okRes.result.tag === "value") {
-      expect(okRes.result.value).toBe(5);
+    expect(okRes.results[0].tag).toBe("value");
+    if (okRes.results[0].tag === "value") {
+      expect(okRes.results[0].value).toBe(5);
     }
 
     // Panic invocation
     const panicRes = await runner.run([10, 0], 5000);
-    expect(panicRes.result.tag).toBe("error");
-    if (panicRes.result.tag === "error") {
-      expect(panicRes.result.name).toBe("Panic");
-      expect(panicRes.result.message).toContain("division by zero");
-      expect(panicRes.result.source).toBe("put");
+    expect(panicRes.results[0].tag).toBe("error");
+    if (panicRes.results[0].tag === "error") {
+      expect(panicRes.results[0].name).toBe("Panic");
+      expect(panicRes.results[0].message).toContain("division by zero");
+      expect(panicRes.results[0].source).toBe("put");
     }
 
     // Process is still alive and responds to subsequent invocations
     const recoverRes = await runner.run([100, 4], 5000);
-    expect(recoverRes.result.tag).toBe("value");
-    if (recoverRes.result.tag === "value") {
-      expect(recoverRes.result.value).toBe(25);
+    expect(recoverRes.results[0].tag).toBe("value");
+    if (recoverRes.results[0].tag === "value") {
+      expect(recoverRes.results[0].value).toBe(25);
     }
 
     await runner.onRunEnd();
@@ -439,16 +460,16 @@ pub fn must_be_positive(x: i32) -> i32 {
 
     // Valid input
     const okRes = await runner.run([5], 5000);
-    expect(okRes.result.tag).toBe("value");
-    if (okRes.result.tag === "value") {
-      expect(okRes.result.value).toBe(10);
+    expect(okRes.results[0].tag).toBe("value");
+    if (okRes.results[0].tag === "value") {
+      expect(okRes.results[0].value).toBe(10);
     }
 
     // Skipped input (unsatisfied assumption)
     const skipRes = await runner.run([-3], 5000);
-    expect(skipRes.result.tag).toBe("skip");
-    if (skipRes.result.tag === "skip") {
-      expect(skipRes.result.message).toBe("x must be positive");
+    expect(skipRes.results[0].tag).toBe("skip");
+    if (skipRes.results[0].tag === "skip") {
+      expect(skipRes.results[0].message).toBe("x must be positive");
     }
 
     await runner.onRunEnd();
@@ -485,11 +506,11 @@ pub fn doubleValidator(r: &FuzzTestResult) -> &'static str {
     await runner.onRunStart();
 
     const res = await runner.run([7], 5000, ["doubleValidator"]);
-    expect(res.result.tag).toBe("value");
-    if (res.result.tag === "value") {
-      expect(res.result.value).toBe(14);
-      expect(res.result.validators).toBeDefined();
-      expect(res.result.validators!["doubleValidator"]).toEqual({
+    expect(res.results[0].tag).toBe("value");
+    if (res.results[0].tag === "value") {
+      expect(res.results[0].value).toBe(14);
+      expect(res.results[0].validators).toBeDefined();
+      expect(res.results[0].validators!["doubleValidator"]).toEqual({
         tag: "value",
         value: "pass",
       });
@@ -520,13 +541,13 @@ pub fn doubleValidator(r: &FuzzTestResult) -> &'static str {
 
     // Call that times out
     const timeoutRes = await runner.run([true, 10], 100);
-    expect(timeoutRes.result.tag).toBe("timeout");
+    expect(timeoutRes.results[0].tag).toBe("timeout");
 
     // Next call spawns a fresh host and succeeds
     const okRes = await runner.run([false, 10], 5000);
-    expect(okRes.result.tag).toBe("value");
-    if (okRes.result.tag === "value") {
-      expect(okRes.result.value).toBe(11);
+    expect(okRes.results[0].tag).toBe("value");
+    if (okRes.results[0].tag === "value") {
+      expect(okRes.results[0].value).toBe(11);
     }
 
     await runner.onRunEnd();
@@ -563,7 +584,7 @@ pub fn doubleValidator(r: &FuzzTestResult) -> &'static str {
 
     // Verify initial run succeeds
     const res1 = await runner.run([1, 2], 5000);
-    expect(res1.result.tag).toBe("value");
+    expect(res1.results[0].tag).toBe("value");
 
     // Simulate active borrow sanitizer on the runner
     runner.setSanitizerNameForTest("borrow");
@@ -575,10 +596,10 @@ pub fn doubleValidator(r: &FuzzTestResult) -> &'static str {
 
     // Next run should detect the sanitizer abort and return BorrowSanitizerError
     const res2 = await runner.run([3, 4], 5000);
-    expect(res2.result.tag).toBe("error");
-    if (res2.result.tag === "error") {
-      expect(res2.result.name).toBe("BorrowSanitizerError");
-      expect(res2.result.message).toContain(
+    expect(res2.results[0].tag).toBe("error");
+    if (res2.results[0].tag === "error") {
+      expect(res2.results[0].name).toBe("BorrowSanitizerError");
+      expect(res2.results[0].message).toContain(
         "conflicting write to active shared borrow"
       );
     }
@@ -586,9 +607,9 @@ pub fn doubleValidator(r: &FuzzTestResult) -> &'static str {
     // Runner should re-arm and run subsequent inputs cleanly
     runner.setSanitizerNameForTest("none");
     const res3 = await runner.run([5, 6], 5000);
-    expect(res3.result.tag).toBe("value");
-    if (res3.result.tag === "value") {
-      expect(res3.result.value).toBe(11);
+    expect(res3.results[0].tag).toBe("value");
+    if (res3.results[0].tag === "value") {
+      expect(res3.results[0].value).toBe(11);
     }
 
     await runner.onRunEnd();
@@ -617,9 +638,9 @@ pub fn doubleValidator(r: &FuzzTestResult) -> &'static str {
     });
     await runner.onRunEnd();
 
-    expect(res.result.tag).toBe("value");
-    if (res.result.tag === "value") {
-      expect(res.result.value).toBe(expectedProvenance);
+    expect(res.results[0].tag).toBe("value");
+    if (res.results[0].tag === "value") {
+      expect(res.results[0].value).toBe(expectedProvenance);
     }
   });
 });

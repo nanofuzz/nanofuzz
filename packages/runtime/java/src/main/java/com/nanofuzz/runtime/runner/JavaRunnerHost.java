@@ -293,8 +293,8 @@ public class JavaRunnerHost {
     List<String> validators = req.get("validators") instanceof List<?> list ? (List<String>) list
         : Collections.emptyList();
 
-    String className = req.get("className") instanceof String s && !s.isEmpty() ? s : defaultClassName;
-    String methodName = req.get("fnName") instanceof String s && !s.isEmpty() ? s : defaultMethodName;
+    String className = defaultClassName;
+    String methodName = defaultMethodName;
 
     refreshClassLoaderIfNeeded();
 
@@ -352,75 +352,97 @@ public class JavaRunnerHost {
     final Method finalMethod = targetMethod;
     final Object[] finalArgs = convertedArgs;
 
+    // Batch invoke generator batchsize times to avoid duplicative IPC bridge traversals
+    int repetitions = 1;
+    if (req.containsKey("repetitions") && req.get("repetitions") instanceof Number num) {
+      repetitions = Math.max(1, num.intValue());
+    }
+    final int finalReps = repetitions;
+
     if (runtimeData != null) {
       runtimeData.reset();
     }
 
-    Callable<Object> task = () -> finalMethod.invoke(finalInstance, finalArgs);
-    Future<Object> future = executor.submit(task);
+    List<Map<String, Object>> results = new ArrayList<>();
 
-    Object outputValue = null;
-    Throwable caughtException = null;
+    if (finalReps > 1) {
+      for (int i = 0; i < finalReps; i++) {
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("validators", Collections.emptyMap());
+        try {
+          Callable<Object> singleTask = () -> wrapJsonn(finalMethod.invoke(finalInstance, finalArgs));
+          Future<Object> singleFut = executor.submit(singleTask);
+          Object val = timeout > 0 ? singleFut.get(timeout, TimeUnit.MILLISECONDS) : singleFut.get();
+          item.put("tag", "value");
+          item.put("value", val);
+          results.add(item);
+        } catch (TimeoutException te) {
+          item.put("tag", "timeout");
+          results.add(item);
+        } catch (Throwable t) {
+          Throwable cause = t instanceof ExecutionException ee && ee.getCause() != null ? ee.getCause() : t;
+          if (cause instanceof InvocationTargetException ite && ite.getCause() != null) {
+            cause = ite.getCause();
+          }
+          if (cause instanceof UnsatisfiedAssumptionException uae) {
+            item.put("tag", "skip");
+            item.put("message", uae.getMessage() != null ? uae.getMessage() : "Unsatisfied assumption");
+          } else {
+            item.put("tag", "error");
+            item.put("name", cause.getClass().getSimpleName());
+            item.put("message", cause.getMessage() != null ? cause.getMessage() : cause.toString());
+            item.put("stack", getStackTrace(cause));
+            item.put("source", "put");
+          }
+          results.add(item);
+        }
+      }
+    } else {
+      Map<String, Object> item = new LinkedHashMap<>();
+      Object outputValue = null;
+      Throwable caughtException = null;
 
-    if (timeout > 0) {
       try {
-        outputValue = future.get(timeout, TimeUnit.MILLISECONDS);
+        Callable<Object> task = () -> wrapJsonn(finalMethod.invoke(finalInstance, finalArgs));
+        Future<Object> future = executor.submit(task);
+        outputValue = timeout > 0 ? future.get(timeout, TimeUnit.MILLISECONDS) : future.get();
       } catch (TimeoutException te) {
-        future.cancel(true);
-        executor.shutdownNow();
-        executor = createExecutor();
-        response.put("tag", "timeout");
-        return response;
-      } catch (ExecutionException ee) {
-        caughtException = ee.getCause() != null ? ee.getCause() : ee;
-      } catch (InterruptedException ie) {
-        future.cancel(true);
-        response.put("tag", "timeout");
-        return response;
+        item.put("tag", "timeout");
+      } catch (Throwable t) {
+        Throwable cause = t instanceof ExecutionException ee && ee.getCause() != null ? ee.getCause() : t;
+        if (cause instanceof InvocationTargetException ite && ite.getCause() != null) {
+          cause = ite.getCause();
+        }
+        caughtException = cause;
       }
-    } else {
-      try {
-        outputValue = future.get();
-      } catch (ExecutionException ee) {
-        caughtException = ee.getCause() != null ? ee.getCause() : ee;
-      } catch (InterruptedException ie) {
-        response.put("tag", "timeout");
-        return response;
+
+      if (item.containsKey("tag") && "timeout".equals(item.get("tag"))) {
+        // timeout already set
+      } else if (caughtException instanceof UnsatisfiedAssumptionException uae) {
+        item.put("tag", "skip");
+        item.put("message", uae.getMessage() != null ? uae.getMessage() : "Unsatisfied assumption");
+      } else if (caughtException != null) {
+        item.put("tag", "error");
+        item.put("name", caughtException.getClass().getSimpleName());
+        item.put("message",
+            caughtException.getMessage() != null ? caughtException.getMessage() : caughtException.toString());
+        item.put("stack", getStackTrace(caughtException));
+        item.put("source", "put");
+      } else {
+        item.put("tag", "value");
+        item.put("value", outputValue);
       }
-    }
 
-    if (caughtException instanceof InvocationTargetException ite) {
-      caughtException = ite.getCause() != null ? ite.getCause() : ite;
-    }
-
-    if (caughtException instanceof UnsatisfiedAssumptionException uae) {
-      response.put("tag", "skip");
-      response.put("message", uae.getMessage() != null ? uae.getMessage() : "Unsatisfied assumption");
-      return response;
-    }
-
-    boolean isException = caughtException != null;
-    if (isException) {
-      response.put("tag", "error");
-      response.put("name", caughtException.getClass().getSimpleName());
-      response.put("message",
-          caughtException.getMessage() != null ? caughtException.getMessage() : caughtException.toString());
-      response.put("stack", getStackTrace(caughtException));
-      response.put("source", "put");
-    } else {
-      response.put("tag", "value");
-      response.put("value", wrapJsonn(outputValue));
-    }
-
-    // Evaluate property validators if requested
-    if (!validators.isEmpty()) {
       Map<String, Object> valMap = new LinkedHashMap<>();
-      FuzzTestResult resultObj = new FuzzTestResult(args, outputValue, isException, false);
-
-      for (String vName : validators) {
-        valMap.put(vName, executeValidator(targetClass, finalInstance, vName, resultObj));
+      if (!validators.isEmpty() && !"skip".equals(item.get("tag"))) {
+        boolean isException = caughtException != null;
+        FuzzTestResult resultObj = new FuzzTestResult(args, outputValue, isException, "timeout".equals(item.get("tag")));
+        for (String vName : validators) {
+          valMap.put(vName, executeValidator(targetClass, finalInstance, vName, resultObj));
+        }
       }
-      response.put("validators", valMap);
+      item.put("validators", valMap);
+      results.add(item);
     }
 
     // Collect coverage data if requested
@@ -482,6 +504,7 @@ public class JavaRunnerHost {
       }
     }
 
+    response.put("results", results);
     return response;
   } // fn: handleRequest
 

@@ -1,11 +1,13 @@
+import { AbstractRunner } from "../AbstractRunner";
 import {
-  AbstractRunner,
   RunnerInput,
   RunnerOverrides,
   RunnerResult,
+  RunnerResultItem,
   TypeHint,
   ValidatorResult,
-} from "../AbstractRunner";
+} from "../Types";
+import { isRunnerResultItem } from "../Util";
 import { ArgDef } from "../../analysis/ArgDef";
 import { ArgTag } from "../../analysis/Types";
 import { NodeHost } from "./NodeHost";
@@ -114,7 +116,8 @@ export class JavascriptRunner extends AbstractRunner {
     inputs: unknown[],
     timeout: number | undefined = 0,
     validators: string[] = [],
-    env?: Record<string, string>
+    env?: Record<string, string>,
+    repetitions: number = 1
   ): Promise<RunnerResult> {
     const thisSeq = this._seq++;
     try {
@@ -126,12 +129,11 @@ export class JavascriptRunner extends AbstractRunner {
       const input: RunnerInput = {
         args: inputs,
         seq: thisSeq,
-        typeHints,
+        repetitions: repetitions ?? 1,
         timeout: timeout ?? 0,
-        fnName: this._jsFn,
-        filename: this._filename,
-        validators: validators.length > 0 ? validators : undefined,
-        env,
+        validators: validators ?? [],
+        env: env ?? {},
+        typeHints,
         collect: {
           coverageData: this._coverageEnabled ? true : undefined,
           debugData: debugEnabled ? true : undefined,
@@ -200,56 +202,31 @@ export class JavascriptRunner extends AbstractRunner {
         this._coverageCallback?.(parsedRes.coverageData);
       }
 
-      let resultInner: RunnerResult["result"];
-      if (isParsedHostResponse(parsedRes)) {
-        const seq = typeof parsedRes.seq === "number" ? parsedRes.seq : thisSeq;
-        const validators = parsedRes.validators;
-        if (parsedRes.tag === "timeout") {
-          resultInner = {
-            tag: "timeout",
-            seq,
-            validators,
-          };
-        } else if (parsedRes.tag === "skip") {
-          resultInner = {
-            tag: "skip",
-            message: parsedRes.message ?? "",
-            seq,
-            validators,
-          };
-        } else if (parsedRes.tag === "error") {
-          resultInner = {
-            tag: "error",
-            name: parsedRes.name ?? "Error",
-            message: parsedRes.message ?? "",
-            stack: parsedRes.stack,
-            source: parsedRes.source,
-            seq,
-            validators,
-          };
-        } else {
-          resultInner = {
-            tag: "value",
-            value: parsedRes.value,
-            seq,
-            validators,
-          };
+      const expectedCount = repetitions ?? 1;
+      let results: RunnerResultItem[] = [];
+      let seq = thisSeq;
+      if (parsedRes && typeof parsedRes === "object") {
+        if ("seq" in parsedRes && typeof parsedRes.seq === "number") {
+          seq = parsedRes.seq;
         }
-      } else {
-        resultInner = {
-          tag: "error",
-          name: "UnknownJavascriptRunnerError",
-          message: "Invalid response from host",
-          seq: thisSeq,
-        };
+        if ("results" in parsedRes && Array.isArray(parsedRes.results)) {
+          results = parsedRes.results.filter(isRunnerResultItem);
+        }
+      }
+      if (results.length !== expectedCount) {
+        this.killHost();
+        throw new Error(
+          `Runner "${this.name}" IPC contract violation: requested ${expectedCount} repetition(s) but host returned ${results.length}`
+        );
       }
 
       const result: RunnerResult = {
-        result: resultInner,
+        results,
+        seq,
         env: {},
       };
 
-      if (result.result.seq >= 0 && result.result.seq !== thisSeq) {
+      if (result.seq >= 0 && result.seq !== thisSeq) {
         throw new Error(
           `Internal error: RunnerResult seq# does not match RunnerInput`
         );
@@ -267,16 +244,18 @@ export class JavascriptRunner extends AbstractRunner {
         this._coverageInfo = undefined;
       }
       if (e.name === PutTimeoutName) {
-        return { result: { tag: "timeout", seq: thisSeq }, env: {} };
+        return { results: [{ tag: "timeout" }], seq: thisSeq, env: {} };
       } else {
         return {
-          result: {
-            tag: "error",
-            name: e.name,
-            message: e.message,
-            stack: e.stack,
-            seq: thisSeq,
-          },
+          results: [
+            {
+              tag: "error",
+              name: e.name,
+              message: e.message,
+              stack: e.stack,
+            },
+          ],
+          seq: thisSeq,
           env: {},
         };
       }
@@ -530,7 +509,7 @@ type FileCoverageData = {
 type ParsedHostResponse = {
   seq?: number;
   tag?: "value" | "timeout" | "skip" | "error";
-  value?: unknown;
+  values?: unknown[];
   message?: string;
   name?: string;
   stack?: string;

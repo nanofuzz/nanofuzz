@@ -5,7 +5,7 @@ import { PythonRunner } from "../runners/python/PythonRunner";
 import {
   PythonFileCoverageData,
   PythonCoverageMapData,
-} from "../runners/AbstractRunner";
+} from "../runners/Types";
 import {
   twoPathStatic,
   twoPathNegative,

@@ -7,12 +7,12 @@ import { CoverageMeasure } from "./measures/CoverageMeasure";
 import { ExampleOracle } from "./oracles/ExampleOracle";
 import { ImplicitOracle } from "./oracles/ImplicitOracle";
 import { PropertyOracle } from "./oracles/PropertyOracle";
+import { AbstractRunner } from "./runners/AbstractRunner";
 import {
-  AbstractRunner,
   RunnerCoverage,
   RunnerResult,
   ValidatorResult,
-} from "./runners/AbstractRunner";
+} from "./runners/Types";
 import {
   FuzzOptions,
   FuzzPinnedTest,
@@ -164,7 +164,7 @@ export class FuzzExecutor {
       transformTime
     );
 
-    // 1. Handle transformer result if candidate was skipped/errored by transformer
+    // Handle transformer result if candidate was skipped/errored by transformer
     if (candidate.transformerResult && this._transformRunner) {
       this._handleTransformerResult(
         candidate.transformerResult,
@@ -177,7 +177,7 @@ export class FuzzExecutor {
       return { result, coverageHits: [], valTime: 0, runTime: 0 };
     }
 
-    // 2. Call the PUT via the worker runner
+    // Call the PUT via the worker runner
     const validatorNames =
       this._options.useProperty && this._validators.length > 0
         ? this._validators.map((v) => v.name)
@@ -206,24 +206,28 @@ export class FuzzExecutor {
 
       if (isError(e)) {
         exeOutput = {
-          result: {
-            tag: "error",
-            name: e.name,
-            message: e.message,
-            stack: e.stack ?? "<no stack>",
-            seq: -1,
-          },
+          results: [
+            {
+              tag: "error",
+              name: e.name,
+              message: e.message,
+              stack: e.stack ?? "<no stack>",
+            },
+          ],
+          seq: -1,
           env: {},
         };
       } else {
         exeOutput = {
-          result: {
-            tag: "error",
-            name: "unknown internal runner error",
-            message: "unknown",
-            stack: "<no stack>",
-            seq: -1,
-          },
+          results: [
+            {
+              tag: "error",
+              name: "unknown internal runner error",
+              message: "unknown",
+              stack: "<no stack>",
+            },
+          ],
+          seq: -1,
           env: {},
         };
       }
@@ -233,11 +237,11 @@ export class FuzzExecutor {
 
     this._applyRunnerOutput(exeOutput, result);
 
-    // 3. Evaluate oracles
+    // Evaluate oracles
     let valTime = 0;
     if (!result.skipped) {
       const startValTime = performance.now();
-      this._evaluateOracles(result, exeOutput.result.validators);
+      this._evaluateOracles(result, exeOutput.results[0]?.validators);
       valTime = performance.now() - startValTime;
     }
 
@@ -419,10 +423,12 @@ export class FuzzExecutor {
     transformerName: string = "transformer"
   ): void {
     const fnName = transformerName;
-    switch (transformerResult.result.tag) {
+    const primary = transformerResult.results[0];
+    if (!primary) return;
+    switch (primary.tag) {
       case "skip":
         result.skipped = true;
-        result.skipReason = `(${fnName}) ${transformerResult.result.message}`;
+        result.skipReason = `(${fnName}) ${primary.message}`;
         break;
 
       case "timeout":
@@ -436,8 +442,8 @@ export class FuzzExecutor {
         break;
 
       case "error": {
-        const errMsg = transformerResult.result.message ?? "";
-        const errName = transformerResult.result.name ?? "";
+        const errMsg = primary.message ?? "";
+        const errName = primary.name ?? "";
         if (
           errName === "UnsatisfiedAssumption" ||
           errName === "UnsatisfiedAssumptionError" ||
@@ -452,9 +458,9 @@ export class FuzzExecutor {
           kind: "exception",
           stage: "transformer",
           fnName,
-          message: transformerResult.result.message,
-          display: `(${fnName} ${transformerResult.result.name}) ${transformerResult.result.message}`,
-          stack: transformerResult.result.stack ?? "<no stack>",
+          message: primary.message,
+          display: `(${fnName} ${primary.name}) ${primary.message}`,
+          stack: primary.stack ?? "<no stack>",
         });
         break;
       }
@@ -474,29 +480,29 @@ export class FuzzExecutor {
     exeOutput: RunnerResult,
     result: FuzzTestResult
   ): void {
-    switch (exeOutput.result.tag) {
+    const primary = exeOutput.results[0];
+    if (!primary) return;
+    switch (primary.tag) {
       case "value":
         result.output.push({
           name: "0",
           offset: 0,
-          value: isArgValueType(exeOutput.result.value)
-            ? exeOutput.result.value
-            : undefined,
+          value: isArgValueType(primary.value) ? primary.value : undefined,
           origin: { type: "put" },
         });
         break;
       case "error":
         result.exception = true;
-        result.exceptionMessage = exeOutput.result.message;
-        result.exceptionDisplay = `(${exeOutput.result.name}) ${exeOutput.result.message}`;
-        result.stack = exeOutput.result.stack;
+        result.exceptionMessage = primary.message;
+        result.exceptionDisplay = `(${primary.name}) ${primary.message}`;
+        result.stack = primary.stack;
         break;
       case "timeout":
         result.timeout = true;
         break;
       case "skip":
         result.skipped = true;
-        result.skipReason = exeOutput.result.message;
+        result.skipReason = primary.message;
         break;
     }
   } // fn: _applyRunnerOutput

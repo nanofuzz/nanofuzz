@@ -1,7 +1,8 @@
 import { Judgment } from "./Types";
 import { HarnessError, Result } from "../Types";
 import { isError } from "../Util";
-import { AbstractRunner, ValidatorResult } from "../runners/AbstractRunner";
+import { AbstractRunner } from "../runners/AbstractRunner";
+import { ValidatorResult } from "../runners/Types";
 
 export class PropertyOracle {
   protected _propRunners: AbstractRunner[] = [];
@@ -139,14 +140,15 @@ export class PropertyOracle {
       const runner = this._propRunners[runnerId];
       if (result.status === "fulfilled") {
         const vOut = result.value;
-        switch (vOut.result.tag) {
+        const primary = vOut.results[0];
+        switch (primary.tag) {
           case "error": {
             const err = new Error(
-              vOut.result.message ?? "Property validator error"
+              primary.message ?? "Property validator error"
             );
-            err.name = vOut.result.name ?? "PropertyValidatorError";
-            if (vOut.result.stack) {
-              err.stack = vOut.result.stack;
+            err.name = primary.name ?? "PropertyValidatorError";
+            if (primary.stack) {
+              err.stack = primary.stack;
             }
             return err;
           }
@@ -165,7 +167,7 @@ export class PropertyOracle {
             return err;
           }
           case "value":
-            switch (vOut.result.value) {
+            switch (primary.value) {
               case true: // v0.3
               case "pass": // v0.4
                 return "pass";

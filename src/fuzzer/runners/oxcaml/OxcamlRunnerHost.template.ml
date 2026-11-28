@@ -226,20 +226,28 @@ let () =
             match call_res with
             | Error (`Skip skip_msg) ->
               Msgpck.Map [
-                (Msgpck.String "tag", Msgpck.String "skip");
-                (Msgpck.String "message", Msgpck.String skip_msg);
+                (Msgpck.String "results", Msgpck.List [
+                  Msgpck.Map [
+                    (Msgpck.String "tag", Msgpck.String "skip");
+                    (Msgpck.String "message", Msgpck.String skip_msg);
+                    (Msgpck.String "coverageData", cov_to_msgpck ());
+                  ]
+                ]);
                 (Msgpck.String "seq", Msgpck.Int seq);
-                (Msgpck.String "coverageData", cov_to_msgpck ());
               ]
             | Error (`Exn (exn_msg, bt)) ->
               Msgpck.Map [
-                (Msgpck.String "tag", Msgpck.String "error");
-                (Msgpck.String "name", Msgpck.String "Exception");
-                (Msgpck.String "message", Msgpck.String exn_msg);
-                (Msgpck.String "stack", Msgpck.String bt);
-                (Msgpck.String "source", Msgpck.String "put");
+                (Msgpck.String "results", Msgpck.List [
+                  Msgpck.Map [
+                    (Msgpck.String "tag", Msgpck.String "error");
+                    (Msgpck.String "name", Msgpck.String "Exception");
+                    (Msgpck.String "message", Msgpck.String exn_msg);
+                    (Msgpck.String "stack", Msgpck.String bt);
+                    (Msgpck.String "source", Msgpck.String "put");
+                    (Msgpck.String "coverageData", cov_to_msgpck ());
+                  ]
+                ]);
                 (Msgpck.String "seq", Msgpck.Int seq);
-                (Msgpck.String "coverageData", cov_to_msgpck ());
               ]
             | Ok out_msgpck ->
               let val_results = ref [] in
@@ -248,12 +256,35 @@ let () =
                 if !val_results = [] then []
                 else [ (Msgpck.String "validators", Msgpck.Map !val_results) ]
               in
-              Msgpck.Map ([
-                (Msgpck.String "tag", Msgpck.String "value");
-                (Msgpck.String "value", out_msgpck);
+              let items =
+                match out_msgpck with
+                | Msgpck.List l ->
+                  List.map (fun v ->
+                    Msgpck.Map ([
+                      (Msgpck.String "tag", Msgpck.String "value");
+                      (Msgpck.String "value", v);
+                    ] @ val_assoc)
+                  ) l
+                | single ->
+                  [
+                    Msgpck.Map ([
+                      (Msgpck.String "tag", Msgpck.String "value");
+                      (Msgpck.String "value", single);
+                    ] @ val_assoc)
+                  ]
+              in
+              let cov_msg = cov_to_msgpck () in
+              let items_with_cov =
+                match items with
+                | (Msgpck.Map m) :: rest ->
+                  (Msgpck.Map ((Msgpck.String "coverageData", cov_msg) :: m)) :: rest
+                | other -> other
+              in
+              Msgpck.Map [
+                (Msgpck.String "results", Msgpck.List items_with_cov);
                 (Msgpck.String "seq", Msgpck.Int seq);
-                (Msgpck.String "coverageData", cov_to_msgpck ());
-              ] @ val_assoc)
+                (Msgpck.String "coverageData", cov_msg);
+              ]
           in
 
           send_msgpck stdout response;

@@ -851,60 +851,77 @@ function generateHarnessSource(
   const callArgsPatStr = callArgsPat.length > 0 ? callArgsPat.join(", ") : "()";
 
   // Target function call and output serialization
-  let serExpr: string;
-  if (isGenerator) {
-    const targetFn = CompanionManager.getUserGeneratorTarget(fnName, "oxcaml");
-    const genTargetDef =
-      env?.function?.getName() === targetFn
-        ? env?.function
-        : targetFn
-          ? prog.functions[targetFn]
-          : undefined;
-    const targetArgs = genTargetDef ? genTargetDef.getArgDefs() : [];
-    if (targetArgs.length > 1) {
-      const binders = targetArgs.map((_, i) => `t_${i}`).join(", ");
-      const elems = targetArgs
-        .map((a, i) =>
-          buildSerializer(
-            OxcamlProgram.getTypeAnnotation(a),
-            `t_${i}`,
-            a,
-            prog.types
-          )
-        )
-        .join("; ");
-      serExpr = `(match out_val with None -> Msgpck.Nil | Some (${binders}) -> Msgpck.List [${elems}])`;
-    } else if (targetArgs.length === 1) {
-      serExpr = `(match out_val with None -> Msgpck.Nil | Some v -> Msgpck.List [${buildSerializer(OxcamlProgram.getTypeAnnotation(targetArgs[0]), "v", targetArgs[0], prog.types)}])`;
-    } else {
-      serExpr = `(match out_val with None -> Msgpck.Nil | Some v -> Msgpck.List [Msgpck.Int (Obj.magic v)])`;
-    }
-  } else {
-    const retArg = targetFnDef?.getReturnArg();
-    const retType = retArg ? OxcamlProgram.getTypeAnnotation(retArg) : "int";
-    serExpr = buildSerializer(
-      retType,
-      "out_val",
-      retArg,
-      prog.types,
-      isTransformer,
-      false
-    );
-  }
+  const retArg = targetFnDef?.getReturnArg();
+  const retType = retArg ? OxcamlProgram.getTypeAnnotation(retArg) : "int";
+  const serExpr = isGenerator
+    ? (() => {
+        const targetFn = CompanionManager.getUserGeneratorTarget(fnName, "oxcaml");
+        const genTargetDef =
+          env?.function?.getName() === targetFn
+            ? env?.function
+            : targetFn
+              ? prog.functions[targetFn]
+              : undefined;
+        const targetArgs = genTargetDef ? genTargetDef.getArgDefs() : [];
+        if (targetArgs.length > 1) {
+          const binders = targetArgs.map((_, i) => `t_${i}`).join(", ");
+          const elems = targetArgs
+            .map((a, i) =>
+              buildSerializer(
+                OxcamlProgram.getTypeAnnotation(a),
+                `t_${i}`,
+                a,
+                prog.types
+              )
+            )
+            .join("; ");
+          return `(match out_val with None -> Msgpck.Nil | Some (${binders}) -> Msgpck.List [${elems}])`;
+        } else if (targetArgs.length === 1) {
+          return `(match out_val with None -> Msgpck.Nil | Some v -> Msgpck.List [${buildSerializer(OxcamlProgram.getTypeAnnotation(targetArgs[0]), "v", targetArgs[0], prog.types)}])`;
+        } else {
+          return `(match out_val with None -> Msgpck.Nil | Some v -> Msgpck.List [Msgpck.Int (Obj.magic v)])`;
+        }
+      })()
+    : buildSerializer(
+        retType,
+        "out_val",
+        retArg,
+        prog.types,
+        isTransformer,
+        false
+      );
+
+  const callInvocation =
+    callArgs.length === 0
+      ? `${targetFnAccessor} ()`
+      : `${targetFnAccessor} ${callArgs.join(" ")}`;
 
   let fnCallCode: string;
-  if (isVoid || callArgs.length === 0) {
-    const callInvocation =
-      callArgs.length === 0
-        ? `${targetFnAccessor} ()`
-        : `${targetFnAccessor} ${callArgs.join(" ")}`;
-    if (isVoid) {
-      fnCallCode = `let () = ${callInvocation} in let out_msgpck = Msgpck.Nil in Ok (out_msgpck)`;
-    } else {
-      fnCallCode = `let out_val = ${callInvocation} in let out_msgpck = ${serExpr} in Ok (out_msgpck)`;
-    }
+  if (isVoid) {
+    fnCallCode = `let () = ${callInvocation} in let out_msgpck = Msgpck.List [Msgpck.Nil] in Ok (out_msgpck)`;
   } else {
-    fnCallCode = `let out_val = ${targetFnAccessor} ${callArgs.join(" ")} in let out_msgpck = ${serExpr} in Ok (out_msgpck)`;
+    fnCallCode = `(* Batch invoke generator batchsize times to avoid duplicative IPC bridge traversals *)
+      let repetitions =
+        match find_key "repetitions" msg with
+        | Msgpck.Int r -> max 1 r
+        | _ -> 1
+      in
+      if repetitions > 1 then
+        let batch_vals = ref [] in
+        let rec loop_batch n =
+          if n > 0 then
+            let out_val = ${callInvocation} in
+            let single_msg = ${serExpr} in
+            batch_vals := single_msg :: !batch_vals;
+            loop_batch (n - 1)
+        in
+        loop_batch repetitions;
+        let out_msgpck = Msgpck.List (List.rev !batch_vals) in
+        Ok (out_msgpck)
+      else
+        let out_val = ${callInvocation} in
+        let out_msgpck = Msgpck.List [${serExpr}] in
+        Ok (out_msgpck)`;
   }
 
   // Validators execution
@@ -926,9 +943,14 @@ function generateHarnessSource(
 
     validatorLines.push(
       `if List.mem "${v.name}" validators then begin
+        let first_out =
+          match out_msgpck with
+          | Msgpck.List (h :: _) -> h
+          | _ -> out_msgpck
+        in
         let ftr = Nanofuzz_runtime.make_fuzz_test_result
           ~inputs:(List.map Nanofuzz_runtime.msgpck_to_yojson args)
-          ~out:(Nanofuzz_runtime.msgpck_to_yojson out_msgpck)
+          ~out:(Nanofuzz_runtime.msgpck_to_yojson first_out)
           ~exception_:false
           ~timeout:false
         in

@@ -1,10 +1,13 @@
 import fs from "node:fs";
+import { AbstractRunner } from "../AbstractRunner";
 import {
-  AbstractRunner,
+  RunnerInput,
   RunnerOverrides,
   RunnerResult,
+  RunnerResultItem,
   ValidatorResult,
-} from "../AbstractRunner";
+} from "../Types";
+import { isRunnerResultItem } from "../Util";
 import { CoverageMapData, FileCoverageData } from "istanbul-lib-coverage";
 import { isRecordOfFileCoverageData } from "../../measures/CoverageMeasure";
 import { FuzzEnv } from "../../Types";
@@ -107,7 +110,8 @@ export class GoRunner extends AbstractRunner {
     inputs: unknown[],
     timeout: number | undefined = 0,
     validators: string[] = [],
-    env?: Record<string, string>
+    env?: Record<string, string>,
+    repetitions: number = 1
   ): Promise<RunnerResult> {
     const thisSeq = this._seq++;
     let host: GoHost | undefined = undefined;
@@ -115,11 +119,13 @@ export class GoRunner extends AbstractRunner {
     try {
       host = await this._getHost();
 
-      const input = {
+      const input: RunnerInput = {
         seq: thisSeq,
         args: inputs,
-        validators,
-        ...(env ? { env } : {}),
+        repetitions: repetitions ?? 1,
+        timeout: timeout ?? 0,
+        validators: validators ?? [],
+        env: env ?? {},
       };
 
       const payloadBytes = Buffer.from(JSON.stringify(input), "utf-8");
@@ -136,7 +142,8 @@ export class GoRunner extends AbstractRunner {
 
       // Ingest dynamic coverage data
       if (this._coverageEnabled && this._coverageInfo) {
-        const rawCovData = hostPayload.coverageData;
+        const rawCovData =
+          hostPayload.coverageData ?? hostPayload.results?.[0]?.coverageData;
         if (rawCovData && isRecordOfFileCoverageData(rawCovData)) {
           this._lastRunCoverage = rawCovData;
           for (const fileKey of Object.keys(rawCovData)) {
@@ -196,58 +203,22 @@ export class GoRunner extends AbstractRunner {
         }
       }
 
-      if (hostPayload.tag === "skip") {
-        return {
-          result: {
-            tag: "skip",
-            message: hostPayload.message ?? "Assumption failed",
-            seq,
-            ...(resultValidators ? { validators: resultValidators } : {}),
-          },
-          env: {},
-        };
+      const expectedCount = repetitions ?? 1;
+      let results: RunnerResultItem[] = [];
+      if (Array.isArray(hostPayload.results)) {
+        results = hostPayload.results.filter(isRunnerResultItem);
       }
 
-      if (hostPayload.tag === "error") {
-        const errMsg = hostPayload.message ?? "";
-        const lowerMsg = errMsg.toLowerCase();
-        if (
-          hostPayload.name === "UnsatisfiedAssumption" ||
-          hostPayload.name === "UnsatisfiedAssumptionError" ||
-          lowerMsg.startsWith("unsatisfied assumption")
-        ) {
-          const cleanMsg = errMsg.replace(/^unsatisfied assumption:\s*/i, "");
-          return {
-            result: {
-              tag: "skip",
-              message: cleanMsg,
-              seq,
-              ...(resultValidators ? { validators: resultValidators } : {}),
-            },
-            env: {},
-          };
-        }
-
-        return {
-          result: {
-            tag: "error",
-            name: hostPayload.name ?? "Panic",
-            message: hostPayload.message ?? "",
-            source: hostPayload.source === "host" ? "host" : "put",
-            seq,
-            ...(resultValidators ? { validators: resultValidators } : {}),
-          },
-          env: {},
-        };
+      if (results.length !== expectedCount) {
+        this.killHost();
+        throw new Error(
+          `Runner "${this.name}" IPC contract violation: requested ${expectedCount} repetition(s) but host returned ${results.length}`
+        );
       }
 
       return {
-        result: {
-          tag: "value",
-          value: hostPayload.value,
-          seq,
-          ...(resultValidators ? { validators: resultValidators } : {}),
-        },
+        results,
+        seq,
         env: {},
       };
     } catch (e: unknown) {
@@ -259,10 +230,12 @@ export class GoRunner extends AbstractRunner {
         (e.name === PutTimeoutName || e.message === "PutTimeout")
       ) {
         return {
-          result: {
-            tag: "timeout",
-            seq: thisSeq,
-          },
+          results: [
+            {
+              tag: "timeout",
+            },
+          ],
+          seq: thisSeq,
           env: {},
         };
       }
@@ -274,23 +247,27 @@ export class GoRunner extends AbstractRunner {
         lower.startsWith("unsatisfied assumption")
       ) {
         return {
-          result: {
-            tag: "skip",
-            message: err.message.replace(/^unsatisfied assumption:\s*/i, ""),
-            seq: thisSeq,
-          },
+          results: [
+            {
+              tag: "skip",
+              message: err.message.replace(/^unsatisfied assumption:\s*/i, ""),
+            },
+          ],
+          seq: thisSeq,
           env: {},
         };
       }
       return {
-        result: {
-          tag: "error",
-          name: err.name,
-          message: err.message,
-          stack: err.stack,
-          source: "put",
-          seq: thisSeq,
-        },
+        results: [
+          {
+            tag: "error",
+            name: err.name,
+            message: err.message,
+            stack: err.stack,
+            source: "put",
+          },
+        ],
+        seq: thisSeq,
         env: {},
       };
     }
@@ -472,16 +449,11 @@ export class GoRunner extends AbstractRunner {
 } // class: GoRunner
 
 type GoHostResponse = {
-  tag: "value" | "error" | "skip" | "timeout";
-  value?: unknown;
-  message?: string;
-  name?: string;
-  stack?: string;
-  source?: string;
-  seq?: number;
+  results: RunnerResultItem[];
+  seq: number;
+  coverageData?: Record<string, FileCoverageData>;
   validators?: Record<
     string,
     { tag: "value" | "error" | "skip"; value?: unknown; message?: string }
   >;
-  coverageData?: Record<string, FileCoverageData>;
 };

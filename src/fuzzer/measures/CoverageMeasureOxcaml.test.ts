@@ -130,7 +130,7 @@ describe("fuzzer/measures/CoverageMeasure: OCaml / OxCaml", () => {
     // Run with negative input (hits then branch: -x)
     measure.onBeforeNextTestExecution();
     const resNegative = await runner.run([-5], 5000);
-    expect(resNegative.result.tag).toBe("value");
+    expect(resNegative.results[0].tag).toBe("value");
 
     const measurement1 = measure.measure(
       {
@@ -151,7 +151,7 @@ describe("fuzzer/measures/CoverageMeasure: OCaml / OxCaml", () => {
     // Run with positive input (hits else branch, introducing new global coverage)
     measure.onBeforeNextTestExecution();
     const resPositive = await runner.run([10], 5000);
-    expect(resPositive.result.tag).toBe("value");
+    expect(resPositive.results[0].tag).toBe("value");
 
     const measurement2 = measure.measure(
       {
@@ -293,9 +293,9 @@ describe("fuzzer/measures/CoverageMeasure: OCaml / OxCaml", () => {
     // Run with x = 15 (hits x > 0 in entry.ml, and y > 10 in math_helper.ml)
     measure.onBeforeNextTestExecution();
     const res = await runner.run([15], 5000);
-    expect(res.result.tag).toBe("value");
-    if (res.result.tag === "value") {
-      expect(res.result.value).toBe(30);
+    expect(res.results[0].tag).toBe("value");
+    if (res.results[0].tag === "value") {
+      expect(res.results[0].value).toBe(30);
     }
 
     const measurement = measure.measure(
@@ -438,9 +438,9 @@ describe("fuzzer/measures/CoverageMeasure: OCaml / OxCaml", () => {
       const runnerProject = new OxcamlRunner(mainMl, "compute", env);
       await runnerProject.onRunStart();
       const resProject = await runnerProject.run([4], 5000);
-      expect(resProject.result.tag).toBe("value");
-      if (resProject.result.tag === "value") {
-        expect(resProject.result.value).toBe(17);
+      expect(resProject.results[0].tag).toBe("value");
+      if (resProject.results[0].tag === "value") {
+        expect(resProject.results[0].value).toBe(17);
       }
       expect(runnerProject.coverageInfo).toBeDefined();
       const projectFiles = Object.keys(runnerProject.coverageInfo!);
@@ -457,9 +457,9 @@ describe("fuzzer/measures/CoverageMeasure: OCaml / OxCaml", () => {
       const runnerImports = new OxcamlRunner(mainMl, "compute", env);
       await runnerImports.onRunStart();
       const resImports = await runnerImports.run([4], 5000);
-      expect(resImports.result.tag).toBe("value");
-      if (resImports.result.tag === "value") {
-        expect(resImports.result.value).toBe(17);
+      expect(resImports.results[0].tag).toBe("value");
+      if (resImports.results[0].tag === "value") {
+        expect(resImports.results[0].value).toBe(17);
       }
       expect(runnerImports.coverageInfo).toBeDefined();
       const importFiles = Object.keys(runnerImports.coverageInfo!);

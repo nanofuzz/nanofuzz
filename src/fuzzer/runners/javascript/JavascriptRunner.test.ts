@@ -48,9 +48,9 @@ module.exports = { add };
       const res = await runner.run([3, 4], 2000);
       await runner.onRunEnd();
 
-      expect(res.result.tag).toBe("value");
-      if (res.result.tag === "value") {
-        expect(res.result.value).toBe(7);
+      expect(res.results[0].tag).toBe("value");
+      if (res.results[0].tag === "value") {
+        expect(res.results[0].value).toBe(7);
       }
     } finally {
       try {
@@ -135,9 +135,9 @@ export function processTypes(bytes: Uint8Array, mySet: Set<string>, myMap: Map<s
       const res = await runner.run([bytes, mySet, myMap], 2000);
       await runner.onRunEnd();
 
-      expect(res.result.tag).toBe("value");
-      if (res.result.tag === "value") {
-        expect(res.result.value).toEqual({
+      expect(res.results[0].tag).toBe("value");
+      if (res.results[0].tag === "value") {
+        expect(res.results[0].value).toEqual({
           bytesLength: 3,
           setSize: 2,
           mapVal: 42,
@@ -178,12 +178,12 @@ module.exports = { sample };
         [{ __nanofuzz_type: "prng", seed: "fixed_seed_abc" }],
         2000
       );
-      expect(res1.result.tag).toBe("value");
-      if (res1.result.tag === "value") {
-        expect(typeof res1.result.value).toBe("number");
-        if (typeof res1.result.value === "number") {
-          expect(res1.result.value).toBeGreaterThanOrEqual(0);
-          expect(res1.result.value).toBeLessThan(1);
+      expect(res1.results[0].tag).toBe("value");
+      if (res1.results[0].tag === "value") {
+        expect(typeof res1.results[0].value).toBe("number");
+        if (typeof res1.results[0].value === "number") {
+          expect(res1.results[0].value).toBeGreaterThanOrEqual(0);
+          expect(res1.results[0].value).toBeLessThan(1);
         }
       }
 
@@ -191,20 +191,34 @@ module.exports = { sample };
         [{ __nanofuzz_type: "prng", seed: "fixed_seed_abc" }],
         2000
       );
-      expect(res2.result.tag).toBe("value");
-      if (res2.result.tag === "value" && res1.result.tag === "value") {
-        expect(res2.result.value).toBe(res1.result.value);
+      expect(res2.results[0].tag).toBe("value");
+      if (res2.results[0].tag === "value" && res1.results[0].tag === "value") {
+        expect(res2.results[0].value).toBe(res1.results[0].value);
       }
 
       // Invocation without a seed runs unseeded / pure random and succeeds
       const unseededRes = await runner.run([{ __nanofuzz_type: "prng" }], 2000);
-      expect(unseededRes.result.tag).toBe("value");
-      if (unseededRes.result.tag === "value") {
-        expect(typeof unseededRes.result.value).toBe("number");
-        if (typeof unseededRes.result.value === "number") {
-          expect(unseededRes.result.value).toBeGreaterThanOrEqual(0);
-          expect(unseededRes.result.value).toBeLessThan(1);
+      expect(unseededRes.results[0].tag).toBe("value");
+      if (unseededRes.results[0].tag === "value") {
+        expect(typeof unseededRes.results[0].value).toBe("number");
+        if (typeof unseededRes.results[0].value === "number") {
+          expect(unseededRes.results[0].value).toBeGreaterThanOrEqual(0);
+          expect(unseededRes.results[0].value).toBeLessThan(1);
         }
+      }
+
+      // Invocation with repetitions requests multiple values in a single response
+      const batchRes = await runner.run(
+        [{ __nanofuzz_type: "prng", seed: "fixed_seed_abc" }],
+        2000,
+        [],
+        {},
+        4
+      );
+      expect(batchRes.results.length).toBe(4);
+      expect(batchRes.results[0].tag).toBe("value");
+      if (batchRes.results[0].tag === "value") {
+        expect(typeof batchRes.results[0].value).toBe("number");
       }
 
       await runner.onRunEnd();
@@ -295,9 +309,9 @@ export function processBigInts(a: bigint, b: bigint, c: bigint, d: bigint) {
       const res = await runner.run([b64, b128, b256, bNeg], 2000);
       await runner.onRunEnd();
 
-      expect(res.result.tag).toBe("value");
-      if (res.result.tag === "value") {
-        expect(res.result.value).toEqual({
+      expect(res.results[0].tag).toBe("value");
+      if (res.results[0].tag === "value") {
+        expect(res.results[0].value).toEqual({
           sum64: b64 + 1n,
           scaled128: b128 * 2n,
           shifted256: b256 + (1n << 200n),
@@ -339,9 +353,9 @@ module.exports = { throwErr, infiniteLoop };
       const errRes = await errRunner.run([], 2000);
       await errRunner.onRunEnd();
 
-      expect(errRes.result.tag).toBe("error");
-      if (errRes.result.tag === "error") {
-        expect(errRes.result.message).toContain("test error");
+      expect(errRes.results[0].tag).toBe("error");
+      if (errRes.results[0].tag === "error") {
+        expect(errRes.results[0].message).toContain("test error");
       }
 
       const loopRunner = new JavascriptRunner(jsPath, "infiniteLoop");
@@ -349,7 +363,7 @@ module.exports = { throwErr, infiniteLoop };
       const loopRes = await loopRunner.run([], 100);
       await loopRunner.onRunEnd();
 
-      expect(loopRes.result.tag).toBe("timeout");
+      expect(loopRes.results[0].tag).toBe("timeout");
     } finally {
       try {
         fs.rmSync(tmpDir, {
@@ -451,17 +465,17 @@ module.exports = { crash, ok };
 
       // First run crashes the process
       const crashRes = await runner.run([], 2000);
-      expect(crashRes.result.tag).toBe("error");
-      if (crashRes.result.tag === "error") {
-        expect(crashRes.result.message).toContain("Host exited unexpectedly");
+      expect(crashRes.results[0].tag).toBe("error");
+      if (crashRes.results[0].tag === "error") {
+        expect(crashRes.results[0].message).toContain("Host exited unexpectedly");
       }
 
       // Next run should automatically spawn a new host and succeed
       const recoveredRunner = new JavascriptRunner(jsPath, "ok");
       const okRes = await recoveredRunner.run([], 2000);
-      expect(okRes.result.tag).toBe("value");
-      if (okRes.result.tag === "value") {
-        expect(okRes.result.value).toBe("recovered");
+      expect(okRes.results[0].tag).toBe("value");
+      if (okRes.results[0].tag === "value") {
+        expect(okRes.results[0].value).toBe("recovered");
       }
 
       await recoveredRunner.onRunEnd();
@@ -509,10 +523,10 @@ module.exports = { leakMemory, normalFn };
         await runner.onRunStart();
 
         const res = await runner.run([], 15000);
-        expect(res.result.tag).toBe("error");
-        if (res.result.tag === "error") {
-          expect(res.result.name).toBe("HostMemoryExceededError");
-          expect(res.result.message).toContain("exceeded RAM limit");
+        expect(res.results[0].tag).toBe("error");
+        if (res.results[0].tag === "error") {
+          expect(res.results[0].name).toBe("HostMemoryExceededError");
+          expect(res.results[0].message).toContain("exceeded RAM limit");
         }
 
         await runner.onRunEnd();
@@ -522,9 +536,9 @@ module.exports = { leakMemory, normalFn };
         const normalRunner = new JavascriptRunner(jsPath, "normalFn");
         await normalRunner.onRunStart();
         const normalRes = await normalRunner.run([21], 5000);
-        expect(normalRes.result.tag).toBe("value");
-        if (normalRes.result.tag === "value") {
-          expect(normalRes.result.value).toBe(42);
+        expect(normalRes.results[0].tag).toBe("value");
+        if (normalRes.results[0].tag === "value") {
+          expect(normalRes.results[0].value).toBe(42);
         }
         await normalRunner.onRunEnd();
       } finally {
@@ -566,7 +580,7 @@ module.exports = { loopTimeout };
       await runner.onRunStart();
 
       const timeoutRes = await runner.run([5], 100);
-      expect(timeoutRes.result.tag).toBe("timeout");
+      expect(timeoutRes.results[0].tag).toBe("timeout");
       expect(capturedCov).toBeDefined();
 
       await runner.onRunEnd();
@@ -617,9 +631,9 @@ module.exports = { slowAdd };
       const res = await runner.run([3, 4], 2000);
       await runner.onRunEnd();
 
-      expect(res.result.tag).toBe("value");
-      if (res.result.tag === "value") {
-        expect(res.result.value).toBe(7);
+      expect(res.results[0].tag).toBe("value");
+      if (res.results[0].tag === "value") {
+        expect(res.results[0].value).toBe(7);
       }
     } finally {
       Config.override("nanofuzz.fuzzer.hostStartupTimeout", hostStartupTimeout);
@@ -685,7 +699,7 @@ module.exports = { absVal, deadCode };
       // Expect runner.coverageInfo to STILL retain statementMap, fnMap, and branchMap,
       // not just stripped hit counters {s, f, b}.
       const res = await runner.run([5], 2000);
-      expect(res.result.tag).toBe("value");
+      expect(res.results[0].tag).toBe("value");
 
       const runCov = runner.coverageInfo;
       expect(isCoverageMapData(runCov)).toBeTrue();
@@ -823,9 +837,9 @@ export function x(
 
       // 2. Execute test run calling function x([])
       const res = await runner.run([[]], 2000);
-      expect(res.result.tag).toBe("value");
+      expect(res.results[0].tag).toBe("value");
 
-      if (res.result.tag === "value") {
+      if (res.results[0].tag === "value") {
         const testResult: FuzzTestResult = {
           pinned: false,
           inputGenerated: {
@@ -1044,7 +1058,7 @@ export function x(
       for (let tick = 1; tick <= 2; tick++) {
         measure.onBeforeNextTestExecution();
         const r = await runner.run([[]], 2000);
-        if (r.result.tag === "value") {
+        if (r.results[0]?.tag === "value") {
           measure.measure(
             {
               tick,
@@ -1153,9 +1167,9 @@ module.exports = { getVal };
       const res = await runner.run([], 2000);
       await runner.onRunEnd();
 
-      expect(res.result.tag).toBe("value");
-      if (res.result.tag === "value") {
-        expect(res.result.value).toBe(42);
+      expect(res.results[0].tag).toBe("value");
+      if (res.results[0].tag === "value") {
+        expect(res.results[0].value).toBe(42);
       }
     } finally {
       try {
@@ -1212,9 +1226,9 @@ export function x(): number {
 
       // Dynamic coverage is still collected during test execution
       const res = await runner.run([], 2000);
-      expect(res.result.tag).toBe("value");
+      expect(res.results[0].tag).toBe("value");
 
-      if (res.result.tag === "value") {
+      if (res.results[0].tag === "value") {
         const testResult: FuzzTestResult = {
           pinned: false,
           inputGenerated: {
@@ -1401,9 +1415,9 @@ module.exports = { asyncAdd };
       const res = await runner.run([15, 27], 2000);
       await runner.onRunEnd();
 
-      expect(res.result.tag).toBe("value");
-      if (res.result.tag === "value") {
-        expect(res.result.value).toBe(42);
+      expect(res.results[0].tag).toBe("value");
+      if (res.results[0].tag === "value") {
+        expect(res.results[0].value).toBe(42);
       }
     } finally {
       try {
@@ -1440,10 +1454,10 @@ module.exports = { asyncFail };
       const res = await runner.run(["boom"], 2000);
       await runner.onRunEnd();
 
-      expect(res.result.tag).toBe("error");
-      if (res.result.tag === "error") {
-        expect(res.result.message).toContain("async failure: boom");
-        expect(res.result.source).toBe("put");
+      expect(res.results[0].tag).toBe("error");
+      if (res.results[0].tag === "error") {
+        expect(res.results[0].message).toContain("async failure: boom");
+        expect(res.results[0].source).toBe("put");
       }
     } finally {
       try {
@@ -1479,7 +1493,7 @@ module.exports = { asyncHang };
       const res = await runner.run([], 100);
       await runner.onRunEnd();
 
-      expect(res.result.tag).toBe("timeout");
+      expect(res.results[0].tag).toBe("timeout");
     } finally {
       try {
         fs.rmSync(tmpDir, {
@@ -1515,9 +1529,9 @@ module.exports = { readProvenance };
       });
       await runner.onRunEnd();
 
-      expect(res.result.tag).toBe("value");
-      if (res.result.tag === "value") {
-        expect(res.result.value).toBe(expectedProvenance);
+      expect(res.results[0].tag).toBe("value");
+      if (res.results[0].tag === "value") {
+        expect(res.results[0].value).toBe(expectedProvenance);
       }
     } finally {
       try {

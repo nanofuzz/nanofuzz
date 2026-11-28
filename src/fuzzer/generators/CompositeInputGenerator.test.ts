@@ -12,7 +12,8 @@ import * as ProgramFactory from "../analysis/ProgramFactory";
 import { ArgDef } from "../analysis/ArgDef";
 import { FunctionDef } from "../analysis/FunctionDef";
 import { GeneratorExhaustedError, NextableStatus } from "./Types";
-import { AbstractRunner, RunnerResult } from "../runners/AbstractRunner";
+import { AbstractRunner } from "../runners/AbstractRunner";
+import { RunnerResult } from "../runners/Types";
 import * as ValueMapper from "../mappers/ValueMapper";
 import * as Config from "../../Config";
 import { getDefaultFuzzExecutionOptions } from "../FuzzerFactory";
@@ -1015,7 +1016,8 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
     class MockTransformerRunner extends AbstractRunner {
       public override async run(): Promise<RunnerResult> {
         return {
-          result: { tag: "value", value: [1], seq: 0 },
+          results: [{ tag: "value", value: [1] }],
+          seq: 0,
           env: {},
         };
       }
@@ -1383,7 +1385,8 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
       public override async run(inputs: unknown[]): Promise<RunnerResult> {
         const n = typeof inputs[0] === "number" ? inputs[0] : 0;
         return {
-          result: { tag: "value", value: [n * 10], seq: 0 },
+          results: [{ tag: "value", value: [n * 10] }],
+          seq: 0,
           env: {},
         };
       }
@@ -1766,7 +1769,11 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
           return {
             tick: 0,
             value: [{ tag: "ArgValueTypeWrapped", value: 1 }],
-            source: { type: "generator", generator: "RandomInputGenerator" },
+            source: {
+              type: "generator",
+              generator: "UserInputGenerator",
+              fnName: "dummyFnGenerator",
+            },
           };
         }
       }
@@ -1852,7 +1859,11 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
           return {
             tick: 0,
             value: [{ tag: "ArgValueTypeWrapped", value: 1 }],
-            source: { type: "generator", generator: "RandomInputGenerator" },
+            source: {
+              type: "generator",
+              generator: "UserInputGenerator",
+              fnName: "dummyFnGenerator",
+            },
           };
         }
       }

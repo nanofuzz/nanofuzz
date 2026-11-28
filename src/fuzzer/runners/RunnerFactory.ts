@@ -1,6 +1,7 @@
 import * as ProgramFactory from "../analysis/ProgramFactory";
 import { FuzzEnv } from "../Types";
-import { AbstractRunner, RunnerOverrides } from "./AbstractRunner";
+import { AbstractRunner } from "./AbstractRunner";
+import { RunnerOverrides } from "./Types";
 import { JavascriptRunner } from "./javascript/JavascriptRunner";
 import { PythonRunner } from "./python/PythonRunner";
 import { RustRunner } from "./rust/RustRunner";

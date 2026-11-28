@@ -169,21 +169,21 @@ class CollectOptions(TypedDict):
 class RunnerInput(TypedDict):
     args: List[Any]
     seq: int
-    timeout: NotRequired[int]
-    validators: NotRequired[List[str]]
+    repetitions: int
+    timeout: int
+    validators: List[str]
+    env: dict[str, str]
     collect: NotRequired[CollectOptions]
 
 
 class RunnerValueResult(TypedDict):
     tag: Literal["value"]
-    value: Any
+    values: List[Any]
     seq: int
     # lines executed by this call
     coverageData: NotRequired[dict[str, List[int]]]
     # arcs taken by this call
     coverageArcs: NotRequired[dict[str, List[List[int]]]]
-    # static coverage data
-    staticCoverage: NotRequired[dict[str, dict[str, List]]]
     # in-host validator results
     validators: NotRequired[dict[str, Any]]
 
@@ -199,8 +199,6 @@ class RunnerErrorResult(TypedDict):
     coverageData: NotRequired[dict[str, List[int]]]
     # arcs taken by this call
     coverageArcs: NotRequired[dict[str, List[List[int]]]]
-    # static coverage data
-    staticCoverage: NotRequired[dict[str, dict[str, List]]]
     # in-host validator results
     validators: NotRequired[dict[str, Any]]
 
@@ -213,8 +211,6 @@ class RunnerSkipResult(TypedDict):
     coverageData: NotRequired[dict[str, List[int]]]
     # arcs taken by this call
     coverageArcs: NotRequired[dict[str, List[List[int]]]]
-    # static coverage data
-    staticCoverage: NotRequired[dict[str, dict[str, List]]]
     # in-host validator results
     validators: NotRequired[dict[str, Any]]
 
@@ -226,8 +222,6 @@ class RunnerTimeoutResult(TypedDict):
     coverageData: NotRequired[dict[str, List[int]]]
     # arcs taken by this call
     coverageArcs: NotRequired[dict[str, List[List[int]]]]
-    # static coverage data
-    staticCoverage: NotRequired[dict[str, dict[str, List]]]
     # in-host validator results
     validators: NotRequired[dict[str, Any]]
 
@@ -975,34 +969,77 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
         error = e
         error_name = "ArgumentError"
 
-    if error is None:
-        try:
-            with redirect_stdout(io.StringIO()) as f:
-                with isolate_put_environment():
-                    # If fn is a Hypothesis-wrapped test, bypass Hypothesis
-                    # and call the original underlying function
-                    if hasattr(fn, 'hypothesis') and hasattr(fn.hypothesis, 'inner_test'):
-                        # Unwrap Hypothesis test function
-                        value = call_with_timeout(
-                            fn.hypothesis.inner_test, args, timeout_ms)
-                    else:
-                        # Not Hypothesis; call directly
-                        value = call_with_timeout(fn, args, timeout_ms)
-        except PutTimeoutException:
-            is_timeout = True
-        except Exception as e:
-            if e.__class__.__name__ == "UnsatisfiedAssumption":
-                skip = e
+    repetitions = int(input.get("repetitions", 1))
+    results = []
+
+    if repetitions > 1:
+        for _ in range(repetitions):
+            r_error = None
+            r_error_name = "PythonPutError"
+            r_skip = None
+            r_timeout = False
+            r_val = None
+
+            if error is not None:
+                r_error = error
+                r_error_name = error_name
             else:
-                error = e
-                error_name = "PythonPutError"
+                try:
+                    with redirect_stdout(io.StringIO()) as f:
+                        with isolate_put_environment():
+                            single_val = call_with_timeout(fn, args, timeout_ms)
+                            r_val = sanitize_output(single_val) if single_val is not None else None
+                except PutTimeoutException:
+                    r_timeout = True
+                except Exception as e:
+                    if e.__class__.__name__ == "UnsatisfiedAssumption":
+                        r_skip = e
+                    else:
+                        r_error = e
+                        r_error_name = "PythonPutError"
+
+            if r_timeout:
+                results.append({"tag": "timeout", "validators": {}})
+            elif r_skip is not None:
+                results.append({"tag": "skip", "message": str(r_skip), "validators": {}})
+            elif r_error is not None:
+                results.append({
+                    "tag": "error",
+                    "name": r_error_name,
+                    "message": str(r_error),
+                    "source": "put",
+                    "stack": "".join(traceback.format_exception(r_error)),
+                    "validators": {},
+                })
+            else:
+                results.append({"tag": "value", "value": r_val, "validators": {}})
+    else:
+        if error is None:
+            try:
+                with redirect_stdout(io.StringIO()) as f:
+                    with isolate_put_environment():
+                        if hasattr(fn, 'hypothesis') and hasattr(fn.hypothesis, 'inner_test'):
+                            single_val = call_with_timeout(
+                                fn.hypothesis.inner_test, args, timeout_ms)
+                            value = sanitize_output(single_val)
+                        else:
+                            single_val = call_with_timeout(fn, args, timeout_ms)
+                            value = sanitize_output(single_val)
+            except PutTimeoutException:
+                is_timeout = True
+            except Exception as e:
+                if e.__class__.__name__ == "UnsatisfiedAssumption":
+                    skip = e
+                else:
+                    error = e
+                    error_name = "PythonPutError"
 
     validator_results = {}
     req_validators = input.get("validators")
-    if skip is None and req_validators:
+    if skip is None and req_validators and repetitions == 1:
         fuzz_result_dict = {
             "in": list(input["args"]),
-            "out": sanitize_output(value) if not is_timeout and error is None else "timeout or exception",
+            "out": value if not is_timeout and error is None else "timeout or exception",
             "exception": error is not None,
             "timeout": is_timeout,
         }
@@ -1091,53 +1128,52 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
                         coverageArcs[idx] = sorted(
                             [src, dest] for src, dest in arcs)
 
-    val_dict = validator_results if validator_results else None
+    val_dict = validator_results if validator_results else {}
 
-    if is_timeout:
-        res_timeout: RunnerTimeoutResult = {
-            "tag": "timeout",
-            "seq": input["seq"],
-            "coverageData": coverageData,
-            "coverageArcs": coverageArcs,
-        }
-        if val_dict:
-            res_timeout["validators"] = val_dict
-        return res_timeout
+    if repetitions == 1:
+        if is_timeout:
+            results = [{
+                "tag": "timeout",
+                "coverageData": coverageData,
+                "coverageArcs": coverageArcs,
+                "validators": val_dict,
+            }]
+        elif skip is not None:
+            results = [{
+                "tag": "skip",
+                "message": str(skip),
+                "coverageData": coverageData,
+                "coverageArcs": coverageArcs,
+                "validators": val_dict,
+            }]
+        elif error is not None:
+            results = [{
+                "tag": "error",
+                "name": error_name,
+                "message": str(error),
+                "source": "put",
+                "stack": "".join(traceback.format_exception(error)),
+                "coverageData": coverageData,
+                "coverageArcs": coverageArcs,
+                "validators": val_dict,
+            }]
+        else:
+            results = [{
+                "tag": "value",
+                "value": value,
+                "coverageData": coverageData,
+                "coverageArcs": coverageArcs,
+                "validators": val_dict,
+            }]
+    elif results:
+        # Attach coverage to the first result
+        results[0]["coverageData"] = coverageData
+        results[0]["coverageArcs"] = coverageArcs
 
-    if skip is not None:
-        return RunnerSkipResult(
-            tag="skip",
-            message=str(skip),
-            seq=input["seq"],
-            coverageData=coverageData,
-            coverageArcs=coverageArcs,
-        )
-
-    if error is not None:
-        res_err: RunnerErrorResult = {
-            "tag": "error",
-            "name": error_name,
-            "message": str(error),
-            "source": "put",
-            "stack": "".join(traceback.format_exception(error)),
-            "seq": input["seq"],
-            "coverageData": coverageData,
-            "coverageArcs": coverageArcs,
-        }
-        if val_dict:
-            res_err["validators"] = val_dict
-        return res_err
-
-    res_val: RunnerValueResult = {
-        "tag": "value",
-        "value": sanitize_output(value),
+    return {
+        "results": results,
         "seq": input["seq"],
-        "coverageData": coverageData,
-        "coverageArcs": coverageArcs,
     }
-    if val_dict:
-        res_val["validators"] = val_dict
-    return res_val
 
 
 def put_result(result: RunnerResult) -> None:
@@ -1146,7 +1182,7 @@ def put_result(result: RunnerResult) -> None:
     logging.debug(f"[{pid}]  - Result returned")
 
 
-def send_msg(data: Union[RunnerResult, str, dict[str, Any]]) -> None:
+def send_msg(data: Union[dict[str, Any], str]) -> None:
     try:
         msg = cast(bytes, msgpack.packb(
             data, default=default_serializer, use_bin_type=True))
@@ -1154,12 +1190,16 @@ def send_msg(data: Union[RunnerResult, str, dict[str, Any]]) -> None:
         seq = -1
         if isinstance(data, dict):
             seq = data.get("seq", -1)
-        err_res: RunnerErrorResult = {
+        err_item = {
             "tag": "error",
             "name": type(e).__name__,
             "message": f"Serialization failure: {str(e)}",
             "source": "host",
             "stack": traceback.format_exc(),
+            "validators": {},
+        }
+        err_res = {
+            "results": [err_item],
             "seq": seq,
         }
         try:
@@ -1167,10 +1207,13 @@ def send_msg(data: Union[RunnerResult, str, dict[str, Any]]) -> None:
                 err_res, default=default_serializer, use_bin_type=True))
         except Exception:
             msg = cast(bytes, msgpack.packb({
-                "tag": "error",
-                "name": "SerializationError",
-                "message": "Critical serialization failure",
-                "source": "host",
+                "results": [{
+                    "tag": "error",
+                    "name": "SerializationError",
+                    "message": "Critical serialization failure",
+                    "source": "host",
+                    "validators": {},
+                }],
                 "seq": seq,
             }, default=default_serializer, use_bin_type=True))
     logging.debug(f"[{pid}]  - Writing {len(msg)} bytes")

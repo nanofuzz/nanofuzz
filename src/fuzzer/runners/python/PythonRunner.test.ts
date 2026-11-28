@@ -1,5 +1,5 @@
 import { PythonRunner } from "./PythonRunner";
-import { RunnerResult } from "../AbstractRunner";
+import { RunnerResultItem } from "../Types";
 import {
   FuzzEnv,
   FuzzGeneratorStatsBase,
@@ -112,9 +112,9 @@ def process_bytes(data: bytes) -> bytes:
 
       await runner.onRunEnd();
 
-      expect(res.result.tag).toBe("value");
-      if (res.result.tag === "value") {
-        expect(res.result.value).toEqual([104, 101, 108, 108, 111, 33]); // "hello!"
+      expect(res.results[0].tag).toBe("value");
+      if (res.results[0].tag === "value") {
+        expect(res.results[0].value).toEqual([104, 101, 108, 108, 111, 33]); // "hello!"
       }
     } finally {
       try {
@@ -193,7 +193,7 @@ def process_bytes(data: bytes) -> bytes:
         args: unknown[]; // the function's arguments
         validators?: string[]; // property validators to run on its result
       }
-    ): Promise<RunnerResult["result"]> {
+    ): Promise<RunnerResultItem> {
       return withProject(files, run, async (dir) => {
         const pyPath = path.join(dir, run.file);
         const program = ProgramFactory.fromSource(
@@ -205,14 +205,14 @@ def process_bytes(data: bytes) -> bytes:
         const runner = new PythonRunner(pyPath, run.fn, env);
         await runner.onRunStart();
         try {
-          return (await runner.run(run.args, 10000, run.validators)).result;
+          return (await runner.run(run.args, 10000, run.validators)).results[0];
         } finally {
           await runner.onRunEnd();
         }
       });
     }
 
-    function expectValue(result: RunnerResult["result"], value: unknown) {
+    function expectValue(result: RunnerResultItem, value: unknown) {
       expect(result.tag).withContext(JSON.stringify(result)).toBe("value");
       if (result.tag === "value") {
         expect(result.value).toEqual(value);
@@ -466,12 +466,12 @@ def sample(prng: int) -> float:
         [{ __nanofuzz_type: "prng", seed: "fixed_seed_abc" }],
         5000
       );
-      expect(res1.result.tag).toBe("value");
-      if (res1.result.tag === "value") {
-        expect(typeof res1.result.value).toBe("number");
-        if (typeof res1.result.value === "number") {
-          expect(res1.result.value).toBeGreaterThanOrEqual(0);
-          expect(res1.result.value).toBeLessThan(1);
+      expect(res1.results[0].tag).toBe("value");
+      if (res1.results[0].tag === "value") {
+        expect(typeof res1.results[0].value).toBe("number");
+        if (typeof res1.results[0].value === "number") {
+          expect(res1.results[0].value).toBeGreaterThanOrEqual(0);
+          expect(res1.results[0].value).toBeLessThan(1);
         }
       }
 
@@ -479,20 +479,34 @@ def sample(prng: int) -> float:
         [{ __nanofuzz_type: "prng", seed: "fixed_seed_abc" }],
         5000
       );
-      expect(res2.result.tag).toBe("value");
-      if (res2.result.tag === "value" && res1.result.tag === "value") {
-        expect(res2.result.value).toBe(res1.result.value);
+      expect(res2.results[0].tag).toBe("value");
+      if (res2.results[0].tag === "value" && res1.results[0].tag === "value") {
+        expect(res2.results[0].value).toBe(res1.results[0].value);
       }
 
       // Invocation without a seed runs unseeded / pure random and succeeds
       const unseededRes = await runner.run([{ __nanofuzz_type: "prng" }], 5000);
-      expect(unseededRes.result.tag).toBe("value");
-      if (unseededRes.result.tag === "value") {
-        expect(typeof unseededRes.result.value).toBe("number");
-        if (typeof unseededRes.result.value === "number") {
-          expect(unseededRes.result.value).toBeGreaterThanOrEqual(0);
-          expect(unseededRes.result.value).toBeLessThan(1);
+      expect(unseededRes.results[0].tag).toBe("value");
+      if (unseededRes.results[0].tag === "value") {
+        expect(typeof unseededRes.results[0].value).toBe("number");
+        if (typeof unseededRes.results[0].value === "number") {
+          expect(unseededRes.results[0].value).toBeGreaterThanOrEqual(0);
+          expect(unseededRes.results[0].value).toBeLessThan(1);
         }
+      }
+
+      // Invocation with repetitions requests multiple values in a single response
+      const batchRes = await runner.run(
+        [{ __nanofuzz_type: "prng", seed: "fixed_seed_abc" }],
+        5000,
+        [],
+        {},
+        4
+      );
+      expect(batchRes.results.length).toBe(4);
+      expect(batchRes.results[0].tag).toBe("value");
+      if (batchRes.results[0].tag === "value") {
+        expect(typeof batchRes.results[0].value).toBe("number");
       }
 
       await runner.onRunEnd();
@@ -560,9 +574,9 @@ def process_nested(uuids_list: list[uuid.UUID], obj_data: UserObj, tuple_data: t
 
       await runner.onRunEnd();
 
-      expect(res.result.tag).toBe("value");
-      if (res.result.tag === "value") {
-        expect(res.result.value).toEqual({
+      expect(res.results[0].tag).toBe("value");
+      if (res.results[0].tag === "value") {
+        expect(res.results[0].value).toEqual({
           status: "ok",
           returned_uuid: "12345678-1234-4123-8123-123456789abc",
           returned_list: ["87654321-4321-3214-3218-cba987654321"],
@@ -621,9 +635,9 @@ def process_sets(s_data: set[int], f_data: FrozenSet[str]):
 
       await runner.onRunEnd();
 
-      expect(res.result.tag).toBe("value");
-      if (res.result.tag === "value") {
-        const val = res.result.value;
+      expect(res.results[0].tag).toBe("value");
+      if (res.results[0].tag === "value") {
+        const val = res.results[0].value;
         if (
           val !== null &&
           typeof val === "object" &&
@@ -689,9 +703,9 @@ def process_data(t: tuple[int, str], d: dict[int, str]):
 
       await runner.onRunEnd();
 
-      expect(res.result.tag).toBe("value");
-      if (res.result.tag === "value") {
-        expect(res.result.value).toEqual({
+      expect(res.results[0].tag).toBe("value");
+      if (res.results[0].tag === "value") {
+        expect(res.results[0].value).toEqual({
           "10": "ten",
           "20": "twenty",
         });
@@ -744,9 +758,9 @@ def process_floats(nan_val: float, inf_val: float):
 
       await runner.onRunEnd();
 
-      expect(res.result.tag).toBe("value");
-      if (res.result.tag === "value") {
-        const val = res.result.value;
+      expect(res.results[0].tag).toBe("value");
+      if (res.results[0].tag === "value") {
+        const val = res.results[0].value;
         if (
           val !== null &&
           typeof val === "object" &&
@@ -808,9 +822,9 @@ def check_zero_types(int_val: int, float_val: float) -> dict:
       // When numInteger is false (otherwise) -> float in Python (0.0)
       const res = await runner.run([0, 0], 10000);
 
-      expect(res.result.tag).toBe("value");
-      if (res.result.tag === "value") {
-        expect(res.result.value).toEqual({
+      expect(res.results[0].tag).toBe("value");
+      if (res.results[0].tag === "value") {
+        expect(res.results[0].value).toEqual({
           int_type: "int",
           float_type: "float",
           int_is_int: true,
@@ -825,9 +839,9 @@ def check_zero_types(int_val: int, float_val: float) -> dict:
       args[1].setOptions({ numInteger: true });
 
       const resToggled = await runner.run([0, 0], 10000);
-      expect(resToggled.result.tag).toBe("value");
-      if (resToggled.result.tag === "value") {
-        expect(resToggled.result.value).toEqual({
+      expect(resToggled.results[0].tag).toBe("value");
+      if (resToggled.results[0].tag === "value") {
+        expect(resToggled.results[0].value).toEqual({
           int_type: "float",
           float_type: "int",
           int_is_int: false,
@@ -842,9 +856,9 @@ def check_zero_types(int_val: int, float_val: float) -> dict:
       args[1].setOptions({ numInteger: false });
 
       const resBothFloat = await runner.run([0, 0], 10000);
-      expect(resBothFloat.result.tag).toBe("value");
-      if (resBothFloat.result.tag === "value") {
-        expect(resBothFloat.result.value).toEqual({
+      expect(resBothFloat.results[0].tag).toBe("value");
+      if (resBothFloat.results[0].tag === "value") {
+        expect(resBothFloat.results[0].value).toEqual({
           int_type: "float",
           float_type: "float",
           int_is_int: false,
@@ -890,7 +904,7 @@ def add_one(x: int) -> int:
       const res = await runner.run([5], 10000);
       await runner.onRunEnd();
 
-      expect(res.result.tag).toBe("value");
+      expect(res.results[0].tag).toBe("value");
       expect(runner.coverageInfo).toBeUndefined();
     } finally {
       try {
@@ -938,12 +952,12 @@ def loop_timeout(n: int) -> int:
 
       // First run times out in-host
       const timeoutRes = await runner.run([5], 100);
-      expect(timeoutRes.result.tag).toBe("timeout");
+      expect(timeoutRes.results[0].tag).toBe("timeout");
       expect(runner.coverageInfo).toBeDefined();
 
       // Second run after timeout reuses same host and succeeds
       const fastRes = await runner.run([0], 0);
-      expect(fastRes.result.tag).toBe("value");
+      expect(fastRes.results[0].tag).toBe("value");
 
       await runner.onRunEnd();
     } finally {
@@ -1000,10 +1014,10 @@ def normal_fn(n: int) -> int:
         await runner.onRunStart();
 
         const res = await runner.run([1], 20000);
-        expect(res.result.tag).toBe("error");
-        if (res.result.tag === "error") {
-          expect(res.result.name).toBe("HostMemoryExceededError");
-          expect(res.result.message).toContain("exceeded RAM limit");
+        expect(res.results[0].tag).toBe("error");
+        if (res.results[0].tag === "error") {
+          expect(res.results[0].name).toBe("HostMemoryExceededError");
+          expect(res.results[0].message).toContain("exceeded RAM limit");
         }
 
         await runner.onRunEnd();
@@ -1015,9 +1029,9 @@ def normal_fn(n: int) -> int:
         const normalRunner = new PythonRunner(pyPath, "normal_fn", normalEnv);
         await normalRunner.onRunStart();
         const normalRes = await normalRunner.run([21], 5000);
-        expect(normalRes.result.tag).toBe("value");
-        if (normalRes.result.tag === "value") {
-          expect(normalRes.result.value).toBe(42);
+        expect(normalRes.results[0].tag).toBe("value");
+        if (normalRes.results[0].tag === "value") {
+          expect(normalRes.results[0].value).toBe(42);
         }
         await normalRunner.onRunEnd();
       } finally {
@@ -1073,9 +1087,9 @@ def slow_fn(x: int) -> int:
       const res = await runner.run([10], 15000);
       await runner.onRunEnd();
 
-      expect(res.result.tag).toBe("value");
-      if (res.result.tag === "value") {
-        expect(res.result.value).toBe(20);
+      expect(res.results[0].tag).toBe("value");
+      if (res.results[0].tag === "value") {
+        expect(res.results[0].value).toBe(20);
       }
     } finally {
       Config.override("nanofuzz.fuzzer.hostStartupTimeout", hostStartupTimeout);
@@ -1122,9 +1136,9 @@ def compute(x: int) -> int:
       const res = await runner.run([7], 10000);
       await runner.onRunEnd();
 
-      expect(res.result.tag).toBe("value");
-      if (res.result.tag === "value") {
-        expect(res.result.value).toBe(21);
+      expect(res.results[0].tag).toBe("value");
+      if (res.results[0].tag === "value") {
+        expect(res.results[0].value).toBe(21);
       }
     } finally {
       try {
@@ -1159,9 +1173,9 @@ def compute(x: int) -> int:
       const res = await runner.run(["info", "hello world"], 10000);
       await runner.onRunEnd();
 
-      expect(res.result.tag).toBe("value");
-      if (res.result.tag === "value") {
-        expect(res.result.value).toBe("[INFO] hello world");
+      expect(res.results[0].tag).toBe("value");
+      if (res.results[0].tag === "value") {
+        expect(res.results[0].value).toBe("[INFO] hello world");
       }
     } finally {
       try {
@@ -1248,7 +1262,7 @@ def calculate(x: int) -> int:
         const covProject = runnerProject.coverageInfo;
         await runnerProject.onRunEnd();
 
-        expect(resProject.result.tag).toBe("value");
+        expect(resProject.results[0].tag).toBe("value");
         expect(covProject).toBeDefined();
         if (covProject) {
           const fileKeys = Object.keys(covProject).map((p) =>
@@ -1279,7 +1293,7 @@ def calculate(x: int) -> int:
         const covImports = runnerImports.coverageInfo;
         await runnerImports.onRunEnd();
 
-        expect(resImports.result.tag).toBe("value");
+        expect(resImports.results[0].tag).toBe("value");
         expect(covImports).toBeDefined();
         if (covImports) {
           const fileKeys = Object.keys(covImports).map((p) =>
@@ -1395,7 +1409,7 @@ def test_fn(x: int) -> int:
       const cov = runner.coverageInfo;
       await runner.onRunEnd();
 
-      expect(res.result.tag).toBe("value");
+      expect(res.results[0].tag).toBe("value");
       expect(cov).toBeDefined();
       if (cov) {
         const fileKeys = Object.keys(cov).map((p) => p.replace(/\\/g, "/"));
@@ -1464,14 +1478,12 @@ def run_app(x: int) -> int:
       const cov = runner.coverageInfo;
       await runner.onRunEnd();
 
-      expect(res.result.tag).toBe("value");
+      expect(res.results[0].tag).toBe("value");
       expect(cov).toBeDefined();
       if (cov) {
         const fileKeys = Object.keys(cov).map((p) => p.replace(/\\/g, "/"));
         expect(fileKeys.some((f) => f.includes("app.py"))).toBeTrue();
-        expect(
-          fileKeys.some((f) => f.includes("intree_mock_pkg"))
-        ).toBeFalse();
+        expect(fileKeys.some((f) => f.includes("intree_mock_pkg"))).toBeFalse();
       }
     } finally {
       try {
@@ -1521,7 +1533,7 @@ def run_main(x: int) -> int:
       const cov = runner.coverageInfo;
       await runner.onRunEnd();
 
-      expect(res.result.tag).toBe("value");
+      expect(res.results[0].tag).toBe("value");
       expect(cov).toBeDefined();
       if (cov) {
         const fileKeys = Object.keys(cov).map((p) => p.replace(/\\/g, "/"));
@@ -1658,7 +1670,7 @@ def uncalled_func(y: int) -> int:
       // 2. Execute a normal test run.
       // Expect runner.coverageInfo to retain static fields (executable, functions, branches) plus dynamic fields (lines, arcs).
       const valRes = await runner.run([5], 10000);
-      expect(valRes.result.tag).toBe("value");
+      expect(valRes.results[0].tag).toBe("value");
       expect(runner.coverageInfo).toBeDefined();
       const runCov =
         runner.coverageInfo?.[pyPath] ?? runner.coverageInfo?.[realPyPath];
@@ -1683,7 +1695,7 @@ def process_val(x: int) -> int:
       });
       await runner2.onRunStart();
       const timeoutRes = await runner2.run([1], 100);
-      expect(timeoutRes.result.tag).toBe("timeout");
+      expect(timeoutRes.results[0].tag).toBe("timeout");
 
       // Critical check: static coverage structure must NOT be lost on timeout!
       expect(runner2.coverageInfo).toBeDefined();
@@ -1744,15 +1756,15 @@ def x(val: int) -> int:
       // Attach CoverageMeasure to runner
       measure.onRunStart([runner]);
 
-      // 1. Initial static coverage on host connect before test execution
+      // Initial static coverage on host connect before test execution
       const initialCov = runner.coverageInfo;
       expect(initialCov).toBeDefined();
 
-      // 2. Execute test run calling function x(0)
+      // Execute test run calling function x(0)
       const res = await runner.run([0], 10000);
-      expect(res.result.tag).toBe("value");
+      expect(res.results[0].tag).toBe("value");
 
-      if (res.result.tag === "value") {
+      if (res.results[0].tag === "value") {
         const testResult: FuzzTestResult = {
           pinned: false,
           inputGenerated: {
@@ -1889,11 +1901,11 @@ def x(val: int) -> int:
         "5": 1,
       });
 
-      // 3. Execute 2 more test runs (total 3 test runs)
+      // Execute 2 more test runs (total 3 test runs)
       for (let tick = 1; tick <= 2; tick++) {
         measure.onBeforeNextTestExecution();
         const r = await runner.run([0], 2000);
-        if (r.result.tag === "value") {
+        if (r.results[0]?.tag === "value") {
           measure.measure(
             {
               tick,
@@ -1993,7 +2005,7 @@ def x(val: int) -> int:
       await runner.onRunStart();
       measure.onRunStart([runner]);
 
-      // 1. Initial coverage at startup has static structure but no module-load lines when static is NOT in coverageScope
+      // Initial coverage at startup has static structure but no module-load lines when static is NOT in coverageScope
       const initialCov =
         runner.coverageInfo?.[pyPath] ?? runner.coverageInfo?.[realPyPath];
       expect(initialCov).toBeDefined();
@@ -2001,15 +2013,15 @@ def x(val: int) -> int:
       expect(initialCov?.executable?.length).toBeGreaterThan(0);
       expect(initialCov?.lines).toBeUndefined();
 
-      // 2. Dynamic coverage is still collected during test execution
+      // Dynamic coverage is still collected during test execution
       const res = await runner.run([0], 10000);
-      expect(res.result.tag).toBe("value");
+      expect(res.results[0].tag).toBe("value");
       expect(
         runner.coverageInfo?.[realPyPath]?.lines ??
           runner.coverageInfo?.[pyPath]?.lines
       ).toEqual([5]);
 
-      if (res.result.tag === "value") {
+      if (res.results[0]?.tag === "value") {
         const testResult: FuzzTestResult = {
           pinned: false,
           inputGenerated: {
@@ -2181,9 +2193,9 @@ async def async_add(a: int, b: int) -> int:
       const res = await runner.run([12, 30], 10000);
       await runner.onRunEnd();
 
-      expect(res.result.tag).toBe("value");
-      if (res.result.tag === "value") {
-        expect(res.result.value).toBe(42);
+      expect(res.results[0].tag).toBe("value");
+      if (res.results[0].tag === "value") {
+        expect(res.results[0].value).toBe(42);
       }
     } finally {
       try {
@@ -2229,10 +2241,10 @@ async def async_fail(msg: str):
       const res = await runner.run(["boom"], 10000);
       await runner.onRunEnd();
 
-      expect(res.result.tag).toBe("error");
-      if (res.result.tag === "error") {
-        expect(res.result.message).toContain("async error: boom");
-        expect(res.result.source).toBe("put");
+      expect(res.results[0].tag).toBe("error");
+      if (res.results[0].tag === "error") {
+        expect(res.results[0].message).toContain("async error: boom");
+        expect(res.results[0].source).toBe("put");
       }
     } finally {
       try {
@@ -2277,7 +2289,7 @@ async def async_hang():
       const res = await runner.run([], 100);
       await runner.onRunEnd();
 
-      expect(res.result.tag).toBe("timeout");
+      expect(res.results[0].tag).toBe("timeout");
     } finally {
       try {
         fs.rmSync(tmpDir, {
@@ -2320,10 +2332,10 @@ def return_huge_int() -> int:
       const res = await runner.run([], 5000);
       await runner.onRunEnd();
 
-      expect(res.result.tag).toBe("error");
-      if (res.result.tag === "error") {
-        expect(["OverflowError", "TypeError"]).toContain(res.result.name);
-        expect(res.result.message).toContain("Serialization failure");
+      expect(res.results[0].tag).toBe("error");
+      if (res.results[0].tag === "error") {
+        expect(["OverflowError", "TypeError"]).toContain(res.results[0].name);
+        expect(res.results[0].message).toContain("Serialization failure");
       }
     } finally {
       try {
@@ -2371,9 +2383,9 @@ def read_provenance() -> str:
       });
       await runner.onRunEnd();
 
-      expect(res.result.tag).toBe("value");
-      if (res.result.tag === "value") {
-        expect(res.result.value).toBe(expectedProvenance);
+      expect(res.results[0].tag).toBe("value");
+      if (res.results[0].tag === "value") {
+        expect(res.results[0].value).toBe(expectedProvenance);
       }
     } finally {
       try {

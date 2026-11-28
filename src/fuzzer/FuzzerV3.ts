@@ -41,11 +41,8 @@ import {
   resolveFullProvenance,
 } from "./Util";
 import { AbstractProgram } from "./analysis/AbstractProgram";
-import {
-  AbstractRunner,
-  RunnerCoverage,
-  RunnerResult,
-} from "./runners/AbstractRunner";
+import { AbstractRunner } from "./runners/AbstractRunner";
+import { RunnerCoverage, RunnerResult } from "./runners/Types";
 import { AbstractMeasure } from "./measures/AbstractMeasure";
 import { CompilerStaleness } from "./compilers/Types";
 import { FuzzExecutor, FuzzWorkerContext } from "./FuzzExecutor";

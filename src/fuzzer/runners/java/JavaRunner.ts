@@ -1,11 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
+import { AbstractRunner } from "../AbstractRunner";
 import {
-  AbstractRunner,
+  RunnerInput,
   RunnerOverrides,
   RunnerResult,
-  ValidatorResult,
-} from "../AbstractRunner";
+  RunnerResultItem,
+} from "../Types";
+import { isRunnerResultItem } from "../Util";
 import { CoverageMapData, FileCoverageData } from "istanbul-lib-coverage";
 import { isRecordOfFileCoverageData } from "../../measures/CoverageMeasure";
 import { FuzzEnv } from "../../Types";
@@ -159,20 +161,22 @@ export class JavaRunner extends AbstractRunner {
   public async run(
     inputs: unknown[],
     timeout: number | undefined = 0,
-    validators: string[] = []
+    validators: string[] = [],
+    env?: Record<string, string>,
+    repetitions: number = 1
   ): Promise<RunnerResult> {
     const thisSeq = this._seq++;
 
     try {
       const host = await this._getHost();
 
-      const input = {
+      const input: RunnerInput = {
         seq: thisSeq,
         args: inputs,
+        repetitions: repetitions ?? 1,
         timeout: timeout ?? 0,
-        validators: validators.length > 0 ? validators : undefined,
-        fnName: this._fn,
-        className: this._fqClassName,
+        validators: validators ?? [],
+        env: env ?? {},
       };
 
       const encoded = JSONN.pack(input);
@@ -242,46 +246,28 @@ export class JavaRunner extends AbstractRunner {
         this._coverageCallback?.(dynamicCoverage);
       }
 
+      const expectedCount = repetitions ?? 1;
       const seq =
         typeof hostPayload.seq === "number" ? hostPayload.seq : thisSeq;
-      const hostValidators = hostPayload.validators;
-      let resultInner: RunnerResult["result"];
 
-      if (hostPayload.tag === "timeout") {
+      let results: RunnerResultItem[] = [];
+      if (Array.isArray(hostPayload.results)) {
+        results = hostPayload.results.filter(isRunnerResultItem);
+      }
+      if (results.length !== expectedCount) {
         this.killHost();
-        resultInner = {
-          tag: "timeout",
-          seq,
-          ...(hostValidators ? { validators: hostValidators } : {}),
-        };
-      } else if (hostPayload.tag === "skip") {
-        resultInner = {
-          tag: "skip",
-          message: hostPayload.message ?? "",
-          seq,
-          ...(hostValidators ? { validators: hostValidators } : {}),
-        };
-      } else if (hostPayload.tag === "error") {
-        resultInner = {
-          tag: "error",
-          name: hostPayload.name ?? "Error",
-          message: hostPayload.message ?? "",
-          stack: hostPayload.stack,
-          source: hostPayload.source ?? "put",
-          seq,
-          ...(hostValidators ? { validators: hostValidators } : {}),
-        };
-      } else {
-        resultInner = {
-          tag: "value",
-          value: hostPayload.value,
-          seq,
-          ...(hostValidators ? { validators: hostValidators } : {}),
-        };
+        throw new Error(
+          `Runner "${this.name}" IPC contract violation: requested ${expectedCount} repetition(s) but host returned ${results.length}`
+        );
+      }
+
+      if (results.some((r) => r.tag === "timeout")) {
+        this.killHost();
       }
 
       return {
-        result: resultInner,
+        results,
+        seq,
         env: {},
       };
     } catch (e: unknown) {
@@ -292,10 +278,12 @@ export class JavaRunner extends AbstractRunner {
 
       if (isTimeout) {
         return {
-          result: {
-            tag: "timeout",
-            seq: thisSeq,
-          },
+          results: [
+            {
+              tag: "timeout",
+            },
+          ],
+          seq: thisSeq,
           env: {},
         };
       }
@@ -438,14 +426,8 @@ export class JavaRunner extends AbstractRunner {
 // ============================================================================
 
 type JavaHostResponse = {
-  tag: "value" | "error" | "skip" | "timeout";
-  seq?: number;
-  value?: unknown;
-  name?: string;
-  message?: string;
-  stack?: string;
-  source?: "put" | "host";
-  validators?: Record<string, ValidatorResult>;
+  results: RunnerResultItem[];
+  seq: number;
   coverageData?: unknown;
   jacocoCoverage?: Record<string, JacocoClassCoverage>;
   coverageError?: string;

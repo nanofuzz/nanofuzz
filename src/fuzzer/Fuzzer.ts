@@ -47,7 +47,8 @@ import { ExampleOracle } from "./oracles/ExampleOracle";
 import { PropertyOracle } from "./oracles/PropertyOracle";
 import { Judgment } from "./oracles/Types";
 import { AbstractProgram } from "./analysis/AbstractProgram";
-import { AbstractRunner, RunnerResult } from "./runners/AbstractRunner";
+import { AbstractRunner } from "./runners/AbstractRunner";
+import { RunnerResult } from "./runners/Types";
 import { CompilerStaleness } from "./compilers/Types";
 import { getToolVersion } from "../ToolVersion";
 import { GeneratorExhaustedError } from "./generators/Types";
@@ -974,35 +975,38 @@ export class Tester {
           // Process transformer result if candidate was skipped/errored by transformer
           if (transformedInput.transformerResult) {
             const transformerResult = transformedInput.transformerResult;
-            switch (transformerResult.result.tag) {
-              case "skip":
-                result.skipped = true;
-                result.skipReason = `(${transformRunner.name}) ${transformerResult.result.message}`;
-                break;
+            const primary = transformerResult.results[0];
+            if (primary) {
+              switch (primary.tag) {
+                case "skip":
+                  result.skipped = true;
+                  result.skipReason = `(${transformRunner.name}) ${primary.message}`;
+                  break;
 
-              case "timeout":
-                result.harnessErrors.push({
-                  kind: "timeout",
-                  stage: "transformer",
-                  fnName: transformRunner.name,
-                  message: `Timeout exceeding ${this._options.fnTimeout} ms`,
-                  display: `(${transformRunner.name} timeout)`,
-                });
-                break;
+                case "timeout":
+                  result.harnessErrors.push({
+                    kind: "timeout",
+                    stage: "transformer",
+                    fnName: transformRunner.name,
+                    message: `Timeout exceeding ${this._options.fnTimeout} ms`,
+                    display: `(${transformRunner.name} timeout)`,
+                  });
+                  break;
 
-              case "error":
-                result.harnessErrors.push({
-                  kind: "exception",
-                  stage: "transformer",
-                  fnName: transformRunner.name,
-                  message: transformerResult.result.message,
-                  display: `(${transformRunner.name} ${transformerResult.result.name}) ${transformerResult.result.message}`,
-                  stack: transformerResult.result.stack ?? "<no stack>",
-                });
-                break;
+                case "error":
+                  result.harnessErrors.push({
+                    kind: "exception",
+                    stage: "transformer",
+                    fnName: transformRunner.name,
+                    message: primary.message,
+                    display: `(${transformRunner.name} ${primary.name}) ${primary.message}`,
+                    stack: primary.stack ?? "<no stack>",
+                  });
+                  break;
 
-              case "value":
-                break;
+                case "value":
+                  break;
+              }
             }
           }
         } else {
@@ -1109,53 +1113,60 @@ export class Tester {
 
             if (isError(e)) {
               exeOutput = {
-                result: {
-                  tag: "error",
-                  name: e.name,
-                  message: e.message,
-                  stack: e.stack ?? "<no stack>",
-                  seq: -1,
-                },
+                results: [
+                  {
+                    tag: "error",
+                    name: e.name,
+                    message: e.message,
+                    stack: e.stack ?? "<no stack>",
+                  },
+                ],
+                seq: -1,
                 env: {},
               };
             } else {
               exeOutput = {
-                result: {
-                  tag: "error",
-                  name: "unknown internal runner error",
-                  message: "unknown",
-                  stack: "<no stack>",
-                  seq: -1,
-                },
+                results: [
+                  {
+                    tag: "error",
+                    name: "unknown internal runner error",
+                    message: "unknown",
+                    stack: "<no stack>",
+                  },
+                ],
+                seq: -1,
                 env: {},
               };
             }
           }
           result.timers.run = performance.now() - startRunTime; // stop timer
-          switch (exeOutput.result.tag) {
-            case "value":
-              result.output.push({
-                name: "0",
-                offset: 0,
-                value: isArgValueType(exeOutput.result.value)
-                  ? exeOutput.result.value
-                  : undefined,
-                origin: { type: "put" },
-              });
-              break;
-            case "error":
-              result.exception = true;
-              result.exceptionMessage = exeOutput.result.message;
-              result.exceptionDisplay = `(${exeOutput.result.name}) ${exeOutput.result.message}`;
-              result.stack = exeOutput.result.stack;
-              break;
-            case "timeout":
-              result.timeout = true;
-              break;
-            case "skip":
-              result.skipped = true;
-              result.skipReason = exeOutput.result.message;
-              break;
+          const primaryExe = exeOutput.results[0];
+          if (primaryExe) {
+            switch (primaryExe.tag) {
+              case "value":
+                result.output.push({
+                  name: "0",
+                  offset: 0,
+                  value: isArgValueType(primaryExe.value)
+                    ? primaryExe.value
+                    : undefined,
+                  origin: { type: "put" },
+                });
+                break;
+              case "error":
+                result.exception = true;
+                result.exceptionMessage = primaryExe.message;
+                result.exceptionDisplay = `(${primaryExe.name}) ${primaryExe.message}`;
+                result.stack = primaryExe.stack;
+                break;
+              case "timeout":
+                result.timeout = true;
+                break;
+              case "skip":
+                result.skipped = true;
+                result.skipReason = primaryExe.message;
+                break;
+            }
           }
 
           this._results.stats.timers.put += result.timers.run;

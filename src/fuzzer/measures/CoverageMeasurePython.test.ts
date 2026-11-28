@@ -1,11 +1,10 @@
 import { FileCoverageData, createCoverageMap } from "istanbul-lib-coverage";
 import { CoverageMeasure } from "./CoverageMeasure";
+import { PythonRunner } from "../runners/python/PythonRunner";
 import {
-  CoverageInfo,
   PythonCoverageMapData,
-  FullCoverage,
-  PythonRunner,
-} from "../runners/python/PythonRunner";
+  PythonFileCoverageData,
+} from "../runners/Types";
 import { InputAndSource } from "../Types";
 import { normalizePathForKey } from "../Util";
 import {
@@ -44,17 +43,20 @@ import {
  * A `PythonRunner` that reports fixed in-memory coverage.
  */
 class StubPythonRunner extends PythonRunner {
-  public constructor(coverage: FullCoverage) {
+  public constructor(coverage: PythonCoverageMapData) {
     super(Object.keys(coverage)[0] ?? pyFileName, "anyFn");
     this._coverageInfo = coverage;
   }
 } // class: StubPythonRunner
 
 class TestPythonCoverageMeasure extends CoverageMeasure {
-  private readonly _info: CoverageInfo;
-  private readonly _coverage: FullCoverage;
+  private readonly _info: PythonFileCoverageData;
+  private readonly _coverage: PythonCoverageMapData;
 
-  public constructor(staticInfo: CoverageInfo, file: string = pyFileName) {
+  public constructor(
+    staticInfo: PythonFileCoverageData,
+    file: string = pyFileName
+  ) {
     super();
     this._requireRunner = true;
     this._info = { ...staticInfo };
@@ -70,11 +72,11 @@ class TestPythonCoverageMeasure extends CoverageMeasure {
     this.recordHits(this._coverage);
   }
 
-  public get info(): CoverageInfo {
+  public get info(): PythonFileCoverageData {
     return this._info;
   }
 
-  public toCoverageMapData(coverage: FullCoverage) {
+  public toCoverageMapData(coverage: PythonCoverageMapData) {
     return this._toCoverageMapData(coverage);
   }
 } // class: TestPythonCoverageMeasure
@@ -95,7 +97,10 @@ describe("fuzzer/measures/CoverageMeasure: Python", () => {
     return measure.measure(input, anyResult);
   }; // fn: runTest
 
-  const coverageOfCall = (staticInfo: CoverageInfo, run: PythonRun) =>
+  const coverageOfCall = (
+    staticInfo: PythonFileCoverageData,
+    run: PythonRun
+  ) =>
     runTest(
       new TestPythonCoverageMeasure(staticInfo),
       run,
@@ -174,7 +179,7 @@ describe("fuzzer/measures/CoverageMeasure: Python", () => {
   // Translation: coverage.py lines/arcs into Istanbul shape
   // ------------------------------------------------------------------
   describe("_toCoverageMapData", () => {
-    const dataFor = (info: CoverageInfo): FileCoverageData =>
+    const dataFor = (info: PythonFileCoverageData): FileCoverageData =>
       new TestPythonCoverageMeasure(info).toCoverageMapData({
         [pyFileName]: info,
       })[pyFileName];
