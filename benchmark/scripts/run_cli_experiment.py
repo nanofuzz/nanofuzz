@@ -1,28 +1,34 @@
 #!/usr/bin/env python3
-import pandas as pd
-import msgpack
+import os
+import sys
+
+# Auto-re-execute using venv python if current interpreter lacks msgpack/pandas
+for _cand in [
+    os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "target", ".venv", "bin", "python")),
+    os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".venv", "bin", "python")),
+    os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "worktrees", "w1", ".venv", "bin", "python")),
+]:
+    if os.path.exists(_cand) and os.path.realpath(sys.executable) != os.path.realpath(_cand):
+        try:
+            import msgpack  # noqa: F401
+            import pandas  # noqa: F401
+            break
+        except ImportError:
+            os.execv(_cand, [_cand] + sys.argv)
+
 import argparse
 import datetime
 import json
 import multiprocessing
-import os
 import random
 import shutil
 import signal
 import subprocess
-import sys
 import time
 from typing import Any
 
-# Auto-re-execute using target .venv python if target venv is present and current interpreter lacks msgpack/pandas
-_VENV_PY = os.path.abspath(os.path.join(os.path.dirname(
-    __file__), "..", "target", ".venv", "bin", "python"))
-if os.path.exists(_VENV_PY) and os.path.realpath(sys.executable) != os.path.realpath(_VENV_PY):
-    try:
-        import msgpack
-        import pandas  # noqa: F401
-    except ImportError:
-        os.execv(_VENV_PY, [_VENV_PY] + sys.argv)
+import msgpack
+import pandas as pd
 
 
 """
