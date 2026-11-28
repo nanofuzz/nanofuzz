@@ -11,12 +11,13 @@ import glob
 
 # Ensure target venv site-packages are in sys.path
 _script_dir = os.path.dirname(os.path.abspath(__file__))
+_py_ver = f"python{sys.version_info.major}.{sys.version_info.minor}"
 for _cand in [
     os.path.abspath(os.path.join(_script_dir, "..", "target", ".venv")),
     os.path.abspath(os.path.join(_script_dir, "..", "worktrees", "w1", ".venv")),
 ]:
     if os.path.exists(_cand):
-        for _sp in glob.glob(os.path.join(_cand, "lib", "python*", "site-packages")):
+        for _sp in glob.glob(os.path.join(_cand, "lib", _py_ver, "site-packages")):
             if _sp not in sys.path:
                 sys.path.insert(0, _sp)
 
