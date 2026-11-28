@@ -169,9 +169,6 @@ fn main() -> io::Result<()> {
                     /* __NANOFUZZ_FN_CALL__ */
                 };
                 values.push(json_val);
-                if input.repetitions > 1 && values.last().map(|v| v.is_null()).unwrap_or(false) {
-                    break;
-                }
             }
             Ok(values)
         }));
@@ -181,15 +178,11 @@ fn main() -> io::Result<()> {
                 let mut results = Vec::new();
                 if input.repetitions > 1 {
                     for v in values {
-                        let is_end = v.is_null();
                         results.push(RunnerResultItemPayload::Value {
                             value: v,
                             validators: None,
                             coverage_data: None,
                         });
-                        if is_end {
-                            break;
-                        }
                     }
                 } else {
                     /* __NANOFUZZ_VALIDATORS__ */

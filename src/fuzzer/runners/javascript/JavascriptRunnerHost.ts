@@ -241,9 +241,6 @@ async function main() {
             value: exec.value !== undefined ? sanitizeOutput(exec.value) : undefined,
             validators: {},
           });
-          if (exec.value === undefined || exec.value === null) {
-            break;
-          }
         }
       }
     } else {

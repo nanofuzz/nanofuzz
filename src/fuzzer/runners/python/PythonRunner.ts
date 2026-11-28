@@ -150,6 +150,7 @@ export class PythonRunner extends AbstractRunner {
       const rawResBuf = await host.getResponseBuffer(hostTimeout);
       const hostPayload = JSONN.unpack<unknown>(rawResBuf);
 
+      const expectedCount = repetitions ?? 1;
       let items: RunnerResultItem[] = [];
       let hostSeq = thisSeq;
       if (hostPayload && typeof hostPayload === "object") {
@@ -158,9 +159,14 @@ export class PythonRunner extends AbstractRunner {
         }
         if ("results" in hostPayload && Array.isArray(hostPayload.results)) {
           items = hostPayload.results.filter(isRunnerResultItem);
-        } else if (isRunnerResultItem(hostPayload)) {
-          items = [hostPayload];
         }
+      }
+
+      if (items.length !== expectedCount) {
+        this.killHost();
+        throw new Error(
+          `Runner "${this.name}" IPC contract violation: requested ${expectedCount} repetition(s) but host returned ${items.length}`
+        );
       }
 
       const result: RunnerResult = {

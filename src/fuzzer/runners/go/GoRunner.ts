@@ -203,19 +203,17 @@ export class GoRunner extends AbstractRunner {
         }
       }
 
+      const expectedCount = repetitions ?? 1;
       let results: RunnerResultItem[] = [];
       if (Array.isArray(hostPayload.results)) {
         results = hostPayload.results.filter(isRunnerResultItem);
       }
 
-      if (results.length === 0) {
-        results = [
-          {
-            tag: "error",
-            name: "UnknownGoRunnerError",
-            message: "Invalid response from host",
-          },
-        ];
+      if (results.length !== expectedCount) {
+        this.killHost();
+        throw new Error(
+          `Runner "${this.name}" IPC contract violation: requested ${expectedCount} repetition(s) but host returned ${results.length}`
+        );
       }
 
       return {

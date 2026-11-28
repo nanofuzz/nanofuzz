@@ -251,11 +251,7 @@ export class UserInputGenerator extends AbstractInputGenerator {
 
     runnerPromise
       .then((res: RunnerResult) => {
-        const results = res.results ?? [];
-        if (results.length === 0) {
-          this._exhausted = true;
-          return;
-        }
+        const results = res.results;
 
         let validCount = 0;
         let voluntaryExhaustion = false;

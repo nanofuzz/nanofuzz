@@ -141,9 +141,6 @@ export class PropertyOracle {
       if (result.status === "fulfilled") {
         const vOut = result.value;
         const primary = vOut.results[0];
-        if (!primary) {
-          return new Error(`property validator "${runner.name}" returned empty results`);
-        }
         switch (primary.tag) {
           case "error": {
             const err = new Error(

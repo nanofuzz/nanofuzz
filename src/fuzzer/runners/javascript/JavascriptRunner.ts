@@ -202,6 +202,7 @@ export class JavascriptRunner extends AbstractRunner {
         this._coverageCallback?.(parsedRes.coverageData);
       }
 
+      const expectedCount = repetitions ?? 1;
       let results: RunnerResultItem[] = [];
       let seq = thisSeq;
       if (parsedRes && typeof parsedRes === "object") {
@@ -210,18 +211,13 @@ export class JavascriptRunner extends AbstractRunner {
         }
         if ("results" in parsedRes && Array.isArray(parsedRes.results)) {
           results = parsedRes.results.filter(isRunnerResultItem);
-        } else if (isRunnerResultItem(parsedRes)) {
-          results = [parsedRes];
         }
       }
-      if (results.length === 0) {
-        results = [
-          {
-            tag: "error",
-            name: "UnknownJavascriptRunnerError",
-            message: "Invalid response from host",
-          },
-        ];
+      if (results.length !== expectedCount) {
+        this.killHost();
+        throw new Error(
+          `Runner "${this.name}" IPC contract violation: requested ${expectedCount} repetition(s) but host returned ${results.length}`
+        );
       }
 
       const result: RunnerResult = {

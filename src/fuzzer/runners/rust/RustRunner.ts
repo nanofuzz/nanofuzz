@@ -181,6 +181,7 @@ export class RustRunner extends AbstractRunner {
         }
       }
 
+      const expectedCount = repetitions ?? 1;
       const seq =
         typeof hostPayload.seq === "number" ? hostPayload.seq : thisSeq;
       let results: RunnerResultItem[] = [];
@@ -188,14 +189,11 @@ export class RustRunner extends AbstractRunner {
         results = hostPayload.results.filter(isRunnerResultItem);
       }
 
-      if (results.length === 0) {
-        results = [
-          {
-            tag: "error",
-            name: "UnknownRustRunnerError",
-            message: "Invalid response from host",
-          },
-        ];
+      if (results.length !== expectedCount) {
+        this.killHost();
+        throw new Error(
+          `Runner "${this.name}" IPC contract violation: requested ${expectedCount} repetition(s) but host returned ${results.length}`
+        );
       }
 
       return {

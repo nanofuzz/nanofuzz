@@ -988,10 +988,7 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
                     with redirect_stdout(io.StringIO()) as f:
                         with isolate_put_environment():
                             single_val = call_with_timeout(fn, args, timeout_ms)
-                            if single_val is None:
-                                results.append({"tag": "value", "value": None, "validators": {}})
-                                break
-                            r_val = sanitize_output(single_val)
+                            r_val = sanitize_output(single_val) if single_val is not None else None
                 except PutTimeoutException:
                     r_timeout = True
                 except Exception as e:

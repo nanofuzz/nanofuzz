@@ -376,9 +376,6 @@ public class JavaRunnerHost {
           item.put("tag", "value");
           item.put("value", val);
           results.add(item);
-          if (val == null) {
-            break;
-          }
         } catch (TimeoutException te) {
           item.put("tag", "timeout");
           results.add(item);

@@ -172,6 +172,7 @@ export class OxcamlRunner extends AbstractRunner {
         }
       }
 
+      const expectedCount = repetitions ?? 1;
       const seq =
         typeof hostPayload.seq === "number" ? hostPayload.seq : thisSeq;
 
@@ -189,14 +190,11 @@ export class OxcamlRunner extends AbstractRunner {
         });
       }
 
-      if (results.length === 0) {
-        results = [
-          {
-            tag: "error",
-            name: "UnknownOxcamlRunnerError",
-            message: "Invalid response from host",
-          },
-        ];
+      if (results.length !== expectedCount) {
+        this.killHost();
+        throw new Error(
+          `Runner "${this.name}" IPC contract violation: requested ${expectedCount} repetition(s) but host returned ${results.length}`
+        );
       }
 
       return {

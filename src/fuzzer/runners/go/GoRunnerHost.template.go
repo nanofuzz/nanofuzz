@@ -167,9 +167,6 @@ func main() {
 						Tag:   "value",
 						Value: singleOut,
 					})
-					if singleOut == nil {
-						break
-					}
 				}
 			} else {
 				var singleOut any
